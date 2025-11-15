@@ -1,0 +1,14 @@
+This is makeindex, version 2.17 [TeX Live 2024] (kpathsea + Thai support).
+Scanning style file /nix/store/5ncc9528d6ixnismwbvqmldwxjrw10rb-texlive-2024-env-texmfdist/makeindex/nomencl/nomencl.ist........
+** Input style error (file = /nix/store/5ncc9528d6ixnismwbvqmldwxjrw10rb-texlive-2024-env-texmfdist/makeindex/nomencl/nomencl.ist, line = 36):
+   -- Unknown specifier lethead_prefix.
+** Input style error (file = /nix/store/5ncc9528d6ixnismwbvqmldwxjrw10rb-texlive-2024-env-texmfdist/makeindex/nomencl/nomencl.ist, line = 37):
+   -- Unknown specifier lethead_suffix.
+** Input style error (file = /nix/store/5ncc9528d6ixnismwbvqmldwxjrw10rb-texlive-2024-env-texmfdist/makeindex/nomencl/nomencl.ist, line = 38):
+   -- Unknown specifier lethead_flag.
+....done (12 attributes redefined, 3 ignored).
+Scanning input file plutus-core-specification.nlo....done (100 entries accepted, 0 rejected).
+Sorting entries....done (656 comparisons).
+Generating output file plutus-core-specification.nls....done (113 lines written, 0 warnings).
+Output written in plutus-core-specification.nls.
+Transcript written in plutus-core-specification.ilg.

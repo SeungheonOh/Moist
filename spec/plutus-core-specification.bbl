@@ -1,0 +1,274 @@
+\begin{thebibliography}{10}
+
+\bibitem{CIP-0035}
+{Cardano Improvement Proposal 0035 (CIP 0035) -- Changes to Plutus Core}.
+\newblock \url{https://cips.cardano.org/cip/CIP-0035/}.
+
+\bibitem{CIP-0042}
+{Cardano Improvement Proposal 0042 (CIP 0042) -- New Plutus Builtin
+  serialiseData}.
+\newblock \url{https://cips.cardano.org/cip/CIP-0042/}.
+
+\bibitem{CIP-0049}
+{Cardano Improvement Proposal 0049 (CIP 0049) -- ECDSA and Schnorr signatures
+  in Plutus Core}.
+\newblock \url{https://cips.cardano.org/cip/CIP-0049/}.
+
+\bibitem{CIP-0101}
+{Cardano Improvement Proposal 0101 (CIP 0101) -- Integration of
+  \texttt{keccak256} into Plutus}.
+\newblock \url{https://cips.cardano.org/cip/CIP-0101/}.
+
+\bibitem{CIP-0381}
+{Cardano Improvement Proposal 0381 (CIP 0381) -- Plutus support for Pairings
+  over BLS12\_381}.
+\newblock \url{https://cips.cardano.org/cips/cip0381/}.
+
+\bibitem{CIP-0121}
+{Draft Cardano Improvement Proposal 0121 (CIP 0121) -- Integer-Bytestring
+  conversions}.
+\newblock
+  \url{https://github.com/cardano-foundation/CIPs/tree/master/CIP-0121}.
+
+\bibitem{CIP-0122}
+{Draft Cardano Improvement Proposal 0122 (CIP 0122) -- Logical operations over
+  BuiltinByteString}.
+\newblock
+  \url{https://github.com/cardano-foundation/CIPs/tree/master/CIP-0122}.
+
+\bibitem{CIP-0123}
+{Draft Cardano Improvement Proposal 0123 (CIP 0123) -- Bitwise operations over
+  BuiltinByteString}.
+\newblock
+  \url{https://github.com/cardano-foundation/CIPs/tree/master/CIP-0123}.
+
+\bibitem{ANSI-X9.62}
+{ANSI}.
+\newblock {X9.62: Public Key Cryptography for the Financial Services Industry:
+  the Elliptic Curve Digital Signature Algorithm (ECDSA)}, 2005.
+
+\bibitem{ANSI-x9.142}
+{ANSI}.
+\newblock {X9.142: Public Key Cryptography for the Financial Services Industry:
+  the Elliptic Curve Digital Signature Algorithm (ECDSA)}, 2020.
+
+\bibitem{flat}
+Pasqualino~`Titto' Assini.
+\newblock Flat format specification.
+\newblock \url{http://quid2.org/docs/Flat.pdf}.
+
+\bibitem{Barendregt}
+Hendrik~Pieter Barendregt.
+\newblock {\em The Lambda Calculus - its Syntax and Semantics}, volume 103 of
+  {\em Studies in Logic and the Foundations of Mathematics}.
+\newblock North-Holland, 1985.
+
+\bibitem{ches-2011-24091}
+Daniel~J. Bernstein, Niels Duif, Tanja Lange, Peter Schwabe, and Bo-Yin Yang.
+\newblock High-speed high-security signatures.
+\newblock In {\em CHES}, volume 6917 of {\em Lecture Notes in Computer
+  Science}, pages 124--142. Springer, 2011.
+
+\bibitem{KeccakRef3}
+G.~Bertoni, J.~Daemen, M.~Peeters, and G.~Van Assche.
+\newblock {The Keccak Reference}.
+\newblock Submission to NIST (Round 3), January 2011.
+
+\bibitem{Bitcoin-ECDSA}
+{Bitcoin Wiki}.
+\newblock {Elliptic Curve Digital Signature Algorithm}, 2022.
+
+\bibitem{CBOR-notable-tags}
+Carsten Bormann.
+\newblock {Notable CBOR Tags}.
+\newblock
+  \url{https://www.ietf.org/archive/id/draft-bormann-cbor-notable-tags-06.html}.
+
+\bibitem{rfc8949-CBOR}
+Carsten Bormann and Paul~E. Hoffman.
+\newblock {RFC 8949: Concise Binary Object Representation (CBOR)}.
+\newblock \url{https://datatracker.ietf.org/doc/html/rfc8949}, December 2020.
+
+\bibitem{ripemd-2}
+Antoon Bosselaers.
+\newblock {The hash function RIPEMD-160}.
+\newblock \url{https://homes.esat.kuleuven.be/~bosselae/ripemd160.html}, 2012.
+
+\bibitem{BLS12-381}
+Sean Bowe.
+\newblock {BLS12-381: New zk-SNARK Elliptic Curve Construction}.
+\newblock \url{https://electriccoin.co/blog/new-snark-curve/}, March 2017.
+
+\bibitem{SECP256}
+{Certicom Research}.
+\newblock {Standards for Efficient Cryptography 2 (SEC 2)}.
+\newblock \url{https://www.secg.org/SEC2-Ver-2.0.pdf}, 2010.
+
+\bibitem{Costello-pairings}
+Craig Costello.
+\newblock Pairings for beginners.
+\newblock
+  \url{https://static1.squarespace.com/static/5fdbb09f31d71c1227082339/t/5ff394720493bd28278889c6/1609798774687/PairingsForBeginners.pdf}.
+
+\bibitem{CBOR-alternatives}
+Duncan Coutts, Michael {Peyton Jones}, and Carsten Bormann.
+\newblock {CBOR Tags for Discriminated Unions}.
+\newblock \url{https://github.com/cabo/cbor-discriminated-unions/}.
+
+\bibitem{FIPS-SHA2}
+Quynh Dang.
+\newblock {Secure Hash Standard (SHS)}.
+\newblock {FIPS PUB 180-4,
+  \url{https://www.nist.gov/publications/secure-hash-standard}}, March 2012.
+
+\bibitem{deBruijn}
+N.G {de Bruijn}.
+\newblock Lambda calculus notation with nameless dummies, a tool for automatic
+  formula manipulation, with application to the {Church-Rosser} theorem.
+\newblock {\em Indagationes Mathematicae (Proceedings)}, 75(5):381--392, 1972.
+
+\bibitem{ripemd-1}
+Hans Dobbertin, Antoon Bosselaers, and Bart Preneel.
+\newblock {RIPEMD-160}: A strengthened version of {RIPEMD}.
+\newblock In {\em Fast Software Encryption, Third International Workshop,
+  Cambridge, UK, February 21-23, 1996, Proceedings}, volume 1039 of {\em
+  Lecture Notes in Computer Science}, pages 71--82. Springer, 1996.
+
+\bibitem{FIPS-SHA3}
+Morris Dworkin.
+\newblock {SHA-3 Standard: Permutation-Based Hash and Extendable-Output
+  Functions}.
+\newblock FIPS PUB 202,
+  \url{https://www.nist.gov/publications/sha-3-standard-permutation-based-hash-and-extendable-output-functions},
+  August 2015.
+
+\bibitem{IETF-hash-to-curve}
+A.~Faz-Hernandez, S.~Scott, N.~Sullivan, and R.S. Wahby.
+\newblock {Hashing to Elliptic Curves (Version 16)}.
+\newblock
+  \url{https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-hash-to-curve},
+  June 2022.
+
+\bibitem{Felleisen-pllc}
+Matthias Felleisen.
+\newblock Programming languages and lambda calculi, 2007.
+
+\bibitem{Felleisen-Semantics-Engineering}
+Matthias Felleisen, Robert~Bruce Findler, and Matthew Flatt.
+\newblock {\em Semantics Engineering with PLT Redex.}
+\newblock MIT Press, 2009.
+
+\bibitem{Felleisen-CK-CEK}
+Matthias Felleisen and Daniel~P. Friedman.
+\newblock {Control operators, the SECD-machine, and the lambda-calculus}.
+\newblock In {\em 3rd Working Conference on the Formal Description of
+  Programming Concepts}, August 1986.
+
+\bibitem{Felleisen-Hieb}
+Matthias Felleisen and Robert Hieb.
+\newblock The revised report on the syntactic theories of sequential control
+  and state.
+\newblock {\em Theor. Comput. Sci.}, 103(2):235--271, September 1992.
+
+\bibitem{Harper:PFPL}
+Robert Harper.
+\newblock {\em Practical Foundations for Programming Languages}.
+\newblock Cambridge University Press, New York, NY, USA, 2012.
+
+\bibitem{Johnson-Menezes-Vanstone-ECDSA}
+Don Johnson, Alfred Menezes, and Scott~A. Vanstone.
+\newblock The elliptic curve digital signature algorithm {(ECDSA)}.
+\newblock {\em Int. J. Inf. Sec.}, 1(1):36--63, 2001.
+
+\bibitem{rfc8032-EdDSA}
+Simon Josefsson and Ilari Liusvaara.
+\newblock {RFC 8032: Edwards-Curve Digital Signature Algorithm (EdDSA)}.
+\newblock \url{https://datatracker.ietf.org/doc/html/rfc8032}, January 2017.
+
+\bibitem{Koblitz-GTM}
+Neal Koblitz.
+\newblock {\em {A Course in Number Theory and Cryptography}}, volume 114 of
+  {\em Graduate Texts in Mathematics}.
+\newblock Springer-Verlag, 2nd edition, 1994.
+
+\bibitem{BIP-340}
+Johnson Lau, Jonas Nick, and Tim Ruffing.
+\newblock {Bitcoin Improvement Proposal 340: Schnorr Signatures for secp256k1}.
+\newblock \url{https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki},
+  2020.
+
+\bibitem{BIP-146}
+Johnson Lau and Pieter Wuille.
+\newblock {Bitcoin Improvement Proposal 146: Dealing with signature encoding
+  malleability}.
+\newblock \url{https://github.com/bitcoin/bips/blob/master/bip-0146.mediawiki},
+  2016.
+
+\bibitem{BLST-library}
+Supranational LLC.
+\newblock \texttt{blst library}.
+\newblock \url{https://github.com/supranational/blst}.
+
+\bibitem{Plotkin-cbn-cbv}
+Gordon~D. Plotkin.
+\newblock Call-by-name, call-by-value and the lambda-calculus.
+\newblock {\em Theor. Comput. Sci.}, 1(2):125--159, 1975.
+
+\bibitem{Reynolds-parametric}
+John~C. Reynolds.
+\newblock Types, abstraction and parametric polymorphism.
+\newblock In R.~E.~A. Mason, editor, {\em Information Processing 83,
+  Proceedings of the {IFIP} 9th World Computer Congress, Paris, France,
+  September 19-23, 1983}, pages 513--523. North-Holland/IFIP, 1983.
+
+\bibitem{IETF-Blake2}
+Markku-Juhani~O. Saarinen and Jean-Philippe Aumasson.
+\newblock {The BLAKE2 Cryptographic Hash and Message Authentication Code
+  (MAC)}.
+\newblock RFC 7693, \url{https://datatracker.ietf.org/doc/html/rfc7693},
+  November 2015.
+
+\bibitem{IETF-pairing-friendly-curves}
+Y.~Sakemi, T.~Kobayashi, T.~Saito, and R.~Wahby.
+\newblock {Pairing-Friendly Curves (Version 11)}.
+\newblock
+  \url{https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-pairing-friendly-curves-11},
+  November 2022.
+
+\bibitem{Schnorr89}
+Claus-Peter Schnorr.
+\newblock Efficient identification and signatures for smart cards.
+\newblock In Gilles Brassard, editor, {\em CRYPTO}, volume 435 of {\em Lecture
+  Notes in Computer Science}, pages 239--252. Springer, 1989.
+
+\bibitem{Silverman-Arithmetic-EC}
+Joseph~H Silverman.
+\newblock {\em {The Arithmetic of Elliptic Curves}}, volume 106 of {\em
+  Graduate Texts in Mathematics}.
+\newblock Springer-Verlag, 2009.
+
+\bibitem{Unicode-standard}
+{The Unicode Consortium}.
+\newblock {The Unicode Standard}.
+\newblock \url{https://www.unicode.org/versions/latest/}.
+
+\bibitem{Vercauteren}
+F.~Vercauteren.
+\newblock Optimal pairings.
+\newblock Cryptology ePrint Archive, Paper 2008/096, 2008.
+\newblock \url{https://eprint.iacr.org/2008/096}.
+
+\bibitem{Wadler-theorems-for-free}
+Philip Wadler.
+\newblock Theorems for free!
+\newblock In {\em FPCA '89: Proceedings of the fourth international conference
+  on Functional programming languages and computer architecture}, pages
+  347--359, New York, NY, USA, 1989. ACM.
+
+\bibitem{Zcash-serialisation}
+Zcash.
+\newblock Zcash {BLS12-381} serialization format.
+\newblock
+  \url{https://github.com/zcash/librustzcash/blob/6e0364cd42a2b3d2b958a54771ef51a8db79dd29/pairing/src/bls12_381/README.md#serialization}.
+
+\end{thebibliography}

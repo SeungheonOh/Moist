@@ -1,0 +1,126 @@
+\contentsline {chapter}{Contents}{1}{chapter*.1}%
+\contentsline {chapter}{\numberline {1}Preliminaries}{4}{chapter.1}%
+\contentsline {section}{\numberline {1.1}Introduction}{4}{section.1.1}%
+\contentsline {section}{\numberline {1.2}Some basic notation}{4}{section.1.2}%
+\contentsline {subsection}{\numberline {1.2.1}Sets}{4}{subsection.1.2.1}%
+\contentsline {subsection}{\numberline {1.2.2}Lists}{5}{subsection.1.2.2}%
+\contentsline {subsection}{\numberline {1.2.3}Bytestrings and bitstrings}{5}{subsection.1.2.3}%
+\contentsline {subsection}{\numberline {1.2.4}Miscellaneous notation}{6}{subsection.1.2.4}%
+\contentsline {chapter}{\numberline {2}Untyped Plutus Core}{7}{chapter.2}%
+\contentsline {section}{\numberline {2.1}The grammar of Plutus Core}{7}{section.2.1}%
+\contentsline {subsection}{\numberline {2.1.1}Lexical grammar}{7}{subsection.2.1.1}%
+\contentsline {subsection}{\numberline {2.1.2}Grammar}{8}{subsection.2.1.2}%
+\contentsline {subsection}{\numberline {2.1.3}Notes}{8}{subsection.2.1.3}%
+\contentsline {paragraph}{Version numbers.}{8}{section*.2}%
+\contentsline {paragraph}{Scoping.}{8}{section*.3}%
+\contentsline {paragraph}{Iterated applications.}{8}{section*.4}%
+\contentsline {paragraph}{Constructors and case analysis.}{8}{section*.5}%
+\contentsline {paragraph}{Constructor tags.}{9}{section*.6}%
+\contentsline {paragraph}{Built-in types and functions.}{9}{section*.7}%
+\contentsline {paragraph}{De Bruijn indices.}{9}{section*.8}%
+\contentsline {paragraph}{Lists in constructor and case terms.}{9}{section*.9}%
+\contentsline {section}{\numberline {2.2}Interpretation of built-in types and functions}{9}{section.2.2}%
+\contentsline {subsection}{\numberline {2.2.1}Built-in types}{9}{subsection.2.2.1}%
+\contentsline {subsubsection}{\numberline {2.2.1.1}Type variables}{10}{subsubsection.2.2.1.1}%
+\contentsline {subsubsection}{\numberline {2.2.1.2}Polymorphic types}{11}{subsubsection.2.2.1.2}%
+\contentsline {subsubsection}{\numberline {2.2.1.3}Type assignments}{11}{subsubsection.2.2.1.3}%
+\contentsline {paragraph}{Constructing type assignments.}{12}{section*.10}%
+\contentsline {subsection}{\numberline {2.2.2}Built-in functions}{12}{subsection.2.2.2}%
+\contentsline {subsubsection}{\numberline {2.2.2.1}Inputs to built-in functions}{12}{subsubsection.2.2.2.1}%
+\contentsline {subsubsection}{\numberline {2.2.2.2}Outputs of built-in functions}{13}{subsubsection.2.2.2.2}%
+\contentsline {subsubsection}{\numberline {2.2.2.3}Signatures and denotations of built-in functions}{13}{subsubsection.2.2.2.3}%
+\contentsline {paragraph}{Signatures.}{13}{section*.11}%
+\contentsline {paragraph}{Commentary.}{14}{section*.12}%
+\contentsline {subsubsection}{\numberline {2.2.2.4}Denotations of built-in functions}{15}{subsubsection.2.2.2.4}%
+\contentsline {subsubsection}{\numberline {2.2.2.5}Results of built-in functions.}{15}{subsubsection.2.2.2.5}%
+\contentsline {subsubsection}{\numberline {2.2.2.6}Parametricity for fully-polymorphic arguments}{16}{subsubsection.2.2.2.6}%
+\contentsline {subsection}{\numberline {2.2.3}Evaluation of built-in functions}{16}{subsection.2.2.3}%
+\contentsline {subsubsection}{\numberline {2.2.3.1}Compatibility of inputs and signature entries}{16}{subsubsection.2.2.3.1}%
+\contentsline {subsubsection}{\numberline {2.2.3.2}Evaluation}{16}{subsubsection.2.2.3.2}%
+\contentsline {paragraph}{Notes.}{17}{section*.13}%
+\contentsline {section}{\numberline {2.3}Term reduction}{17}{section.2.3}%
+\contentsline {subsection}{\numberline {2.3.1}Values in Plutus Core}{17}{subsection.2.3.1}%
+\contentsline {paragraph}{Well-formed partial applications.}{18}{section*.14}%
+\contentsline {paragraph}{More notation.}{18}{section*.15}%
+\contentsline {subsection}{\numberline {2.3.2}Term reduction}{19}{subsection.2.3.2}%
+\contentsline {section}{\numberline {2.4}The CEK machine}{21}{section.2.4}%
+\contentsline {subsection}{\numberline {2.4.1}Converting CEK evaluation results into Plutus Core terms}{24}{subsection.2.4.1}%
+\contentsline {section}{\numberline {2.5}Cost accounting for Untyped Plutus Core}{24}{section.2.5}%
+\contentsline {chapter}{\numberline {3}Typed Plutus Core}{25}{chapter.3}%
+\contentsline {chapter}{\numberline {4}Plutus Core on Cardano}{26}{chapter.4}%
+\contentsline {section}{\numberline {4.1}Protocol versions}{26}{section.4.1}%
+\contentsline {section}{\numberline {4.2}Ledger languages}{26}{section.4.2}%
+\contentsline {section}{\numberline {4.3}Built-in types and functions}{28}{section.4.3}%
+\contentsline {paragraph}{Built-in batches.}{28}{section*.26}%
+\contentsline {paragraph}{Built-in semantics variants.}{28}{section*.27}%
+\contentsline {paragraph}{Concrete syntax for built-in types.}{28}{section*.29}%
+\contentsline {paragraph}{Concrete syntax for built-in constants.}{29}{section*.30}%
+\contentsline {subsection}{\numberline {4.3.1}Batch 1}{29}{subsection.4.3.1}%
+\contentsline {subsubsection}{\numberline {4.3.1.1}Built-in types and type operators}{29}{subsubsection.4.3.1.1}%
+\contentsline {paragraph}{Concrete syntax for strings.}{29}{section*.33}%
+\contentsline {paragraph}{Concrete syntax for lists and pairs.}{29}{section*.34}%
+\contentsline {paragraph}{The $\ensuremath {\mathtt {data}}$ type.}{30}{section*.35}%
+\contentsline {paragraph}{Note: \texttt {Constr} tag values.}{30}{section*.36}%
+\contentsline {paragraph}{Concrete syntax for $\ensuremath {\mathtt {data}}$.}{31}{section*.37}%
+\contentsline {paragraph}{Note.}{31}{section*.38}%
+\contentsline {subsubsection}{\numberline {4.3.1.2}Built-in functions}{31}{subsubsection.4.3.1.2}%
+\contentsline {subsection}{\numberline {4.3.2}Batch 2}{36}{subsection.4.3.2}%
+\contentsline {subsubsection}{\numberline {4.3.2.1}Built-in functions}{36}{subsubsection.4.3.2.1}%
+\contentsline {subsection}{\numberline {4.3.3}Batch 3}{36}{subsection.4.3.3}%
+\contentsline {subsubsection}{\numberline {4.3.3.1}Built-in functions}{36}{subsubsection.4.3.3.1}%
+\contentsline {subsection}{\numberline {4.3.4}Batch 4}{37}{subsection.4.3.4}%
+\contentsline {subsubsection}{\numberline {4.3.4.1}Miscellaneous built-in functions}{37}{subsubsection.4.3.4.1}%
+\contentsline {subsubsection}{\numberline {4.3.4.2}BLS12-381 built-in types}{39}{subsubsection.4.3.4.2}%
+\contentsline {paragraph}{The fields $\mathbb {F}_q$ and $\mathbb {F}_{q^2}$.}{40}{section*.41}%
+\contentsline {paragraph}{The groups $G_1$ and $G_2$.}{40}{section*.42}%
+\contentsline {paragraph}{The \texttt {bls12\_381\_MlResult} type.}{40}{section*.43}%
+\contentsline {subsubsection}{\numberline {4.3.4.3}BLS12-381 built-in functions}{41}{subsubsection.4.3.4.3}%
+\contentsline {paragraph}{Uncompression for $G_1$ elements.}{43}{section*.44}%
+\contentsline {paragraph}{Uncompression for $G_2$ elements.}{43}{section*.45}%
+\contentsline {subsection}{\numberline {4.3.5}Batch 5}{46}{subsection.4.3.5}%
+\contentsline {subsubsection}{\numberline {4.3.5.1}Built-in functions}{46}{subsubsection.4.3.5.1}%
+\contentsline {subsection}{\numberline {4.3.6}Batch 6}{49}{subsection.4.3.6}%
+\contentsline {subsubsection}{\numberline {4.3.6.1}Built-in type operators}{49}{subsubsection.4.3.6.1}%
+\contentsline {paragraph}{Concrete syntax for arrays.}{49}{section*.47}%
+\contentsline {subsubsection}{\numberline {4.3.6.2}Built-in functions}{49}{subsubsection.4.3.6.2}%
+\contentsline {chapter}{\numberline {A}Formally Verified Behaviours}{51}{appendix.1.A}%
+\contentsline {chapter}{\numberline {B}Serialising \texttt {data} Objects Using the CBOR Format}{52}{appendix.1.B}%
+\contentsline {section}{\numberline {B.1}Introduction}{52}{section.1.B.1}%
+\contentsline {section}{\numberline {B.2}Notation}{53}{section.1.B.2}%
+\contentsline {paragraph}{Encoders and decoders.}{53}{section*.48}%
+\contentsline {section}{\numberline {B.3}The CBOR format}{53}{section.1.B.3}%
+\contentsline {section}{\numberline {B.4}Encoding and decoding the heads of CBOR items}{53}{section.1.B.4}%
+\contentsline {paragraph}{Heads for indefinite-length items.}{54}{section*.49}%
+\contentsline {section}{\numberline {B.5}Encoding and decoding bytestrings}{55}{section.1.B.5}%
+\contentsline {section}{\numberline {B.6}Encoding and decoding integers}{56}{section.1.B.6}%
+\contentsline {section}{\numberline {B.7}Encoding and decoding \texttt {data}}{56}{section.1.B.7}%
+\contentsline {paragraph}{The encoder.}{56}{section*.50}%
+\contentsline {paragraph}{The decoder.}{57}{section*.51}%
+\contentsline {chapter}{\numberline {C}Serialising Plutus Core Terms and Programs Using the \texttt {flat} Format}{59}{appendix.1.C}%
+\contentsline {paragraph}{Note: \texttt {flat} versus CBOR.}{59}{section*.52}%
+\contentsline {section}{\numberline {C.1}Encoding and decoding}{59}{section.1.C.1}%
+\contentsline {subsection}{\numberline {C.1.1}Padding}{60}{subsection.1.C.1.1}%
+\contentsline {section}{\numberline {C.2}Basic \texttt {flat} encodings}{61}{section.1.C.2}%
+\contentsline {subsection}{\numberline {C.2.1}Fixed-width natural numbers}{61}{subsection.1.C.2.1}%
+\contentsline {subsection}{\numberline {C.2.2}Lists}{61}{subsection.1.C.2.2}%
+\contentsline {subsection}{\numberline {C.2.3}Arrays}{61}{subsection.1.C.2.3}%
+\contentsline {subsection}{\numberline {C.2.4}Natural numbers}{62}{subsection.1.C.2.4}%
+\contentsline {subsection}{\numberline {C.2.5}Integers}{62}{subsection.1.C.2.5}%
+\contentsline {subsection}{\numberline {C.2.6}Bytestrings}{63}{subsection.1.C.2.6}%
+\contentsline {subsection}{\numberline {C.2.7}Strings}{64}{subsection.1.C.2.7}%
+\contentsline {section}{\numberline {C.3}Encoding and decoding Plutus Core}{64}{section.1.C.3}%
+\contentsline {subsection}{\numberline {C.3.1}Programs}{64}{subsection.1.C.3.1}%
+\contentsline {subsection}{\numberline {C.3.2}Terms}{65}{subsection.1.C.3.2}%
+\contentsline {paragraph}{NOTE.}{66}{section*.54}%
+\contentsline {subsection}{\numberline {C.3.3}Built-in types}{66}{subsection.1.C.3.3}%
+\contentsline {subsection}{\numberline {C.3.4}Constants}{67}{subsection.1.C.3.4}%
+\contentsline {subsection}{\numberline {C.3.5}Built-in functions}{68}{subsection.1.C.3.5}%
+\contentsline {subsection}{\numberline {C.3.6}Variable names}{71}{subsection.1.C.3.6}%
+\contentsline {paragraph}{De Bruijn indices.}{71}{section*.62}%
+\contentsline {paragraph}{Other types of name.}{72}{section*.63}%
+\contentsline {section}{\numberline {C.4}Cardano-specific serialisation issues}{72}{section.1.C.4}%
+\contentsline {subsection}{\numberline {C.4.1}Scope checking}{72}{subsection.1.C.4.1}%
+\contentsline {subsection}{\numberline {C.4.2}CBOR wrapping}{72}{subsection.1.C.4.2}%
+\contentsline {section}{\numberline {C.5}Example}{72}{section.1.C.5}%
+\contentsline {chapter}{Bibliography}{74}{appendix*.65}%
+\contentsline {chapter}{\nonumberline Index of Notation}{77}{appendix*.66}%

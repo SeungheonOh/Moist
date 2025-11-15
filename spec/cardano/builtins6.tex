@@ -1,0 +1,162 @@
+% I tried resetting the note number from V1-builtins here, but that made
+% some hyperlinks wrong.  To get note numbers starting at one in each section, I
+% think we have to define a new counter every time.
+\newcounter{notenumberF}
+\renewcommand{\note}[1]{
+  \bigskip
+  \refstepcounter{notenumberF}
+  \noindent\textbf{Note \thenotenumberF. #1}
+}
+\newpage
+\subsection{Batch 6}
+\label{sec:default-builtins-6}
+This section describes some new types and functions which have not been released
+at the time of writing (July 2025), but are expected to be released at a later
+date.
+
+\subsubsection{Built-in type operators}
+\label{sec:built-in-type-operators-6}
+The sixth batch adds type operators defined in Table~\ref{table:built-in-type-operators-6}. 
+
+\begin{table}[H]
+  \centering
+    \begin{tabular}{|l|p{14mm}|l|l|}
+        \hline
+        Operator $\op$ & $\left|\op\right|$  & Denotation & Concrete Syntax\\
+        \hline
+        \texttt{array} 
+          & 1 
+          & $\denote{\arrayOf{t}} = \denote{t}^*$ 
+          & See below\\
+        \hline
+        \end{tabular}
+   \caption{Type operators, Batch 6}
+    \label{table:built-in-type-operators-6}
+\end{table}
+
+\paragraph{Concrete syntax for arrays.}
+An array of type $\texttt{array}(t)$ is written as a syntactic list
+\texttt{[$c_1, \ldots, c_n$]} where each $c_i$ lies in $\bitc_t$.
+Some valid constant expressions are thus:
+\begin{verbatim}
+   (con (array bool) [True, False, True])
+   (con (array integer) [])
+\end{verbatim}
+
+\subsubsection{Built-in functions}
+\label{sec:built-in-functions-6}
+The sixth batch of built-in types is defined in Table~\ref{table:built-in-type-operators-6}.
+Operations are defined in Table~\ref{table:built-in-functions-6}.
+
+\setlength{\LTleft}{-23mm}  % Shift the table left a bit to centre it on the page
+\renewcommand*{\arraystretch}{1.25}  %% Stretch the space between the rows by a factor of 25%
+\begin{longtable}[H]{|l|p{50mm}|p{58mm}|c|c|}
+    \hline
+    \text{Function} & \text{Signature} & \text{Denotation} & \text{Can} & \text{Note} \\
+    & & & fail? & \\
+    \hline
+    \endfirsthead
+    \hline
+    \text{Function} & \text{Type} & \text{Denotation} & \text{Can} & \text{Note}\\
+    & & & fail? & \\
+    \hline
+    \endhead
+    \hline
+    \caption{Built-in functions, Batch 6}
+    \endfoot
+    \caption[]{Built-in functions, Batch 6}
+    \label{table:built-in-functions-6}
+    \endlastfoot
+    \TT{expModInteger}        & $[\ty{integer}, \ty{integer}, \ty{integer}]$ \text{$\;\;\; \to \ty{integer}$}
+        & $\mathsf{expMod} $  & Yes & \ref{note:exp-mod-integer}\\
+    \TT{dropList}        & $[\forall a_\#, \ty{integer}, \listOf{a_\#}]$ \text{$\;\;\; \to \listOf{a_\#}$}
+        & $(k,[x_1,\ldots,x_n])$
+        \smallskip
+        \newline
+        \text{$\;\;\mapsto \left\{ \begin{array}{ll}
+            [x_1,\ldots, x_n]      &  \text{if $k \leq 0$} \\ \relax %
+            % Without \relax the [ at the start of the next line is regarded as an argument to \\
+            [x_{k+1}, \ldots, x_n]  & \text{if $1  \leq k \leq n-1$} \\ \relax
+            []                     &\text{if $k \geq n$}\\
+        \end{array}\right.$} &  & \\
+    \TT{lengthOfArray} 
+      & $[\forall a_\#, \arrayOf{a_\#}] \to \ty{integer}$ 
+      & $[] \mapsto 0$
+        \newline 
+        $[x_1,\ldots,x_n] \mapsto n\ (n \geq 1)$ 
+      & 
+      & \ref{note:array-semantics}\\
+    \TT{listToArray} 
+      & $[\forall a_\#, \listOf{a_\#}] \to \arrayOf{a_\#}$ 
+      & $[] \mapsto []$
+        \newline 
+        $[x_1,\ldots,x_n] \mapsto [x_1,\ldots,x_n]\ (n \geq 1)$
+      & & \ref{note:array-semantics}\\
+    \TT{indexArray} 
+      & $[\forall a_\#, \arrayOf{a_\#}, \ty{integer}]$ \text{$\;\;\; \to \ty{a_\#}$}
+      &  $([x_1,\ldots,x_n], k)$
+        \smallskip
+        \newline
+        \text{$\;\;\mapsto \left\{ \begin{array}{ll}
+            \errorX   & \text{if $k < 0$} \\ \relax %
+            x_{k+1}   & \text{if $0 \leq k \leq n-1$} \\ \relax
+            \errorX   & \text{if $k > n-1$}\\
+        \end{array}\right.$}  
+      & Yes & \ref{note:array-semantics}\\[2mm]
+    \TT{bls12\_381\_G1\_multiScalarMul}  &
+    $[ \listOf{\ty{integer}}$,
+      \text{\; ${\listOf{\ty{bls12\_381\_G1\_element}}} ]$}
+      \text{\: $ \to \ty{bls12\_381\_G1\_element}$}
+      & $([n_1, \ldots, n_k],[a_1, \ldots, a_l])$
+      \newline
+      \text{$\: \mapsto n_1a_1+\cdots+n_ra_r$ \ where $r=\min(k,l)$} &  No & \ref{note:msm-semantics}\\[2mm]
+    \TT{bls12\_381\_G2\_multiScalarMul}  &
+    $[ \listOf{\ty{integer}}$,
+      \text{\; ${\listOf{\ty{bls12\_381\_G2\_element}}} ]$}
+      \text{\;\; $ \to \ty{bls12\_381\_G2\_element}$}
+      & $([n_1, \ldots, n_k],[a_1, \ldots, a_l])$
+      \newline
+      \text{$\: \mapsto n_1a_1+\cdots+n_ra_r$ \ where $r=\min(k,l)$} &  No & \ref{note:msm-semantics}\\[2mm]
+\hline
+\end{longtable}
+
+\note{Modular Exponentiation.}
+\label{note:exp-mod-integer}
+The \texttt{expModInteger} function performs modular exponentiation.  Its denotation
+$\mathsf{expMod}: \Z \times \Z \times \Z \rightarrow \Z_{\errorX}$ is given by
+
+$$
+\mathsf{expMod}(a,e,m) =
+  \begin{cases}
+     \modfn(a^e,m) & \text{if $m > 1$ and $e \geq 0$}\\
+     \min\{r \in \N: ra^{-e} \equiv 1\pmod{m}\}\  & \text{if $m > 1, e < 0$ and $\mathrm{gcd}(a,m) = 1$}\\
+     \errorX & \text{if $m>1,e<0$, and $\mathrm{gcd}(a,m) \neq 1$}\\
+     0 & \text{if $m=1$}\\
+     \errorX & \text{if $m \leq 0$.}
+  \end{cases}
+$$ 
+
+\noindent The fact that this is well defined for the case $e<0$ and $\mathrm{gcd}(a,m) = 1$
+follows, for example, from Proposition I.3.1 of~\cite{Koblitz-GTM}.  See
+Note~\ref{note:integer-division-functions} of
+Section~\ref{sec:built-in-functions-1} for the definition of $\modfn$.
+
+\note{Semantics of arrays.}
+\label{note:array-semantics}
+The denotation of the array type is identical to that of lists, but we expect
+that in practice arrays will be implemented in such a way that the
+\texttt{lengthOfArray} and \texttt{indexArray} functions will be constant time and
+\texttt{listToArray} may be nontrivial, requiring linear time.
+
+\note{BLS12-381 multi-scalar multiplication.}
+\label{note:msm-semantics}
+We have added two multi-scalar-multiplication operations for BLS12-381
+types. Given lists of scalars $[n_1, \ldots, n_k]$ and group elements
+$[a_1, \ldots, a_l]$ these compute the group sum of the scalar products $n_ia_i$
+with $1 \leq i \leq \min(k,l)$. The input lists are allowed to be of different
+lengths but the longer one is effectively truncated to make them the same
+length.  If either list is empty then the result of the function is the zero
+element of the relevant group.  Multi-scalar multiplication can already be
+performed using the standard group addition and scalar multiplication functions
+from Batch 4, but having dedicated functions allows for significantly more
+efficient implementation.

@@ -1,0 +1,113 @@
+
+\begin{thenomenclature} 
+\nomgroup{A}
+  \item [{$\disj$}]\begingroup Disjoint union of sets\nomeqref {1.0}\nompageref{4}
+  \item [{$X^*$}]\begingroup The set of all finite sequences of elements of a set $X$\nomeqref {1.0}\nompageref{4}
+  \item [{$X^+$}]\begingroup The set of all nonempty finite sequences of elements of a set $X$\nomeqref {1.0}\nompageref{4}
+  \item [{$(x \vert x_1,\ldots,x_n)$}]\begingroup A member of $X^+$\nomeqref {1.0}\nompageref{4}
+  \item [{$\N$}]\begingroup $\{0,1,2,3,\ldots\}$\nomeqref {1.0}\nompageref{4}
+  \item [{$\Nplus$}]\begingroup $\{1,2,3,\ldots\}$\nomeqref {1.0}\nompageref{4}
+  \item [{$\Nab{a}{b}$}]\begingroup $\{n \in \N: a \leq n \leq b\}$\nomeqref {1.0}\nompageref{5}
+  \item [{$\B$}]\begingroup $\{n \in \Z: 0 \leq n \leq 255\}$\nomeqref {1.0}\nompageref{5}
+  \item [{$\B^*$}]\begingroup The set of all bytestrings\nomeqref {1.0}\nompageref{5}
+  \item [{$\b$}]\begingroup $\{\mathtt{0}, \mathtt{1}\}$\nomeqref {1.0}\nompageref{5}
+  \item [{$\b^*$}]\begingroup The set of all bitstrings\nomeqref {1.0}\nompageref{5}
+  \item [{$\mathbb{F}_q$}]\begingroup The finite field with $q$ elements\nomeqref {1.0}\nompageref{5}
+  \item [{$\units{\mathbb{F}_q}$}]\begingroup The multiplicative group of $\mathbb{F}_q$\nomeqref {1.0}\nompageref{5}
+  \item [{$\U$}]\begingroup The set of Unicode scalar values\nomeqref {1.0}\nompageref{5}
+  \item [{$\U^*$}]\begingroup The set of Unicode strings\nomeqref {1.0}\nompageref{5}
+  \item [{$\Z$}]\begingroup $\{\ldots, -2, -1, 0, 1, 2, \ldots\}$\nomeqref {1.0}\nompageref{5}
+  \item [{$\withError{S}$}]\begingroup $S \disj \{\errorX\}$ ($S$ a set)\nomeqref {1.0}\nompageref{5}
+  \item [{$\divfn$, $\modfn$}]\begingroup Integer division operations\nomeqref {4.0}\nompageref{34}
+  \item [{$\quotfn$, $\remfn$}]\begingroup Integer division operations\nomeqref {4.0}\nompageref{34}
+\nomgroup{B}
+  \item [{$[]$}]\begingroup The empty list\nomeqref {1.0}\nompageref{5}
+  \item [{$L \cdot L'$}]\begingroup Concatenation of lists $L$ and $L'$\nomeqref {1.0}\nompageref{5}
+  \item [{$x \cdot L$}]\begingroup $[x] \cdot L$\nomeqref {1.0}\nompageref{5}
+  \item [{$L \cdot x$}]\begingroup $L \cdot [x]$\nomeqref {1.0}\nompageref{5}
+  \item [{$\repetition{V}$}]\begingroup A sequence $[V_1,\ldots, V_n]$\nomeqref {1.0}\nompageref{5}
+  \item [{$\length(\cdot)$}]\begingroup Length of a list or bytestring\nomeqref {1.0}\nompageref{5}
+  \item [{$\epsilon$}]\begingroup The empty bytestring\nomeqref {B.0}\nompageref{53}
+\nomgroup{C}
+  \item [{$bn, b$}]\begingroup The name of a built-in function\nomeqref {2.0}\nompageref{7}
+  \item [{$c$}]\begingroup A literal constant\nomeqref {2.0}\nompageref{7}
+  \item [{$L,M,N$}]\begingroup A term\nomeqref {2.0}\nompageref{7}
+  \item [{$n$}]\begingroup A name\nomeqref {2.0}\nompageref{7}
+  \item [{$n$}]\begingroup A natural number\nomeqref {2.0}\nompageref{7}
+  \item [{$P$}]\begingroup A Plutus Core program\nomeqref {2.0}\nompageref{7}
+  \item [{$v$}]\begingroup Plutus Core version\nomeqref {2.0}\nompageref{7}
+  \item [{$x$}]\begingroup A variable name\nomeqref {2.0}\nompageref{7}
+\nomgroup{D}
+  \item [{$\Con{\tn}$}]\begingroup Constants of built-in type $T$\nomeqref {2.0}\nompageref{12}
+  \item [{$\TyOp$}]\begingroup The set of built-in type operator names\nomeqref {2.0}\nompageref{10}
+  \item [{$\Uni$}]\begingroup The universe of built-in types\nomeqref {2.0}\nompageref{10}
+  \item [{$\Uni_0$}]\begingroup The set of atomic type names\nomeqref {2.0}\nompageref{10}
+  \item [{$\Unihash$}]\begingroup The set of builtin-polymorphic types\nomeqref {2.0}\nompageref{11}
+  \item [{$\Var$}]\begingroup The set of all type variables, $\Var_\# \cup \VarStar$\nomeqref {2.0}\nompageref{10}
+  \item [{$\Var_\#$}]\begingroup The set of builtin-polymorphic type variables\nomeqref {2.0}\nompageref{10}
+  \item [{$\op$}]\begingroup A built-in type operator (an element of $\TyOp$)\nomeqref {2.0}\nompageref{10}
+  \item [{$\star$}]\begingroup The unique fully-polymorphic type variable\nomeqref {2.0}\nompageref{10}
+  \item [{$v_\#$}]\begingroup A builtin-polymorphic type variable\nomeqref {2.0}\nompageref{10}
+  \item [{$T$}]\begingroup A built-in type (an element of $\Uni$)\nomeqref {2.0}\nompageref{10}
+  \item [{$\denote{T}$}]\begingroup The denotation of a type name $T$\nomeqref {2.0}\nompageref{10}
+  \item [{$\denote{\Uni}$}]\begingroup $\bigdisj{\{\denote{T}: T \in \Uni\}}$\nomeqref {2.0}\nompageref{10}
+  \item [{$S$}]\begingroup A type assignment\nomeqref {2.0}\nompageref{11}
+  \item [{$\Sext$}]\begingroup The extension of a type assignment $S$ to $\Unihash \cup \VarStar$\nomeqref {2.0}\nompageref{11}
+  \item [{$P$}]\begingroup A builtin-polymorphic type\nomeqref {2.0}\nompageref{11}
+  \item [{$\fv{P}$}]\begingroup Free \#-variables of a polymorphic type $P \in \Unihash$\nomeqref {2.0}\nompageref{11}
+  \item [{$T\preceq_S P$}]\begingroup $T$ is an instance of $P$ via $S$ and $\dom S = \fv{P}$\nomeqref {2.0}\nompageref{11}
+  \item [{$\denote{\cdot}_T$}]\begingroup Denotation of constants of type $T$\nomeqref {2.0}\nompageref{12}
+  \item [{$\reify{\cdot}_T$}]\begingroup Reification of constants of type $T$\nomeqref {2.0}\nompageref{12}
+  \item [{$\reify{\cdot}$}]\begingroup Reification of the result of a built-in   function application\nomeqref {2.0}\nompageref{15}
+\nomgroup{E}
+  \item [{$\Fun$}]\begingroup The set of built-in functions\nomeqref {2.0}\nompageref{9}
+  \item [{$\Inputs$}]\begingroup The set of inputs to built-in functions\nomeqref {2.0}\nompageref{12}
+  \item [{$\QVar$}]\begingroup The set of all type quantifications\nomeqref {2.0}\nompageref{13}
+  \item [{$\R$}]\begingroup The set of single values returned by built-in functions\nomeqref {2.0}\nompageref{13}
+  \item [{$\R^+$}]\begingroup The set of sequences of values returned by built-in functions\nomeqref {2.0}\nompageref{13}
+  \item [{$\alpha$}]\begingroup Arity of built-in function\nomeqref {2.0}\nompageref{14}
+  \item [{$\alphabar$}]\begingroup Reduced arity\nomeqref {2.0}\nompageref{14}
+  \item [{$\chi$}]\begingroup Number of arguments of built-in function\nomeqref {2.0}\nompageref{14}
+  \item [{$\iota$}]\begingroup Signature item\nomeqref {2.0}\nompageref{13}
+  \item [{$\omega$}]\begingroup Return type of built-in function\nomeqref {2.0}\nompageref{13}
+  \item [{$\sigma$}]\begingroup Signature of built-in function\nomeqref {2.0}\nompageref{13}
+  \item [{$\sigmabar$}]\begingroup Reduced signature\nomeqref {2.0}\nompageref{14}
+  \item [{$\tau$}]\begingroup A member of $\UnihashStar$, ie a type or type variable\nomeqref {2.0}\nompageref{13}
+  \item [{$\approx_S$}]\begingroup Compatibility of built-in function arguments with function arity via $S$\nomeqref {2.0}\nompageref{16}
+  \item [{$\forallty{v}$}]\begingroup Type quantification\nomeqref {2.0}\nompageref{13}
+  \item [{$\denote{b}_S$}]\begingroup The denotation of the built-in function $b$ at the type assignment $S$\nomeqref {2.0}\nompageref{15}
+  \item [{$\Eval$}]\begingroup Evaluation of built-in functions\nomeqref {2.0}\nompageref{16}
+\nomgroup{F}
+  \item [{$A$}]\begingroup Well-formed partial built-in function application\nomeqref {2.0}\nompageref{17}
+  \item [{$\pba$}]\begingroup Partial built-in function application (possibly ill-formed)\nomeqref {2.0}\nompageref{17}
+  \item [{$\pbas$}]\begingroup Set of all  partial built-in function applications\nomeqref {2.0}\nompageref{17}
+  \item [{$V$}]\begingroup Plutus Core value\nomeqref {2.0}\nompageref{17}
+  \item [{$\beta(\pba)$}]\begingroup Function in partial builtin application $\pba$\nomeqref {2.0}\nompageref{18}
+  \item [{$\pbasize{\pba}$}]\begingroup Size of partial builtin application $\pba$\nomeqref {2.0}\nompageref{18}
+  \item [{$\nextArg(A)$}]\begingroup Next argument type (or \texttt{force}) required by a partial builtin application $A$\nomeqref {2.0}\nompageref{18}
+  \item [{$\args(A)$}]\begingroup Term arguments received so far by partial builtin application $A$\nomeqref {2.0}\nompageref{18}
+  \item [{$[V/x]M$}]\begingroup Capture-avoiding substitution of value $V$ for variable $x$ in term $M$\nomeqref {2.0}\nompageref{19}
+  \item [{$f$}]\begingroup Reduction frame for contextual semantics: $\inAppLeftFrame{M}, \inAppRightFrame{V}, \inForceFrame$\nomeqref {2.0}\nompageref{20}
+\nomgroup{G}
+  \item [{$\triangleright$}]\begingroup CEK compute phase\nomeqref {2.0}\nompageref{21}
+  \item [{$\triangleleft$}]\begingroup CEK return phase\nomeqref {2.0}\nompageref{21}
+  \item [{$\cekerror$}]\begingroup CEK error state\nomeqref {2.0}\nompageref{21}
+  \item [{$\cekhalt$}]\begingroup CEK halting state\nomeqref {2.0}\nompageref{21}
+  \item [{$\Sigma$}]\begingroup CEK machine state\nomeqref {2.0}\nompageref{21}
+  \item [{$s$}]\begingroup CEK machine stack\nomeqref {2.0}\nompageref{21}
+  \item [{$f$}]\begingroup CEK stack frame: $\inForceFrame, \inAppLeftFrame{(M,\rho)}, \inAppRightFrame{V}, \inConstrFrame{i}{M_1 \ldots M_{j-1}}{V_{j+1} \ldots V_n}, \inCaseFrame{M_1 \ldots M_n}$\nomeqref {2.0}\nompageref{21}
+  \item [{$V$}]\begingroup CEK value: $\VCon{\tn}{c}, \VDelay{M}{\rho},\VLamAbs{x}{M}{\rho},\VBuiltin{b}{\repetition{V}}{\eta}$\nomeqref {2.0}\nompageref{21}
+  \item [{$\rho$}]\begingroup CEK environment\nomeqref {2.0}\nompageref{21}
+  \item [{$\rho[x]$}]\begingroup Value bound to variable $x$ in environment $\rho$\nomeqref {2.0}\nompageref{21}
+  \item [{$\eta$}]\begingroup Arguments expected by partial builtin application\nomeqref {2.0}\nompageref{21}
+  \item [{$\unload{V}$}]\begingroup Discharge a CEK value $V$ to obtain a Plutus Core term\nomeqref {2.0}\nompageref{24}
+  \item [{$\Unload{\rho}{M}$}]\begingroup Discharge all variables bound by $\rho$ in the term $M$\nomeqref {2.0}\nompageref{24}
+\nomgroup{H}
+  \item [{$\bitc_T$}]\begingroup Set of strings used for the concrete syntax of constants of built-in type $T$\nomeqref {4.0}\nompageref{29}
+\nomgroup{I}
+  \item [{$\d_X$}]\begingroup CBOR decoder for \texttt{data}\nomeqref {B.0}\nompageref{53}
+  \item [{$\e_X$}]\begingroup CBOR encoder for \texttt{data}\nomeqref {B.0}\nompageref{53}
+  \item [{$\D_X$}]\begingroup Flat decoder\nomeqref {C.0}\nompageref{59}
+  \item [{$\E_X$}]\begingroup Flat encoder\nomeqref {C.0}\nompageref{59}
+
+\end{thenomenclature}

@@ -1,0 +1,187 @@
+\section{The grammar of Plutus Core}
+\label{sec:untyped-plc-grammar}
+This section presents the grammar of Plutus Core in a Lisp-like form.  This is
+intended as a specification of the abstract syntax of the language; it may also
+by used by tools as a concrete syntax for working with Plutus Core programs, but
+this is a secondary use and we do not make any guarantees of its completeness
+when used in this way.  The primary concrete form of Plutus Core programs is the
+binary format described in Appendix~\ref{appendix:flat-serialisation}.
+
+\subsection{Lexical grammar}
+\label{sec:untyped-plc}
+\thispagestyle{plain}
+\pagestyle{plain}
+
+\begin{minipage}{\linewidth}
+    \centering
+    \[\begin{array}{lrclr}
+
+        \textrm{Name}          & n      & ::= & \texttt{[a-zA-Z][a-zA-Z0-9\_\textquotesingle]\textsuperscript{*}(-[0-9]\textsuperscript{+})?}   & \textrm{name}\\
+
+        \textrm{Var}           & x      & ::= & n & \textrm{term variable}\\
+        \textrm{BuiltinName}   & bn     & ::= & n & \textrm{built-in function name}\\
+        \textrm{Version} & v & ::= & \texttt{[0-9]\textsuperscript{+}.[0-9]\textsuperscript{+}.[0-9]\textsuperscript{+}}& \textrm{version}\\
+        \textrm{Natural}  & k      & ::= & \texttt{[0-9]+} & \textrm{a natural number}\\
+        \textrm{Constant} & c & ::= & \langle{\textrm{literal constant}}\rangle& \\
+
+    \end{array}\]
+    \captionof{figure}{Lexical grammar of Plutus Core}
+    \label{fig:lexical-grammar-untyped}
+\end{minipage}%
+\nomenclature[C]{$L,M,N$}{A term}%
+\nomenclature[C]{$n$}{A name}%
+\nomenclature[C]{$n$}{A natural number}%
+\nomenclature[C]{$x$}{A variable name}%
+\nomenclature[C]{$bn, b$}{The name of a built-in function}%
+\nomenclature[C]{$c$}{A literal constant}%
+\nomenclature[C]{$P$}{A Plutus Core program}%
+\nomenclature[C]{$v$}{Plutus Core version}
+
+
+
+%   @sqs   = '  ( ($printable # ['\\])  | (\\$printable) )* '
+%
+%   -- A double quoted string, allowing escaped characters including \".  Similar to @sqs
+%   @dqs   = \" ( ($printable # [\"\\]) | (\\$printable) )* \"
+%
+%   -- A sequence of printable characters not containing '(' or ')' such that the
+%   -- first character is not a space or a single or double quote.  If there are any
+%   -- further characters then they must comprise a sequence of printable characters
+%   -- possibly including spaces, followed by a non-space character.  If there are
+%   -- any leading or trailing spaces they will be consumed by the $white+ token
+%   -- below.
+%   $nonparen = $printable # [\(\)]
+%   @chars = ($nonparen # ['\"$white]) ($nonparen* ($nonparen # $white))?
+%
+%       <literalconst> "()" | @sqs | @dqs | @chars { tok (\p s -> alex $ TkLiteralConst p (textOf s)) `andBegin` 0 }
+
+%% "()"
+%% @sqs   = '  ( ($printable # ['\\])  | (\\$printable) )* '
+%% @dqs   = \" ( ($printable # [\"\\]) | (\\$printable) )* \"
+%% @chars = ($nonparen # ['\"$white]) ($nonparen* ($nonparen # $white))?
+
+
+\subsection{Grammar}
+\begin{minipage}{\linewidth}
+    \centering
+    \[\begin{array}{lrclr}
+    \textrm{Term}       & L,M,N  & ::= & x                               & \textrm{variable}\\
+                        &        &     & \con{\tn}{c}                    & \textrm{constant}\\
+                        &        &     & \builtin{b}                     & \textrm{builtin}\\
+                        &        &     & \lamU{x}{M}                     & \textrm{$\lambda$ abstraction}\\
+                        &        &     & \appU{M}{N}                     & \textrm{function application}\\
+                        &        &     & \delay{M}                       & \textrm{delay execution of a term}\\
+                        &        &     & \force{M}                       & \textrm{force execution of a term}\\
+                        &        &     & \constr{k}{M_1 \ldots M_m}      & \textrm{constructor with tag $k$ and $m$ arguments ($m \geq 0$)}\\
+                        &        &     & \kase{M}{N_1 \ldots N_n}        & \textrm{case analysis with $n$ alternatives ($n \geq 0$)}\\
+                        &        &     & \errorU                         & \textrm{error}\\
+        \textrm{Program}& P      & ::= & \version{v}{M}                  & \textrm{versioned program}
+
+    \end{array}\]
+    \captionof{figure}{Grammar of untyped Plutus Core}
+    \label{fig:untyped-grammar}
+\end{minipage}
+
+
+\subsection{Notes}
+\label{sec:grammar-notes}
+\paragraph{Version numbers.} The version number at the start of a program specifies
+the Plutus Core language version used in the program.
+
+A \textit{Plutus Core language version} describes a version of
+the basic language with a particular set of features. A language version
+consists of three non-negative integers separated by decimal points, for
+example \texttt{1.4.2}. Language versions are ordered lexicographically.
+
+The grammar above describes Plutus Core version 1.1.0. Version 1.0.0
+is identical, except that \texttt{constr}
+and \texttt{case} are not included.  Version 1.0.0 is fully forward-compatible
+with version 1.1.0, so any valid version 1.0.0 program is also a valid version
+1.1.0 program.  The semantics, evaluator and serialisation formats described
+later in this document all apply to both versions, except that it is an error to
+use \texttt{constr} or \texttt{case} in any program with a version prior to
+1.1.0: a parser, deserialiser, or evaluator should fail immediately if
+\texttt{constr} or \texttt{case} is encountered when processing such a program.
+
+\paragraph{Scoping.} For simplicity, \textbf{we assume throughout that the body of a
+Plutus Core program is a closed term}, ie, that it contains no free variables.
+Thus \texttt{(program 1.0.0 (lam x x))} is a valid program but \texttt{(program
+  1.0.0 (lam x y))} is not, since the variable \texttt{y} is free. This
+condition should be checked before execution of any program commences, and the
+program should be rejected if its body is not closed.  The assumption implies
+that any variable $x$ occurring in the body of a program must be bound by an
+occurrence of \texttt{lam} in some enclosing term; in this case, we always
+assume that $x$ refers to the \textit{most recent} (ie, innermost) such binding.
+
+\paragraph{Iterated applications.}
+An application of a term $M$ to a term $N$ is represented by
+$\appU{M}{N}$. We may occasionally write
+$\appU{M}{N_1 \ldots N_k}$ or
+$\appU{M}{\repetition{N}}$ as an abbreviation for an iterated application
+$\mathtt{[}\ldots\mathtt{[[}M\;N_1\mathtt{]}\;N_2\mathtt{]}\ldots $  %% Try to avoid a bad line break
+  $N_k\mathtt{]}$,
+and tools may also use this as concrete syntax.
+
+\paragraph{Constructors and case analysis.}
+Plutus Core supports creating structured data using $\keyword{constr}$ and
+deconstructing it using $\keyword{case}$. Both of these terms are unusual in
+that they have (possibly empty) lists of children: $\keyword{constr}$ has the
+(0-based) \emph{tag} and then a list of arguments; $\keyword{case}$ has a
+scrutinee and then a list of case branches. The behaviour of $\keyword{constr}$
+and $\keyword{case}$ is mostly straightforward: $\keyword{constr}$ evaluates its
+arguments and forms a value; $\keyword{case}$ evaluates the scrutinee into a
+$\keyword{constr}$ value, selects the branch corresponding to the tag on the
+value (if the tag is $k$ and the branches are $N_1, \ldots, N_n$ then it selects
+$N_{k+1}$, with an error occurring if $k$ does not lie between 0 and $n-1$), and
+then applies that to the arguments in the value. Note that $\keyword{case}$ does
+\emph{not} strictly evaluate the case branches, only applying (and hence
+evaluating) the one that is eventually selected.  The list of branches in
+$\keyword{case}$ is allowed to be empty, but in that case there will be an error
+if it is ever applied to a scrutinee.
+
+\paragraph{Constructor tags.}
+Constructor tags can in principle be any natural number. In practice, since they
+cannot be dynamically constructed, we can limit them to a fixed size without
+having to worry about overflow. So we limit them to 64 bits, although this is
+currently only enforced in the binary format (see
+Section~\ref{sec:flat-term-encodings}).
+
+\paragraph{Built-in types and functions.} The language is parameterised by a set $\Uni$ of
+\textit{built-in types} (we sometimes refer to $\Uni$ as the \textit{universe})
+and a set $\Fun$ of \textit{built-in functions} (\textit{builtins} for short),
+both of which are sets of Names.  Briefly, the built-in types represent sets of
+constants such as integers or strings; constant expressions $\con{\tn}{c}$
+represent values of the built-in types (the integer 123 or the string
+\texttt{"string"}, for example), and built-in functions are functions operating
+on these values, and possibly also general Plutus Core terms.  Precise details
+are given in Section~\ref{sec:specify-builtins}.
+
+See Section~\ref{sec:cardano-builtins}
+for a description of the types and functions which have already been deployed on
+the Cardano blockchain (or will be in the near future).
+
+\nomenclature[E1]{$\Fun$}{The set of built-in functions}
+
+\paragraph{De Bruijn indices.}
+The grammar defines names to be textual strings, but occasionally (specifically
+in Appendix~\ref{appendix:flat-serialisation}) we want to use de Bruijn indices
+(\cite{deBruijn}, \cite[C.3]{Barendregt}), and for this we redefine names to be
+natural numbers.  In de Bruijn terms, $\lambda$-expressions do not need to bind
+a variable, but in order to re-use our existing syntax we arbitrarily use 0 for
+the bound variable, so that all $\lambda$-expressions are of the form
+\texttt{(lam 0 $M$)}; other variables (ie, those not appearing immediately after
+a \texttt{lam} binder) are represented by natural number greater than zero.
+
+\paragraph{Name suffixes.}
+Names may include an optional numeric suffix consisting of a dash followed by
+one or more digits (for example, \texttt{x-0}, \texttt{name-42}, or
+\texttt{variable-12345}). This suffix provides a mechanism for disambiguating
+variables that share the same base name, allowing multiple distinct variables
+with identical textual representations to coexist within a program.
+
+\paragraph{Lists in constructor and case terms.}
+The grammar defines constructor and case terms to have a variable number of
+subterms written in sequence with no delimiters. This corresponds to the
+concrete syntax, e.g. we write $\constr{0}{t_1\ t_2\ t_3}$. However, in the
+rest of the specification we will abuse notation and treat these terms as
+having \emph{lists} of subterms.

@@ -1,0 +1,459 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\@writefile{toc}{\contentsline {chapter}{Contents}{1}{chapter*.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {chapter}{\numberline {1}Preliminaries}{4}{chapter.1}\protected@file@percent }
+\@writefile{lof}{\addvspace {10\p@ }}
+\@writefile{lot}{\addvspace {10\p@ }}
+\@writefile{toc}{\contentsline {section}{\numberline {1.1}Introduction}{4}{section.1.1}\protected@file@percent }
+\newlabel{sec:introduction}{{1.1}{4}{Introduction}{section.1.1}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {1.2}Some basic notation}{4}{section.1.2}\protected@file@percent }
+\newlabel{sec:notation}{{1.2}{4}{Some basic notation}{section.1.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.2.1}Sets}{4}{subsection.1.2.1}\protected@file@percent }
+\newlabel{sec:notation-sets}{{1.2.1}{4}{Sets}{subsection.1.2.1}{}}
+\citation{Unicode-standard}
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.2.2}Lists}{5}{subsection.1.2.2}\protected@file@percent }
+\newlabel{sec:notation-lists}{{1.2.2}{5}{Lists}{subsection.1.2.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.2.3}Bytestrings and bitstrings}{5}{subsection.1.2.3}\protected@file@percent }
+\newlabel{sec:notation-bytestrings}{{1.2.3}{5}{Bytestrings and bitstrings}{subsection.1.2.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.2.4}Miscellaneous notation}{6}{subsection.1.2.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {chapter}{\numberline {2}Untyped Plutus Core}{7}{chapter.2}\protected@file@percent }
+\@writefile{lof}{\addvspace {10\p@ }}
+\@writefile{lot}{\addvspace {10\p@ }}
+\@writefile{toc}{\contentsline {section}{\numberline {2.1}The grammar of Plutus Core}{7}{section.2.1}\protected@file@percent }
+\newlabel{sec:untyped-plc-grammar}{{2.1}{7}{The grammar of Plutus Core}{section.2.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.1.1}Lexical grammar}{7}{subsection.2.1.1}\protected@file@percent }
+\newlabel{sec:untyped-plc}{{2.1.1}{7}{Lexical grammar}{subsection.2.1.1}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2.1}{\ignorespaces Lexical grammar of Plutus Core}}{7}{figure.2.1}\protected@file@percent }
+\newlabel{fig:lexical-grammar-untyped}{{2.1}{7}{Lexical grammar of Plutus Core}{figure.2.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.1.2}Grammar}{8}{subsection.2.1.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {2.2}{\ignorespaces Grammar of untyped Plutus Core}}{8}{figure.2.2}\protected@file@percent }
+\newlabel{fig:untyped-grammar}{{2.2}{8}{Grammar of untyped Plutus Core}{figure.2.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.1.3}Notes}{8}{subsection.2.1.3}\protected@file@percent }
+\newlabel{sec:grammar-notes}{{2.1.3}{8}{Notes}{subsection.2.1.3}{}}
+\@writefile{toc}{\contentsline {paragraph}{Version numbers.}{8}{section*.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Scoping.}{8}{section*.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Iterated applications.}{8}{section*.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Constructors and case analysis.}{8}{section*.5}\protected@file@percent }
+\citation{deBruijn}
+\citation{Barendregt}
+\@writefile{toc}{\contentsline {paragraph}{Constructor tags.}{9}{section*.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Built-in types and functions.}{9}{section*.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{De Bruijn indices.}{9}{section*.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Lists in constructor and case terms.}{9}{section*.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {2.2}Interpretation of built-in types and functions}{9}{section.2.2}\protected@file@percent }
+\newlabel{sec:specify-builtins}{{2.2}{9}{Interpretation of built-in types and functions}{section.2.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.2.1}Built-in types}{9}{subsection.2.2.1}\protected@file@percent }
+\newlabel{sec:built-in-types}{{2.2.1}{9}{Built-in types}{subsection.2.2.1}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2.3}{\ignorespaces Type names and operators}}{10}{figure.2.3}\protected@file@percent }
+\newlabel{fig:type-names-operators}{{2.3}{10}{Type names and operators}{figure.2.3}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.1.1}Type variables}{10}{subsubsection.2.2.1.1}\protected@file@percent }
+\newlabel{sec:type-variables}{{2.2.1.1}{10}{Type variables}{subsubsection.2.2.1.1}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2.4}{\ignorespaces Type variables}}{10}{figure.2.4}\protected@file@percent }
+\newlabel{fig:type-variables}{{2.4}{10}{Type variables}{figure.2.4}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.1.2}Polymorphic types}{11}{subsubsection.2.2.1.2}\protected@file@percent }
+\newlabel{sec:polymorphic-types}{{2.2.1.2}{11}{Polymorphic types}{subsubsection.2.2.1.2}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.1.3}Type assignments}{11}{subsubsection.2.2.1.3}\protected@file@percent }
+\newlabel{sec:type-assignments}{{2.2.1.3}{11}{Type assignments}{subsubsection.2.2.1.3}{}}
+\@writefile{toc}{\contentsline {paragraph}{Constructing type assignments.}{12}{section*.10}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.2.2}Built-in functions}{12}{subsection.2.2.2}\protected@file@percent }
+\newlabel{sec:builtin-functions}{{2.2.2}{12}{Built-in functions}{subsection.2.2.2}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.2.1}Inputs to built-in functions}{12}{subsubsection.2.2.2.1}\protected@file@percent }
+\newlabel{sec:builtin-inputs}{{2.2.2.1}{12}{Inputs to built-in functions}{subsubsection.2.2.2.1}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.2.2}Outputs of built-in functions}{13}{subsubsection.2.2.2.2}\protected@file@percent }
+\newlabel{sec:builtin-outputs}{{2.2.2.2}{13}{Outputs of built-in functions}{subsubsection.2.2.2.2}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.2.3}Signatures and denotations of built-in functions}{13}{subsubsection.2.2.2.3}\protected@file@percent }
+\newlabel{sec:signatures}{{2.2.2.3}{13}{Signatures and denotations of built-in functions}{subsubsection.2.2.2.3}{}}
+\@writefile{toc}{\contentsline {paragraph}{Signatures.}{13}{section*.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Commentary.}{14}{section*.12}\protected@file@percent }
+\citation{Wadler-theorems-for-free,Reynolds-parametric}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.2.4}Denotations of built-in functions}{15}{subsubsection.2.2.2.4}\protected@file@percent }
+\newlabel{sec:builtin-denotations}{{2.2.2.4}{15}{Denotations of built-in functions}{subsubsection.2.2.2.4}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.2.5}Results of built-in functions.}{15}{subsubsection.2.2.2.5}\protected@file@percent }
+\newlabel{sec:builtin-results}{{2.2.2.5}{15}{Results of built-in functions}{subsubsection.2.2.2.5}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.2.6}Parametricity for fully-polymorphic arguments}{16}{subsubsection.2.2.2.6}\protected@file@percent }
+\newlabel{sec:builtin-behaviour}{{2.2.2.6}{16}{Parametricity for fully-polymorphic arguments}{subsubsection.2.2.2.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.2.3}Evaluation of built-in functions}{16}{subsection.2.2.3}\protected@file@percent }
+\newlabel{sec:builtin-evaluation}{{2.2.3}{16}{Evaluation of built-in functions}{subsection.2.2.3}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.3.1}Compatibility of inputs and signature entries}{16}{subsubsection.2.2.3.1}\protected@file@percent }
+\newlabel{sec:compatibility}{{2.2.3.1}{16}{Compatibility of inputs and signature entries}{subsubsection.2.2.3.1}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.3.2}Evaluation}{16}{subsubsection.2.2.3.2}\protected@file@percent }
+\newlabel{sec:eval}{{2.2.3.2}{16}{Evaluation}{subsubsection.2.2.3.2}{}}
+\@writefile{toc}{\contentsline {paragraph}{Notes.}{17}{section*.13}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {2.3}Term reduction}{17}{section.2.3}\protected@file@percent }
+\newlabel{sec:reduction}{{2.3}{17}{Term reduction}{section.2.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.3.1}Values in Plutus Core}{17}{subsection.2.3.1}\protected@file@percent }
+\newlabel{sec:uplc-values}{{2.3.1}{17}{Values in Plutus Core}{subsection.2.3.1}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2.5}{\ignorespaces Values in Plutus Core}}{17}{figure.2.5}\protected@file@percent }
+\newlabel{fig:untyped-cek-values}{{2.5}{17}{Values in Plutus Core}{figure.2.5}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2.6}{\ignorespaces Partial built-in function application}}{17}{figure.2.6}\protected@file@percent }
+\newlabel{fig:partial-applications}{{2.6}{17}{Partial built-in function application}{figure.2.6}{}}
+\citation{Felleisen-Hieb}
+\citation{Felleisen-Semantics-Engineering}
+\citation{Harper:PFPL}
+\@writefile{toc}{\contentsline {paragraph}{Well-formed partial applications.}{18}{section*.14}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{More notation.}{18}{section*.15}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.3.2}Term reduction}{19}{subsection.2.3.2}\protected@file@percent }
+\providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
+\newlabel{fig:untyped-reduction-frames}{{2.7a}{20}{Grammar of reduction frames for Plutus Core}{figure.caption.16}{}}
+\newlabel{sub@fig:untyped-reduction-frames}{{a}{20}{Grammar of reduction frames for Plutus Core}{figure.caption.16}{}}
+\newlabel{fig:untyped-reduction}{{2.7b}{20}{Reduction via contextual semantics}{figure.caption.16}{}}
+\newlabel{sub@fig:untyped-reduction}{{b}{20}{Reduction via contextual semantics}{figure.caption.16}{}}
+\newlabel{fig:bif-appl}{{2.7c}{20}{Built-in function application}{figure.caption.16}{}}
+\newlabel{sub@fig:bif-appl}{{c}{20}{Built-in function application}{figure.caption.16}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2.7}{\ignorespaces Term reduction for Plutus Core}}{20}{figure.caption.16}\protected@file@percent }
+\newlabel{fig:untyped-term-reduction}{{2.7}{20}{Term reduction for Plutus Core}{figure.caption.16}{}}
+\citation{Felleisen-CK-CEK}
+\@writefile{toc}{\contentsline {section}{\numberline {2.4}The CEK machine}{21}{section.2.4}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {2.8}{\ignorespaces Grammar of CEK machine states for Plutus Core}}{21}{figure.caption.17}\protected@file@percent }
+\newlabel{fig:untyped-cek-states}{{2.8}{21}{Grammar of CEK machine states for Plutus Core}{figure.caption.17}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2.9}{\ignorespaces Grammar of CEK stack frames}}{21}{figure.caption.18}\protected@file@percent }
+\newlabel{fig:untyped-cek-reduction-frames}{{2.9}{21}{Grammar of CEK stack frames}{figure.caption.18}{}}
+\newlabel{fig:untyped-cek-transitions}{{2.10a}{23}{CEK machine transitions for Plutus Core}{figure.caption.19}{}}
+\newlabel{sub@fig:untyped-cek-transitions}{{a}{23}{CEK machine transitions for Plutus Core}{figure.caption.19}{}}
+\newlabel{fig:untyped-cek-builtins}{{2.10b}{23}{Evaluation of built-in functions}{figure.caption.19}{}}
+\newlabel{sub@fig:untyped-cek-builtins}{{b}{23}{Evaluation of built-in functions}{figure.caption.19}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2.10}{\ignorespaces A CEK machine for Plutus Core}}{23}{figure.caption.19}\protected@file@percent }
+\newlabel{fig:untyped-cek-machine}{{2.10}{23}{A CEK machine for Plutus Core}{figure.caption.19}{}}
+\citation{Plotkin-cbn-cbv}
+\citation{Felleisen-pllc}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.4.1}Converting CEK evaluation results into Plutus Core terms}{24}{subsection.2.4.1}\protected@file@percent }
+\newlabel{fig:discharge-val}{{2.11a}{24}{Discharging CEK values}{figure.caption.20}{}}
+\newlabel{sub@fig:discharge-val}{{a}{24}{Discharging CEK values}{figure.caption.20}{}}
+\newlabel{fig:discharge-env}{{2.11b}{24}{Iterated substitution/discharging}{figure.caption.20}{}}
+\newlabel{sub@fig:discharge-env}{{b}{24}{Iterated substitution/discharging}{figure.caption.20}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2.11}{\ignorespaces Discharging CEK values to obtain Plutus Core terms}}{24}{figure.caption.20}\protected@file@percent }
+\newlabel{fig:discharge-cek-val}{{2.11}{24}{Discharging CEK values to obtain Plutus Core terms}{figure.caption.20}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {2.5}Cost accounting for Untyped Plutus Core}{24}{section.2.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {chapter}{\numberline {3}Typed Plutus Core}{25}{chapter.3}\protected@file@percent }
+\@writefile{lof}{\addvspace {10\p@ }}
+\@writefile{lot}{\addvspace {10\p@ }}
+\@writefile{toc}{\contentsline {chapter}{\numberline {4}Plutus Core on Cardano}{26}{chapter.4}\protected@file@percent }
+\@writefile{lof}{\addvspace {10\p@ }}
+\@writefile{lot}{\addvspace {10\p@ }}
+\@writefile{toc}{\contentsline {section}{\numberline {4.1}Protocol versions}{26}{section.4.1}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {4.1}{\ignorespaces Protocol versions}}{26}{table.caption.21}\protected@file@percent }
+\newlabel{table:protocol-versions}{{4.1}{26}{Protocol versions}{table.caption.21}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4.2}Ledger languages}{26}{section.4.2}\protected@file@percent }
+\citation{CIP-0035}
+\@writefile{lot}{\contentsline {table}{\numberline {4.2}{\ignorespaces Introduction of Plutus ledger languages}}{27}{table.caption.22}\protected@file@percent }
+\newlabel{table:ll-introduction}{{4.2}{27}{Introduction of Plutus ledger languages}{table.caption.22}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {4.3}{\ignorespaces Introduction of Plutus Core language versions}}{27}{table.caption.23}\protected@file@percent }
+\newlabel{table:lv-introduction}{{4.3}{27}{Introduction of Plutus Core language versions}{table.caption.23}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {4.4}{\ignorespaces Introduction of built-in functions and types}}{28}{table.caption.24}\protected@file@percent }
+\newlabel{table:b-introduction}{{4.4}{28}{Introduction of built-in functions and types}{table.caption.24}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {4.5}{\ignorespaces Selection of built-in semantics variant}}{28}{table.caption.25}\protected@file@percent }
+\newlabel{table:bs-introduction}{{4.5}{28}{Selection of built-in semantics variant}{table.caption.25}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4.3}Built-in types and functions}{28}{section.4.3}\protected@file@percent }
+\newlabel{sec:cardano-builtins}{{4.3}{28}{Built-in types and functions}{section.4.3}{}}
+\newlabel{sec:builtin-batches}{{4.3}{28}{Built-in batches}{section*.26}{}}
+\@writefile{toc}{\contentsline {paragraph}{Built-in batches.}{28}{section*.26}\protected@file@percent }
+\newlabel{sec:builtin-semantics-variants}{{4.3}{28}{Built-in semantics variants}{section*.27}{}}
+\@writefile{toc}{\contentsline {paragraph}{Built-in semantics variants.}{28}{section*.27}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {4.6}{\ignorespaces Built-in semantics variants}}{28}{table.caption.28}\protected@file@percent }
+\newlabel{table:bs-variants}{{4.6}{28}{Built-in semantics variants}{table.caption.28}{}}
+\@writefile{toc}{\contentsline {paragraph}{Concrete syntax for built-in types.}{28}{section*.29}\protected@file@percent }
+\newlabel{fig:built-in-type-concrete-syntax}{{4.3}{28}{Concrete syntax for built-in types}{section*.29}{}}
+\@writefile{toc}{\contentsline {paragraph}{Concrete syntax for built-in constants.}{29}{section*.30}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3.1}Batch 1}{29}{subsection.4.3.1}\protected@file@percent }
+\newlabel{sec:default-builtins-1}{{4.3.1}{29}{Batch 1}{subsection.4.3.1}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.3.1.1}Built-in types and type operators}{29}{subsubsection.4.3.1.1}\protected@file@percent }
+\newlabel{sec:built-in-types-1}{{4.3.1.1}{29}{Built-in types and type operators}{subsubsection.4.3.1.1}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {4.7}{\ignorespaces Atomic types, Batch 1}}{29}{table.caption.31}\protected@file@percent }
+\newlabel{table:built-in-types-1}{{4.7}{29}{Atomic types, Batch 1}{table.caption.31}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {4.8}{\ignorespaces Type operators, Batch 1}}{29}{table.caption.32}\protected@file@percent }
+\newlabel{table:built-in-type-operators-1}{{4.8}{29}{Type operators, Batch 1}{table.caption.32}{}}
+\@writefile{toc}{\contentsline {paragraph}{Concrete syntax for strings.}{29}{section*.33}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Concrete syntax for lists and pairs.}{29}{section*.34}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{The $\ensuremath  {\mathtt  {data}}$ type.}{30}{section*.35}\protected@file@percent }
+\newlabel{note:constr-tag-values}{{4.3.1.1}{30}{Note: \texttt {Constr} tag values}{section*.36}{}}
+\@writefile{toc}{\contentsline {paragraph}{Note: \texttt  {Constr} tag values.}{30}{section*.36}\protected@file@percent }
+\citation{FIPS-SHA2}
+\citation{FIPS-SHA3}
+\citation{IETF-Blake2}
+\gdef \LT@i {\LT@entry 
+    {5}{138.76924pt}\LT@entry 
+    {1}{154.66377pt}\LT@entry 
+    {1}{168.89014pt}\LT@entry 
+    {1}{29.91pt}\LT@entry 
+    {1}{31.62999pt}}
+\@writefile{toc}{\contentsline {paragraph}{Concrete syntax for $\ensuremath  {\mathtt  {data}}$.}{31}{section*.37}\protected@file@percent }
+\newlabel{fig:data-concrete-syntax}{{4.3.1.1}{31}{Concrete syntax for $\ty {data}$}{section*.37}{}}
+\@writefile{toc}{\contentsline {paragraph}{Note.}{31}{section*.38}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.3.1.2}Built-in functions}{31}{subsubsection.4.3.1.2}\protected@file@percent }
+\newlabel{sec:built-in-functions-1}{{4.3.1.2}{31}{Built-in functions}{subsubsection.4.3.1.2}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {4.9}{\ignorespaces Built-in functions, Batch 1}}{31}{table.4.9}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {4.9}{\ignorespaces Built-in functions, Batch 1}}{32}{table.4.9}\protected@file@percent }
+\newlabel{table:built-in-functions-1}{{4.9}{33}{Built-in functions}{table.4.9}{}}
+\newlabel{note:integer-division-functions}{{1}{33}{Built-in functions}{notenumberA.1}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {4.10}{\ignorespaces Behaviour of integer division functions}}{34}{table.caption.39}\protected@file@percent }
+\newlabel{table:integer-division-signs}{{4.10}{34}{Behaviour of integer division functions}{table.caption.39}{}}
+\newlabel{note:consbytestring}{{2}{34}{Built-in functions}{notenumberA.2}{}}
+\newlabel{note:slicebytestring}{{3}{34}{Built-in functions}{notenumberA.3}{}}
+\newlabel{note:bytestring-comparison}{{4}{34}{Built-in functions}{notenumberA.4}{}}
+\citation{Unicode-standard}
+\citation{ches-2011-24091,rfc8032-EdDSA}
+\newlabel{note:bytestring-encoding}{{5}{35}{Built-in functions}{notenumberA.5}{}}
+\newlabel{note:digital-signature-verification-functions}{{6}{35}{Built-in functions}{notenumberA.6}{}}
+\newlabel{note:ed25519-signature-verification}{{7}{35}{Built-in functions}{notenumberA.7}{}}
+\newlabel{note:trace}{{8}{35}{Built-in functions}{notenumberA.8}{}}
+\citation{CIP-0042}
+\gdef \LT@ii {\LT@entry 
+    {5}{81.03334pt}\LT@entry 
+    {5}{107.37521pt}\LT@entry 
+    {1}{56.85999pt}\LT@entry 
+    {1}{29.91pt}\LT@entry 
+    {1}{31.62999pt}}
+\citation{CIP-0049}
+\gdef \LT@iii {\LT@entry 
+    {5}{175.51027pt}\LT@entry 
+    {1}{131.90157pt}\LT@entry 
+    {1}{111.98463pt}\LT@entry 
+    {1}{29.91pt}\LT@entry 
+    {1}{31.62999pt}}
+\citation{ANSI-X9.62,ANSI-x9.142,Johnson-Menezes-Vanstone-ECDSA}
+\citation{SECP256}
+\citation{Bitcoin-ECDSA}
+\citation{BIP-146}
+\citation{Schnorr89,BIP-340}
+\citation{BIP-340}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3.2}Batch 2}{36}{subsection.4.3.2}\protected@file@percent }
+\newlabel{sec:default-builtins-2}{{4.3.2}{36}{Batch 2}{subsection.4.3.2}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.3.2.1}Built-in functions}{36}{subsubsection.4.3.2.1}\protected@file@percent }
+\newlabel{sec:built-in-functions-2}{{4.3.2.1}{36}{Built-in functions}{subsubsection.4.3.2.1}{}}
+\newlabel{table:built-in-functions-2}{{4.11}{36}{Built-in functions}{table.4.11}{}}
+\newlabel{note:serialise-data}{{1}{36}{Built-in functions}{notenumberB.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3.3}Batch 3}{36}{subsection.4.3.3}\protected@file@percent }
+\newlabel{sec:default-builtins-3}{{4.3.3}{36}{Batch 3}{subsection.4.3.3}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.3.3.1}Built-in functions}{36}{subsubsection.4.3.3.1}\protected@file@percent }
+\newlabel{sec:built-in-functions-3}{{4.3.3.1}{36}{Built-in functions}{subsubsection.4.3.3.1}{}}
+\newlabel{table:built-in-functions-3}{{4.12}{36}{Built-in functions}{table.4.12}{}}
+\newlabel{note:verify-ecdsa-secp256k1-signature}{{1}{36}{Built-in functions}{notenumberC.1}{}}
+\citation{BIP-340}
+\citation{CIP-0101}
+\citation{CIP-0121}
+\citation{CIP-0381}
+\citation{BLS12-381}
+\citation{IETF-pairing-friendly-curves}
+\citation{BLST-library}
+\citation{IETF-Blake2}
+\citation{KeccakRef3}
+\gdef \LT@iv {\LT@entry 
+    {4}{112.52565pt}\LT@entry 
+    {1}{140.4374pt}\LT@entry 
+    {1}{197.3429pt}\LT@entry 
+    {1}{29.91pt}\LT@entry 
+    {1}{31.62999pt}}
+\newlabel{note:verify-schnorr-secp256k1-signature}{{2}{37}{Built-in functions}{notenumberC.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3.4}Batch 4}{37}{subsection.4.3.4}\protected@file@percent }
+\newlabel{sec:default-builtins-4}{{4.3.4}{37}{Batch 4}{subsection.4.3.4}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.3.4.1}Miscellaneous built-in functions}{37}{subsubsection.4.3.4.1}\protected@file@percent }
+\newlabel{sec:misc-builtins-4}{{4.3.4.1}{37}{Miscellaneous built-in functions}{subsubsection.4.3.4.1}{}}
+\newlabel{table:misc-built-in-functions-4}{{4.13}{37}{Miscellaneous built-in functions}{table.4.13}{}}
+\newlabel{note:itobs}{{1}{37}{Miscellaneous built-in functions}{notenumberD.1}{}}
+\newlabel{note:bstoi}{{2}{39}{Miscellaneous built-in functions}{notenumberD.2}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.3.4.2}BLS12-381 built-in types}{39}{subsubsection.4.3.4.2}\protected@file@percent }
+\newlabel{sec:bls-types-4}{{4.3.4.2}{39}{BLS12-381 built-in types}{subsubsection.4.3.4.2}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {4.14}{\ignorespaces Atomic types, Batch 4}}{39}{table.caption.40}\protected@file@percent }
+\newlabel{table:built-in-types-4}{{4.14}{39}{Atomic types, Batch 4}{table.caption.40}{}}
+\citation{Silverman-Arithmetic-EC}
+\citation{Costello-pairings}
+\citation{IETF-pairing-friendly-curves}
+\@writefile{toc}{\contentsline {paragraph}{The fields $\mathbb  {F}_q$ and $\mathbb  {F}_{q^2}$.}{40}{section*.41}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{The groups $G_1$ and $G_2$.}{40}{section*.42}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{The \texttt  {bls12\_381\_MlResult} type.}{40}{section*.43}\protected@file@percent }
+\gdef \LT@v {\LT@entry 
+    {5}{138.76924pt}\LT@entry 
+    {1}{154.66377pt}\LT@entry 
+    {1}{83.53188pt}\LT@entry 
+    {1}{29.91pt}\LT@entry 
+    {1}{31.62999pt}}
+\citation{IETF-hash-to-curve}
+\citation{IETF-hash-to-curve}
+\citation{IETF-hash-to-curve}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.3.4.3}BLS12-381 built-in functions}{41}{subsubsection.4.3.4.3}\protected@file@percent }
+\newlabel{sec:bls-builtins-4}{{4.3.4.3}{41}{BLS12-381 built-in functions}{subsubsection.4.3.4.3}{}}
+\newlabel{table:built-in-functions-4}{{4.15}{41}{BLS12-381 built-in functions}{table.4.15}{}}
+\citation{Zcash-serialisation}
+\citation{BLST-library}
+\citation{IETF-pairing-friendly-curves}
+\newlabel{note:hashing-into-group}{{3}{42}{BLS12-381 built-in functions}{notenumberD.3}{}}
+\newlabel{note:group-compression}{{4}{42}{BLS12-381 built-in functions}{notenumberD.4}{}}
+\newlabel{note:group-uncompression}{{5}{43}{BLS12-381 built-in functions}{notenumberD.5}{}}
+\@writefile{toc}{\contentsline {paragraph}{Uncompression for $G_1$ elements.}{43}{section*.44}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Uncompression for $G_2$ elements.}{43}{section*.45}\protected@file@percent }
+\citation{Vercauteren}
+\citation{Costello-pairings}
+\newlabel{note:bls-syntax}{{6}{44}{Uncompression for $G_2$ elements}{notenumberD.6}{}}
+\newlabel{note:pairing}{{7}{44}{Uncompression for $G_2$ elements}{notenumberD.7}{}}
+\citation{CIP-0122}
+\citation{CIP-0123}
+\citation{ripemd-2,ripemd-1}
+\gdef \LT@vi {\LT@entry 
+    {5}{117.77437pt}\LT@entry 
+    {1}{154.66377pt}\LT@entry 
+    {1}{126.21101pt}\LT@entry 
+    {1}{29.91pt}\LT@entry 
+    {1}{31.62999pt}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3.5}Batch 5}{46}{subsection.4.3.5}\protected@file@percent }
+\newlabel{sec:default-builtins-5}{{4.3.5}{46}{Batch 5}{subsection.4.3.5}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.3.5.1}Built-in functions}{46}{subsubsection.4.3.5.1}\protected@file@percent }
+\newlabel{sec:built-in-functions-5}{{4.3.5.1}{46}{Built-in functions}{subsubsection.4.3.5.1}{}}
+\newlabel{table:built-in-functions-5}{{4.16}{46}{Built-in functions}{table.4.16}{}}
+\newlabel{note:bitwise-logical-ops}{{1}{46}{Built-in functions}{notenumberE.1}{}}
+\newlabel{note:shift}{{2}{47}{Built-in functions}{notenumberE.2}{}}
+\newlabel{note:rotate}{{3}{47}{Built-in functions}{notenumberE.3}{}}
+\newlabel{note:ffs}{{4}{48}{Built-in functions}{notenumberE.4}{}}
+\newlabel{note:writebits}{{5}{48}{Built-in functions}{notenumberE.5}{}}
+\newlabel{note:replicateByte}{{6}{48}{Built-in functions}{notenumberE.6}{}}
+\gdef \LT@vii {\LT@entry 
+    {5}{81.03334pt}\LT@entry 
+    {1}{140.4374pt}\LT@entry 
+    {1}{211.56927pt}\LT@entry 
+    {1}{29.91pt}\LT@entry 
+    {1}{31.62999pt}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3.6}Batch 6}{49}{subsection.4.3.6}\protected@file@percent }
+\newlabel{sec:default-builtins-6}{{4.3.6}{49}{Batch 6}{subsection.4.3.6}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.3.6.1}Built-in type operators}{49}{subsubsection.4.3.6.1}\protected@file@percent }
+\newlabel{sec:built-in-type-operators-6}{{4.3.6.1}{49}{Built-in type operators}{subsubsection.4.3.6.1}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {4.17}{\ignorespaces Type operators, Batch 6}}{49}{table.caption.46}\protected@file@percent }
+\newlabel{table:built-in-type-operators-6}{{4.17}{49}{Type operators, Batch 6}{table.caption.46}{}}
+\@writefile{toc}{\contentsline {paragraph}{Concrete syntax for arrays.}{49}{section*.47}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.3.6.2}Built-in functions}{49}{subsubsection.4.3.6.2}\protected@file@percent }
+\newlabel{sec:built-in-functions-6}{{4.3.6.2}{49}{Built-in functions}{subsubsection.4.3.6.2}{}}
+\newlabel{table:built-in-functions-6}{{4.18}{49}{Built-in functions}{table.4.18}{}}
+\newlabel{note:exp-mod-integer}{{1}{49}{Built-in functions}{notenumberF.1}{}}
+\citation{Koblitz-GTM}
+\@writefile{toc}{\contentsline {chapter}{\numberline {A}Formally Verified Behaviours}{51}{appendix.1.A}\protected@file@percent }
+\@writefile{lof}{\addvspace {10\p@ }}
+\@writefile{lot}{\addvspace {10\p@ }}
+\citation{rfc8949-CBOR}
+\citation{CBOR-alternatives}
+\citation{CBOR-notable-tags}
+\@writefile{toc}{\contentsline {chapter}{\numberline {B}Serialising \texttt  {data} Objects Using the CBOR Format}{52}{appendix.1.B}\protected@file@percent }
+\@writefile{lof}{\addvspace {10\p@ }}
+\@writefile{lot}{\addvspace {10\p@ }}
+\newlabel{appendix:data-cbor-encoding}{{B}{52}{Serialising \texttt {data} Objects Using the CBOR Format}{appendix.1.B}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {B.1}Introduction}{52}{section.1.B.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {B.2}Notation}{53}{section.1.B.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Encoders and decoders.}{53}{section*.48}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {B.3}The CBOR format}{53}{section.1.B.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {B.4}Encoding and decoding the heads of CBOR items}{53}{section.1.B.4}\protected@file@percent }
+\citation{rfc8949-CBOR}
+\citation{rfc8949-CBOR}
+\@writefile{toc}{\contentsline {paragraph}{Heads for indefinite-length items.}{54}{section*.49}\protected@file@percent }
+\citation{rfc8949-CBOR}
+\@writefile{toc}{\contentsline {section}{\numberline {B.5}Encoding and decoding bytestrings}{55}{section.1.B.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {B.6}Encoding and decoding integers}{56}{section.1.B.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {B.7}Encoding and decoding \texttt  {data}}{56}{section.1.B.7}\protected@file@percent }
+\newlabel{sec:encoding-data}{{B.7}{56}{Encoding and decoding \texttt {data}}{section.1.B.7}{}}
+\@writefile{toc}{\contentsline {paragraph}{The encoder.}{56}{section*.50}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{The decoder.}{57}{section*.51}\protected@file@percent }
+\citation{CBOR-alternatives}
+\citation{flat}
+\@writefile{toc}{\contentsline {chapter}{\numberline {C}Serialising Plutus Core Terms and Programs Using the \texttt  {flat} Format}{59}{appendix.1.C}\protected@file@percent }
+\@writefile{lof}{\addvspace {10\p@ }}
+\@writefile{lot}{\addvspace {10\p@ }}
+\newlabel{appendix:flat-serialisation}{{C}{59}{Serialising Plutus Core Terms and Programs Using the \texttt {flat} Format}{appendix.1.C}{}}
+\@writefile{toc}{\contentsline {paragraph}{Note: \texttt  {flat} versus CBOR.}{59}{section*.52}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {C.1}Encoding and decoding}{59}{section.1.C.1}\protected@file@percent }
+\newlabel{sec:encoding-and-decoding}{{C.1}{59}{Encoding and decoding}{section.1.C.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.1.1}Padding}{60}{subsection.1.C.1.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {C.2}Basic \texttt  {flat} encodings}{61}{section.1.C.2}\protected@file@percent }
+\newlabel{sec:basic-flat-encodings}{{C.2}{61}{Basic \texttt {flat} encodings}{section.1.C.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.2.1}Fixed-width natural numbers}{61}{subsection.1.C.2.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.2.2}Lists}{61}{subsection.1.C.2.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.2.3}Arrays}{61}{subsection.1.C.2.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.2.4}Natural numbers}{62}{subsection.1.C.2.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.2.5}Integers}{62}{subsection.1.C.2.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.2.6}Bytestrings}{63}{subsection.1.C.2.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.2.7}Strings}{64}{subsection.1.C.2.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {C.3}Encoding and decoding Plutus Core}{64}{section.1.C.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.3.1}Programs}{64}{subsection.1.C.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.3.2}Terms}{65}{subsection.1.C.3.2}\protected@file@percent }
+\newlabel{sec:flat-term-encodings}{{C.3.2}{65}{Terms}{subsection.1.C.3.2}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {C.1}{\ignorespaces Term tags}}{65}{table.caption.53}\protected@file@percent }
+\newlabel{table:term-tags}{{C.1}{65}{Term tags}{table.caption.53}{}}
+\@writefile{toc}{\contentsline {paragraph}{NOTE.}{66}{section*.54}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.3.3}Built-in types}{66}{subsection.1.C.3.3}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {C.2}{\ignorespaces Type tags}}{66}{table.caption.55}\protected@file@percent }
+\newlabel{table:type-tags}{{C.2}{66}{Type tags}{table.caption.55}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.3.4}Constants}{67}{subsection.1.C.3.4}\protected@file@percent }
+\newlabel{sec:flat-constants}{{C.3.4}{67}{Constants}{subsection.1.C.3.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.3.5}Built-in functions}{68}{subsection.1.C.3.5}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {C.3}{\ignorespaces Tags for built-in functions (Batch 1)}}{69}{table.caption.56}\protected@file@percent }
+\newlabel{table:builtin-tags-batch-1}{{C.3}{69}{Tags for built-in functions (Batch 1)}{table.caption.56}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {C.4}{\ignorespaces Tags for built-in functions (Batch 2)}}{69}{table.caption.57}\protected@file@percent }
+\newlabel{table:builtin-tags-batch-2}{{C.4}{69}{Tags for built-in functions (Batch 2)}{table.caption.57}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {C.5}{\ignorespaces Tags for built-in functions (Batch 3)}}{70}{table.caption.58}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {C.6}{\ignorespaces Tags for built-in functions (Batch 4)}}{70}{table.caption.59}\protected@file@percent }
+\newlabel{table:builtin-tags-batch-4}{{C.6}{70}{Tags for built-in functions (Batch 4)}{table.caption.59}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {C.7}{\ignorespaces Tags for built-in functions (Batch 5)}}{71}{table.caption.60}\protected@file@percent }
+\newlabel{table:builtin-tags-batch-5}{{C.7}{71}{Tags for built-in functions (Batch 5)}{table.caption.60}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {C.8}{\ignorespaces Tags for built-in functions (Batch 6)}}{71}{table.caption.61}\protected@file@percent }
+\newlabel{table:builtin-tags-batch-6}{{C.8}{71}{Tags for built-in functions (Batch 6)}{table.caption.61}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.3.6}Variable names}{71}{subsection.1.C.3.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{De Bruijn indices.}{71}{section*.62}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Other types of name.}{72}{section*.63}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {C.4}Cardano-specific serialisation issues}{72}{section.1.C.4}\protected@file@percent }
+\newlabel{sec:cardano-issues}{{C.4}{72}{Cardano-specific serialisation issues}{section.1.C.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.4.1}Scope checking}{72}{subsection.1.C.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.4.2}CBOR wrapping}{72}{subsection.1.C.4.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {C.5}Example}{72}{section.1.C.5}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {C.1}{\ignorespaces \texttt  {flat} encoding of \texttt  {index.uplc}}}{73}{figure.caption.64}\protected@file@percent }
+\newlabel{fig:index-bytestring-example}{{C.1}{73}{\texttt {flat} encoding of \texttt {index.uplc}}{figure.caption.64}{}}
+\bibstyle{plain}
+\bibdata{plutus-core-specification}
+\bibcite{CIP-0035}{{1}{}{{}}{{}}}
+\bibcite{CIP-0042}{{2}{}{{}}{{}}}
+\bibcite{CIP-0049}{{3}{}{{}}{{}}}
+\bibcite{CIP-0101}{{4}{}{{}}{{}}}
+\bibcite{CIP-0381}{{5}{}{{}}{{}}}
+\bibcite{CIP-0121}{{6}{}{{}}{{}}}
+\bibcite{CIP-0122}{{7}{}{{}}{{}}}
+\bibcite{CIP-0123}{{8}{}{{}}{{}}}
+\bibcite{ANSI-X9.62}{{9}{}{{}}{{}}}
+\bibcite{ANSI-x9.142}{{10}{}{{}}{{}}}
+\bibcite{flat}{{11}{}{{}}{{}}}
+\bibcite{Barendregt}{{12}{}{{}}{{}}}
+\bibcite{ches-2011-24091}{{13}{}{{}}{{}}}
+\bibcite{KeccakRef3}{{14}{}{{}}{{}}}
+\bibcite{Bitcoin-ECDSA}{{15}{}{{}}{{}}}
+\bibcite{CBOR-notable-tags}{{16}{}{{}}{{}}}
+\@writefile{toc}{\contentsline {chapter}{Bibliography}{74}{appendix*.65}\protected@file@percent }
+\bibcite{rfc8949-CBOR}{{17}{}{{}}{{}}}
+\bibcite{ripemd-2}{{18}{}{{}}{{}}}
+\bibcite{BLS12-381}{{19}{}{{}}{{}}}
+\bibcite{SECP256}{{20}{}{{}}{{}}}
+\bibcite{Costello-pairings}{{21}{}{{}}{{}}}
+\bibcite{CBOR-alternatives}{{22}{}{{}}{{}}}
+\bibcite{FIPS-SHA2}{{23}{}{{}}{{}}}
+\bibcite{deBruijn}{{24}{}{{}}{{}}}
+\bibcite{ripemd-1}{{25}{}{{}}{{}}}
+\bibcite{FIPS-SHA3}{{26}{}{{}}{{}}}
+\bibcite{IETF-hash-to-curve}{{27}{}{{}}{{}}}
+\bibcite{Felleisen-pllc}{{28}{}{{}}{{}}}
+\bibcite{Felleisen-Semantics-Engineering}{{29}{}{{}}{{}}}
+\bibcite{Felleisen-CK-CEK}{{30}{}{{}}{{}}}
+\bibcite{Felleisen-Hieb}{{31}{}{{}}{{}}}
+\bibcite{Harper:PFPL}{{32}{}{{}}{{}}}
+\bibcite{Johnson-Menezes-Vanstone-ECDSA}{{33}{}{{}}{{}}}
+\bibcite{rfc8032-EdDSA}{{34}{}{{}}{{}}}
+\bibcite{Koblitz-GTM}{{35}{}{{}}{{}}}
+\bibcite{BIP-340}{{36}{}{{}}{{}}}
+\bibcite{BIP-146}{{37}{}{{}}{{}}}
+\bibcite{BLST-library}{{38}{}{{}}{{}}}
+\bibcite{Plotkin-cbn-cbv}{{39}{}{{}}{{}}}
+\bibcite{Reynolds-parametric}{{40}{}{{}}{{}}}
+\bibcite{IETF-Blake2}{{41}{}{{}}{{}}}
+\bibcite{IETF-pairing-friendly-curves}{{42}{}{{}}{{}}}
+\bibcite{Schnorr89}{{43}{}{{}}{{}}}
+\bibcite{Silverman-Arithmetic-EC}{{44}{}{{}}{{}}}
+\bibcite{Unicode-standard}{{45}{}{{}}{{}}}
+\bibcite{Vercauteren}{{46}{}{{}}{{}}}
+\bibcite{Wadler-theorems-for-free}{{47}{}{{}}{{}}}
+\bibcite{Zcash-serialisation}{{48}{}{{}}{{}}}
+\@writefile{toc}{\contentsline {chapter}{\nonumberline Index of Notation}{77}{appendix*.66}\protected@file@percent }
+\providecommand\NAT@force@numbers{}\NAT@force@numbers
+\gdef \@abspage@last{81}

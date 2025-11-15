@@ -1,0 +1,100 @@
+\nomenclatureentry{Aaa1$\N$@[{$\N$}]\begingroup $\{0,1,2,3,\ldots\}$\nomeqref {1.0}|nompageref}{4}
+\nomenclatureentry{Aaa2$\Nplus$@[{$\Nplus$}]\begingroup $\{1,2,3,\ldots\}$\nomeqref {1.0}|nompageref}{4}
+\nomenclatureentry{Aa1$\disj$@[{$\disj$}]\begingroup Disjoint union of sets\nomeqref {1.0}|nompageref}{4}
+\nomenclatureentry{Aa2$X^*$@[{$X^*$}]\begingroup The set of all finite sequences of elements of a set $X$\nomeqref {1.0}|nompageref}{4}
+\nomenclatureentry{Aa3$X^+$@[{$X^+$}]\begingroup The set of all nonempty finite sequences of elements of a set $X$\nomeqref {1.0}|nompageref}{4}
+\nomenclatureentry{Aa4$(x \vert x_1,\ldots,x_n)$@[{$(x \vert x_1,\ldots,x_n)$}]\begingroup A member of $X^+$\nomeqref {1.0}|nompageref}{4}
+\nomenclatureentry{Aaa3$\Nab{a}{b}$@[{$\Nab{a}{b}$}]\begingroup $\{n \in \N: a \leq n \leq b\}$\nomeqref {1.0}|nompageref}{5}
+\nomenclatureentry{Aaa4$\B$@[{$\B$}]\begingroup $\{n \in \Z: 0 \leq n \leq 255\}$\nomeqref {1.0}|nompageref}{5}
+\nomenclatureentry{Ab2$\B^*$@[{$\B^*$}]\begingroup The set of all bytestrings\nomeqref {1.0}|nompageref}{5}
+\nomenclatureentry{Ac1$\b$@[{$\b$}]\begingroup $\{\mathtt{0}, \mathtt{1}\}$\nomeqref {1.0}|nompageref}{5}
+\nomenclatureentry{Ac2$\b^*$@[{$\b^*$}]\begingroup The set of all bitstrings\nomeqref {1.0}|nompageref}{5}
+\nomenclatureentry{Aw$\Z$@[{$\Z$}]\begingroup $\{\ldots, -2, -1, 0, 1, 2, \ldots\}$\nomeqref {1.0}|nompageref}{5}
+\nomenclatureentry{Af$\mathbb{F}_q$@[{$\mathbb{F}_q$}]\begingroup The finite field with $q$ elements\nomeqref {1.0}|nompageref}{5}
+\nomenclatureentry{Af$\units{\mathbb{F}_q}$@[{$\units{\mathbb{F}_q}$}]\begingroup The multiplicative group of $\mathbb{F}_q$\nomeqref {1.0}|nompageref}{5}
+\nomenclatureentry{Au1$\U$@[{$\U$}]\begingroup The set of Unicode scalar values\nomeqref {1.0}|nompageref}{5}
+\nomenclatureentry{Au2$\U^*$@[{$\U^*$}]\begingroup The set of Unicode strings\nomeqref {1.0}|nompageref}{5}
+\nomenclatureentry{Ax$\withError{S}$@[{$\withError{S}$}]\begingroup $S \disj \{\errorX\}$ ($S$ a set)\nomeqref {1.0}|nompageref}{5}
+\nomenclatureentry{B1$[]$@[{$[]$}]\begingroup The empty list\nomeqref {1.0}|nompageref}{5}
+\nomenclatureentry{B6$\length(\cdot)$@[{$\length(\cdot)$}]\begingroup Length of a list or bytestring\nomeqref {1.0}|nompageref}{5}
+\nomenclatureentry{B2$L \cdot L'$@[{$L \cdot L'$}]\begingroup Concatenation of lists $L$ and $L'$\nomeqref {1.0}|nompageref}{5}
+\nomenclatureentry{B3$x \cdot L$@[{$x \cdot L$}]\begingroup $[x] \cdot L$\nomeqref {1.0}|nompageref}{5}
+\nomenclatureentry{B4$L \cdot x$@[{$L \cdot x$}]\begingroup $L \cdot [x]$\nomeqref {1.0}|nompageref}{5}
+\nomenclatureentry{B5$\repetition{V}$@[{$\repetition{V}$}]\begingroup A sequence $[V_1,\ldots, V_n]$\nomeqref {1.0}|nompageref}{5}
+\nomenclatureentry{C$L,M,N$@[{$L,M,N$}]\begingroup A term\nomeqref {2.0}|nompageref}{7}
+\nomenclatureentry{C$n$@[{$n$}]\begingroup A name\nomeqref {2.0}|nompageref}{7}
+\nomenclatureentry{C$n$@[{$n$}]\begingroup A natural number\nomeqref {2.0}|nompageref}{7}
+\nomenclatureentry{C$x$@[{$x$}]\begingroup A variable name\nomeqref {2.0}|nompageref}{7}
+\nomenclatureentry{C$bn, b$@[{$bn, b$}]\begingroup The name of a built-in function\nomeqref {2.0}|nompageref}{7}
+\nomenclatureentry{C$c$@[{$c$}]\begingroup A literal constant\nomeqref {2.0}|nompageref}{7}
+\nomenclatureentry{C$P$@[{$P$}]\begingroup A Plutus Core program\nomeqref {2.0}|nompageref}{7}
+\nomenclatureentry{C$v$@[{$v$}]\begingroup Plutus Core version\nomeqref {2.0}|nompageref}{7}
+\nomenclatureentry{E1$\Fun$@[{$\Fun$}]\begingroup The set of built-in functions\nomeqref {2.0}|nompageref}{9}
+\nomenclatureentry{Da$\TyOp$@[{$\TyOp$}]\begingroup The set of built-in type operator names\nomeqref {2.0}|nompageref}{10}
+\nomenclatureentry{Db$\op$@[{$\op$}]\begingroup A built-in type operator (an element of $\TyOp$)\nomeqref {2.0}|nompageref}{10}
+\nomenclatureentry{Da$\Uni_0$@[{$\Uni_0$}]\begingroup The set of atomic type names\nomeqref {2.0}|nompageref}{10}
+\nomenclatureentry{Da$\Uni$@[{$\Uni$}]\begingroup The universe of built-in types\nomeqref {2.0}|nompageref}{10}
+\nomenclatureentry{Dr2$T$@[{$T$}]\begingroup A built-in type (an element of $\Uni$)\nomeqref {2.0}|nompageref}{10}
+\nomenclatureentry{Dr4$\denote{T}$@[{$\denote{T}$}]\begingroup The denotation of a type name $T$\nomeqref {2.0}|nompageref}{10}
+\nomenclatureentry{Dr5$\denote{\Uni}$@[{$\denote{\Uni}$}]\begingroup $\bigdisj{\{\denote{T}: T \in \Uni\}}$\nomeqref {2.0}|nompageref}{10}
+\nomenclatureentry{Da$\Var$@[{$\Var$}]\begingroup The set of all type variables, $\Var_\# \cup \VarStar$\nomeqref {2.0}|nompageref}{10}
+\nomenclatureentry{Da$\Var_\#$@[{$\Var_\#$}]\begingroup The set of builtin-polymorphic type variables\nomeqref {2.0}|nompageref}{10}
+\nomenclatureentry{Db$v_\#$@[{$v_\#$}]\begingroup A builtin-polymorphic type variable\nomeqref {2.0}|nompageref}{10}
+\nomenclatureentry{Db$\star$@[{$\star$}]\begingroup The unique fully-polymorphic type variable\nomeqref {2.0}|nompageref}{10}
+\nomenclatureentry{Da$\Unihash$@[{$\Unihash$}]\begingroup The set of builtin-polymorphic types\nomeqref {2.0}|nompageref}{11}
+\nomenclatureentry{Ds1$P$@[{$P$}]\begingroup A builtin-polymorphic type\nomeqref {2.0}|nompageref}{11}
+\nomenclatureentry{Ds2$\fv{P}$@[{$\fv{P}$}]\begingroup Free \#-variables of a polymorphic type $P \in \Unihash$\nomeqref {2.0}|nompageref}{11}
+\nomenclatureentry{Dr6$S$@[{$S$}]\begingroup A type assignment\nomeqref {2.0}|nompageref}{11}
+\nomenclatureentry{Dr7$\Sext$@[{$\Sext$}]\begingroup The extension of a type assignment $S$ to $\Unihash \cup \VarStar$\nomeqref {2.0}|nompageref}{11}
+\nomenclatureentry{Ds3$T\preceq_S P$@[{$T\preceq_S P$}]\begingroup $T$ is an instance of $P$ via $S$ and $\dom S = \fv{P}$\nomeqref {2.0}|nompageref}{11}
+\nomenclatureentry{Ea$\Inputs$@[{$\Inputs$}]\begingroup The set of inputs to built-in functions\nomeqref {2.0}|nompageref}{12}
+\nomenclatureentry{Da$\Con{\tn}$@[{$\Con{\tn}$}]\begingroup Constants of built-in type $T$\nomeqref {2.0}|nompageref}{12}
+\nomenclatureentry{Dz2$\denote{\cdot}_T$@[{$\denote{\cdot}_T$}]\begingroup Denotation of constants of type $T$\nomeqref {2.0}|nompageref}{12}
+\nomenclatureentry{Dz3$\reify{\cdot}_T$@[{$\reify{\cdot}_T$}]\begingroup Reification of constants of type $T$\nomeqref {2.0}|nompageref}{12}
+\nomenclatureentry{Eb$\R$@[{$\R$}]\begingroup The set of single values returned by built-in functions\nomeqref {2.0}|nompageref}{13}
+\nomenclatureentry{Ec$\R^+$@[{$\R^+$}]\begingroup The set of sequences of values returned by built-in functions\nomeqref {2.0}|nompageref}{13}
+\nomenclatureentry{Eg$\tau$@[{$\tau$}]\begingroup A member of $\UnihashStar$, ie a type or type variable\nomeqref {2.0}|nompageref}{13}
+\nomenclatureentry{Ez3$\forallty{v}$@[{$\forallty{v}$}]\begingroup Type quantification\nomeqref {2.0}|nompageref}{13}
+\nomenclatureentry{Eb$\QVar$@[{$\QVar$}]\begingroup The set of all type quantifications\nomeqref {2.0}|nompageref}{13}
+\nomenclatureentry{Eg$\iota$@[{$\iota$}]\begingroup Signature item\nomeqref {2.0}|nompageref}{13}
+\nomenclatureentry{Eg$\sigma$@[{$\sigma$}]\begingroup Signature of built-in function\nomeqref {2.0}|nompageref}{13}
+\nomenclatureentry{Eg$\omega$@[{$\omega$}]\begingroup Return type of built-in function\nomeqref {2.0}|nompageref}{13}
+\nomenclatureentry{Eg$\alpha$@[{$\alpha$}]\begingroup Arity of built-in function\nomeqref {2.0}|nompageref}{14}
+\nomenclatureentry{Eg$\chi$@[{$\chi$}]\begingroup Number of arguments of built-in function\nomeqref {2.0}|nompageref}{14}
+\nomenclatureentry{Eg$\sigmabar$@[{$\sigmabar$}]\begingroup Reduced signature\nomeqref {2.0}|nompageref}{14}
+\nomenclatureentry{Eg$\alphabar$@[{$\alphabar$}]\begingroup Reduced arity\nomeqref {2.0}|nompageref}{14}
+\nomenclatureentry{Ez4$\denote{b}_S$@[{$\denote{b}_S$}]\begingroup The denotation of the built-in function $b$ at the type assignment $S$\nomeqref {2.0}|nompageref}{15}
+\nomenclatureentry{Dz4$\reify{\cdot}$@[{$\reify{\cdot}$}]\begingroup Reification of the result of a built-in   function application\nomeqref {2.0}|nompageref}{15}
+\nomenclatureentry{Es2$\approx_S$@[{$\approx_S$}]\begingroup Compatibility of built-in function arguments with function arity via $S$\nomeqref {2.0}|nompageref}{16}
+\nomenclatureentry{Ez5$\Eval$@[{$\Eval$}]\begingroup Evaluation of built-in functions\nomeqref {2.0}|nompageref}{16}
+\nomenclatureentry{F4$V$@[{$V$}]\begingroup Plutus Core value\nomeqref {2.0}|nompageref}{17}
+\nomenclatureentry{F1$A$@[{$A$}]\begingroup Well-formed partial built-in function application\nomeqref {2.0}|nompageref}{17}
+\nomenclatureentry{F2$\pba$@[{$\pba$}]\begingroup Partial built-in function application (possibly ill-formed)\nomeqref {2.0}|nompageref}{17}
+\nomenclatureentry{F3$\pbas$@[{$\pbas$}]\begingroup Set of all  partial built-in function applications\nomeqref {2.0}|nompageref}{17}
+\nomenclatureentry{F5$\beta(\pba)$@[{$\beta(\pba)$}]\begingroup Function in partial builtin application $\pba$\nomeqref {2.0}|nompageref}{18}
+\nomenclatureentry{F6$\pbasize{\pba}$@[{$\pbasize{\pba}$}]\begingroup Size of partial builtin application $\pba$\nomeqref {2.0}|nompageref}{18}
+\nomenclatureentry{Fr1$\nextArg(A)$@[{$\nextArg(A)$}]\begingroup Next argument type (or \texttt{force}) required by a partial builtin application $A$\nomeqref {2.0}|nompageref}{18}
+\nomenclatureentry{Fr2$\args(A)$@[{$\args(A)$}]\begingroup Term arguments received so far by partial builtin application $A$\nomeqref {2.0}|nompageref}{18}
+\nomenclatureentry{Fr3$[V/x]M$@[{$[V/x]M$}]\begingroup Capture-avoiding substitution of value $V$ for variable $x$ in term $M$\nomeqref {2.0}|nompageref}{19}
+\nomenclatureentry{Fr3$f$@[{$f$}]\begingroup Reduction frame for contextual semantics: $\inAppLeftFrame{M}, \inAppRightFrame{V}, \inForceFrame$\nomeqref {2.0}|nompageref}{20}
+\nomenclatureentry{Ga1$\triangleright$@[{$\triangleright$}]\begingroup CEK compute phase\nomeqref {2.0}|nompageref}{21}
+\nomenclatureentry{Ga2$\triangleleft$@[{$\triangleleft$}]\begingroup CEK return phase\nomeqref {2.0}|nompageref}{21}
+\nomenclatureentry{Ga3$\cekerror$@[{$\cekerror$}]\begingroup CEK error state\nomeqref {2.0}|nompageref}{21}
+\nomenclatureentry{Ga4$\cekhalt$@[{$\cekhalt$}]\begingroup CEK halting state\nomeqref {2.0}|nompageref}{21}
+\nomenclatureentry{Gb1$\Sigma$@[{$\Sigma$}]\begingroup CEK machine state\nomeqref {2.0}|nompageref}{21}
+\nomenclatureentry{Gb2$s$@[{$s$}]\begingroup CEK machine stack\nomeqref {2.0}|nompageref}{21}
+\nomenclatureentry{Gb2a$f$@[{$f$}]\begingroup CEK stack frame: $\inForceFrame, \inAppLeftFrame{(M,\rho)}, \inAppRightFrame{V}, \inConstrFrame{i}{M_1 \ldots M_{j-1}}{V_{j+1} \ldots V_n}, \inCaseFrame{M_1 \ldots M_n}$\nomeqref {2.0}|nompageref}{21}
+\nomenclatureentry{Gb3$V$@[{$V$}]\begingroup CEK value: $\VCon{\tn}{c}, \VDelay{M}{\rho},\VLamAbs{x}{M}{\rho},\VBuiltin{b}{\repetition{V}}{\eta}$\nomeqref {2.0}|nompageref}{21}
+\nomenclatureentry{Gb4$\rho$@[{$\rho$}]\begingroup CEK environment\nomeqref {2.0}|nompageref}{21}
+\nomenclatureentry{Gb5$\rho[x]$@[{$\rho[x]$}]\begingroup Value bound to variable $x$ in environment $\rho$\nomeqref {2.0}|nompageref}{21}
+\nomenclatureentry{Gb6$\eta$@[{$\eta$}]\begingroup Arguments expected by partial builtin application\nomeqref {2.0}|nompageref}{21}
+\nomenclatureentry{Gc1$\unload{V}$@[{$\unload{V}$}]\begingroup Discharge a CEK value $V$ to obtain a Plutus Core term\nomeqref {2.0}|nompageref}{24}
+\nomenclatureentry{Gc2$\Unload{\rho}{M}$@[{$\Unload{\rho}{M}$}]\begingroup Discharge all variables bound by $\rho$ in the term $M$\nomeqref {2.0}|nompageref}{24}
+\nomenclatureentry{H$\bitc_T$@[{$\bitc_T$}]\begingroup Set of strings used for the concrete syntax of constants of built-in type $T$\nomeqref {4.0}|nompageref}{29}
+\nomenclatureentry{Azz$\divfn$, $\modfn$@[{$\divfn$, $\modfn$}]\begingroup Integer division operations\nomeqref {4.0}|nompageref}{34}
+\nomenclatureentry{Azz$\quotfn$, $\remfn$@[{$\quotfn$, $\remfn$}]\begingroup Integer division operations\nomeqref {4.0}|nompageref}{34}
+\nomenclatureentry{Bz$\epsilon$@[{$\epsilon$}]\begingroup The empty bytestring\nomeqref {B.0}|nompageref}{53}
+\nomenclatureentry{IC$\e_X$@[{$\e_X$}]\begingroup CBOR encoder for \texttt{data}\nomeqref {B.0}|nompageref}{53}
+\nomenclatureentry{IC$\d_X$@[{$\d_X$}]\begingroup CBOR decoder for \texttt{data}\nomeqref {B.0}|nompageref}{53}
+\nomenclatureentry{IF$\E_X$@[{$\E_X$}]\begingroup Flat encoder\nomeqref {C.0}|nompageref}{59}
+\nomenclatureentry{IF$\D_X$@[{$\D_X$}]\begingroup Flat decoder\nomeqref {C.0}|nompageref}{59}

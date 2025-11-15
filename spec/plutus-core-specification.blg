@@ -1,0 +1,71 @@
+This is BibTeX, Version 0.99d (TeX Live 2024/nixos.org)
+Capacity: max_strings=200000, hash_size=200000, hash_prime=170003
+The top-level auxiliary file: plutus-core-specification.aux
+The style file: plain.bst
+Database file #1: plutus-core-specification.bib
+Warning--string name "cip-0035" is undefined
+--line 5 of file plutus-core-specification.bib
+Warning--string name "cip-0042" is undefined
+--line 12 of file plutus-core-specification.bib
+Warning--string name "cip-0049" is undefined
+--line 19 of file plutus-core-specification.bib
+Warning--string name "cip-0101" is undefined
+--line 26 of file plutus-core-specification.bib
+Warning--string name "cip-0121" is undefined
+--line 33 of file plutus-core-specification.bib
+Warning--string name "cip-0122" is undefined
+--line 43 of file plutus-core-specification.bib
+Warning--string name "cip-0123" is undefined
+--line 53 of file plutus-core-specification.bib
+Warning--string name "cip-0381" is undefined
+--line 63 of file plutus-core-specification.bib
+Warning--to sort, need author or key in CIP-0035
+Warning--to sort, need author or key in CIP-0042
+Warning--to sort, need author or key in CIP-0049
+Warning--to sort, need author or key in CIP-0101
+Warning--to sort, need author or key in CIP-0121
+Warning--to sort, need author or key in CIP-0381
+Warning--to sort, need author or key in CIP-0122
+Warning--to sort, need author or key in CIP-0123
+You've used 48 entries,
+            2118 wiz_defined-function locations,
+            780 strings with 12161 characters,
+and the built_in function-call counts, 12148 in all, are:
+= -- 1155
+> -- 456
+< -- 11
++ -- 191
+- -- 140
+* -- 618
+:= -- 1908
+add.period$ -- 138
+call.type$ -- 48
+change.case$ -- 209
+chr.to.int$ -- 0
+cite$ -- 56
+duplicate$ -- 468
+empty$ -- 1187
+format.name$ -- 140
+if$ -- 2687
+int.to.chr$ -- 0
+int.to.str$ -- 48
+missing$ -- 20
+newline$ -- 232
+num.names$ -- 84
+pop$ -- 375
+preamble$ -- 1
+purify$ -- 165
+quote$ -- 0
+skip$ -- 410
+stack$ -- 0
+substring$ -- 473
+swap$ -- 108
+text.length$ -- 11
+text.prefix$ -- 0
+top$ -- 0
+type$ -- 182
+warning$ -- 8
+while$ -- 101
+width$ -- 50
+write$ -- 468
+(There were 16 warnings)

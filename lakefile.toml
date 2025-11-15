@@ -1,0 +1,16 @@
+name = "moist"
+version = "0.1.0"
+defaultTargets = ["moist"]
+
+[[lean_lib]]
+name = "Moist"
+
+[[lean_exe]]
+name = "moist"
+root = "Main"
+
+[[require]]
+name = "PlutusCore"
+git = "git@github.com:input-output-hk/sc-fvt.git"
+subDir = "PlutusCore"
+rev = "main"
