@@ -32,11 +32,12 @@ mutual
   inductive BuiltinType
     | AtomicType : AtomicType → BuiltinType
     | TypeOperator : TypeOperator → BuiltinType
+  deriving Repr
 
   inductive TypeOperator
     | TypeList : BuiltinType → TypeOperator
-    | TypePair : BuiltinType → TypeOperator
-
+    | TypePair : BuiltinType → BuiltinType → TypeOperator
+  deriving Repr
 end
 
 
@@ -62,9 +63,6 @@ inductive Const
   | Bls12_381_MlResult    : Const
     -- NOTE: missing value here (need to check in spec)
 deriving Repr
-
-
-
 
 inductive BuiltinFun
 -- Batch 1
@@ -182,7 +180,7 @@ deriving Repr, BEq
 
 inductive Term
 | Var : Nat → Term
-| Constant : Const → Term
+| Constant : Const × BuiltinType → Term
 | Builtin : BuiltinFun → Term
 | Lam : Nat → Term → Term
 | Apply : Term → Term → Term
@@ -200,8 +198,43 @@ instance : Repr Version where
   reprPrec v _ :=
     "Version " ++ repr v.1 ++ "." ++ repr v.2 ++ "." ++ repr v.3
 
+instance {α β} [LT α] [LT β] : LT (Prod α β) where
+  lt | (a₁, b₁), (a₂, b₂) => (a₁ < a₂) ∨ (a₁ = a₂ ∧ b₁ < b₂)
+
+instance {α β} [LT α] [LT β] [DecidableLT α] [DecidableEq α] [dltb : DecidableLT β] : DecidableRel (LT.lt : Prod α β → Prod α β → Prop) :=
+  λ (a₁, b₁) (a₂, b₂) =>
+    if h : a₁ < a₂
+      then isTrue (Or.inl h)
+    else if heq : a₁ = a₂ then
+      match dltb b₁ b₂ with
+      | isTrue  hlt  => isTrue (Or.inr ⟨heq, hlt⟩)
+      | isFalse hnlt => isFalse (fun h => by
+          cases h
+          · contradiction
+          · have hl : a₁ = a₂ ∧ b₁ < b₂ := by assumption
+            obtain ⟨_, _⟩ := hl
+            contradiction
+        )
+    else isFalse (fun h => by
+           cases h
+           · contradiction
+           · have hl : a₁ = a₂ ∧ b₁ < b₂ := by assumption
+             obtain ⟨_, _⟩ := hl
+             contradiction
+         )
+
+instance : LT Version where
+  lt | .Version a₁ b₁ c₁, .Version a₂ b₂ c₂ => (a₁, b₁, c₁) < (a₂, b₂, c₂)
+
+instance [dltp : DecidableLT (Nat × Nat × Nat)] : DecidableRel (LT.lt : Version → Version → Prop) :=
+  λ (.Version a₁ b₁ c₁) (.Version a₂ b₂ c₂) => dltp (a₁, b₁, c₁) (a₂, b₂, c₂)
+
 inductive Program
 | Program : Version → Term → Program
+deriving Repr
+
+instance : Inhabited Program where
+  default := .Program (.Version 1 1 0) (.Error)
 
 /-- Map a constant to its builtin type. -/
 def constType : Const → BuiltinType
@@ -212,9 +245,9 @@ def constType : Const → BuiltinType
   | Const.Bool _               => BuiltinType.AtomicType AtomicType.TypeBool
   | Const.ConstList _          => BuiltinType.TypeOperator (TypeOperator.TypeList (BuiltinType.AtomicType AtomicType.TypeData))
   | Const.ConstDataList _      => BuiltinType.TypeOperator (TypeOperator.TypeList (BuiltinType.AtomicType AtomicType.TypeData))
-  | Const.ConstPairDataList _  => BuiltinType.TypeOperator (TypeOperator.TypePair (BuiltinType.AtomicType AtomicType.TypeData))
-  | Const.Pair _               => BuiltinType.TypeOperator (TypeOperator.TypePair (BuiltinType.AtomicType AtomicType.TypeData))
-  | Const.PairData _           => BuiltinType.TypeOperator (TypeOperator.TypePair (BuiltinType.AtomicType AtomicType.TypeData))
+  | Const.ConstPairDataList _  => BuiltinType.TypeOperator (TypeOperator.TypePair (BuiltinType.AtomicType AtomicType.TypeData) (BuiltinType.AtomicType AtomicType.TypeData))
+  | Const.Pair _               => BuiltinType.TypeOperator (TypeOperator.TypePair (BuiltinType.AtomicType AtomicType.TypeData) (BuiltinType.AtomicType AtomicType.TypeData))
+  | Const.PairData _           => BuiltinType.TypeOperator (TypeOperator.TypePair (BuiltinType.AtomicType AtomicType.TypeData) (BuiltinType.AtomicType AtomicType.TypeData)) -- This is wrong : ( fix .
   | Const.Data _               => BuiltinType.AtomicType AtomicType.TypeData
   | Const.Bls12_381_G1_element => BuiltinType.AtomicType AtomicType.TypeData
   | Const.Bls12_381_G2_element => BuiltinType.AtomicType AtomicType.TypeData

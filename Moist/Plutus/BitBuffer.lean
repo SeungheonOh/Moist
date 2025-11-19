@@ -59,7 +59,7 @@ specification.
 -/
 structure BitBuffer where
   bits : List Bool := []
-deriving Repr, Inhabited
+deriving Repr, Inhabited, BEq
 
 namespace BitBuffer
 
@@ -140,8 +140,25 @@ partial def packToBytes : List Bool → List UInt8
 /-- Convert a `BitBuffer` into a `List UInt8` by padding to a byte boundary and
     packing each consecutive 8 bits into a `UInt8`. -/
 def toByteList (buf : BitBuffer) : List UInt8 :=
-  let padded := BitBuffer.pad buf
-  packToBytes padded.bits
+  --let padded := BitBuffer.pad buf
+  packToBytes buf.bits
+
+/-- Convert a nibble (0..15) to its lowercase hexadecimal `Char`. -/
+def nibbleToHexChar : Nat → Char
+  | 0 => '0' | 1 => '1' | 2 => '2' | 3 => '3' | 4 => '4' | 5 => '5' | 6 => '6' | 7 => '7'
+  | 8 => '8' | 9 => '9' | 10 => 'A' | 11 => 'B' | 12 => 'C' | 13 => 'D' | 14 => 'E' | 15 => 'F'
+  | _ => '?'
+
+/-- Convert a `BitBuffer` into a lower-case hexadecimal `String` representing
+    the padded bytes (two hex digits per byte). -/
+def toHexString (buf : BitBuffer) : String :=
+  let bytes := buf.toByteList
+  let chars := bytes.flatMap fun (b : UInt8) =>
+    let n := b.toNat
+    let hi := n / 16
+    let lo := n % 16
+    [nibbleToHexChar hi, nibbleToHexChar lo]
+  String.mk chars
 
 /-- Format a bitstring into 8-bit chunks, 6 chunks per line.
     Useful for displaying encoded data in a readable format. -/
@@ -162,7 +179,6 @@ def formatBitString (buf : BitBuffer) : String :=
 
   let formatted := formatChunks chunks [] 0
   String.mk (formatted.flatMap String.toList)
-
 
 end BitBuffer
 
