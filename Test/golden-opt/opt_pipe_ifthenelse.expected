@@ -1,11 +1,6 @@
 --- Input ---
 force (ifThenElse x_1 (delay 1) (delay 0))
 --- Optimized ---
-let anf_1005 = ifThenElse x_1
-let anf_1006 = delay 1
-let anf_1007 = anf_1005 anf_1006
-let anf_1008 = delay 0
-let anf_1009 = anf_1007 anf_1008
-in force anf_1009
+force (ifThenElse x_1 (delay 1) (delay 0))
 --- isANF ---
-true
+false

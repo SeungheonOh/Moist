@@ -1,4 +1,4 @@
 --- Input ---
 λf_4 x_1. let a_7 = x_1 let b_8 = f_4 a_7 let c_9 = 99 in b_8 c_9
 --- UPLC ---
-(lam (lam [[(var 2) (var 1)] (con integer 99)]))
+(lam (lam [(lam [(lam [(lam [(var 2) (var 1)]) (con integer 99)]) [(var 3) (var 1)]]) (var 1)]))

@@ -8,25 +8,12 @@
   in addInteger fA_22 (addInteger fC_23 fD_24)
 --- Optimized ---
 λfoo_20.
-  let anf_1025 = force sndPair
-  let anf_1026 = force anf_1025
-  let anf_1027 = unConstrData foo_20
-  let flds_21 = anf_1026 anf_1027
+  let flds_21 = (force (force sndPair)) (unConstrData foo_20)
   let anf_1003 = force headList
-  let anf_1007 = force tailList
-  let anf_1028 = anf_1007 flds_21
-  let anf_1010 = anf_1007 anf_1028
-  let anf_1029 = anf_1003 flds_21
-  let anf_1030 = unIData anf_1029
-  let anf_1037 = addInteger anf_1030
-  let anf_1031 = anf_1003 anf_1010
-  let anf_1032 = unIData anf_1031
-  let anf_1035 = addInteger anf_1032
-  let anf_1033 = anf_1007 anf_1010
-  let anf_1034 = anf_1003 anf_1033
-  let anf_1036 = unIData anf_1034
-  let anf_1038 = anf_1035 anf_1036
-  in anf_1037 anf_1038
+  let anf_1006 = force tailList
+  let anf_1009 = anf_1006 (anf_1006 flds_21)
+  in
+    addInteger (unIData (anf_1003 flds_21)) (addInteger (unIData (anf_1003 anf_1009)) (unIData (anf_1003 (anf_1006 anf_1009))))
 --- UPLC ---
 (lam
   [(lam

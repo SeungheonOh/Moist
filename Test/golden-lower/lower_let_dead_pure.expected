@@ -3,4 +3,4 @@ let a_7 = 99
 let b_8 = λx_1. x_1
 in 1
 --- UPLC ---
-(con integer 1)
+[(lam [(lam (con integer 1)) (lam (var 1))]) (con integer 99)]

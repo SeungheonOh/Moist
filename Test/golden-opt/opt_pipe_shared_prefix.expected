@@ -3,13 +3,7 @@ let a_7 = f_4 (f_4 (f_4 x_1))
 let b_8 = f_4 (f_4 (f_4 (f_4 (f_4 (f_4 x_1)))))
 in g_5 a_7 b_8
 --- Optimized ---
-let anf_1010 = f_4 x_1
-let anf_1011 = f_4 anf_1010
-let anf_1002 = f_4 anf_1011
-let anf_1014 = g_5 anf_1002
-let anf_1012 = f_4 anf_1002
-let anf_1013 = f_4 anf_1012
-let anf_1015 = f_4 anf_1013
-in anf_1014 anf_1015
+let a_7 = f_4 (f_4 (f_4 x_1))
+in g_5 a_7 (f_4 (f_4 (f_4 a_7)))
 --- isANF ---
-true
+false

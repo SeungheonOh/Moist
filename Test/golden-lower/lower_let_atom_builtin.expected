@@ -2,4 +2,4 @@
 let a_7 = addInteger
 in a_7 a_7
 --- UPLC ---
-[(builtin addInteger) (builtin addInteger)]
+[(lam [(var 1) (var 1)]) (builtin addInteger)]
