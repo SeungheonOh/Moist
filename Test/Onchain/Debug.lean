@@ -1,11 +1,12 @@
 import Moist.Onchain
 import Moist.Plutus.Pretty
 import Moist.Onchain.Prelude
+import Moist.Plutus.Eval
 
 open Moist.Plutus.Term
 open Moist.Plutus.Pretty (prettyTerm)
 open Moist.Onchain.Prelude
-
+open Moist.Plutus.Eval
 namespace Test.Debug
 
 @[plutus_data]
@@ -29,6 +30,22 @@ def aaa (x : Foo) : Int :=
 def bbb : Foo := Foo.foo 1 2 3 4 5 6 7
 
 def aaaa : Term := compile! aaa
+
+def bbbb : Term := compile! bbb
+
+@[onchain]
+def ccc : Int := aaa bbb
+
+def cccc : Term := compile! ccc
+
+#eval (cccc).evaluatePretty
+
+-- This fails with TypeMismatch because bbbb has free variables (De Bruijn indices)
+-- that don't compose with aaaa's indices when naively applied.
+-- #eval (aaaa.Apply bbbb).evaluatePretty
+
+#eval bbbb.evaluatePretty
+#eval (aaaa.Apply bbbb).evaluatePretty
 
 #show_optimized_mir aaa
 

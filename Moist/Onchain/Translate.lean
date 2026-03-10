@@ -187,9 +187,9 @@ private def wrapFromData (env : Environment) (fieldTy : Lean.Expr) (val : MIR.Ex
   | some b => .App (mkBuiltin b) val
   | none => val
 
-/-- Build a Data list from field values: mkCons f0 (mkCons f1 ... mkNilData) -/
+/-- Build a Data list from field values: mkCons f0 (mkCons f1 ... []) -/
 private def mkDataList (fields : List MIR.Expr) : MIR.Expr :=
-  fields.foldr (init := .App (mkBuiltin .MkNilData) (.Lit (.Integer 0, .AtomicType .TypeInteger)))
+  fields.foldr (init := .Lit (.ConstDataList [], .TypeOperator (.TypeList (.AtomicType .TypeData))))
     fun f acc => .App (.App (mkBuiltin .MkCons) f) acc
 
 /-- Reduce a single projection by whnf-ing only the struct part. -/
@@ -832,10 +832,10 @@ mutual
           if repr == .sop then
             pure (.Constr cval.cidx [])
           else
-            -- Data encoding: constrData tag mkNilData
+            -- Data encoding: constrData tag []
             pure (.App (.App (mkBuiltin .ConstrData)
               (.Lit (.Integer cval.cidx, .AtomicType .TypeInteger)))
-              (.App (mkBuiltin .MkNilData) (.Lit (.Integer 0, .AtomicType .TypeInteger))))
+              (.Lit (.ConstDataList [], .TypeOperator (.TypeList (.AtomicType .TypeData)))))
         else
           throwError "cannot compile {name}: no definition body (axiom or opaque)"
     | none => throwError "unknown constant: {name}"
