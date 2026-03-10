@@ -1,0 +1,9 @@
+--- Input ---
+case (f_4 x_1) of
+  | y_2
+  | z_3
+--- Output ---
+let anf_100 = f_4 x_1
+in case anf_100 of | y_2 | z_3
+--- isANF ---
+true

@@ -1,0 +1,12 @@
+--- Input ---
+let a_7 = f_4 x_1 y_2
+let b_8 = g_5 a_7
+in a_7 b_8 z_3
+--- Output ---
+let anf_100 = f_4 x_1
+let a_7 = anf_100 y_2
+let b_8 = g_5 a_7
+let anf_101 = a_7 b_8
+in anf_101 z_3
+--- isANF ---
+true

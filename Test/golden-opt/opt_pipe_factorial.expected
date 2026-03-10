@@ -1,0 +1,33 @@
+--- Input ---
+let fac_10 =
+  fix fac_10 =
+    λn_11.
+      let isZero_12 = equalsInteger n_11 0
+      in
+        force (ifThenElse isZero_12 (delay
+          1) (delay
+          let n1_13 = subtractInteger n_11 1
+          let facN1_14 = fac_10 n1_13
+          in multiplyInteger n_11 facN1_14))
+in fac_10 10
+--- Optimized ---
+let anf_1023 =
+  fix fac_10 =
+    λn_11.
+      let anf_1012 = equalsInteger n_11
+      let anf_1013 = anf_1012 0
+      let anf_1014 = ifThenElse anf_1013
+      let anf_1015 = delay 1
+      let anf_1020 = anf_1014 anf_1015
+      let anf_1021 =
+        delay
+          let anf_1018 = multiplyInteger n_11
+          let anf_1016 = subtractInteger n_11
+          let anf_1017 = anf_1016 1
+          let anf_1019 = fac_10 anf_1017
+          in anf_1018 anf_1019
+      let anf_1022 = anf_1020 anf_1021
+      in force anf_1022
+in anf_1023 10
+--- isANF ---
+true

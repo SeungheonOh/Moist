@@ -1,0 +1,8 @@
+--- Input ---
+let v_50 = delay x_1
+let w_51 = force v_50
+in w_51
+--- Optimized ---
+x_1
+--- isANF ---
+true

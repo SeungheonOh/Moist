@@ -1,0 +1,7 @@
+--- Input ---
+fix f_4 = let a_7 = 1 in λx_1. f_4 a_7
+--- Output ---
+let a_7 = 1
+in fix f_4 = λx_1. f_4 a_7
+--- Changed ---
+true

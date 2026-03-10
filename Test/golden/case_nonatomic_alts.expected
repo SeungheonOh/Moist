@@ -1,0 +1,11 @@
+--- Input ---
+case x_1 of
+  | f_4 y_2 z_3
+  | a_7
+--- Output ---
+case x_1 of
+  | let anf_100 = f_4 y_2
+  in anf_100 z_3
+  | a_7
+--- isANF ---
+true

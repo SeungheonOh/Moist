@@ -1,0 +1,8 @@
+--- Input ---
+λx_1. let a_7 = 1 let b_8 = 2 in x_1
+--- Output ---
+let a_7 = 1
+let b_8 = 2
+in λx_1. x_1
+--- Changed ---
+true

@@ -1,0 +1,6 @@
+--- Input ---
+delay f_4 x_1 y_2
+--- Output ---
+delay let anf_100 = f_4 x_1 in anf_100 y_2
+--- isANF ---
+true

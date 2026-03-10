@@ -1,0 +1,6 @@
+--- Input ---
+λx_1. let a_7 = 1 let b_8 = addInteger x_1 let c_9 = addInteger x_1 in b_8 c_9
+--- Optimized ---
+λx_1. let b_8 = addInteger x_1 in b_8 b_8
+--- isANF ---
+true

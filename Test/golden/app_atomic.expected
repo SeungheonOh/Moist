@@ -1,0 +1,6 @@
+--- Input ---
+f_4 x_1
+--- Output ---
+f_4 x_1
+--- isANF ---
+true

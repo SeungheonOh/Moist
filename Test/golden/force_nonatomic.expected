@@ -1,0 +1,7 @@
+--- Input ---
+force (f_4 x_1)
+--- Output ---
+let anf_100 = f_4 x_1
+in force anf_100
+--- isANF ---
+true

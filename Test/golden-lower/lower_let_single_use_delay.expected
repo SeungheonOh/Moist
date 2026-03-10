@@ -1,0 +1,5 @@
+--- Input ---
+let a_7 = delay 1
+in force a_7
+--- UPLC ---
+(force (delay (con integer 1)))

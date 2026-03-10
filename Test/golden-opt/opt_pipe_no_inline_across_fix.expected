@@ -1,0 +1,15 @@
+--- Input ---
+let a_7 = addInteger (addInteger (addInteger (addInteger 1 1) 1) 1) 1
+in fix rep_60 = λn_6. rep_60 n_6 a_7
+--- Optimized ---
+let anf_1008 = addInteger 1
+let anf_1009 = anf_1008 1
+let anf_1010 = addInteger anf_1009
+let anf_1011 = anf_1010 1
+let anf_1012 = addInteger anf_1011
+let anf_1013 = anf_1012 1
+let anf_1014 = addInteger anf_1013
+let a_7 = anf_1014 1
+in fix rep_60 = λn_6. let anf_1015 = rep_60 n_6 in anf_1015 a_7
+--- isANF ---
+true

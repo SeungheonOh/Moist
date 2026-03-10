@@ -1,0 +1,9 @@
+--- Input ---
+let a_7 = x_1
+let b_8 = a_7
+let c_9 = b_8
+in c_9
+--- Optimized ---
+x_1
+--- isANF ---
+true

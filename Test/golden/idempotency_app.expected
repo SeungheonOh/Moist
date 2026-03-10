@@ -1,0 +1,12 @@
+--- Input ---
+f_4 x_1 (g_5 y_2)
+--- First Pass ---
+let anf_100 = f_4 x_1
+let anf_101 = g_5 y_2
+in anf_100 anf_101
+--- Second Pass ---
+let anf_100 = f_4 x_1
+let anf_101 = g_5 y_2
+in anf_100 anf_101
+--- Alpha Equivalent ---
+true

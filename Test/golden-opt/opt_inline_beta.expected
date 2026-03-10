@@ -1,0 +1,6 @@
+--- Input ---
+(λx_1. x_1 x_1) z_3
+--- Output ---
+z_3 z_3
+--- Changed ---
+true

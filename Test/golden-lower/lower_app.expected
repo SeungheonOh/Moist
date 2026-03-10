@@ -1,0 +1,4 @@
+--- Input ---
+λf_4 x_1. f_4 x_1
+--- UPLC ---
+(lam (lam [(var 2) (var 1)]))

@@ -1,0 +1,6 @@
+--- Input ---
+λx_1. f_4 x_1
+--- Optimized ---
+λx_1. f_4 x_1
+--- isANF ---
+true

@@ -1,0 +1,4 @@
+--- Input ---
+λf_4 x_1. let a_7 = f_4 x_1 in a_7 a_7
+--- UPLC ---
+(lam (lam [(lam [(var 1) (var 1)]) [(var 2) (var 1)]]))
