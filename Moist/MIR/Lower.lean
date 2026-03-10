@@ -1,6 +1,5 @@
 import Moist.MIR.Expr
 import Moist.MIR.Analysis
-import Moist.MIR.Optimize.Purity
 
 namespace Moist.MIR
 
@@ -9,22 +8,19 @@ open Moist.Plutus.Term (Term Const BuiltinType BuiltinFun)
 /-! # MIR → UPLC Lowering
 
 Translates MIR expressions to UPLC Terms (de Bruijn indexed).
-Fix nodes are lowered via the Z combinator.
 
-## Let Inlining
+This is a clean structural translation — no inlining or substitution
+is performed here. Pre-lowering optimization (atom/single-use inlining,
+dead binding elimination) is handled by `preLowerInline` before this pass.
 
-During lowering, single-use and dead let bindings are optimized:
-- **Atom RHS** (Var, Lit, Builtin): always substituted, avoiding a
-  redundant lambda-application wrapper.
-- **Single-use**: always substituted. Safe in Plutus/UPLC where
-  the only effects are error/trace (no mutable state).
-- **Zero-use, pure RHS**: binding is dropped entirely.
-- **Otherwise**: lowered as `(λ. body') rhs'` (standard encoding).
+## Let Encoding
 
-## Error Reporting
+Each `let v = rhs in body` is lowered to `(λ. body') rhs'`.
 
-Returns `Except String Term` so that unbound variable errors
-include the variable name.
+## Fix Encoding
+
+Fix nodes are lowered via the Z combinator (CBV-safe):
+`Fix f (Lam x e)` → `(λs. λx. e'[f := λv. s s v]) (λs. λx. e'[f := λv. s s v])`
 -/
 
 abbrev LowerM := ExceptT String FreshM
@@ -37,17 +33,6 @@ where
   go : List VarId → Nat → Option Nat
     | [], _ => none
     | x :: xs, n => if x == v then some n else go xs (n + 1)
-
-/-- Count occurrences of `x` in the remaining bindings and body. -/
-private def countInRestAndBody (x : VarId) (rest : List (VarId × Expr)) (body : Expr) : Nat :=
-  match rest with
-  | [] => countOccurrences x body
-  | _ => countOccurrences x (.Let rest body)
-
-/-- Flatten degenerate empty-binding Lets that may arise from substitution. -/
-private def flattenLet : Expr → Expr
-  | .Let [] body => flattenLet body
-  | e => e
 
 partial def lower (env : List VarId) (e : Expr) : LowerM Term := do
   match e with
@@ -96,24 +81,9 @@ where
   lowerLet (env : List VarId) : List (VarId × Expr) → Expr → LowerM Term
     | [], body => lower env body
     | (x, rhs) :: rest, body => do
-      let uses := countInRestAndBody x rest body
-      -- Atom RHS: always substitute (trivially cheap, no effects)
-      if rhs.isAtom then
-        let restBody ← liftFresh (subst x rhs (.Let rest body))
-        lower env (flattenLet restBody)
-      -- Zero uses, pure RHS: drop dead binding
-      else if uses == 0 && isPure rhs then
-        lowerLet env rest body
-      -- Single use: always substitute. UPLC has no mutable state,
-      -- so reordering across other bindings is safe.
-      else if uses == 1 then
-        let restBody ← liftFresh (subst x rhs (.Let rest body))
-        lower env (flattenLet restBody)
-      -- General case: (λ. rest') rhs'
-      else do
-        let rhs' ← lower env rhs
-        let rest' ← lowerLet (x :: env) rest body
-        pure (.Apply (.Lam 0 rest') rhs')
+      let rhs' ← lower env rhs
+      let rest' ← lowerLet (x :: env) rest body
+      pure (.Apply (.Lam 0 rest') rhs')
 
   lowerFix (env : List VarId) (f : VarId) (body : Expr) : LowerM Term := do
     match body with

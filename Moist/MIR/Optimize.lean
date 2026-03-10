@@ -5,6 +5,7 @@ import Moist.MIR.Optimize.FloatOut
 import Moist.MIR.Optimize.Inline
 import Moist.MIR.Optimize.CSE
 import Moist.MIR.Optimize.DCE
+import Moist.MIR.Optimize.EtaReduce
 import Moist.MIR.Optimize.ForceDelay
 
 namespace Moist.MIR
@@ -23,30 +24,29 @@ ANF input
 Float Out            ← maximize sharing by hoisting pure bindings
   │                    out of Lam/Fix
   ▼
-ANF normalize        ← ensure clean ANF before simplification
+ANF normalize        ← create let bindings for CSE (once)
   │
   ▼
-┌───────────────────────────────┐
-│ Outer loop (fixed point)      │
-│                               │
-│  ┌─────────────────┐          │
-│  │ Simplify (loop) │ ← inner  │  repeat until no pass
-│  │  1. CSE         │   fixed   │  makes progress
-│  │  2. Inlining    │   point   │
-│  │  3. Force-Delay │          │
-│  │  4. DCE         │          │
-│  └─────────────────┘          │
-│    │                          │
-│    ▼                          │
-│  Re-normalize                 │  ← restore ANF invariants;
-│    │                          │    may expose new CSE/DCE
-│    ▼                          │    targets via let flattening
-│  alpha-eq check ──── done? ───│
-└───────────────────────────────┘
+┌─────────────────┐
+│ Simplify (loop) │  repeat until no pass
+│  1. CSE         │  makes progress
+│  2. Inlining    │
+│  3. Eta Reduce  │
+│  4. Force-Delay │
+│  5. DCE         │
+└─────────────────┘
   │
   ▼
-ANF output
+MIR output → PreLowerInline → Lower
 ```
+
+ANF normalization runs once at the start to create let bindings that
+CSE and other passes can work with. It is NOT repeated in the loop —
+inlining intentionally removes let bindings, and re-normalizing would
+recreate exactly the bindings that inline just eliminated, causing a
+wasteful back-and-forth cycle. The PreLowerInline pass handles any
+remaining cleanup (beta reduction, atom substitution, single-use
+inlining) before lowering.
 
 ## Why This Order
 
@@ -58,27 +58,23 @@ ANF output
 2. **CSE before inlining**: Deduplicate first so there are fewer
    bindings to analyze during inlining.
 
-3. **Inlining before force-delay**: Inlining may expose direct
-   `Force (Delay e)` patterns that were hidden behind variable
-   references.
+3. **Inlining before eta**: Inlining may expose eta-reducible patterns
+   by substituting known lambda definitions.
 
-4. **Force-delay before DCE**: Cancellation makes `Delay` bindings
+4. **Eta before force-delay**: Eta reduction simplifies lambda structure
+   before force-delay cancellation.
+
+5. **Force-delay before DCE**: Cancellation makes `Delay` bindings
    dead; DCE sweeps them away.
-
-5. **Re-normalize after simplify**: Inlining and force-delay
-   cancellation can break ANF. Re-normalization restores the
-   invariant and may flatten nested lets, exposing new CSE/DCE
-   targets — so the outer loop repeats until convergence.
 
 ## Fixed-Point Iteration
 
-The simplify loop repeats up to `maxIterations` times (default 10).
+The simplify loop repeats up to `maxIterations` times (default 20).
 It stops early when no pass in a full iteration reports a change.
 This converges because each pass strictly reduces expression
 complexity or count: CSE reduces binding count, inlining reduces
-variable indirection, force-delay removes force/delay pairs, and
-DCE removes dead bindings. None of these passes introduce new
-work for each other in an unbounded cycle.
+variable indirection, eta reduces lambda wrapping, force-delay
+removes force/delay pairs, and DCE removes dead bindings.
 
 ## Examples
 
@@ -137,14 +133,16 @@ Var x
 In practice the pipeline converges in 2--4 iterations. -/
 def maxOptIterations : Nat := 20
 
-/-- Run one iteration of the simplify loop: CSE → Inline → ForceDelay → DCE.
+/-- Run one iteration of the simplify loop:
+CSE → Inline → Eta Reduce → ForceDelay → DCE.
 Returns the simplified expression and whether any sub-pass made progress. -/
 partial def simplifyOnce (e : Expr) : FreshM (Expr × Bool) := do
   let (e1, c1) := cse e
   let (e2, c2) ← inlinePass e1
-  let (e3, c3) := forceDelay e2
-  let (e4, c4) := dce e3
-  pure (e4, c1 || c2 || c3 || c4)
+  let (e3, c3) := etaReduce e2
+  let (e4, c4) := forceDelay e3
+  let (e5, c5) := dce e4
+  pure (e5, c1 || c2 || c3 || c4 || c5)
 
 /-- Run the simplify loop to fixed point (up to `maxOptIterations`). -/
 partial def simplifyLoop (e : Expr) (fuel : Nat := maxOptIterations) : FreshM Expr := do
@@ -153,36 +151,24 @@ partial def simplifyLoop (e : Expr) (fuel : Nat := maxOptIterations) : FreshM Ex
   if changed then simplifyLoop e' (fuel - 1)
   else return e'
 
-/-- Run the full optimization pipeline on an ANF expression.
+/-- Run the full optimization pipeline on an MIR expression.
 
 1. Float out pure bindings past Lam/Fix boundaries.
-2. Loop to fixed point:
-   a. Simplify (CSE, inline, force-delay, DCE) to fixed point.
-   b. Re-normalize to restore ANF invariants.
-   c. If the result is unchanged, stop. Otherwise repeat —
-      normalization can expose new CSE/DCE targets by flattening
-      nested lets into a single scope.
+2. ANF normalize (once) to create let bindings for CSE.
+3. Simplify to fixed point (CSE, inline, eta, force-delay, DCE).
 
-Returns the optimized ANF expression. -/
+Returns the optimized MIR expression. -/
 partial def optimize (e : Expr) : FreshM Expr := do
   let (e1, _) := floatOut e
   let e2 ← anfNormalize e1
-  outerLoop e2 maxOptIterations
-where
-  outerLoop (e : Expr) : Nat → FreshM Expr
-    | 0 => pure e
-    | fuel + 1 => do
-      let e' ← simplifyLoop e
-      let e'' ← anfNormalize e'
-      if alphaEq e e'' then pure e''
-      else outerLoop e'' fuel
+  simplifyLoop e2
 
 /-- Convenience wrapper: run the full optimization pipeline with a given
 fresh variable starting index.
 
 ```
 optimizeExpr input 1000
--- Runs floatOut → simplify loop → re-normalize
+-- Runs floatOut → ANF → simplify loop
 -- Fresh variables start at uid 1000
 ```
 -/

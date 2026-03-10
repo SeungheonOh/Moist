@@ -21,8 +21,18 @@ instance : BEq VarId where
 instance : Hashable VarId where
   hash v := hash v.uid
 
+/-- Strip Lean hygiene suffixes from a variable hint.
+    `"a._@.Module._hyg.53"` → `"a"`, `"x._@.Foo._hyg.8.152"` → `"x"` -/
+private def sanitizeHint (s : String) : String :=
+  -- Drop everything from "._@." onward (Lean hygiene marker)
+  match s.splitOn "._@." with
+  | base :: _ => if base.isEmpty then "v" else base
+  | [] => s
+
 instance : ToString VarId where
-  toString v := if v.hint.isEmpty then s!"v{v.uid}" else s!"{v.hint}_{v.uid}"
+  toString v :=
+    let h := sanitizeHint v.hint
+    if h.isEmpty then s!"v{v.uid}" else s!"{h}_{v.uid}"
 
 inductive Expr
   | Var     : VarId → Expr

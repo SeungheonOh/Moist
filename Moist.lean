@@ -8,3 +8,4 @@ import Moist.MIR.ANF
 import Moist.MIR.Lower
 import Moist.MIR.Optimize
 import Moist.Plutus.Pretty
+import Moist.Onchain
