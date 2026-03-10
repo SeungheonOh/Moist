@@ -120,9 +120,9 @@ def optGoldenTests : List (String × String) := [
     (Expr.Let [(a, intLit 42), (b, .Lam y (.Var a))] (.Var z))
     dce,
 
-  -- Impure unused kept
+  -- Impure unused kept (contains Error)
   mkPassGolden "opt_dce_impure_kept"
-    (Expr.Let [(a, .App (.Var f) (.Var x))] (.Var y))
+    (Expr.Let [(a, .App .Error (.Var x))] (.Var y))
     dce,
 
   -- Mixed: some removed, some kept

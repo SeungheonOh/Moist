@@ -54,21 +54,33 @@ private def largeLam : Expr :=
   check "isPure_constr_lits" (isPure (.Constr 1 [intLit 1, intLit 2]))
   check "isPure_constr_builtin" (isPure (.Constr 0 [.Builtin .AddInteger]))
   check "isPure_constr_mixed_atoms" (isPure (.Constr 0 [.Var x, intLit 1, .Builtin .AddInteger]))
-  -- Impure: Constr with non-atom args
-  check "isPure_constr_app_arg" (!isPure (.Constr 0 [.App (.Var f) (.Var x)]))
-  check "isPure_constr_lam_arg" (!isPure (.Constr 0 [.Lam x (.Var x)]))
-  check "isPure_constr_delay_arg" (!isPure (.Constr 0 [.Delay (.Var x)]))
-  check "isPure_constr_one_bad" (!isPure (.Constr 0 [.Var x, .App (.Var f) (.Var y)]))
-  check "isPure_constr_first_bad" (!isPure (.Constr 0 [.App (.Var f) (.Var x), .Var y]))
-  -- Always impure
-  check "isPure_app" (!isPure (.App (.Var f) (.Var x)))
+  -- Pure: Constr with non-atom but pure args
+  check "isPure_constr_app_arg" (isPure (.Constr 0 [.App (.Var f) (.Var x)]))
+  check "isPure_constr_lam_arg" (isPure (.Constr 0 [.Lam x (.Var x)]))
+  check "isPure_constr_delay_arg" (isPure (.Constr 0 [.Delay (.Var x)]))
+  check "isPure_constr_one_good" (isPure (.Constr 0 [.Var x, .App (.Var f) (.Var y)]))
+  check "isPure_constr_first_good" (isPure (.Constr 0 [.App (.Var f) (.Var x), .Var y]))
+  -- Pure: compound expressions without Error or builtin application
+  check "isPure_app" (isPure (.App (.Var f) (.Var x)))
+  check "isPure_force" (isPure (.Force (.Var x)))
+  check "isPure_force_delay" (isPure (.Force (.Delay (.Var x))))
+  check "isPure_case" (isPure (.Case (.Var x) [.Var y, .Var z]))
+  check "isPure_let" (isPure (.Let [(a, intLit 1)] (.Var a)))
+  check "isPure_let_pure_bindings" (isPure (.Let [(a, .Var x)] (.Var a)))
+  -- Impure: builtin applied to argument (may fail at runtime)
   check "isPure_app_builtin" (!isPure (.App (.Builtin .AddInteger) (intLit 1)))
-  check "isPure_force" (!isPure (.Force (.Var x)))
-  check "isPure_force_delay" (!isPure (.Force (.Delay (.Var x))))
-  check "isPure_case" (!isPure (.Case (.Var x) [.Var y, .Var z]))
-  check "isPure_let" (!isPure (.Let [(a, intLit 1)] (.Var a)))
-  check "isPure_let_pure_bindings" (!isPure (.Let [(a, .Var x)] (.Var a)))
+  check "isPure_app_builtin_chain" (!isPure (.App (.App (.Builtin .AddInteger) (intLit 1)) (intLit 2)))
+  check "isPure_app_forced_builtin" (!isPure (.App (.Force (.Builtin .HeadList)) (.Var x)))
+  -- Impure: contains Error
   check "isPure_error" (!isPure .Error)
+  check "isPure_app_error_fn" (!isPure (.App .Error (.Var x)))
+  check "isPure_app_error_arg" (!isPure (.App (.Var f) .Error))
+  check "isPure_constr_error_arg" (!isPure (.Constr 0 [.Var x, .Error]))
+  check "isPure_let_error_rhs" (!isPure (.Let [(a, .Error)] (.Var a)))
+  check "isPure_let_error_body" (!isPure (.Let [(a, .Var x)] .Error))
+  check "isPure_case_error_scrut" (!isPure (.Case .Error [.Var y]))
+  check "isPure_case_error_alt" (!isPure (.Case (.Var x) [.Error]))
+  check "isPure_force_error" (!isPure (.Force .Error))
 
 -- ------------------------------------------------------------------
 -- # 2. exprStructEq                                                   
@@ -232,15 +244,17 @@ private def largeLam : Expr :=
   let e := Expr.Lam x (.Let [(a, .Var x)] (.Var a))
   checkPassResult "float_pure_mentions_binder" (floatOut e) e false
 
--- Impure binding stays even without binder dependency
+-- Pure binding not mentioning binder floats out
 #eval do
   let e := Expr.Lam x (.Let [(a, .App (.Var f) (.Var y))] (.Var a))
-  checkPassResult "float_impure_stays" (floatOut e) e false
+  let expected := Expr.Let [(a, .App (.Var f) (.Var y))] (.Lam x (.Var a))
+  checkPassResult "float_pure_app_out" (floatOut e) expected true
 
--- Impure Force stays
+-- Pure Force floats out
 #eval do
   let e := Expr.Lam x (.Let [(a, .Force (.Var y))] (.Var a))
-  checkPassResult "float_impure_force_stays" (floatOut e) e false
+  let expected := Expr.Let [(a, .Force (.Var y))] (.Lam x (.Var a))
+  checkPassResult "float_pure_force_out" (floatOut e) expected true
 
 -- Mixed partition: some float, some stay
 #eval do
@@ -521,20 +535,27 @@ private def largeLam : Expr :=
   checkPassResult "dce_unused_constr_atoms"
     (dce (.Let [(a, .Constr 0 [.Var y, .Var z])] (.Var x))) (.Var x) true
 
--- Impure unused bindings kept
+-- Pure unused bindings now removed (no Error)
 #eval do
-  let e1 := Expr.Let [(a, .App (.Var f) (.Var x))] (.Var y)
-  checkPassResult "dce_impure_app" (dce e1) e1 false
-  let e2 := Expr.Let [(a, .Force (.Var x))] (.Var y)
-  checkPassResult "dce_impure_force" (dce e2) e2 false
-  let e3 := Expr.Let [(a, .Case (.Var x) [.Var y])] (.Var z)
-  checkPassResult "dce_impure_case" (dce e3) e3 false
+  checkPassResult "dce_unused_app"
+    (dce (.Let [(a, .App (.Var f) (.Var x))] (.Var y))) (.Var y) true
+  checkPassResult "dce_unused_force"
+    (dce (.Let [(a, .Force (.Var x))] (.Var y))) (.Var y) true
+  checkPassResult "dce_unused_case"
+    (dce (.Let [(a, .Case (.Var x) [.Var y])] (.Var z))) (.Var z) true
+  checkPassResult "dce_unused_constr_app"
+    (dce (.Let [(a, .Constr 0 [.App (.Var f) (.Var x)])] (.Var y))) (.Var y) true
+  checkPassResult "dce_unused_let_rhs"
+    (dce (.Let [(a, .Let [(b, intLit 1)] (.Var b))] (.Var x))) (.Var x) true
+
+-- Impure unused bindings kept (contain Error)
+#eval do
   let e4 := Expr.Let [(a, .Error)] (.Var x)
   checkPassResult "dce_impure_error" (dce e4) e4 false
-  let e5 := Expr.Let [(a, .Constr 0 [.App (.Var f) (.Var x)])] (.Var y)
-  checkPassResult "dce_impure_constr" (dce e5) e5 false
-  let e6 := Expr.Let [(a, .Let [(b, intLit 1)] (.Var b))] (.Var x)
-  checkPassResult "dce_impure_let_rhs" (dce e6) e6 false
+  let e5 := Expr.Let [(a, .App .Error (.Var x))] (.Var y)
+  checkPassResult "dce_impure_app_error" (dce e5) e5 false
+  let e6 := Expr.Let [(a, .Case .Error [.Var y])] (.Var z)
+  checkPassResult "dce_impure_case_error" (dce e6) e6 false
 
 -- Used bindings always kept
 #eval do

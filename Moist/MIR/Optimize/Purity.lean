@@ -4,59 +4,55 @@ namespace Moist.MIR
 
 /-! # Purity Analysis
 
-Conservative analysis determining whether an expression is guaranteed to
-evaluate without error or divergence. Used by optimization passes to decide
-when it is safe to move, duplicate, or eliminate expressions.
+Determines whether an expression is guaranteed to evaluate without error.
+Used by optimization passes to decide when it is safe to move, duplicate,
+or eliminate expressions.
 
 ## Design
 
-An expression is **pure** if evaluating it always terminates successfully
-(produces a value without raising an error). This is a conservative
-approximation: some expressions we classify as impure may in fact be safe
-at runtime, but we never classify a potentially-failing expression as pure.
+The MIR is compiled from well-typed Lean, so type errors (applying a
+non-function, forcing a non-delay, etc.) cannot occur at runtime. The two
+sources of impurity are:
 
-### Pure expressions
+1. **Error** nodes -- always fail.
+2. **Builtin application** -- a builtin applied to an argument may fail
+   at runtime (e.g. `divideInteger x 0`). We cannot statically determine
+   argument values, so any application whose head is a builtin (possibly
+   wrapped in `Force`) is conservatively treated as impure.
 
-- **Var, Lit, Builtin** -- atoms are already values; evaluating them is free.
-- **Lam** -- building a closure never fails.
-- **Delay** -- building a thunk never fails.
-- **Fix** -- produces a recursive closure value (not evaluated yet).
-- **Constr** with atom arguments -- in ANF, constructor arguments are always
-  atoms (already evaluated), so constructing the node cannot fail.
+### Value forms (body not evaluated at construction time)
 
-### Impure expressions
+- **Lam, Delay, Fix** -- building a closure/thunk never fails regardless
+  of what the body contains.
 
-- **App** -- applying a function may diverge or error (e.g. partial builtin
-  application failing at runtime).
-- **Force** -- forcing a non-Delay value is an error.
-- **Case** -- evaluates the scrutinee and then a branch; either step can fail.
-- **Let** -- evaluates bindings sequentially; any binding may fail.
-- **Error** -- always fails.
+### Evaluated positions
 
-## Examples
-
-```
-isPure (Var x)               = true   -- already a value
-isPure (Lit (Integer 42, _)) = true   -- literal constant
-isPure (Lam x (App (Var x) (Var x)))
-                             = true   -- closure, body not evaluated yet
-isPure (Delay (Error))       = true   -- thunk, body not evaluated yet
-isPure (Constr 0 [Var a, Var b])
-                             = true   -- constructor with atom args
-isPure (App (Var f) (Var x)) = false  -- application may fail
-isPure (Force (Var x))       = false  -- forcing may fail
-isPure (Let [(v, e)] body)   = false  -- let evaluates bindings
-isPure Error                 = false  -- always fails
-```
+- **App f x** -- impure when the head function is a builtin (possibly
+  Force-wrapped); otherwise pure when both `f` and `x` are pure.
+- **Force e** -- pure when `e` is pure.
+- **Case scrut alts** -- pure when scrutinee and all branches are pure.
+- **Let binds body** -- pure when all binding RHS's and body are pure.
+- **Constr tag args** -- pure when all args are pure.
+- **Error** -- always impure.
 -/
 
+/-- Check whether `e` is a builtin, possibly wrapped in Force nodes
+(from polymorphic instantiation). -/
+private def isBuiltinHead : Expr → Bool
+  | .Builtin _ => true
+  | .Force e => isBuiltinHead e
+  | _ => false
+
 /-- Return `true` when evaluating the expression is guaranteed to succeed
-(no error, no divergence). See the module doc comment for the full
-classification and examples. -/
-def isPure : Expr → Bool
+(no error, no failing builtin application). -/
+partial def isPure : Expr → Bool
+  | .Error => false
   | .Var _ | .Lit _ | .Builtin _ => true
   | .Lam _ _ | .Delay _ | .Fix _ _ => true
-  | .Constr _ args => args.all Expr.isAtom
-  | .App _ _ | .Force _ | .Case _ _ | .Let _ _ | .Error => false
+  | .Constr _ args => args.all isPure
+  | .App f x => !isBuiltinHead f && isPure f && isPure x
+  | .Force e => isPure e
+  | .Case scrut alts => isPure scrut && alts.all isPure
+  | .Let binds body => binds.all (fun (_, rhs) => isPure rhs) && isPure body
 
 end Moist.MIR

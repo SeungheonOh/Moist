@@ -79,6 +79,15 @@ where
     , (`Moist.Onchain.Prelude.mkPairData,     .MkPairData)
     ]
 
+/-- Number of Force nodes required to fully instantiate a polymorphic builtin.
+    Monomorphic builtins need 0; each type quantifier in the Plutus type scheme
+    adds 1. -/
+def builtinForceCount : BuiltinFun → Nat
+  | .FstPair | .SndPair | .ChooseList => 2
+  | .IfThenElse | .ChooseUnit | .ChooseData
+  | .HeadList | .TailList | .NullList | .MkCons | .Trace => 1
+  | _ => 0
+
 def isBuiltinName (name : Name) : Bool :=
   builtinMap.contains name
 

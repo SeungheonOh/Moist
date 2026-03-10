@@ -16,6 +16,10 @@ Type and proof arguments are detected and skipped during translation.
 Constants are resolved via the builtin map or unfolded transitively.
 -/
 
+/-- Wrap a builtin in the required number of Force nodes. -/
+private def mkBuiltin (b : BuiltinFun) : MIR.Expr :=
+  Nat.repeat MIR.Expr.Force (builtinForceCount b) (.Builtin b)
+
 structure TranslateState where
   nextFresh : Nat := 0
 
@@ -174,19 +178,19 @@ private def getCtorFieldTypes (env : Environment) (ctorName : Name) (numParams :
 /-- Wrap a MIR expression in a Data encoder if needed. -/
 private def wrapToData (env : Environment) (fieldTy : Lean.Expr) (val : MIR.Expr) : MIR.Expr :=
   match toDataWrapper env fieldTy with
-  | some b => .App (.Builtin b) val
+  | some b => .App (mkBuiltin b) val
   | none => val
 
 /-- Wrap a MIR expression in a Data decoder if needed. -/
 private def wrapFromData (env : Environment) (fieldTy : Lean.Expr) (val : MIR.Expr) : MIR.Expr :=
   match fromDataWrapper env fieldTy with
-  | some b => .App (.Builtin b) val
+  | some b => .App (mkBuiltin b) val
   | none => val
 
 /-- Build a Data list from field values: mkCons f0 (mkCons f1 ... mkNilData) -/
 private def mkDataList (fields : List MIR.Expr) : MIR.Expr :=
-  fields.foldr (init := .App (.Builtin .MkNilData) (.Lit (.Integer 0, .AtomicType .TypeInteger)))
-    fun f acc => .App (.App (.Builtin .MkCons) f) acc
+  fields.foldr (init := .App (mkBuiltin .MkNilData) (.Lit (.Integer 0, .AtomicType .TypeInteger)))
+    fun f acc => .App (.App (mkBuiltin .MkCons) f) acc
 
 /-- Reduce a single projection by whnf-ing only the struct part. -/
 private partial def reduceProj (e : Lean.Expr) : TranslateM (Option Lean.Expr) := do
@@ -519,9 +523,9 @@ mutual
     -- Build tag dispatch: chain of equalsInteger checks
     let dispatch ← buildTagDispatch (.Var tagV) altBodies 0
     -- Wrap in let bindings
-    pure (.Let [(pairV, .App (.Builtin .UnConstrData) scrut)]
-      (.Let [(tagV, .App (.Builtin .FstPair) (.Var pairV))]
-        (.Let [(fieldsV, .App (.Builtin .SndPair) (.Var pairV))]
+    pure (.Let [(pairV, .App (mkBuiltin .UnConstrData) scrut)]
+      (.Let [(tagV, .App (mkBuiltin .FstPair) (.Var pairV))]
+        (.Let [(fieldsV, .App (mkBuiltin .SndPair) (.Var pairV))]
           dispatch)))
 
   /-- Extract fields from a Data list and apply them to an alternative lambda.
@@ -560,14 +564,14 @@ mutual
     for i in [:lastUsed + 1] do
       if usedMask[i]! then
         let headV ← freshVarId s!"f{i}"
-        let rawHead := MIR.Expr.App (.Builtin .HeadList) currentList
+        let rawHead := MIR.Expr.App (mkBuiltin .HeadList) currentList
         let field := wrapFromData env fieldTypes[i]! rawHead
         bindings := bindings.push (headV, field)
         usedFieldVars := usedFieldVars.push headV
       -- Advance list pointer if not at the last needed position
       if i < lastUsed then
         let tailV ← freshVarId s!"rest{i}"
-        let tailExpr := MIR.Expr.App (.Builtin .TailList) currentList
+        let tailExpr := MIR.Expr.App (mkBuiltin .TailList) currentList
         bindings := bindings.push (tailV, tailExpr)
         currentList := .Var tailV
     -- Re-wrap body with only used params as lambdas (innermost first)
@@ -596,13 +600,13 @@ mutual
     let mut currentList := fieldList
     for i in [:fieldTypes.size] do
       let headV ← freshVarId s!"f{i}"
-      let rawHead := MIR.Expr.App (.Builtin .HeadList) currentList
+      let rawHead := MIR.Expr.App (mkBuiltin .HeadList) currentList
       let field := wrapFromData env fieldTypes[i]! rawHead
       bindings := bindings.push (headV, field)
       fieldVars := fieldVars.push headV
       if i + 1 < fieldTypes.size then
         let tailV ← freshVarId s!"rest{i}"
-        let tailExpr := MIR.Expr.App (.Builtin .TailList) currentList
+        let tailExpr := MIR.Expr.App (mkBuiltin .TailList) currentList
         bindings := bindings.push (tailV, tailExpr)
         currentList := .Var tailV
     let mut body := alt
@@ -627,7 +631,7 @@ mutual
     -- Bool.casesOn: [false, true] = [index 0, index 1]
     -- equalsInteger returns true (constr 1) when equal
     let rest ← buildTagDispatch tag alts (idx + 1)
-    let check := MIR.Expr.App (.App (.Builtin .EqualsInteger) tag)
+    let check := MIR.Expr.App (.App (mkBuiltin .EqualsInteger) tag)
       (.Lit (.Integer idx, .AtomicType .TypeInteger))
     -- Case dispatch: [false branch = rest, true branch = current alt]
     pure (.Case check [rest, alts[idx]!])
@@ -659,8 +663,8 @@ mutual
         return .Lit (.Integer (-(↑n + 1 : Int)), .AtomicType .TypeInteger)
     -- Dynamic negSucc: subtractInteger (negate x) 1
     let x ← translateExpr natArg
-    pure (.App (.App (.Builtin .SubtractInteger)
-      (.App (.App (.Builtin .SubtractInteger) (.Lit (.Integer 0, .AtomicType .TypeInteger))) x))
+    pure (.App (.App (mkBuiltin .SubtractInteger)
+      (.App (.App (mkBuiltin .SubtractInteger) (.Lit (.Integer 0, .AtomicType .TypeInteger))) x))
       (.Lit (.Integer 1, .AtomicType .TypeInteger)))
 
   /-- Peel type-level lambdas from an expression, erasing them. -/
@@ -755,7 +759,7 @@ mutual
               let fieldTy := if h : i < fieldTypes.size then fieldTypes[i] else default
               wrappedArgs := wrappedArgs ++ [wrapToData env fieldTy valueArgs[i]!]
             let dataList := mkDataList wrappedArgs
-            return .App (.App (.Builtin .ConstrData)
+            return .App (.App (mkBuiltin .ConstrData)
               (.Lit (.Integer cval.cidx, .AtomicType .TypeInteger))) dataList
 
     -- Collect non-erased arguments
@@ -793,7 +797,7 @@ mutual
     let ctx ← read
     -- 1. Check builtin map
     if let some b := lookupBuiltin name then
-      return .Builtin b
+      return mkBuiltin b
     -- 2. Check for self-recursive reference
     if ctx.unfolding.contains name then
       if ctx.selfName == some name then
@@ -829,9 +833,9 @@ mutual
             pure (.Constr cval.cidx [])
           else
             -- Data encoding: constrData tag mkNilData
-            pure (.App (.App (.Builtin .ConstrData)
+            pure (.App (.App (mkBuiltin .ConstrData)
               (.Lit (.Integer cval.cidx, .AtomicType .TypeInteger)))
-              (.App (.Builtin .MkNilData) (.Lit (.Integer 0, .AtomicType .TypeInteger))))
+              (.App (mkBuiltin .MkNilData) (.Lit (.Integer 0, .AtomicType .TypeInteger))))
         else
           throwError "cannot compile {name}: no definition body (axiom or opaque)"
     | none => throwError "unknown constant: {name}"
