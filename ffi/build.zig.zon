@@ -1,0 +1,20 @@
+.{
+    .name = .plutuz_ffi,
+    .version = "0.0.0",
+    .fingerprint = 0x63732d35ea0aeeed,
+    .minimum_zig_version = "0.15.2",
+    .dependencies = .{
+        .plutuz = .{
+            .path = "../plutuz",
+        },
+        .blst = .{
+            .url = "https://github.com/supranational/blst/archive/refs/tags/v0.3.15.tar.gz",
+            .hash = "N-V-__8AAKDMOgDp0ule4-ieF6xoW2euEGpOwOyBPo-KRj_a",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "ffi.zig",
+    },
+}

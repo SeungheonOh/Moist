@@ -1,0 +1,3 @@
+[submodule "plutuz"]
+	path = plutuz
+	url = https://github.com/utxo-company/plutuz.git
