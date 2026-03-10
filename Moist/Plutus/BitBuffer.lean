@@ -1,13 +1,9 @@
--- --import PlutusCore.ByteString
-import PlutusCore.Data
-import PlutusCore.ByteString
--- import Flat.CBOR
+import Moist.Plutus.Types
 
 namespace Moist
 namespace Plutus
 
-open PlutusCore.ByteString
-open PlutusCore.Data
+open Moist.Plutus (Data ByteString)
 
 /-- Produce the big-endian list of bits representing `value` using `width` bits. -/
 def bitsOfNatBE (width value : Nat) : List Bool :=

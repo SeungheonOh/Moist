@@ -1,6 +1,5 @@
 import Moist.Onchain.Attribute
-import PlutusCore.Data
-import PlutusCore.ByteString
+import Moist.Plutus.Types
 
 namespace Moist.Onchain.Prelude
 
@@ -41,8 +40,7 @@ def trace {α : Type u} (msg : String) (a : α) : α :=
 
 /-! ## Data operations -/
 
-open PlutusCore.Data (Data)
-private abbrev PData := PlutusCore.Data.PlutusCore.DataInternal.Data
+open Moist.Plutus (Data)
 
 def constrData (tag : Int) (fields : List Data) : Data :=
   .Constr tag fields
@@ -75,7 +73,7 @@ def unMapData (d : Data) : List (Data × Data) :=
 
 def equalsData (a b : Data) : Bool := a == b
 
-open PlutusCore.ByteString (ByteString)
+open Moist.Plutus (ByteString)
 
 def bData (bs : ByteString) : Data := .B bs
 

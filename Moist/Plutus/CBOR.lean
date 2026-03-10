@@ -1,6 +1,4 @@
-import PlutusCore.ByteString
-import PlutusCore.Data
-import PlutusCore.Integer
+import Moist.Plutus.Types
 import Moist.Plutus.Lemma
 
 namespace Moist
@@ -8,9 +6,7 @@ namespace Plutus
 namespace CBOR
 
 open Moist.Plutus.Lemma
-open PlutusCore.ByteString
-open PlutusCore.Data
-open PlutusCore.Integer
+open Moist.Plutus (Data ByteString Integer)
 
 /-- Convert a small natural to a k-byte big-endian list, failing if it does not fit. -/
 def intToBS_k (k : Nat) (n : Nat) : Option (List UInt8) :=

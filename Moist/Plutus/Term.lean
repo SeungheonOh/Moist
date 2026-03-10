@@ -1,12 +1,8 @@
-import PlutusCore.Data
-import PlutusCore.ByteString
-import PlutusCore.Integer
+import Moist.Plutus.Types
 
 namespace Moist.Plutus.Term
 
-open PlutusCore.Data (Data)
-open PlutusCore.ByteString (ByteString)
-open PlutusCore.Integer (Integer)
+open Moist.Plutus (Data ByteString Integer)
 
 -- TODO: Need to check if BLS12 are considered as atomic types in spec
 inductive AtomicType

@@ -1,12 +1,10 @@
 import Moist.Onchain.Attribute
 import Moist.Onchain.Prelude
-import PlutusCore.Data
-import PlutusCore.ByteString
+import Moist.Plutus.Types
 
 namespace Moist.Onchain.ScriptContext
 
-open PlutusCore.Data (Data)
-open PlutusCore.ByteString (ByteString)
+open Moist.Plutus (Data ByteString)
 
 /-! # Plutus V3 ScriptContext Types
 

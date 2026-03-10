@@ -15,7 +15,7 @@ instance : ToExpr ByteArray where
 /-! Data is recursive and from an external package. We write a fully
     self-contained implementation that handles List/Prod recursion manually. -/
 
-open PlutusCore.Data in
+open Moist.Plutus in
 private partial def dataToExpr : Data → Lean.Expr
   | .Constr n ds =>
     mkApp2 (.const ``Data.Constr []) (toExpr n) (listDataToExpr ds)
@@ -28,21 +28,21 @@ private partial def dataToExpr : Data → Lean.Expr
   | .B bs =>
     mkApp (.const ``Data.B []) (toExpr bs)
 where
-  listDataToExpr : List PlutusCore.Data.Data → Lean.Expr
-    | [] => mkApp (.const ``List.nil [.zero]) (.const ``PlutusCore.Data.Data [])
-    | d :: ds => mkApp3 (.const ``List.cons [.zero]) (.const ``PlutusCore.Data.Data [])
+  listDataToExpr : List Moist.Plutus.Data → Lean.Expr
+    | [] => mkApp (.const ``List.nil [.zero]) (.const ``Moist.Plutus.Data [])
+    | d :: ds => mkApp3 (.const ``List.cons [.zero]) (.const ``Moist.Plutus.Data [])
         (dataToExpr d) (listDataToExpr ds)
-  listPairDataToExpr : List (PlutusCore.Data.Data × PlutusCore.Data.Data) → Lean.Expr
+  listPairDataToExpr : List (Moist.Plutus.Data × Moist.Plutus.Data) → Lean.Expr
     | [] =>
-      let pairTy := mkApp2 (.const ``Prod [.zero, .zero]) (.const ``PlutusCore.Data.Data []) (.const ``PlutusCore.Data.Data [])
+      let pairTy := mkApp2 (.const ``Prod [.zero, .zero]) (.const ``Moist.Plutus.Data []) (.const ``Moist.Plutus.Data [])
       mkApp (.const ``List.nil [.zero]) pairTy
     | (a, b) :: rest =>
-      let pairTy := mkApp2 (.const ``Prod [.zero, .zero]) (.const ``PlutusCore.Data.Data []) (.const ``PlutusCore.Data.Data [])
-      let pair := mkApp4 (.const ``Prod.mk [.zero, .zero]) (.const ``PlutusCore.Data.Data []) (.const ``PlutusCore.Data.Data [])
+      let pairTy := mkApp2 (.const ``Prod [.zero, .zero]) (.const ``Moist.Plutus.Data []) (.const ``Moist.Plutus.Data [])
+      let pair := mkApp4 (.const ``Prod.mk [.zero, .zero]) (.const ``Moist.Plutus.Data []) (.const ``Moist.Plutus.Data [])
         (dataToExpr a) (dataToExpr b)
       mkApp3 (.const ``List.cons [.zero]) pairTy pair (listPairDataToExpr rest)
 
-open PlutusCore.Data in
+open Moist.Plutus in
 instance : ToExpr Data where
   toExpr := dataToExpr
   toTypeExpr := .const ``Data []

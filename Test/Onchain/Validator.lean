@@ -2,13 +2,13 @@ import Moist.Onchain
 import Moist.Plutus.Pretty
 import Moist.Onchain.Prelude
 import Moist.Onchain.ScriptContext
-import PlutusCore.Data
+import Moist.Plutus.Types
 
 open Moist.Plutus.Term
 open Moist.Plutus.Pretty (prettyTerm)
 open Moist.Onchain.Prelude
 open Moist.Onchain.ScriptContext
-open PlutusCore.Data (Data)
+open Moist.Plutus (Data)
 
 /-! # Validator Tests
 

@@ -2,8 +2,6 @@ import Lean.Meta
 import Lean.Elab
 import Lean
 
-import PlutusCore.Integer
-
 import Moist.Plutus.Term
 import Moist.Plutus.Encode
 
@@ -14,7 +12,7 @@ open Moist.Plutus.Encode
 open Lean.Meta
 open Lean.Elab
 open Lean.Elab.Tactic
-open PlutusCore.Integer (Integer)
+open Moist.Plutus (Integer)
 
 --inductive MTerm
 universe u v

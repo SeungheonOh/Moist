@@ -129,11 +129,11 @@ private def toDataWrapper (env : Environment) (ty : Lean.Expr) : Option BuiltinF
   match ty with
   | .const n _ =>
     if n == ``Int then some .IData
-    else if n == ``PlutusCore.ByteString.ByteString then some .BData
-    else if n == ``PlutusCore.Data.Data then none
+    else if n == ``Moist.Plutus.ByteString then some .BData
+    else if n == ``Moist.Plutus.Data then none
     else if plutusDataAttr.hasTag env n then none  -- already Data
     else none  -- default: assume Data
-  | .app (.const ``List _) (.const ``PlutusCore.Data.Data _) => some .ListData
+  | .app (.const ``List _) (.const ``Moist.Plutus.Data _) => some .ListData
   | _ => none
 
 /-- Determine how to unwrap a Data value to a field type.
@@ -142,11 +142,11 @@ private def fromDataWrapper (env : Environment) (ty : Lean.Expr) : Option Builti
   match ty with
   | .const n _ =>
     if n == ``Int then some .UnIData
-    else if n == ``PlutusCore.ByteString.ByteString then some .UnBData
-    else if n == ``PlutusCore.Data.Data then none
+    else if n == ``Moist.Plutus.ByteString then some .UnBData
+    else if n == ``Moist.Plutus.Data then none
     else if plutusDataAttr.hasTag env n then none
     else none
-  | .app (.const ``List _) (.const ``PlutusCore.Data.Data _) => some .UnListData
+  | .app (.const ``List _) (.const ``Moist.Plutus.Data _) => some .UnListData
   | _ => none
 
 /-- Get the non-erased field types for a constructor.

@@ -2,13 +2,9 @@ import Moist.Plutus.BitBuffer
 import Moist.Plutus.Lemma
 import Moist.Plutus.CBOR
 import Moist.Plutus.Term
-import PlutusCore.Data
-import PlutusCore.ByteString
-
 namespace Moist.Plutus.Encode
 
-open PlutusCore.Data
-open PlutusCore.ByteString
+open Moist.Plutus (Data ByteString)
 open Moist.Plutus.BitBuffer
 open Moist.Plutus.Lemma
 open Moist.Plutus

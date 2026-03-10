@@ -1,12 +1,9 @@
 import Moist.MIR.Expr
-import PlutusCore.Data
-import PlutusCore.ByteString
 
 namespace Moist.MIR
 
 open Moist.Plutus.Term
-open PlutusCore.Data (Data)
-open PlutusCore.ByteString (ByteString)
+open Moist.Plutus (Data ByteString)
 
 /-! # MIR Analysis Functions -/
 

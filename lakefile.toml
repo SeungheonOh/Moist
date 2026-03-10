@@ -23,9 +23,3 @@ root = "TestOptGolden"
 [[lean_exe]]
 name = "test-lower-golden"
 root = "TestLowerGolden"
-
-[[require]]
-name = "PlutusCore"
-git = "git@github.com:input-output-hk/sc-fvt.git"
-subDir = "PlutusCore"
-rev = "main"

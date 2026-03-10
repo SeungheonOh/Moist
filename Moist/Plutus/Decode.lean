@@ -1,19 +1,9 @@
---import PlutusCore.Cbor
-import PlutusCore.Data
-import PlutusCore.Integer
-import PlutusCore.String
-import PlutusCore.ByteString
 import Moist.Plutus.Term
 import Moist.Plutus.Encode
 
-
 namespace Moist.Plutus.Decode
 
-open PlutusCore.ByteString (ByteString)
---open PlutusCore.Cbor (decodeData)
-open PlutusCore.Data (Data)
-open PlutusCore.Integer (Integer)
-open PlutusCore.String (decodeUtf8)
+open Moist.Plutus (Data ByteString Integer decodeUtf8)
 
 open Moist.Plutus.Term
 open Moist.Plutus.Encode (encode_program)
