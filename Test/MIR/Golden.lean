@@ -8,11 +8,11 @@ open Test.MIR
 /-! # Golden Test Case Definitions
 
 Each entry is (filename, expected_output). The golden runner compares these
-against test/golden/{filename}.expected.
+against Test/golden/{filename}.expected.
 -/
 
-def goldenTests : List (String × String) :=
-  let cases : List (String × String) := [
+def goldenTests : List Test.Framework.GoldenSpec :=
+  let cases : List Test.Framework.GoldenSpec := [
     -- Atoms
     mkGoldenCase "atom_var" (.Var x),
     mkGoldenCase "atom_lit" (intLit 42),
@@ -88,7 +88,7 @@ def goldenTests : List (String × String) :=
     -- Factorial
     mkGoldenCase "factorial" factorialMIR
   ]
-  let idempotency : List (String × String) := [
+  let idempotency : List Test.Framework.GoldenSpec := [
     -- Idempotency: simple
     mkIdempotencyCase "idempotency_app"
       (.App (.App (.Var f) (.Var x)) (.App (.Var g) (.Var y))),

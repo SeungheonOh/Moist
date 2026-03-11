@@ -3,6 +3,7 @@ import Moist.MIR.Expr
 namespace Moist.MIR
 
 open Moist.Plutus.Term
+open Moist.Plutus (ByteString)
 open Std (Format)
 
 /-! # MIR Pretty Printer
@@ -102,20 +103,56 @@ def builtinName : BuiltinFun → String
   | .ExpModInteger => "expModInteger"
 
 private def fmtConst : Const → Format
-  | .Integer n => .text (toString n)
-  | .ByteString bs => .text s!"#<{bs.size}bytes>"
-  | .String s => .text s!"\"{s}\""
-  | .Unit => .text "()"
-  | .Bool b => .text (if b then "True" else "False")
-  | .ConstList _ => .text "<list>"
-  | .ConstDataList _ => .text "<datalist>"
-  | .ConstPairDataList _ => .text "<pairdatalist>"
-  | .Pair _ => .text "<pair>"
-  | .PairData _ => .text "<pairdata>"
-  | .Data _ => .text "<data>"
-  | .Bls12_381_G1_element => .text "<G1>"
-  | .Bls12_381_G2_element => .text "<G2>"
-  | .Bls12_381_MlResult => .text "<MlResult>"
+  | c => .text <| go c
+where
+  fmtByteString (bs : ByteString) : String :=
+    let hex := bs.data.toList.map fun b =>
+      let hi := b.toNat / 16
+      let lo := b.toNat % 16
+      let hexChar n := if n < 10 then Char.ofNat (48 + n) else Char.ofNat (87 + n)
+      s!"{hexChar hi}{hexChar lo}"
+    "#" ++ String.join hex
+
+  fmtData : Moist.Plutus.Data → String
+    | .Constr idx fields => s!"(Constr {idx} {fmtDataList fields})"
+    | .Map entries => s!"(Map {fmtDataPairList entries})"
+    | .List xs => s!"(List {fmtDataList xs})"
+    | .I n => s!"(I {n})"
+    | .B bs => s!"(B {fmtByteString bs})"
+
+  fmtDataList : List Moist.Plutus.Data → String
+    | [] => "[]"
+    | xs => "[" ++ String.intercalate ", " (xs.map fmtData) ++ "]"
+
+  fmtDataPair : Moist.Plutus.Data × Moist.Plutus.Data → String
+    | (a, b) => s!"({fmtData a}, {fmtData b})"
+
+  fmtDataPairList : List (Moist.Plutus.Data × Moist.Plutus.Data) → String
+    | [] => "[]"
+    | xs => "[" ++ String.intercalate ", " (xs.map fmtDataPair) ++ "]"
+
+  fmtConstList : List Const → String
+    | [] => "[]"
+    | xs => "[" ++ String.intercalate ", " (xs.map go) ++ "]"
+
+  fmtConstPair : Const × Const → String
+    | (a, b) => s!"({go a}, {go b})"
+
+  go : Const → String
+    | .Integer n => toString n
+    | .ByteString bs => fmtByteString bs
+    | .String s => s!"\"{s}\""
+    | .Unit => "()"
+    | .Bool b => if b then "True" else "False"
+    | .ConstList xs => fmtConstList xs
+    | .ConstDataList xs => fmtDataList xs
+    | .ConstPairDataList xs => fmtDataPairList xs
+    | .Pair p => fmtConstPair p
+    | .PairData p => fmtDataPair p
+    | .Data d => fmtData d
+    | .Bls12_381_G1_element => "<G1>"
+    | .Bls12_381_G2_element => "<G2>"
+    | .Bls12_381_MlResult => "<MlResult>"
 
 private def fmtVar (v : VarId) : Format := .text (toString v)
 

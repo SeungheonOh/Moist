@@ -2,6 +2,7 @@ import Test.MIR.Helpers
 import Moist.MIR.Lower
 import Moist.MIR.Optimize
 import Moist.Plutus.Pretty
+import Test.Framework
 
 namespace Test.MIR.LowerGolden
 
@@ -16,18 +17,18 @@ and pretty-prints the resulting UPLC term.
 -/
 
 private def mkLowerGolden (name : String) (input : Expr) (freshStart : Nat := 10000)
-    : String × String :=
+    : Test.Framework.GoldenSpec :=
   let result := lowerExpr input freshStart
   let output := match result with
     | .ok term =>
       s!"--- Input ---\n{pretty input}\n--- UPLC ---\n{prettyTerm term}"
     | .error msg =>
       s!"--- Input ---\n{pretty input}\n--- Error ---\n{msg}"
-  (name, output)
+  { name, render := pure output }
 
 /-- Lower after running the full optimization pipeline. -/
 private def mkLowerOptGolden (name : String) (input : Expr)
-    (optStart : Nat := 1000) (lowerStart : Nat := 5000) : String × String :=
+    (optStart : Nat := 1000) (lowerStart : Nat := 5000) : Test.Framework.GoldenSpec :=
   let opt := optimizeExpr input optStart
   let result := lowerExpr opt lowerStart
   let output := match result with
@@ -35,9 +36,9 @@ private def mkLowerOptGolden (name : String) (input : Expr)
       s!"--- Input ---\n{pretty input}\n--- Optimized ---\n{pretty opt}\n--- UPLC ---\n{prettyTerm term}"
     | .error msg =>
       s!"--- Input ---\n{pretty input}\n--- Optimized ---\n{pretty opt}\n--- Error ---\n{msg}"
-  (name, output)
+  { name, render := pure output }
 
-def lowerGoldenTests : List (String × String) := [
+def lowerGoldenTests : List Test.Framework.GoldenSpec := [
 
   -- ## Atoms
 

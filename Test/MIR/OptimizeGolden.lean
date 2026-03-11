@@ -1,5 +1,6 @@
 import Test.MIR.Helpers
 import Moist.MIR.Optimize
+import Test.Framework
 
 namespace Test.MIR.OptGolden
 
@@ -23,27 +24,27 @@ private def d : VarId := ⟨10, "d"⟩
 -- ## Golden Case Builders
 
 private def mkPassGolden (name : String) (input : Expr) (pass : Expr → Expr × Bool)
-    : String × String :=
+    : Test.Framework.GoldenSpec :=
   let (result, changed) := pass input
   let output := s!"--- Input ---\n{pretty input}\n--- Output ---\n{pretty result}\n--- Changed ---\n{changed}"
-  (name, output)
+  { name, render := pure output }
 
 private def mkInlineGolden (name : String) (input : Expr) (start : Nat := 1000)
-    : String × String :=
+    : Test.Framework.GoldenSpec :=
   let (result, changed) := runFresh (inlinePass input) start
   let output := s!"--- Input ---\n{pretty input}\n--- Output ---\n{pretty result}\n--- Changed ---\n{changed}"
-  (name, output)
+  { name, render := pure output }
 
 private def mkOptGolden (name : String) (input : Expr) (start : Nat := 1000)
-    : String × String :=
+    : Test.Framework.GoldenSpec :=
   let result := optimizeExpr input start
   let isAnf := result.isANF
   let output := s!"--- Input ---\n{pretty input}\n--- Optimized ---\n{pretty result}\n--- isANF ---\n{isAnf}"
-  (name, output)
+  { name, render := pure output }
 
 -- ## Golden Test Definitions
 
-def optGoldenTests : List (String × String) := [
+def optGoldenTests : List Test.Framework.GoldenSpec := [
 
   -- ### Float Out -/
 

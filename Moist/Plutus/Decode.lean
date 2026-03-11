@@ -1,9 +1,11 @@
 import Moist.Plutus.Term
+import Moist.Plutus.CBOR
 import Moist.Plutus.Encode
 
 namespace Moist.Plutus.Decode
 
 open Moist.Plutus (Data ByteString Integer decodeUtf8)
+open Moist.Plutus.CBOR (dataFromCBORBytes)
 
 open Moist.Plutus.Term
 open Moist.Plutus.Encode (encode_program)
@@ -13,7 +15,7 @@ open Moist.Plutus.Encode (encode_program)
 
 namespace Internal
 
-def decodeData (bs : ByteString) : Option (List Bool × Data) := .none
+def decodeData (bs : ByteString) : Option (ByteString × Data) := dataFromCBORBytes bs
 
 /- Removes padding from the bit sequence. -/
 -- Spec C.1.1. Padding
@@ -127,7 +129,8 @@ partial def decodeConstValue (s : List Bool) : BuiltinType → Option (List Bool
   | .AtomicType .TypeBool           => Prod.map id .Bool                         <$> decodeBool s
   | .AtomicType .TypeData           => do
       let (s', t) ← decodeBytestring s
-      let (_ , d) ← decodeData t
+      let (rest, d) ← decodeData t
+      let _         ← Option.filter (λ () => rest = ByteArray.empty) (.some ())
       .some (s', .Data d)
   | .TypeOperator (.TypeList t)     => Prod.map id .ConstList <$> decodeList (flip decodeConstValue t) s
   | .TypeOperator (.TypePair t₁ t₂) => do
@@ -361,10 +364,34 @@ def aaa (a : Option Program) : Program :=
   | .some p => p
   | .none   => .Program (.Version 0 0 0) (.Error)
 
+def sampleDataConstant : Data :=
+  .Constr 130
+    [
+      .Map [(.I 1, .B (ByteArray.mk (Array.mk ([1, 2, 3, 4] : List UInt8))))],
+      .List
+        [
+          .I (-17),
+          .I (Int.ofNat (2 ^ 70)),
+          .B (ByteArray.mk (Array.mk (List.replicate 80 42)))
+        ]
+    ]
+
+def dataConstantRoundTrip : Bool :=
+  let program : Program :=
+    .Program (.Version 1 1 0)
+      (.Constant (.Data sampleDataConstant, .AtomicType .TypeData))
+  match decodeProgramFromHexString (encode_program program).toHexString with
+  | .some (.Program _ (.Constant (.Data d, .AtomicType .TypeData))) => d == sampleDataConstant
+  | _ => false
+
+example : dataConstantRoundTrip = true := by
+  native_decide
+
 
 #eval foo
 #eval aaa (decodeProgramFromHexString ((Moist.Plutus.Encode.encode_program foo).toHexString))
 #eval (Moist.Plutus.Encode.encode_program foo).toHexString
+#eval dataConstantRoundTrip
 
 #eval testRountTrip ""
 

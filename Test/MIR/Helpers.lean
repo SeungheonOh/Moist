@@ -2,6 +2,7 @@ import Moist.MIR.Expr
 import Moist.MIR.Analysis
 import Moist.MIR.ANF
 import Moist.MIR.Pretty
+import Test.Framework
 
 namespace Test.MIR
 
@@ -139,17 +140,17 @@ def dataDeconstructMIR : Expr :=
 
 /-! ## Golden Test Formatters -/
 
-def mkGoldenCase (name : String) (input : Expr) (freshStart : Nat := 100) : String × String :=
+def mkGoldenCase (name : String) (input : Expr) (freshStart : Nat := 100) : Test.Framework.GoldenSpec :=
   let normalized := runFresh (anfNormalize input) freshStart
   let isAnf := normalized.isANF
   let output := s!"--- Input ---\n{pretty input}\n--- Output ---\n{pretty normalized}\n--- isANF ---\n{isAnf}"
-  (name, output)
+  { name, render := pure output }
 
-def mkIdempotencyCase (name : String) (input : Expr) : String × String :=
+def mkIdempotencyCase (name : String) (input : Expr) : Test.Framework.GoldenSpec :=
   let n1 := runFresh (anfNormalize input) 100
   let n2 := runFresh (anfNormalize n1) 200
   let equiv := alphaEq n1 n2
   let output := s!"--- Input ---\n{pretty input}\n--- First Pass ---\n{pretty n1}\n--- Second Pass ---\n{pretty n2}\n--- Alpha Equivalent ---\n{equiv}"
-  (name, output)
+  { name, render := pure output }
 
 end Test.MIR

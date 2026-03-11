@@ -50,6 +50,10 @@ lean_lib Test
 lean_exe moist where
   root := `Main
 
+@[test_driver]
+lean_exe tests where
+  root := `TestMain
+
 lean_exe «test-golden» where
   root := `TestGolden
 

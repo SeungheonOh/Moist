@@ -111,27 +111,57 @@ private def fmtAtomicType : AtomicType → String
   | .TypeUnit => "unit"
   | .TypeData => "data"
 
-private def fmtConst : Const → String
-  | .Integer n => toString n
-  | .ByteString bs =>
-    let hex := bs.data.toList.map fun b =>
-      let hi := b.toNat / 16
-      let lo := b.toNat % 16
-      let hexChar n := if n < 10 then Char.ofNat (48 + n) else Char.ofNat (87 + n)
-      s!"{hexChar hi}{hexChar lo}"
-    "#" ++ String.join hex
-  | .String s => s!"\"{s}\""
-  | .Unit => "()"
-  | .Bool b => if b then "True" else "False"
-  | .Data _ => "<data>"
-  | .ConstList _ => "<list>"
-  | .ConstDataList _ => "<datalist>"
-  | .ConstPairDataList _ => "<pairdatalist>"
-  | .Pair _ => "<pair>"
-  | .PairData _ => "<pairdata>"
-  | .Bls12_381_G1_element => "<G1>"
-  | .Bls12_381_G2_element => "<G2>"
-  | .Bls12_381_MlResult => "<MlResult>"
+mutual
+  private def fmtByteString : ByteString → String
+    | bs =>
+        let hex := bs.data.toList.map fun b =>
+          let hi := b.toNat / 16
+          let lo := b.toNat % 16
+          let hexChar n := if n < 10 then Char.ofNat (48 + n) else Char.ofNat (87 + n)
+          s!"{hexChar hi}{hexChar lo}"
+        "#" ++ String.join hex
+
+  private def fmtData : Moist.Plutus.Data → String
+    | .Constr idx fields => s!"(Constr {idx} {fmtDataList fields})"
+    | .Map entries => s!"(Map {fmtDataPairList entries})"
+    | .List xs => s!"(List {fmtDataList xs})"
+    | .I n => s!"(I {n})"
+    | .B bs => s!"(B {fmtByteString bs})"
+
+  private def fmtDataList : List Moist.Plutus.Data → String
+    | [] => "[]"
+    | xs => "[" ++ String.intercalate ", " (xs.map fmtData) ++ "]"
+
+  private def fmtDataPair : Moist.Plutus.Data × Moist.Plutus.Data → String
+    | (a, b) => s!"({fmtData a}, {fmtData b})"
+
+  private def fmtDataPairList : List (Moist.Plutus.Data × Moist.Plutus.Data) → String
+    | [] => "[]"
+    | xs => "[" ++ String.intercalate ", " (xs.map fmtDataPair) ++ "]"
+
+  private def fmtConstList : List Const → String
+    | [] => "[]"
+    | xs => "[" ++ String.intercalate ", " (xs.map fmtConst) ++ "]"
+
+  private def fmtConstPair : Const × Const → String
+    | (a, b) => s!"({fmtConst a}, {fmtConst b})"
+
+  private def fmtConst : Const → String
+    | .Integer n => toString n
+    | .ByteString bs => fmtByteString bs
+    | .String s => s!"\"{s}\""
+    | .Unit => "()"
+    | .Bool b => if b then "True" else "False"
+    | .Data d => fmtData d
+    | .ConstList xs => fmtConstList xs
+    | .ConstDataList xs => fmtDataList xs
+    | .ConstPairDataList xs => fmtDataPairList xs
+    | .Pair p => fmtConstPair p
+    | .PairData p => fmtDataPair p
+    | .Bls12_381_G1_element => "<G1>"
+    | .Bls12_381_G2_element => "<G2>"
+    | .Bls12_381_MlResult => "<MlResult>"
+end
 
 mutual
   private def fmtBuiltinType : BuiltinType → String

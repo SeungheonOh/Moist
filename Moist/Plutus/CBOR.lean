@@ -161,6 +161,191 @@ partial def eData : Data → Option (List UInt8)
 /-- Top-level CBOR serialiser for `Data`. -/
 def dataToCBORBytes (d : Data) : Option (List UInt8) := eData d
 
+/-- Decode a fixed-size big-endian natural number from the start of a byte list. -/
+def bsToInt_k : Nat → List UInt8 → Option (List UInt8 × Nat)
+  | 0, s => .some (s, 0)
+  | _ + 1, [] => .none
+  | k + 1, b :: s => do
+      let (s', n) ← bsToInt_k k s
+      .some (s', b.toNat * 256 ^ k + n)
+
+/-- Decode a CBOR head into the remaining bytes, major type, and argument. -/
+def dHead : List UInt8 → Option (List UInt8 × Nat × Nat)
+  | [] => .none
+  | b :: s =>
+      let major := b.toNat / 32
+      let arg := b.toNat % 32
+      if arg <= 23 then
+        .some (s, major, arg)
+      else
+        match arg with
+        | 24 => do
+            let (s', n) ← bsToInt_k 1 s
+            .some (s', major, n)
+        | 25 => do
+            let (s', n) ← bsToInt_k 2 s
+            .some (s', major, n)
+        | 26 => do
+            let (s', n) ← bsToInt_k 4 s
+            .some (s', major, n)
+        | 27 => do
+            let (s', n) ← bsToInt_k 8 s
+            .some (s', major, n)
+        | _ => .none
+
+/-- Decode an indefinite-length CBOR head for major types 2 through 5. -/
+def dIndef : List UInt8 → Option (List UInt8 × Nat)
+  | [] => .none
+  | b :: s =>
+      let major := b.toNat / 32
+      let arg := b.toNat % 32
+      if arg = 31 && 2 <= major && major <= 5 then
+        .some (s, major)
+      else
+        .none
+
+/-- Consume exactly `n` bytes from the front of a byte list. -/
+def dBytes : Nat → List UInt8 → Option (List UInt8 × List UInt8)
+  | 0, s => .some (s, [])
+  | _ + 1, [] => .none
+  | n + 1, b :: s => do
+      let (s', rest) ← dBytes n s
+      .some (s', b :: rest)
+
+/-- Decode one restricted CBOR bytestring block (maximum 64 bytes). -/
+def dBlock (s : List UInt8) : Option (List UInt8 × List UInt8) := do
+  let (s', major, n) ← dHead s
+  if major = 2 && n <= 64 then
+    dBytes n s'
+  else
+    .none
+
+/-- Decode an indefinite sequence of restricted CBOR bytestring blocks. -/
+partial def dBlocks : List UInt8 → Option (List UInt8 × List UInt8)
+  | [] => .none
+  | b :: s =>
+      if b = (255 : UInt8) then
+        .some (s, [])
+      else do
+        let (s', block) ← dBlock (b :: s)
+        let (s'', blocks) ← dBlocks s'
+        .some (s'', block ++ blocks)
+
+/-- Decode a restricted CBOR bytestring. -/
+def dBS (s : List UInt8) : Option (List UInt8 × List UInt8) :=
+  match dBlock s with
+  | .some result => .some result
+  | .none => do
+      let (s', major) ← dIndef s
+      if major = 2 then
+        dBlocks s'
+      else
+        .none
+
+/-- Interpret a big-endian byte sequence as a natural number. -/
+def stoi : List UInt8 → Nat :=
+  List.foldl (fun acc b => 256 * acc + b.toNat) 0
+
+/-- Decode an integer using the restricted CBOR rules from the spec appendix. -/
+def dZ (s : List UInt8) : Option (List UInt8 × Integer) := do
+  let (s', major, n) ← dHead s
+  if major = 0 then
+    .some (s', Int.ofNat n)
+  else if major = 1 then
+    .some (s', -((Int.ofNat n) + 1))
+  else if major = 6 && n = 2 then do
+    let (s'', bytes) ← dBS s'
+    .some (s'', Int.ofNat (stoi bytes))
+  else if major = 6 && n = 3 then do
+    let (s'', bytes) ← dBS s'
+    .some (s'', -((Int.ofNat (stoi bytes)) + 1))
+  else
+    .none
+
+mutual
+  /-- Decode a CBOR-encoded `Data` value. -/
+  partial def dData (s : List UInt8) : Option (List UInt8 × Data) :=
+    match dHead s with
+    | .some (s', 5, n) => Prod.map id .Map <$> dDataStarSq n s'
+    | _ =>
+        match dDataStar s with
+        | .some (s', xs) => .some (s', .List xs)
+        | .none =>
+            match dcTag s with
+            | .some (s', i) => do
+                let (s'', xs) ← dDataStar s'
+                .some (s'', .Constr i xs)
+            | .none =>
+                match dZ s with
+                | .some (s', n) => .some (s', .I n)
+                | .none => do
+                    let (s', bytes) ← dBS s
+                    .some (s', .B (ByteArray.mk bytes.toArray))
+
+  /-- Decode either a definite-length or indefinite-length CBOR list of data items. -/
+  partial def dDataStar (s : List UInt8) : Option (List UInt8 × List Data) :=
+    match dHead s with
+    | .some (s', 4, n) => dDataStarN n s'
+    | _ =>
+        match dIndef s with
+        | .some (s', 4) => dDataStarIndef s'
+        | _ => .none
+
+  /-- Decode exactly `n` CBOR-encoded data items. -/
+  partial def dDataStarN : Nat → List UInt8 → Option (List UInt8 × List Data)
+    | 0, s => .some (s, [])
+    | n + 1, s => do
+        let (s', d) ← dData s
+        let (s'', ds) ← dDataStarN n s'
+        .some (s'', d :: ds)
+
+  /-- Decode an indefinite-length CBOR list of data items. -/
+  partial def dDataStarIndef : List UInt8 → Option (List UInt8 × List Data)
+    | [] => .none
+    | b :: s =>
+        if b = (255 : UInt8) then
+          .some (s, [])
+        else do
+          let (s', d) ← dData (b :: s)
+          let (s'', ds) ← dDataStarIndef s'
+          .some (s'', d :: ds)
+
+  /-- Decode exactly `n` CBOR-encoded pairs of data items. -/
+  partial def dDataStarSq : Nat → List UInt8 → Option (List UInt8 × List (Data × Data))
+    | 0, s => .some (s, [])
+    | n + 1, s => do
+        let (s', k) ← dData s
+        let (s'', d) ← dData s'
+        let (s''', rest) ← dDataStarSq n s''
+        .some (s''', (k, d) :: rest)
+
+  /-- Decode a constructor tag, accepting the compact forms and the long form. -/
+  partial def dcTag (s : List UInt8) : Option (List UInt8 × Integer) := do
+    let (s', major, n) ← dHead s
+    if major = 6 && 121 <= n && n <= 127 then
+      .some (s', Int.ofNat (n - 121))
+    else if major = 6 && 1280 <= n && n <= 1400 then
+      .some (s', Int.ofNat (n - 1280 + 7))
+    else if major = 6 && n = 102 then do
+      let (s'', major', n') ← dHead s'
+      if major' = 4 && n' = 2 then do
+        let (s''', i) ← dZ s''
+        let two64 : Integer := Int.ofNat (Nat.pow 2 64)
+        if 0 <= i && i < two64 then
+          .some (s''', i)
+        else
+          .none
+      else
+        .none
+    else
+      .none
+end
+
+/-- Top-level CBOR decoder for `Data`. -/
+def dataFromCBORBytes (bs : ByteString) : Option (ByteString × Data) := do
+  let (rest, d) ← dData bs.data.toList
+  .some (ByteArray.mk rest.toArray, d)
+
 end CBOR
 end Plutus
 end Moist
