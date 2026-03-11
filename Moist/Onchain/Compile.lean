@@ -1,4 +1,5 @@
 import Lean
+import Moist.Plutus.Eval
 import Moist.Plutus.Term
 import Moist.MIR.Expr
 import Moist.MIR.Optimize
@@ -55,21 +56,89 @@ def compileToUPLC (name : Name) (optFresh : Nat := 1000) (lowerFresh : Nat := 50
   -- 5. Lower MIR → UPLC
   return lowerExpr prelow (lowerFresh + 1000)
 
+def compileExprToUPLC (expr : Lean.Expr) (optFresh : Nat := 1000) (lowerFresh : Nat := 5000)
+    : MetaM (Except String UPLCTerm) := do
+  let mir ← try
+    translateDef expr
+  catch e =>
+    return .error s!"translation error: {← e.toMessageData.toString}"
+  let opt := optimizeExpr mir optFresh
+  let prelow := preLowerInlineExpr opt lowerFresh
+  return lowerExpr prelow (lowerFresh + 1000)
+
+private def compileConstToUPLCOrThrow (name : Name) (requireOnchain : Bool := true) : MetaM UPLCTerm := do
+  let env ← getEnv
+  if requireOnchain then
+    unless onchainAttr.hasTag env name do
+      throwError "{name} is not marked @[onchain]"
+  let result ← compileToUPLC name
+  match result with
+  | .ok term => pure term
+  | .error e => throwError "compilation of {name} failed: {e}"
+
+private def elabCompiledConst (name : Name) : TermElabM Expr := do
+  let term ← compileConstToUPLCOrThrow name
+  -- Reflect the Term value back into a Lean.Expr via ToExpr
+  return Moist.Onchain.ToExprInstances.uplcTermToExpr term
+
+private def resolveCompileTarget (stx : Syntax) : TermElabM Name := do
+  match stx with
+  | `($id:ident) => resolveGlobalConstNoOverload id
+  | _ =>
+      let expr ← Term.elabTerm stx none
+      let expr ← instantiateMVars expr
+      match expr.getAppFn with
+      | .const name _ => pure name
+      | _ =>
+          withRef stx do
+            throwError "`.compile!` expects a constant name, for example `myValidator.compile!`"
+
+private def compileTargetToUPLC (stx : Syntax) (requireOnchain : Bool := true) : TermElabM UPLCTerm := do
+  let name ← resolveCompileTarget stx
+  compileConstToUPLCOrThrow name requireOnchain
+
+private def compileTermSyntaxToUPLCOrThrow (stx : Syntax) : TermElabM UPLCTerm := do
+  let expr ← Term.elabTerm stx none
+  let expr ← instantiateMVars expr
+  let result ← compileExprToUPLC expr
+  match result with
+  | .ok term => pure term
+  | .error e => throwError "compilation failed: {e}"
+
+private def getExplicitAppTargets (stx : Syntax) : Array Syntax :=
+  if stx.getKind == ``Lean.Parser.Term.app then
+    #[stx[0]] ++ stx[1].getArgs
+  else
+    #[stx]
+
+private def mkAppliedTerm (terms : Array UPLCTerm) : Option UPLCTerm :=
+  match terms.toList with
+  | [] => none
+  | t :: ts => some <| ts.foldl (init := t) fun acc arg => .Apply acc arg
+
 /-- The `compile!` term elaborator. -/
 elab "compile!" id:ident : term => do
   let name ← resolveGlobalConstNoOverload id
-  let env ← getEnv
-  -- Verify @[onchain] attribute
-  unless onchainAttr.hasTag env name do
-    throwError "{name} is not marked @[onchain]"
-  -- Run the pipeline
-  let result ← compileToUPLC name
+  elabCompiledConst name
+
+/-- Postfix `compile!` elaborator for `myDef.compile!`. -/
+elab t:term "." "compile!" : term => do
+  let name ← resolveCompileTarget t
+  elabCompiledConst name
+
+/-- Compile each explicit term in an application spine and evaluate the resulting UPLC term. -/
+elab "#evaluatePrettyTerm" t:term : command => do
+  let targets := getExplicitAppTargets t.raw
+  let compiled ← Elab.Command.liftTermElabM do
+    targets.mapM compileTermSyntaxToUPLCOrThrow
+  let some applied := mkAppliedTerm compiled
+    | throwError "`#evaluatePrettyTerm` expects at least one term"
+  let result ← (Moist.Plutus.Eval.evalTerm applied : IO _)
   match result with
-  | .ok term =>
-    -- Reflect the Term value back into a Lean.Expr via ToExpr
-    return Moist.Onchain.ToExprInstances.uplcTermToExpr term
-  | .error e =>
-    throwError "compilation of {name} failed: {e}"
+  | .ok r =>
+      logInfo m!"Result: {r.term}\nCPU:    {r.budget.cpu}\nMemory: {r.budget.mem}"
+  | .error (err, budget, msg) =>
+      logInfo m!"Error: {err} - {msg}\nCPU:    {budget.cpu}\nMemory: {budget.mem}"
 
 /-- Debug elaborator: shows the MIR before optimization. -/
 elab "#show_mir" id:ident : command => do

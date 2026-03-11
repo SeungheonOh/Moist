@@ -129,9 +129,11 @@ def defaultMemBudget : UInt64 := 14000000
 def eval (prog : Program) : IO (Except (CEKError × ExBudget × String) EvalResult) :=
   evalProgram prog defaultCpuBudget defaultMemBudget
 
-/-- Evaluate a Term directly. Wraps it in a Program v1.0.0, evaluates, and returns the result Term. -/
+/-- Evaluate a Term directly. Wraps it in a Program v1.1.0, evaluates, and returns the result Term. -/
 def evalTerm (term : Term) (cpuBudget memBudget : UInt64 := defaultCpuBudget) : IO (Except (CEKError × ExBudget × String) EvalResult) :=
-  evalProgram (.Program (.Version 1 0 0) term) cpuBudget memBudget
+  -- Terms produced by the onchain compiler may contain `Constr`/`Case`,
+  -- which require at least Plutus Core 1.1.0.
+  evalProgram (.Program (.Version 1 1 0) term) cpuBudget memBudget
 
 end Moist.Plutus.Eval
 

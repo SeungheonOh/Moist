@@ -1,13 +1,13 @@
 import Moist.Onchain
 import Moist.Plutus.Pretty
 import Moist.Onchain.Prelude
-import Moist.Onchain.ScriptContext
+import Moist.Cardano.V3
 import Moist.Plutus.Types
 
 open Moist.Plutus.Term
 open Moist.Plutus.Pretty (prettyTerm)
 open Moist.Onchain.Prelude
-open Moist.Onchain.ScriptContext
+open Moist.Cardano.V3
 open Moist.Plutus (Data)
 
 /-! # Validator Tests

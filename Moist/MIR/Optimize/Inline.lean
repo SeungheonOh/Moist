@@ -150,6 +150,16 @@ def shouldInline (rhs : Expr) (occurrences : Nat) (underFix : Bool) : Bool :=
   else
     occurrences == 1 && !underFix
 
+/-- Translation-generated case bindings should survive the optimizer:
+delayed handler thunks preserve branch laziness, and hoisted helper
+bindings preserve sharing introduced during translation. -/
+private def isCaseBinding (v : VarId) (rhs : Expr) : Bool :=
+  (v.hint.startsWith "case_handler" &&
+    match rhs with
+    | .Delay _ => true
+    | _ => false) ||
+  v.hint.startsWith "case_hoist"
+
 /-! ## Inline Pass
 
 `inlinePass` performs one round of inlining over the expression tree.
@@ -238,7 +248,9 @@ mutual
           rest.foldl (fun n (_, e) => n + countOccurrences v e) 0
         let underFix := occursUnderFix v body ||
           rest.any (fun (_, e) => occursUnderFix v e)
-        if shouldInline rhs occ underFix then do
+        if isCaseBinding v rhs then
+          go rest ((v, rhs) :: acc) body changed
+        else if shouldInline rhs occ underFix then do
           let body' ← subst v rhs body
           let rest' ← rest.mapM fun (w, e) => do
             let e' ← subst v rhs e

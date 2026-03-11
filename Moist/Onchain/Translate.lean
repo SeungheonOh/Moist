@@ -1,6 +1,7 @@
 import Lean
 import Moist.MIR.Expr
 import Moist.MIR.Analysis
+import Moist.MIR.Optimize.Purity
 import Moist.Onchain.Builtins
 import Moist.Onchain.Attribute
 
@@ -332,6 +333,84 @@ private def etaReduceLeanAlt (e : Lean.Expr) : Lean.Expr :=
           head.lowerLooseBVars nLams nLams
   | none => e
 
+/-- Hoist case alternatives into delayed handler bindings.
+    We delay each alternative so wrapping it in a strict `let` does not make
+    branch evaluation eager. The corresponding case alternative is a `force`
+    of the bound handler, so only the selected branch is evaluated. -/
+private def canHoistFromHandler (e : MIR.Expr) : Bool :=
+  MIR.isPure e && (MIR.freeVars e).data.isEmpty && !e.isAtom && !e.isValue
+
+/-- Extract closed pure helper subexpressions from a handler body so they can
+    be bound outside the surrounding `delay` without changing semantics.
+    The root expression itself is left in place; only its proper subterms are
+    hoisted. -/
+private partial def extractHandlerHoists (e : MIR.Expr) (allowHoist : Bool := false)
+    : TranslateM (List (MIR.VarId × MIR.Expr) × MIR.Expr) := do
+  let hoistIfAllowed (binds : List (MIR.VarId × MIR.Expr)) (e' : MIR.Expr)
+      : TranslateM (List (MIR.VarId × MIR.Expr) × MIR.Expr) := do
+    if allowHoist && canHoistFromHandler e' then
+      let v ← freshVarId "case_hoist"
+      pure (binds ++ [(v, e')], .Var v)
+    else
+      pure (binds, e')
+  match e with
+  | .Var _ | .Lit _ | .Builtin _ | .Error =>
+    pure ([], e)
+  | .Lam x body => do
+    let (binds, body') ← extractHandlerHoists body true
+    hoistIfAllowed binds (.Lam x body')
+  | .Fix f body => do
+    let (binds, body') ← extractHandlerHoists body true
+    hoistIfAllowed binds (.Fix f body')
+  | .App f x => do
+    let (fBinds, f') ← extractHandlerHoists f true
+    let (xBinds, x') ← extractHandlerHoists x true
+    hoistIfAllowed (fBinds ++ xBinds) (.App f' x')
+  | .Force inner => do
+    let (binds, inner') ← extractHandlerHoists inner true
+    hoistIfAllowed binds (.Force inner')
+  | .Delay inner => do
+    let (binds, inner') ← extractHandlerHoists inner true
+    hoistIfAllowed binds (.Delay inner')
+  | .Constr tag args => do
+    let mut binds : List (MIR.VarId × MIR.Expr) := []
+    let mut args' : List MIR.Expr := []
+    for arg in args do
+      let (argBinds, arg') ← extractHandlerHoists arg true
+      binds := binds ++ argBinds
+      args' := args' ++ [arg']
+    hoistIfAllowed binds (.Constr tag args')
+  | .Case scrut alts => do
+    let (scrutBinds, scrut') ← extractHandlerHoists scrut true
+    let mut binds := scrutBinds
+    let mut alts' : List MIR.Expr := []
+    for alt in alts do
+      let (altBinds, alt') ← extractHandlerHoists alt true
+      binds := binds ++ altBinds
+      alts' := alts' ++ [alt']
+    hoistIfAllowed binds (.Case scrut' alts')
+  | .Let binds body => do
+    let mut outerBinds : List (MIR.VarId × MIR.Expr) := []
+    let mut innerBinds : List (MIR.VarId × MIR.Expr) := []
+    for (v, rhs) in binds do
+      let (rhsBinds, rhs') ← extractHandlerHoists rhs true
+      outerBinds := outerBinds ++ rhsBinds
+      innerBinds := innerBinds ++ [(v, rhs')]
+    let (bodyBinds, body') ← extractHandlerHoists body true
+    hoistIfAllowed (outerBinds ++ bodyBinds) (.Let innerBinds body')
+
+private def hoistCaseHandlers (alts : Array MIR.Expr)
+    : TranslateM (List (MIR.VarId × MIR.Expr) × Array MIR.Expr) := do
+  let mut binds : List (MIR.VarId × MIR.Expr) := []
+  let mut refs : Array MIR.Expr := #[]
+  for alt in alts do
+    let (helperBinds, alt') ← extractHandlerHoists alt
+    binds := binds ++ helperBinds
+    let h ← freshVarId "case_handler"
+    binds := binds ++ [(h, .Delay alt')]
+    refs := refs.push (.Force (.Var h))
+  pure (binds, refs)
+
 /-- Peel leading Lam binders from a MIR expression, up to `n` layers. -/
 private def peelLambdas (e : MIR.Expr) (n : Nat) : Array MIR.VarId × MIR.Expr :=
   go e n #[]
@@ -473,15 +552,16 @@ mutual
         let altsStart := scrutIdx + 1
         let numAlts := iv.ctors.length
         if repr == .sop then
-          -- SOP encoding: direct Constr/Case
-          let mut alts : List MIR.Expr := []
+          -- SOP encoding: hoist handlers, then emit direct Constr/Case.
+          let mut alts : Array MIR.Expr := #[]
           for i in [:numAlts] do
             if h2 : altsStart + i < args.size then
               let alt ← translateExpr args[altsStart + i]
-              alts := alts ++ [alt]
+              alts := alts.push alt
             else
               throwError "casesOn for {typeName}: not enough alternatives"
-          pure (.Case scrut alts)
+          let (handlerBinds, handlerRefs) ← hoistCaseHandlers alts
+          pure (.Let handlerBinds (.Case scrut handlerRefs.toList))
         else
           -- Data encoding: unConstrData + tag dispatch + field extraction
           translateDataCasesOn env iv np scrut args altsStart numAlts
@@ -520,13 +600,14 @@ mutual
         altBodies := altBodies.push body
       else
         throwError "data casesOn for {iv.name}: not enough alternatives"
+    let (handlerBinds, handlerRefs) ← hoistCaseHandlers altBodies
     -- Build tag dispatch: chain of equalsInteger checks
-    let dispatch ← buildTagDispatch (.Var tagV) altBodies 0
+    let dispatch ← buildTagDispatch (.Var tagV) handlerRefs 0
     -- Wrap in let bindings
     pure (.Let [(pairV, .App (mkBuiltin .UnConstrData) scrut)]
       (.Let [(tagV, .App (mkBuiltin .FstPair) (.Var pairV))]
         (.Let [(fieldsV, .App (mkBuiltin .SndPair) (.Var pairV))]
-          dispatch)))
+          (.Let handlerBinds dispatch))))
 
   /-- Extract fields from a Data list and apply them to an alternative lambda.
       The alt should be a multi-arg lambda (Lam v1 (Lam v2 ... body)).

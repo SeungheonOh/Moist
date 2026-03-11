@@ -27,32 +27,59 @@ def aaa (x : Foo) : Int :=
     a + g + e + c
 
 @[onchain]
-def bbb : Foo := Foo.foo 1 2 3 4 5 6 7
+def bbb : Foo := Foo.foo 1 2 3 4 5 6 42
 
 def aaaa : Term := compile! aaa
 
 def bbbb : Term := compile! bbb
 
+@[plutus_data]
+structure Bar where
+  (x : Int)
+  (y : Int)
+  (z : Int)
+
 @[onchain]
-def ccc : Int := aaa bbb
+def ccc : Bar := { x := 1, y := 2, z := 3 }
 
-def cccc : Term := compile! ccc
+@[plutus_data]
+inductive Baz where
+  | baz : Int → Int → Int → Baz
+  | bar : Int -> Int → Baz
+  | aaa : Int -> Int -> Baz
+  | foo : Int → Baz
+  | qux : Baz
 
-#eval (cccc).evaluatePretty
+@[onchain]
+def ddd (x : Baz) : Int :=
+  match x with
+    | Baz.baz a b c => a + b + c
+    | Baz.bar a b => a + b
+    | Baz.aaa a b => a + b
+    | Baz.foo a => a + 1
+    | Baz.qux => 0
 
--- This fails with TypeMismatch because bbbb has free variables (De Bruijn indices)
--- that don't compose with aaaa's indices when naively applied.
--- #eval (aaaa.Apply bbbb).evaluatePretty
+def dddd : Term := compile! ddd
 
-#eval bbbb.evaluatePretty
+@[onchain]
+def eee : Baz := Baz.bar 1 2
+
+def eeee : Term := compile! eee
+
+#show_optimized_mir ddd
+
+#show_mir ddd
+
+#eval ddd.compile!
+
+#eval ((compile! ddd).Apply eeee).evaluatePretty
+
+#evaluatePrettyTerm ddd (Baz.foo 2)
+
+#show_optimized_mir ccc
+
 #eval (aaaa.Apply bbbb).evaluatePretty
 
+#show_mir bbb
+
 #show_optimized_mir aaa
-
-#show_mir aaa
-
-#show_optimized_mir bbb
-
-#eval compile! aaa
-
-end Test.Debug

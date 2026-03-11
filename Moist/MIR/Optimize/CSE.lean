@@ -33,12 +33,12 @@ does not change the error semantics.
 ## Structural Equality vs Alpha-Equivalence
 
 `exprStructEq` compares two expression trees for **exact** structural
-equality: same VarIds, same literal values, same constructors. This is
-deliberately NOT alpha-equivalence because CSE operates on bindings
-in the same scope where variables have fixed names. Alpha-equivalence
-would be unsound here (two lambdas binding different variables in the
-same scope are semantically different if those variables are referenced
-from the outside).
+equality: same VarIds, same literal values, same constructors.
+
+For duplicate RHS elimination we use alpha-equivalence instead. That is
+safe here because CSE only deduplicates whole let-bound RHS expressions,
+and proper alpha-equivalence preserves free-variable identity while
+ignoring only the names of locally bound variables.
 
 ## Examples
 
@@ -132,7 +132,7 @@ mutual
     | _, _ => false
 end
 
-/-- Look up an expression in the seen-map by structural equality.
+/-- Look up an expression in the seen-map by alpha-equivalence.
 Returns the variable of the first matching entry, if any.
 
 ```
@@ -145,7 +145,7 @@ partial def lookupStructEq (seen : List (Expr × VarId)) (target : Expr)
   match seen with
   | [] => none
   | (expr, var) :: rest =>
-    if exprStructEq expr target then some var
+    if alphaEq expr target then some var
     else lookupStructEq rest target
 
 /-! ## CSE Pass

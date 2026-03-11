@@ -147,6 +147,15 @@ end
 
 /-! ## Main pass -/
 
+/-- Translation-generated case handlers are delayed thunks bound outside
+the case. Preserve them rather than cancelling `force`/`delay`, otherwise
+the hoisted handler structure disappears before lowering. -/
+private def isCaseHandlerBinding (v : VarId) (rhs : Expr) : Bool :=
+  v.hint.startsWith "case_handler" &&
+  match rhs with
+  | .Delay _ => true
+  | _ => false
+
 /-- Eliminate `Force`/`Delay` pairs from `e`.
 
 Returns `(e', changed)` where `changed` is `true` when at least one
@@ -227,15 +236,18 @@ where
     | (v, rhs) :: rest, acc, body, ch =>
       match rhs with
       | .Delay inner =>
-        -- Check all uses of v in subsequent bindings and body
-        let restExpr := if rest.isEmpty then body else .Let rest body
-        if allUsesAreForce v restExpr then
-          -- Replace Force (Var v) -> inner in subsequent bindings and body
-          let rest' := rest.map fun (w, r) => (w, replaceForceVar v inner r)
-          let body' := replaceForceVar v inner body
-          go rest' ((v, rhs) :: acc) body' true
-        else
+        if isCaseHandlerBinding v rhs then
           go rest ((v, rhs) :: acc) body ch
+        else
+        -- Check all uses of v in subsequent bindings and body
+          let restExpr := if rest.isEmpty then body else .Let rest body
+          if allUsesAreForce v restExpr then
+            -- Replace Force (Var v) -> inner in subsequent bindings and body
+            let rest' := rest.map fun (w, r) => (w, replaceForceVar v inner r)
+            let body' := replaceForceVar v inner body
+            go rest' ((v, rhs) :: acc) body' true
+          else
+            go rest ((v, rhs) :: acc) body ch
       | _ => go rest ((v, rhs) :: acc) body ch
 
 end Moist.MIR

@@ -42,6 +42,16 @@ private def usesInScope (v : VarId) (rest : List (VarId × Expr)) (body : Expr) 
   | [] => countOccurrences v body
   | _  => countOccurrences v (.Let rest body)
 
+/-- Translation-generated case bindings should survive pre-lowering:
+delayed handler thunks preserve branch laziness, and hoisted helper
+bindings preserve sharing introduced during translation. -/
+private def isCaseBinding (v : VarId) (rhs : Expr) : Bool :=
+  (v.hint.startsWith "case_handler" &&
+    match rhs with
+    | .Delay _ => true
+    | _ => false) ||
+  v.hint.startsWith "case_hoist"
+
 /-- Pre-lowering inline: substitute atoms, dead-pure, and single-use bindings.
     Walks the MIR tree and processes Let binding lists left-to-right. -/
 partial def preLowerInline (e : Expr) : FreshM Expr := do
@@ -88,8 +98,10 @@ where
     | (v, rhs) :: rest, acc, body => do
       let rhs' ← preLowerInline rhs
       let uses := usesInScope v rest body
+      if isCaseBinding v rhs' then
+        go rest ((v, rhs') :: acc) body
       -- Atom RHS: always substitute (trivially cheap, no effects)
-      if rhs'.isAtom then
+      else if rhs'.isAtom then
         let restBody ← subst v rhs' (.Let rest body)
         go [] acc (flattenLet restBody)
       -- Zero uses, pure RHS: drop dead binding
