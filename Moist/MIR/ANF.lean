@@ -12,7 +12,7 @@ Produces maximally flat Let blocks: bindings from nested Lets are hoisted
 to a single flat binding list wherever scoping allows.
 -/
 
-def anfAtom (e : Expr) : FreshM (Expr × List (VarId × Expr)) := do
+def anfAtom (e : Expr) : FreshM (Expr × List (VarId × Expr × Bool)) := do
   if e.isAtom then
     pure (e, [])
   else
@@ -22,23 +22,23 @@ def anfAtom (e : Expr) : FreshM (Expr × List (VarId × Expr)) := do
         pure (body, binds)
       else
         let v ← freshVar "anf"
-        pure (.Var v, binds ++ [(v, body)])
+        pure (.Var v, binds ++ [(v, body, false)])
     | _ =>
       let v ← freshVar "anf"
-      pure (.Var v, [(v, e)])
+      pure (.Var v, [(v, e, false)])
 
-private def wrapLet (binds : List (VarId × Expr)) (body : Expr) : Expr :=
+private def wrapLet (binds : List (VarId × Expr × Bool)) (body : Expr) : Expr :=
   match binds with
   | [] => body
   | _ => .Let binds body
 
-private def flattenLetBinds (normalized : List (VarId × Expr)) : List (VarId × Expr) :=
-  normalized.foldl (fun acc (v, e') =>
+private def flattenLetBinds (normalized : List (VarId × Expr × Bool)) : List (VarId × Expr × Bool) :=
+  normalized.foldl (fun acc (v, e', er) =>
     match e' with
-    | .Let innerBinds innerBody => acc ++ innerBinds ++ [(v, innerBody)]
-    | _ => acc ++ [(v, e')]) []
+    | .Let innerBinds innerBody => acc ++ innerBinds ++ [(v, innerBody, er)]
+    | _ => acc ++ [(v, e', er)]) []
 
-private def flattenLetBody (binds : List (VarId × Expr)) (body : Expr) : Expr :=
+private def flattenLetBody (binds : List (VarId × Expr × Bool)) (body : Expr) : Expr :=
   match body with
   | .Let innerBinds innerBody => .Let (binds ++ innerBinds) innerBody
   | _ => .Let binds body
@@ -70,9 +70,9 @@ partial def anfNormalize : Expr → FreshM Expr
     pure (wrapLet allBinds (.Constr tag atoms))
 
   | .Let binds body => do
-    let normalized ← binds.mapM fun (v, e) => do
+    let normalized ← binds.mapM fun (v, e, er) => do
       let e' ← anfNormalize e
-      pure (v, e')
+      pure (v, e', er)
     let flatBinds := flattenLetBinds normalized
     let body' ← anfNormalize body
     pure (flattenLetBody flatBinds body')

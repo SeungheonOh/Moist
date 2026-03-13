@@ -7,6 +7,7 @@ import Moist.MIR.Optimize.CSE
 import Moist.MIR.Optimize.DCE
 import Moist.MIR.Optimize.EtaReduce
 import Moist.MIR.Optimize.ForceDelay
+import Moist.MIR.Optimize.BetaReduce
 
 namespace Moist.MIR
 
@@ -21,11 +22,17 @@ iteration for the simplification loop.
 ANF input
   │
   ▼
-Float Out            ← maximize sharing by hoisting pure bindings
-  │                    out of Lam/Fix
-  ▼
-ANF normalize        ← create let bindings for CSE (once)
+Float Out (1st)      ← hoist pure bindings out of Lam/Fix
   │
+  ▼
+Beta Reduce          ← eliminate (λx. body) arg redexes
+  │
+  ▼
+ANF normalize        ← create let bindings (including inside case branches)
+  │
+  ▼
+Float Out (2nd)      ← hoist ANF-created lets out of Case alternatives
+  │                    so CSE can deduplicate across branches
   ▼
 ┌─────────────────┐
 │ Simplify (loop) │  repeat until no pass
@@ -40,13 +47,14 @@ ANF normalize        ← create let bindings for CSE (once)
 MIR output → PreLowerInline → Lower
 ```
 
-ANF normalization runs once at the start to create let bindings that
-CSE and other passes can work with. It is NOT repeated in the loop —
+ANF normalization is NOT repeated in the simplify loop —
 inlining intentionally removes let bindings, and re-normalizing would
 recreate exactly the bindings that inline just eliminated, causing a
-wasteful back-and-forth cycle. The PreLowerInline pass handles any
-remaining cleanup (beta reduction, atom substitution, single-use
-inlining) before lowering.
+wasteful back-and-forth cycle. The pre-loop beta reduction + ANF
+sequence is a one-shot cleanup that flattens projection function
+redexes into let-blocks where CSE can deduplicate them.
+The PreLowerInline pass handles any remaining cleanup (beta reduction,
+atom substitution, single-use inlining) before lowering.
 
 ## Why This Order
 
@@ -154,14 +162,29 @@ partial def simplifyLoop (e : Expr) (fuel : Nat := maxOptIterations) : FreshM Ex
 /-- Run the full optimization pipeline on an MIR expression.
 
 1. Float out pure bindings past Lam/Fix boundaries.
-2. ANF normalize (once) to create let bindings for CSE.
-3. Simplify to fixed point (CSE, inline, eta, force-delay, DCE).
+2. Beta reduce to eliminate immediately-applied lambdas.
+3. ANF normalize to create let bindings.
+4. Float out again — ANF creates let bindings inside case branches
+   (e.g. `let anf = force headList`) that can now be floated out of
+   case alternatives and deduplicated by CSE.
+5. Simplify to fixed point (CSE, inline, eta, force-delay, DCE).
 
 Returns the optimized MIR expression. -/
 partial def optimize (e : Expr) : FreshM Expr := do
   let (e1, _) := floatOut e
-  let e2 ← anfNormalize e1
-  simplifyLoop e2
+  let (e2, _) ← betaReducePass e1
+  let e3 ← anfNormalize e2
+  let (e4, _) := floatOut e3
+  simplifyLoop e4
+
+/-- Debug: run pipeline up through beta reduction + ANF (before simplify loop). -/
+def optimizeDebugBeta (e : Expr) (freshStart : Nat := 1000) : Expr × Bool :=
+  let m : FreshM (Expr × Bool) := do
+    let (e1, _) := floatOut e
+    let (e2, betaChanged) ← betaReducePass e1
+    let e3 ← anfNormalize e2
+    pure (e3, betaChanged)
+  runFresh m freshStart
 
 /-- Convenience wrapper: run the full optimization pipeline with a given
 fresh variable starting index.

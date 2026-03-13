@@ -54,12 +54,22 @@ At each `Lam x body` or `Fix f body` node whose body is a
    - Keep the stayed bindings inside the Lam/Fix body.
    - If one of the two sets is empty, skip the corresponding Let wrapper.
 
+### What we float out of Case alternatives
+
+Pure bindings inside case alternatives are floated before the Case node.
+Case alternatives in this IR do not bind variables (matching is done via
+`equalsInteger` on tags with field access via `headList`/`tailList`), so
+any pure binding whose free variables are all in the outer scope can
+safely be evaluated unconditionally.
+
+The cost is evaluating a pure expression even when the branch is not taken.
+The benefit is that duplicate computations across branches (e.g.
+`force headList`) become visible to CSE once they share a common scope.
+
 ### What we do NOT float out of
 
 - **Delay** -- floating would change lazy evaluation to eager evaluation,
   altering semantics.
-- **Case alternatives** -- floating would cause unconditional evaluation of
-  bindings that should only run in one branch.
 
 ### Sequential scoping
 
@@ -135,23 +145,67 @@ A binding floats when:
 3. No previously-stayed variable is free in the RHS.
 
 Bindings are processed left-to-right to respect sequential scoping. -/
-private def partitionBindings (binder : VarId) (binds : List (VarId × Expr))
-    : List (VarId × Expr) × List (VarId × Expr) :=
+private def partitionBindings (binder : VarId) (binds : List (VarId × Expr × Bool))
+    : List (VarId × Expr × Bool) × List (VarId × Expr × Bool) :=
   let (floatRev, stayRev, _) := binds.foldl (init := ([], [], VarSet.empty))
-    fun (floatAcc, stayAcc, stayVars) (x, rhs) =>
+    fun (floatAcc, stayAcc, stayVars) (x, rhs, er) =>
       let rhsFV := freeVars rhs
       if isPure rhs && !rhsFV.contains binder && !stayVars.data.any (rhsFV.contains ·) then
-        ((x, rhs) :: floatAcc, stayAcc, stayVars)
+        ((x, rhs, er) :: floatAcc, stayAcc, stayVars)
       else
-        (floatAcc, (x, rhs) :: stayAcc, stayVars.insert x)
+        (floatAcc, (x, rhs, er) :: stayAcc, stayVars.insert x)
   (floatRev.reverse, stayRev.reverse)
 
 /-- Wrap an expression in a Let block, or return it unchanged when the
 binding list is empty. -/
-private def mkLet (binds : List (VarId × Expr)) (body : Expr) : Expr :=
+private def mkLet (binds : List (VarId × Expr × Bool)) (body : Expr) : Expr :=
   match binds with
   | [] => body
   | _ => .Let binds body
+
+/-- Partition let bindings for floating out of a case alternative.
+
+A binding floats when:
+1. Its RHS is pure (guaranteed to succeed — partial builtin apps
+   and total saturated builtins are pure, fallible saturated builtins
+   are not).
+2. No previously-stayed variable is free in the RHS.
+
+Same as `partitionBindings` but without a binder check, since Case
+alternatives do not bind variables in this IR. -/
+private def partitionBindingsCase (binds : List (VarId × Expr × Bool))
+    : List (VarId × Expr × Bool) × List (VarId × Expr × Bool) :=
+  let (floatRev, stayRev, _) := binds.foldl (init := ([], [], VarSet.empty))
+    fun (floatAcc, stayAcc, stayVars) (x, rhs, er) =>
+      let rhsFV := freeVars rhs
+      if isPure rhs && !stayVars.data.any (rhsFV.contains ·) then
+        ((x, rhs, er) :: floatAcc, stayAcc, stayVars)
+      else
+        (floatAcc, (x, rhs, er) :: stayAcc, stayVars.insert x)
+  (floatRev.reverse, stayRev.reverse)
+
+/-- Flatten nested Let expressions into a single binding list + body. -/
+private def flattenLets : List (VarId × Expr × Bool) → Expr
+    → List (VarId × Expr × Bool) × Expr
+  | acc, .Let binds body => flattenLets (acc ++ binds) body
+  | acc, e => (acc, e)
+
+/-- Extract pure let bindings from each case alternative.
+Returns the collected floated bindings and the updated alternatives.
+Flattens nested Lets first so that pure bindings created by inner
+case floating are visible for partitioning. -/
+private def floatFromCaseAlts (alts : List Expr)
+    : List (VarId × Expr × Bool) × List Expr :=
+  let results := alts.map fun alt =>
+    match alt with
+    | .Let binds body =>
+      let (allBinds, innerBody) := flattenLets binds body
+      let (floatBinds, stayBinds) := partitionBindingsCase allBinds
+      (floatBinds, mkLet stayBinds innerBody)
+    | _ => ([], alt)
+  let floatedBinds := results.foldl (init := []) fun acc (f, _) => acc ++ f
+  let alts' := results.map Prod.snd
+  (floatedBinds, alts')
 
 /-! ## Core pass -/
 
@@ -171,10 +225,10 @@ where
     (es', changed)
 
   /-- Process let bindings (RHS only). -/
-  goBinds (binds : List (VarId × Expr)) : List (VarId × Expr) × Bool :=
-    let results := binds.map fun (v, rhs) =>
+  goBinds (binds : List (VarId × Expr × Bool)) : List (VarId × Expr × Bool) × Bool :=
+    let results := binds.map fun (v, rhs, er) =>
       let (rhs', c) := go rhs
-      ((v, rhs'), c)
+      ((v, rhs', er), c)
     let binds'  := results.map Prod.fst
     let changed := results.any Prod.snd
     (binds', changed)
@@ -223,15 +277,22 @@ where
       let (args', c) := goList args
       (.Constr tag args', c)
 
-    -- Do NOT float out of Case alternatives; still recurse into them.
+    -- Float pure let bindings out of Case alternatives.
     | .Case scrut alts =>
       let (scrut', c1) := go scrut
       let (alts', c2)  := goList alts
-      (.Case scrut' alts', c1 || c2)
+      let (floatedBinds, alts'') := floatFromCaseAlts alts'
+      if floatedBinds.isEmpty then
+        (.Case scrut' alts'', c1 || c2)
+      else
+        (mkLet floatedBinds (.Case scrut' alts''), true)
 
     | .Let binds body =>
       let (binds', c1) := goBinds binds
       let (body', c2)  := go body
-      (.Let binds' body', c1 || c2)
+      -- Flatten nested Lets so that bindings floated from case alternatives
+      -- merge into the surrounding Let block, enabling CSE across scopes.
+      let (extraBinds, innerBody) := flattenLets [] body'
+      (.Let (binds' ++ extraBinds) innerBody, c1 || c2)
 
 end Moist.MIR

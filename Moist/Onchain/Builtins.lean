@@ -88,6 +88,152 @@ def builtinForceCount : BuiltinFun → Nat
   | .HeadList | .TailList | .NullList | .MkCons | .Trace => 1
   | _ => 0
 
+/-! ## Builtin Arity
+
+Value arity: number of `App` nodes required after all `Force` nodes
+have been applied. Sourced from `plutuz/src/ast/builtin.zig`. -/
+
+def builtinArity : BuiltinFun → Nat
+  -- Integer
+  | .AddInteger => 2
+  | .SubtractInteger => 2
+  | .MultiplyInteger => 2
+  | .DivideInteger => 2
+  | .QuotientInteger => 2
+  | .RemainderInteger => 2
+  | .ModInteger => 2
+  | .EqualsInteger => 2
+  | .LessThanInteger => 2
+  | .LessThanEqualsInteger => 2
+  -- ByteString
+  | .AppendByteString => 2
+  | .ConsByteString => 2
+  | .SliceByteString => 3
+  | .LengthOfByteString => 1
+  | .IndexByteString => 2
+  | .EqualsByteString => 2
+  | .LessThanByteString => 2
+  | .LessThanEqualsByteString => 2
+  -- Cryptography
+  | .Sha2_256 => 1
+  | .Sha3_256 => 1
+  | .Blake2b_256 => 1
+  | .VerifyEd25519Signature => 3
+  -- Strings
+  | .AppendString => 2
+  | .EqualsString => 2
+  | .EncodeUtf8 => 1
+  | .DecodeUtf8 => 1
+  -- Bool
+  | .IfThenElse => 3
+  -- Unit
+  | .ChooseUnit => 2
+  -- Tracing
+  | .Trace => 2
+  -- Pairs
+  | .FstPair => 1
+  | .SndPair => 1
+  -- Lists
+  | .ChooseList => 3
+  | .MkCons => 2
+  | .HeadList => 1
+  | .TailList => 1
+  | .NullList => 1
+  -- Data
+  | .ChooseData => 6
+  | .ConstrData => 2
+  | .MapData => 1
+  | .ListData => 1
+  | .IData => 1
+  | .BData => 1
+  | .UnConstrData => 1
+  | .UnMapData => 1
+  | .UnListData => 1
+  | .UnIData => 1
+  | .UnBData => 1
+  | .EqualsData => 2
+  -- Misc constructors
+  | .MkPairData => 2
+  | .MkNilData => 1
+  | .MkNilPairData => 1
+  -- Batch 2
+  | .SerializeData => 1
+  -- Batch 3
+  | .VerifyEcdsaSecp256k1Signature => 3
+  | .VerifySchnorrSecp256k1Signature => 3
+  -- BLS
+  | .Bls12_381_G1_add => 2
+  | .Bls12_381_G1_neg => 1
+  | .Bls12_381_G1_scalarMul => 2
+  | .Bls12_381_G1_equal => 2
+  | .Bls12_381_G1_hashToGroup => 2
+  | .Bls12_381_G1_compress => 1
+  | .Bls12_381_G1_uncompress => 1
+  | .Bls12_381_G2_add => 2
+  | .Bls12_381_G2_neg => 1
+  | .Bls12_381_G2_scalarMul => 2
+  | .Bls12_381_G2_equal => 2
+  | .Bls12_381_G2_hashToGroup => 2
+  | .Bls12_381_G2_compress => 1
+  | .Bls12_381_G2_uncompress => 1
+  | .Bls12_381_millerLoop => 2
+  | .Bls12_381_mulMlResult => 2
+  | .Bls12_381_finalVerify => 2
+  -- Crypto
+  | .Keccak_256 => 1
+  | .Blake2b_224 => 1
+  | .IntegerToByteString => 3
+  | .ByteStringToInteger => 2
+  -- Batch 5
+  | .AndByteString => 3
+  | .OrByteString => 3
+  | .XorByteString => 3
+  | .ComplementByteString => 1
+  | .ReadBit => 2
+  | .WriteBits => 3
+  | .ReplicateByte => 2
+  | .ShiftByteString => 2
+  | .RotateByteString => 2
+  | .CountSetBits => 1
+  | .FindFirstSetBit => 1
+  | .Ripemd_160 => 1
+  -- Batch 6
+  | .ExpModInteger => 3
+
+/-! ## Builtin Totality
+
+A builtin is **total** when its saturated application always succeeds,
+regardless of argument values. Fallible builtins can error at runtime
+(e.g. division by zero, empty list, wrong Data constructor). -/
+
+def builtinIsTotal : BuiltinFun → Bool
+  -- Integer: division can fail
+  | .DivideInteger | .QuotientInteger | .RemainderInteger | .ModInteger => false
+  -- ByteString: ConsByteString (byte out of range), IndexByteString (OOB)
+  | .ConsByteString | .IndexByteString => false
+  -- Crypto: signature verification can fail on malformed inputs
+  | .VerifyEd25519Signature
+  | .VerifyEcdsaSecp256k1Signature
+  | .VerifySchnorrSecp256k1Signature => false
+  -- Strings: DecodeUtf8 can fail on invalid UTF-8
+  | .DecodeUtf8 => false
+  -- Lists: HeadList/TailList fail on empty, MkCons can fail on type mismatch
+  | .HeadList | .TailList | .MkCons => false
+  -- Data: Un* fail on wrong Data constructor, ConstrData/MapData/ListData can fail
+  | .UnConstrData | .UnMapData | .UnListData | .UnIData | .UnBData => false
+  | .ConstrData | .MapData | .ListData => false
+  -- BLS: uncompress/hashToGroup can fail on invalid input
+  | .Bls12_381_G1_uncompress | .Bls12_381_G1_hashToGroup => false
+  | .Bls12_381_G2_uncompress | .Bls12_381_G2_hashToGroup => false
+  -- IntegerToByteString can fail (negative size, too large)
+  | .IntegerToByteString => false
+  -- Bitwise: ReadBit/WriteBits (OOB), ReplicateByte (negative size)
+  | .ReadBit | .WriteBits | .ReplicateByte => false
+  -- Batch 6: ExpModInteger (modulus <= 0, etc.)
+  | .ExpModInteger => false
+  -- Everything else is total
+  | _ => true
+
 def isBuiltinName (name : Name) : Bool :=
   builtinMap.contains name
 

@@ -78,9 +78,9 @@ partial def lower (env : List VarId) (e : Expr) : LowerM Term := do
   | .Fix f body => lowerFix env f body
 
 where
-  lowerLet (env : List VarId) : List (VarId × Expr) → Expr → LowerM Term
+  lowerLet (env : List VarId) : List (VarId × Expr × Bool) → Expr → LowerM Term
     | [], body => lower env body
-    | (x, rhs) :: rest, body => do
+    | (x, rhs, _) :: rest, body => do
       let rhs' ← lower env rhs
       let rest' ← lowerLet (x :: env) rest body
       pure (.Apply (.Lam 0 rest') rhs')

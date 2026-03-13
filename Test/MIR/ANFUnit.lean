@@ -37,7 +37,7 @@ Each test verifies:
   -- App (App f x) y  -->  let t = App f x in App t y
   let e := Expr.App (.App (.Var f) (.Var x)) (.Var y)
   let r := normalize e
-  let expected := Expr.Let [(t1, .App (.Var f) (.Var x))] (.App (.Var t1) (.Var y))
+  let expected := Expr.Let [(t1, .App (.Var f) (.Var x), false)] (.App (.Var t1) (.Var y))
   checkAlphaEq "app_nonatomic_fun" r expected
   checkANF "app_nonatomic_fun_anf" r
 
@@ -47,7 +47,7 @@ Each test verifies:
   -- App f (App g x)  -->  let t = App g x in App f t
   let e := Expr.App (.Var f) (.App (.Var g) (.Var x))
   let r := normalize e
-  let expected := Expr.Let [(t1, .App (.Var g) (.Var x))] (.App (.Var f) (.Var t1))
+  let expected := Expr.Let [(t1, .App (.Var g) (.Var x), false)] (.App (.Var f) (.Var t1))
   checkAlphaEq "app_nonatomic_arg" r expected
   checkANF "app_nonatomic_arg_anf" r
 
@@ -59,8 +59,8 @@ Each test verifies:
   let e := Expr.App (.App (.Var f) (.Var x)) (.App (.Var g) (.Var y))
   let r := normalize e
   let expected :=
-    Expr.Let [(t1, .App (.Var f) (.Var x)),
-              (t2, .App (.Var g) (.Var y))]
+    Expr.Let [(t1, .App (.Var f) (.Var x), false),
+              (t2, .App (.Var g) (.Var y), false)]
       (.App (.Var t1) (.Var t2))
   checkAlphaEq "app_both_nonatomic" r expected
   checkANF "app_both_nonatomic_anf" r
@@ -79,7 +79,7 @@ Each test verifies:
   -- force (App f x)  -->  let t = App f x in force t
   let e := Expr.Force (.App (.Var f) (.Var x))
   let r := normalize e
-  let expected := Expr.Let [(t1, .App (.Var f) (.Var x))] (.Force (.Var t1))
+  let expected := Expr.Let [(t1, .App (.Var f) (.Var x), false)] (.Force (.Var t1))
   checkAlphaEq "force_nonatomic" r expected
   checkANF "force_nonatomic_anf" r
 
@@ -97,7 +97,7 @@ Each test verifies:
   -- Constr 0 [App f x, y]  -->  let t = App f x in Constr 0 [t, y]
   let e := Expr.Constr 0 [.App (.Var f) (.Var x), .Var y]
   let r := normalize e
-  let expected := Expr.Let [(t1, .App (.Var f) (.Var x))] (.Constr 0 [.Var t1, .Var y])
+  let expected := Expr.Let [(t1, .App (.Var f) (.Var x), false)] (.Constr 0 [.Var t1, .Var y])
   checkAlphaEq "constr_one_nonatomic" r expected
   checkANF "constr_one_nonatomic_anf" r
 
@@ -109,8 +109,8 @@ Each test verifies:
   let e := Expr.Constr 0 [.App (.Var f) (.Var x), .App (.Var g) (.Var y), .Var z]
   let r := normalize e
   let expected :=
-    Expr.Let [(t1, .App (.Var f) (.Var x)),
-              (t2, .App (.Var g) (.Var y))]
+    Expr.Let [(t1, .App (.Var f) (.Var x), false),
+              (t2, .App (.Var g) (.Var y), false)]
       (.Constr 0 [.Var t1, .Var t2, .Var z])
   checkAlphaEq "constr_multi_nonatomic" r expected
   checkANF "constr_multi_nonatomic_anf" r
@@ -130,7 +130,7 @@ Each test verifies:
   let e := Expr.Case (.App (.Var f) (.Var x)) [.Var y, .Var z]
   let r := normalize e
   let expected :=
-    Expr.Let [(t1, .App (.Var f) (.Var x))] (.Case (.Var t1) [.Var y, .Var z])
+    Expr.Let [(t1, .App (.Var f) (.Var x), false)] (.Case (.Var t1) [.Var y, .Var z])
   checkAlphaEq "case_nonatomic_scrut" r expected
   checkANF "case_nonatomic_scrut_anf" r
 
@@ -143,7 +143,7 @@ Each test verifies:
   ]
   let r := normalize e
   let expected := Expr.Case (.Var x) [
-    .Let [(t1, .App (.Var f) (.Var y))] (.App (.Var t1) (.Var z)),
+    .Let [(t1, .App (.Var f) (.Var y), false)] (.App (.Var t1) (.Var z)),
     .Var a
   ]
   checkAlphaEq "case_normalize_alts" r expected
@@ -154,11 +154,11 @@ Each test verifies:
 #eval do
   -- let a = App (App f x) y in Var a
   --   --> let t = App f x; a = App t y in Var a
-  let e := Expr.Let [(a, .App (.App (.Var f) (.Var x)) (.Var y))] (.Var a)
+  let e := Expr.Let [(a, .App (.App (.Var f) (.Var x)) (.Var y), false)] (.Var a)
   let r := normalize e
   let expected := Expr.Let
-    [(t1, .App (.Var f) (.Var x)),
-     (a, .App (.Var t1) (.Var y))]
+    [(t1, .App (.Var f) (.Var x), false),
+     (a, .App (.Var t1) (.Var y), false)]
     (.Var a)
   checkAlphaEq "let_normalize_rhs" r expected
   checkANF "let_normalize_rhs_anf" r
@@ -166,11 +166,11 @@ Each test verifies:
 -- Let: body gets normalized
 
 #eval do
-  let e := Expr.Let [(a, intLit 1)] (.App (.App (.Var f) (.Var a)) (.Var x))
+  let e := Expr.Let [(a, intLit 1, false)] (.App (.App (.Var f) (.Var a)) (.Var x))
   let r := normalize e
   let expected := Expr.Let
-    [(a, intLit 1),
-     (t1, .App (.Var f) (.Var a))]
+    [(a, intLit 1, false),
+     (t1, .App (.Var f) (.Var a), false)]
     (.App (.Var t1) (.Var x))
   checkAlphaEq "let_normalize_body" r expected
   checkANF "let_normalize_body_anf" r
@@ -179,8 +179,8 @@ Each test verifies:
 
 #eval do
   let e := Expr.Let
-    [(a, .App (.App (.Var f) (.Var x)) (.Var y)),
-     (b, .App (.App (.Var g) (.Var a)) (.Var z))]
+    [(a, .App (.App (.Var f) (.Var x)) (.Var y), false),
+     (b, .App (.App (.Var g) (.Var a)) (.Var z), false)]
     (.App (.Var a) (.Var b))
   let r := normalize e
   checkANF "let_multi_bind_anf" r
@@ -191,7 +191,7 @@ Each test verifies:
   let e := Expr.Lam x (.App (.App (.Var f) (.Var x)) (.Var y))
   let r := normalize e
   let expected := Expr.Lam x
-    (.Let [(t1, .App (.Var f) (.Var x))] (.App (.Var t1) (.Var y)))
+    (.Let [(t1, .App (.Var f) (.Var x), false)] (.App (.Var t1) (.Var y)))
   checkAlphaEq "lam_normalize_body" r expected
   checkANF "lam_normalize_body_anf" r
 
@@ -201,7 +201,7 @@ Each test verifies:
   let e := Expr.Fix f (.Lam x (.App (.App (.Var f) (.Var x)) (.Var y)))
   let r := normalize e
   let expected := Expr.Fix f (.Lam x
-    (.Let [(t1, .App (.Var f) (.Var x))] (.App (.Var t1) (.Var y))))
+    (.Let [(t1, .App (.Var f) (.Var x), false)] (.App (.Var t1) (.Var y))))
   checkAlphaEq "fix_normalize_body" r expected
   checkANF "fix_normalize_body_anf" r
 
@@ -211,7 +211,7 @@ Each test verifies:
   let e := Expr.Delay (.App (.App (.Var f) (.Var x)) (.Var y))
   let r := normalize e
   let expected := Expr.Delay
-    (.Let [(t1, .App (.Var f) (.Var x))] (.App (.Var t1) (.Var y)))
+    (.Let [(t1, .App (.Var f) (.Var x), false)] (.App (.Var t1) (.Var y)))
   checkAlphaEq "delay_normalize" r expected
   checkANF "delay_normalize_anf" r
 

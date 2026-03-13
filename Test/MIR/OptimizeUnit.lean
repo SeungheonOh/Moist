@@ -55,29 +55,35 @@ private def largeLam : Expr :=
   check "isPure_constr_builtin" (isPure (.Constr 0 [.Builtin .AddInteger]))
   check "isPure_constr_mixed_atoms" (isPure (.Constr 0 [.Var x, intLit 1, .Builtin .AddInteger]))
   -- Pure: Constr with non-atom but pure args
-  check "isPure_constr_app_arg" (isPure (.Constr 0 [.App (.Var f) (.Var x)]))
   check "isPure_constr_lam_arg" (isPure (.Constr 0 [.Lam x (.Var x)]))
   check "isPure_constr_delay_arg" (isPure (.Constr 0 [.Delay (.Var x)]))
-  check "isPure_constr_one_good" (isPure (.Constr 0 [.Var x, .App (.Var f) (.Var y)]))
-  check "isPure_constr_first_good" (isPure (.Constr 0 [.App (.Var f) (.Var x), .Var y]))
-  -- Pure: compound expressions without Error or builtin application
-  check "isPure_app" (isPure (.App (.Var f) (.Var x)))
+  -- Impure: Constr with Var-headed App args (Var could alias fallible builtin)
+  check "isPure_constr_app_arg" (!isPure (.Constr 0 [.App (.Var f) (.Var x)]))
+  check "isPure_constr_one_good" (!isPure (.Constr 0 [.Var x, .App (.Var f) (.Var y)]))
+  check "isPure_constr_first_good" (!isPure (.Constr 0 [.App (.Var f) (.Var x), .Var y]))
+  -- Impure: Var-headed application (Var could alias fallible builtin)
+  check "isPure_app_var" (!isPure (.App (.Var f) (.Var x)))
+  -- Pure: compound expressions without App or Error
   check "isPure_force" (isPure (.Force (.Var x)))
   check "isPure_force_delay" (isPure (.Force (.Delay (.Var x))))
   check "isPure_case" (isPure (.Case (.Var x) [.Var y, .Var z]))
-  check "isPure_let" (isPure (.Let [(a, intLit 1)] (.Var a)))
-  check "isPure_let_pure_bindings" (isPure (.Let [(a, .Var x)] (.Var a)))
-  -- Impure: builtin applied to argument (may fail at runtime)
-  check "isPure_app_builtin" (!isPure (.App (.Builtin .AddInteger) (intLit 1)))
-  check "isPure_app_builtin_chain" (!isPure (.App (.App (.Builtin .AddInteger) (intLit 1)) (intLit 2)))
+  check "isPure_let" (isPure (.Let [(a, intLit 1, false)] (.Var a)))
+  check "isPure_let_pure_bindings" (isPure (.Let [(a, .Var x, false)] (.Var a)))
+  -- Pure: partial builtin application (fewer args than arity)
+  check "isPure_app_builtin_partial" (isPure (.App (.Builtin .AddInteger) (intLit 1)))
+  -- Pure: saturated application of a total builtin
+  check "isPure_app_builtin_total" (isPure (.App (.App (.Builtin .AddInteger) (intLit 1)) (intLit 2)))
+  -- Impure: saturated application of a fallible builtin
   check "isPure_app_forced_builtin" (!isPure (.App (.Force (.Builtin .HeadList)) (.Var x)))
+  check "isPure_app_divideInteger" (!isPure (.App (.App (.Builtin .DivideInteger) (intLit 1)) (intLit 2)))
+  check "isPure_app_unIData" (!isPure (.App (.Builtin .UnIData) (.Var x)))
   -- Impure: contains Error
   check "isPure_error" (!isPure .Error)
   check "isPure_app_error_fn" (!isPure (.App .Error (.Var x)))
   check "isPure_app_error_arg" (!isPure (.App (.Var f) .Error))
   check "isPure_constr_error_arg" (!isPure (.Constr 0 [.Var x, .Error]))
-  check "isPure_let_error_rhs" (!isPure (.Let [(a, .Error)] (.Var a)))
-  check "isPure_let_error_body" (!isPure (.Let [(a, .Var x)] .Error))
+  check "isPure_let_error_rhs" (!isPure (.Let [(a, .Error, false)] (.Var a)))
+  check "isPure_let_error_body" (!isPure (.Let [(a, .Var x, false)] .Error))
   check "isPure_case_error_scrut" (!isPure (.Case .Error [.Var y]))
   check "isPure_case_error_alt" (!isPure (.Case (.Var x) [.Error]))
   check "isPure_force_error" (!isPure (.Force .Error))
@@ -101,7 +107,7 @@ private def largeLam : Expr :=
   check "structEq_constr_same" (exprStructEq (.Constr 0 [.Var x, .Var y]) (.Constr 0 [.Var x, .Var y]))
   check "structEq_constr_empty" (exprStructEq (.Constr 0 []) (.Constr 0 []))
   check "structEq_case_same" (exprStructEq (.Case (.Var x) [.Var y]) (.Case (.Var x) [.Var y]))
-  check "structEq_let_same" (exprStructEq (.Let [(a, .Var x)] (.Var a)) (.Let [(a, .Var x)] (.Var a)))
+  check "structEq_let_same" (exprStructEq (.Let [(a, .Var x, false)] (.Var a)) (.Let [(a, .Var x, false)] (.Var a)))
   -- Unequal pairs
   check "structEq_var_diff" (!exprStructEq (.Var x) (.Var y))
   check "structEq_lit_diff_val" (!exprStructEq (intLit 1) (intLit 2))
@@ -114,7 +120,7 @@ private def largeLam : Expr :=
   check "structEq_constr_diff_tag" (!exprStructEq (.Constr 0 [.Var x]) (.Constr 1 [.Var x]))
   check "structEq_constr_diff_args" (!exprStructEq (.Constr 0 [.Var x]) (.Constr 0 [.Var y]))
   check "structEq_constr_diff_len" (!exprStructEq (.Constr 0 [.Var x]) (.Constr 0 [.Var x, .Var y]))
-  check "structEq_let_diff_binder" (!exprStructEq (.Let [(a, .Var x)] (.Var a)) (.Let [(b, .Var x)] (.Var b)))
+  check "structEq_let_diff_binder" (!exprStructEq (.Let [(a, .Var x, false)] (.Var a)) (.Let [(b, .Var x, false)] (.Var b)))
   check "structEq_cross_ctor" (!exprStructEq (.Var x) (intLit 1))
   check "structEq_cross_ctor2" (!exprStructEq (.Lam x (.Var x)) (.Fix x (.Var x)))
 
@@ -149,8 +155,8 @@ private def largeLam : Expr :=
   check "allForce_constr_force" (allUsesAreForce v (.Constr 0 [.Force (.Var v)]))
   check "allForce_case_all_force" (allUsesAreForce v (.Case (.Force (.Var v)) [.Force (.Var v)]))
   check "allForce_case_scrut_bare" (!allUsesAreForce v (.Case (.Var v) [.Force (.Var v)]))
-  check "allForce_let_shadow" (allUsesAreForce v (.Let [(v, .Var x)] (.Var v)))
-  check "allForce_let_rhs_before_shadow" (!allUsesAreForce v (.Let [(a, .Var v), (v, intLit 1)] (.Var v)))
+  check "allForce_let_shadow" (allUsesAreForce v (.Let [(v, .Var x, false)] (.Var v)))
+  check "allForce_let_rhs_before_shadow" (!allUsesAreForce v (.Let [(a, .Var v, false), (v, intLit 1, false)] (.Var v)))
   check "allForce_delay_inner" (allUsesAreForce v (.Delay (.Force (.Var v))))
   check "allForce_delay_bare" (!allUsesAreForce v (.Delay (.Var v)))
 
@@ -165,8 +171,8 @@ private def largeLam : Expr :=
   check "underFix_rebound_lam_inside" (!occursUnderFix v (.Fix f (.Lam v (.Var v))))
   check "underFix_not_present" (!occursUnderFix v (.Var x))
   check "underFix_nested_fix" (occursUnderFix v (.Fix f (.Fix g (.Var v))))
-  check "underFix_let_shadow" (!occursUnderFix v (.Fix f (.Let [(v, intLit 1)] (.Var v))))
-  check "underFix_let_rhs_before_shadow" (occursUnderFix v (.Fix f (.Let [(a, .Var v), (v, intLit 1)] (.Var v))))
+  check "underFix_let_shadow" (!occursUnderFix v (.Fix f (.Let [(v, intLit 1, false)] (.Var v))))
+  check "underFix_let_rhs_before_shadow" (occursUnderFix v (.Fix f (.Let [(a, .Var v, false), (v, intLit 1, false)] (.Var v))))
   check "underFix_both_in_out" (occursUnderFix v (.App (.Var v) (.Fix f (.Var v))))
   check "underFix_in_app_fn" (occursUnderFix v (.Fix f (.App (.Var v) (.Var x))))
   check "underFix_deep_nested" (occursUnderFix v (.Fix f (.Lam x (.App (.Var x) (.Var v)))))
@@ -224,97 +230,102 @@ private def largeLam : Expr :=
 
 -- Pure binding floats out of Lam
 #eval do
-  let e := Expr.Lam x (.Let [(a, intLit 1)] (.Var a))
-  let expected := Expr.Let [(a, intLit 1)] (.Lam x (.Var a))
+  let e := Expr.Lam x (.Let [(a, intLit 1, false)] (.Var a))
+  let expected := Expr.Let [(a, intLit 1, false)] (.Lam x (.Var a))
   checkPassResult "float_pure_out_of_lam" (floatOut e) expected true
 
 -- Pure Var RHS not mentioning binder floats
 #eval do
-  let e := Expr.Lam x (.Let [(a, .Var y)] (.App (.Var a) (.Var x)))
-  let expected := Expr.Let [(a, .Var y)] (.Lam x (.App (.Var a) (.Var x)))
+  let e := Expr.Lam x (.Let [(a, .Var y, false)] (.App (.Var a) (.Var x)))
+  let expected := Expr.Let [(a, .Var y, false)] (.Lam x (.App (.Var a) (.Var x)))
   checkPassResult "float_pure_var_out_of_lam" (floatOut e) expected true
 
 -- Binding mentioning binder stays
 #eval do
-  let e := Expr.Lam x (.Let [(a, .App (.Var x) (.Var x))] (.Var a))
+  let e := Expr.Lam x (.Let [(a, .App (.Var x) (.Var x), false)] (.Var a))
   checkPassResult "float_mentions_binder" (floatOut e) e false
 
 -- Pure binding mentioning binder stays
 #eval do
-  let e := Expr.Lam x (.Let [(a, .Var x)] (.Var a))
+  let e := Expr.Lam x (.Let [(a, .Var x, false)] (.Var a))
   checkPassResult "float_pure_mentions_binder" (floatOut e) e false
 
--- Pure binding not mentioning binder floats out
+-- Var-headed App does not float (Var could alias fallible builtin)
 #eval do
-  let e := Expr.Lam x (.Let [(a, .App (.Var f) (.Var y))] (.Var a))
-  let expected := Expr.Let [(a, .App (.Var f) (.Var y))] (.Lam x (.Var a))
-  checkPassResult "float_pure_app_out" (floatOut e) expected true
+  let e := Expr.Lam x (.Let [(a, .App (.Var f) (.Var y), false)] (.Var a))
+  checkPassResult "float_impure_app_stays" (floatOut e) e false
+
+-- Total builtin App floats out
+#eval do
+  let e := Expr.Lam x (.Let [(a, .App (.App (.Builtin .AddInteger) (intLit 1)) (intLit 2), false)] (.Var a))
+  let expected := Expr.Let [(a, .App (.App (.Builtin .AddInteger) (intLit 1)) (intLit 2), false)] (.Lam x (.Var a))
+  checkPassResult "float_total_builtin_out" (floatOut e) expected true
 
 -- Pure Force floats out
 #eval do
-  let e := Expr.Lam x (.Let [(a, .Force (.Var y))] (.Var a))
-  let expected := Expr.Let [(a, .Force (.Var y))] (.Lam x (.Var a))
+  let e := Expr.Lam x (.Let [(a, .Force (.Var y), false)] (.Var a))
+  let expected := Expr.Let [(a, .Force (.Var y), false)] (.Lam x (.Var a))
   checkPassResult "float_pure_force_out" (floatOut e) expected true
 
 -- Mixed partition: some float, some stay
 #eval do
   let e := Expr.Lam x
-    (.Let [(a, intLit 1), (b, .App (.Var a) (.Var x))]
+    (.Let [(a, intLit 1, false), (b, .App (.Var a) (.Var x), false)]
       (.App (.Var a) (.Var b)))
-  let expected := Expr.Let [(a, intLit 1)]
-    (.Lam x (.Let [(b, .App (.Var a) (.Var x))]
+  let expected := Expr.Let [(a, intLit 1, false)]
+    (.Lam x (.Let [(b, .App (.Var a) (.Var x), false)]
       (.App (.Var a) (.Var b))))
   checkPassResult "float_mixed_partition" (floatOut e) expected true
 
 -- All bindings float
 #eval do
-  let e := Expr.Lam x (.Let [(a, intLit 1), (b, intLit 2)] (.Var x))
-  let expected := Expr.Let [(a, intLit 1), (b, intLit 2)] (.Lam x (.Var x))
+  let e := Expr.Lam x (.Let [(a, intLit 1, false), (b, intLit 2, false)] (.Var x))
+  let expected := Expr.Let [(a, intLit 1, false), (b, intLit 2, false)] (.Lam x (.Var x))
   checkPassResult "float_all_float" (floatOut e) expected true
 
 -- All bindings stay
 #eval do
   let e := Expr.Lam x
-    (.Let [(a, .App (.Var x) (.Var x)), (b, .App (.Var f) (.Var x))]
+    (.Let [(a, .App (.Var x) (.Var x), false), (b, .App (.Var f) (.Var x), false)]
       (.App (.Var a) (.Var b)))
   checkPassResult "float_all_stay" (floatOut e) e false
 
 -- Sequential scoping: b depends on stay-var a, so b also stays
 #eval do
   let e := Expr.Lam x
-    (.Let [(a, .App (.Var x) (.Var x)), (b, .Lam y (.Var a))]
+    (.Let [(a, .App (.Var x) (.Var x), false), (b, .Lam y (.Var a), false)]
       (.App (.Var a) (.Var b)))
   checkPassResult "float_seq_dep_stay" (floatOut e) e false
 
 -- Sequential scoping: a stays, b depends on a → stays, c floats
 #eval do
   let e := Expr.Lam x
-    (.Let [(a, .App (.Var x) (.Var y)), (b, .Var a), (c, intLit 1)]
+    (.Let [(a, .App (.Var x) (.Var y), false), (b, .Var a, false), (c, intLit 1, false)]
       (.App (.Var b) (.Var c)))
-  let expected := Expr.Let [(c, intLit 1)]
+  let expected := Expr.Let [(c, intLit 1, false)]
     (.Lam x
-      (.Let [(a, .App (.Var x) (.Var y)), (b, .Var a)]
+      (.Let [(a, .App (.Var x) (.Var y), false), (b, .Var a, false)]
         (.App (.Var b) (.Var c))))
   checkPassResult "float_seq_dep_chain" (floatOut e) expected true
 
 -- Sequential scoping: a floats, b depends on a (which floated) → b floats too
 #eval do
   let e := Expr.Lam x
-    (.Let [(a, intLit 1), (b, .Lam y (.Var a))]
+    (.Let [(a, intLit 1, false), (b, .Lam y (.Var a), false)]
       (.App (.Var b) (.Var x)))
-  let expected := Expr.Let [(a, intLit 1), (b, .Lam y (.Var a))]
+  let expected := Expr.Let [(a, intLit 1, false), (b, .Lam y (.Var a), false)]
     (.Lam x (.App (.Var b) (.Var x)))
   checkPassResult "float_seq_pure_chain_floats" (floatOut e) expected true
 
 -- Float out of Fix
 #eval do
-  let e := Expr.Fix f (.Let [(a, intLit 1)] (.Lam x (.App (.Var f) (.Var a))))
-  let expected := Expr.Let [(a, intLit 1)] (.Fix f (.Lam x (.App (.Var f) (.Var a))))
+  let e := Expr.Fix f (.Let [(a, intLit 1, false)] (.Lam x (.App (.Var f) (.Var a))))
+  let expected := Expr.Let [(a, intLit 1, false)] (.Fix f (.Lam x (.App (.Var f) (.Var a))))
   checkPassResult "float_fix_pure" (floatOut e) expected true
 
 -- Fix: binding mentioning Fix binder stays
 #eval do
-  let e := Expr.Fix f (.Let [(a, .Var f)] (.Lam x (.Var a)))
+  let e := Expr.Fix f (.Let [(a, .Var f, false)] (.Lam x (.Var a)))
   checkPassResult "float_fix_mentions_binder" (floatOut e) e false
 
 -- Body is not a Let → nothing to float
@@ -329,45 +340,75 @@ private def largeLam : Expr :=
 -- Does NOT float out of Delay (but recursion processes inside)
 #eval do
   -- Inside the Delay there's a Lam with a floatable binding
-  let e := Expr.Delay (.Lam x (.Let [(a, intLit 1)] (.Var a)))
-  let expected := Expr.Delay (.Let [(a, intLit 1)] (.Lam x (.Var a)))
+  let e := Expr.Delay (.Lam x (.Let [(a, intLit 1, false)] (.Var a)))
+  let expected := Expr.Delay (.Let [(a, intLit 1, false)] (.Lam x (.Var a)))
   checkPassResult "float_inside_delay_at_lam" (floatOut e) expected true
 
 -- Recursion into App
 #eval do
-  let e := Expr.App (.Lam x (.Let [(a, intLit 1)] (.Var a))) (.Var y)
-  let expected := Expr.App (.Let [(a, intLit 1)] (.Lam x (.Var a))) (.Var y)
+  let e := Expr.App (.Lam x (.Let [(a, intLit 1, false)] (.Var a))) (.Var y)
+  let expected := Expr.App (.Let [(a, intLit 1, false)] (.Lam x (.Var a))) (.Var y)
   checkPassResult "float_recurse_app" (floatOut e) expected true
 
 -- Recursion into Force
 #eval do
-  let e := Expr.Force (.Lam x (.Let [(a, intLit 1)] (.Var a)))
-  let expected := Expr.Force (.Let [(a, intLit 1)] (.Lam x (.Var a)))
+  let e := Expr.Force (.Lam x (.Let [(a, intLit 1, false)] (.Var a)))
+  let expected := Expr.Force (.Let [(a, intLit 1, false)] (.Lam x (.Var a)))
   checkPassResult "float_recurse_force" (floatOut e) expected true
 
 -- Recursion into Constr
 #eval do
-  let e := Expr.Constr 0 [.Lam x (.Let [(a, intLit 1)] (.Var a)), .Var y]
-  let expected := Expr.Constr 0 [.Let [(a, intLit 1)] (.Lam x (.Var a)), .Var y]
+  let e := Expr.Constr 0 [.Lam x (.Let [(a, intLit 1, false)] (.Var a)), .Var y]
+  let expected := Expr.Constr 0 [.Let [(a, intLit 1, false)] (.Lam x (.Var a)), .Var y]
   checkPassResult "float_recurse_constr" (floatOut e) expected true
 
 -- Recursion into Let RHS
 #eval do
-  let e := Expr.Let [(b, .Lam x (.Let [(a, intLit 1)] (.Var a)))] (.Var b)
-  let expected := Expr.Let [(b, .Let [(a, intLit 1)] (.Lam x (.Var a)))] (.Var b)
+  let e := Expr.Let [(b, .Lam x (.Let [(a, intLit 1, false)] (.Var a)), false)] (.Var b)
+  let expected := Expr.Let [(b, .Let [(a, intLit 1, false)] (.Lam x (.Var a)), false)] (.Var b)
   checkPassResult "float_recurse_let_rhs" (floatOut e) expected true
 
 -- Recursion into Let body
 #eval do
-  let e := Expr.Let [(b, intLit 1)] (.Lam x (.Let [(a, intLit 2)] (.Var a)))
-  let expected := Expr.Let [(b, intLit 1)] (.Let [(a, intLit 2)] (.Lam x (.Var a)))
+  let e := Expr.Let [(b, intLit 1, false)] (.Lam x (.Let [(a, intLit 2, false)] (.Var a)))
+  -- After floating, a=2 floats out of Lam; Let flattening merges into outer Let
+  let expected := Expr.Let [(b, intLit 1, false), (a, intLit 2, false)] (.Lam x (.Var a))
   checkPassResult "float_recurse_let_body" (floatOut e) expected true
 
--- Recursion into Case alternatives
+-- Recursion into Case alternatives: binding floats out of Lam AND Case
 #eval do
-  let e := Expr.Case (.Var x) [.Lam y (.Let [(a, intLit 1)] (.Var a)), .Var z]
-  let expected := Expr.Case (.Var x) [.Let [(a, intLit 1)] (.Lam y (.Var a)), .Var z]
+  let e := Expr.Case (.Var x) [.Lam y (.Let [(a, intLit 1, false)] (.Var a)), .Var z]
+  -- a=1 is pure & independent: floats out of Lam, then out of Case
+  let expected := Expr.Let [(a, intLit 1, false)] (.Case (.Var x) [.Lam y (.Var a), .Var z])
   checkPassResult "float_recurse_case_alt" (floatOut e) expected true
+
+-- Float pure binding out of a case alternative
+#eval do
+  let e := Expr.Case (.Var x) [.Let [(a, intLit 1, false)] (.App (.Var a) (.Var x)), .Var z]
+  let expected := Expr.Let [(a, intLit 1, false)] (.Case (.Var x) [.App (.Var a) (.Var x), .Var z])
+  checkPassResult "float_case_pure_binding" (floatOut e) expected true
+
+-- Impure binding stays inside case alternative
+#eval do
+  let e := Expr.Case (.Var x) [.Let [(a, .Error, false)] (.Var a), .Var z]
+  checkPassResult "float_case_impure_stays" (floatOut e) e false
+
+-- Mixed: pure floats, impure stays
+#eval do
+  let e := Expr.Case (.Var x)
+    [.Let [(a, intLit 1, false), (b, .Error, false)] (.App (.Var a) (.Var b)), .Var z]
+  let expected := Expr.Let [(a, intLit 1, false)]
+    (.Case (.Var x) [.Let [(b, .Error, false)] (.App (.Var a) (.Var b)), .Var z])
+  checkPassResult "float_case_mixed" (floatOut e) expected true
+
+-- Pure bindings from multiple alternatives float out
+#eval do
+  let e := Expr.Case (.Var x)
+    [.Let [(a, intLit 1, false)] (.App (.Var a) (.Var x)),
+     .Let [(b, intLit 2, false)] (.App (.Var b) (.Var x))]
+  let expected := Expr.Let [(a, intLit 1, false), (b, intLit 2, false)]
+    (.Case (.Var x) [.App (.Var a) (.Var x), .App (.Var b) (.Var x)])
+  checkPassResult "float_case_multi_alt" (floatOut e) expected true
 
 -- Empty Let bindings → nothing to float
 #eval do
@@ -380,131 +421,131 @@ private def largeLam : Expr :=
 
 -- Duplicate App eliminated
 #eval do
-  let e := Expr.Let [(a, .App (.Var f) (.Var x)),
-                      (b, .App (.Var f) (.Var x))]
+  let e := Expr.Let [(a, .App (.Var f) (.Var x), false),
+                      (b, .App (.Var f) (.Var x), false)]
               (.App (.Var a) (.Var b))
-  let expected := Expr.Let [(a, .App (.Var f) (.Var x))]
+  let expected := Expr.Let [(a, .App (.Var f) (.Var x), false)]
                     (.App (.Var a) (.Var a))
   checkPassResult "cse_dup_app" (cse e) expected true
 
 -- Different Apps not eliminated
 #eval do
-  let e := Expr.Let [(a, .App (.Var f) (.Var x)),
-                      (b, .App (.Var f) (.Var y))]
+  let e := Expr.Let [(a, .App (.Var f) (.Var x), false),
+                      (b, .App (.Var f) (.Var y), false)]
               (.App (.Var a) (.Var b))
   checkPassResult "cse_no_dup" (cse e) e false
 
 -- Triple duplicate collapses to first
 #eval do
-  let e := Expr.Let [(a, .Force (.Var x)),
-                      (b, .Force (.Var x)),
-                      (c, .Force (.Var x))]
+  let e := Expr.Let [(a, .Force (.Var x), false),
+                      (b, .Force (.Var x), false),
+                      (c, .Force (.Var x), false)]
               (.Constr 0 [.Var a, .Var b, .Var c])
-  let expected := Expr.Let [(a, .Force (.Var x))]
+  let expected := Expr.Let [(a, .Force (.Var x), false)]
                     (.Constr 0 [.Var a, .Var a, .Var a])
   checkPassResult "cse_triple_dup" (cse e) expected true
 
 -- Duplicate Var RHS
 #eval do
-  let e := Expr.Let [(a, .Var x), (b, .Var x)]
+  let e := Expr.Let [(a, .Var x, false), (b, .Var x, false)]
               (.App (.Var a) (.Var b))
-  let expected := Expr.Let [(a, .Var x)]
+  let expected := Expr.Let [(a, .Var x, false)]
                     (.App (.Var a) (.Var a))
   checkPassResult "cse_dup_var" (cse e) expected true
 
 -- Duplicate Delay
 #eval do
-  let e := Expr.Let [(a, .Delay (.Var x)), (b, .Delay (.Var x))]
+  let e := Expr.Let [(a, .Delay (.Var x), false), (b, .Delay (.Var x), false)]
               (.App (.Var a) (.Var b))
-  let expected := Expr.Let [(a, .Delay (.Var x))]
+  let expected := Expr.Let [(a, .Delay (.Var x), false)]
                     (.App (.Var a) (.Var a))
   checkPassResult "cse_dup_delay" (cse e) expected true
 
 -- Duplicate Constr
 #eval do
-  let e := Expr.Let [(a, .Constr 0 [.Var x, .Var y]),
-                      (b, .Constr 0 [.Var x, .Var y])]
+  let e := Expr.Let [(a, .Constr 0 [.Var x, .Var y], false),
+                      (b, .Constr 0 [.Var x, .Var y], false)]
               (.App (.Var a) (.Var b))
-  let expected := Expr.Let [(a, .Constr 0 [.Var x, .Var y])]
+  let expected := Expr.Let [(a, .Constr 0 [.Var x, .Var y], false)]
                     (.App (.Var a) (.Var a))
   checkPassResult "cse_dup_constr" (cse e) expected true
 
 -- Dup renames in subsequent bindings
 #eval do
-  let e := Expr.Let [(a, .App (.Var f) (.Var x)),
-                      (b, .App (.Var f) (.Var x)),
-                      (c, .App (.Var g) (.Var b))]
+  let e := Expr.Let [(a, .App (.Var f) (.Var x), false),
+                      (b, .App (.Var f) (.Var x), false),
+                      (c, .App (.Var g) (.Var b), false)]
               (.Var c)
-  let expected := Expr.Let [(a, .App (.Var f) (.Var x)),
-                             (c, .App (.Var g) (.Var a))]
+  let expected := Expr.Let [(a, .App (.Var f) (.Var x), false),
+                             (c, .App (.Var g) (.Var a), false)]
                     (.Var c)
   checkPassResult "cse_dup_renames_rest" (cse e) expected true
 
 -- Single binding: nothing to dedup
 #eval do
-  let e := Expr.Let [(a, .App (.Var f) (.Var x))] (.Var a)
+  let e := Expr.Let [(a, .App (.Var f) (.Var x), false)] (.Var a)
   checkPassResult "cse_single_binding" (cse e) e false
 
 -- CSE inside Lam body
 #eval do
   let e := Expr.Lam z
-    (.Let [(a, .App (.Var f) (.Var z)), (b, .App (.Var f) (.Var z))]
+    (.Let [(a, .App (.Var f) (.Var z), false), (b, .App (.Var f) (.Var z), false)]
       (.App (.Var a) (.Var b)))
   let expected := Expr.Lam z
-    (.Let [(a, .App (.Var f) (.Var z))]
+    (.Let [(a, .App (.Var f) (.Var z), false)]
       (.App (.Var a) (.Var a)))
   checkPassResult "cse_recurse_lam" (cse e) expected true
 
 -- CSE inside Fix body
 #eval do
   let e := Expr.Fix g
-    (.Let [(a, .Var x), (b, .Var x)]
+    (.Let [(a, .Var x, false), (b, .Var x, false)]
       (.App (.Var a) (.Var b)))
   let expected := Expr.Fix g
-    (.Let [(a, .Var x)]
+    (.Let [(a, .Var x, false)]
       (.App (.Var a) (.Var a)))
   checkPassResult "cse_recurse_fix" (cse e) expected true
 
 -- CSE inside nested Let RHS
 #eval do
   let e := Expr.Let
-    [(c, .Let [(a, .Var x), (b, .Var x)] (.App (.Var a) (.Var b)))]
+    [(c, .Let [(a, .Var x, false), (b, .Var x, false)] (.App (.Var a) (.Var b)), false)]
     (.Var c)
   let expected := Expr.Let
-    [(c, .Let [(a, .Var x)] (.App (.Var a) (.Var a)))]
+    [(c, .Let [(a, .Var x, false)] (.App (.Var a) (.Var a)), false)]
     (.Var c)
   checkPassResult "cse_recurse_let_rhs" (cse e) expected true
 
 -- CSE inside Case alternatives
 #eval do
   let e := Expr.Case (.Var x)
-    [.Let [(a, .Var y), (b, .Var y)] (.App (.Var a) (.Var b))]
+    [.Let [(a, .Var y, false), (b, .Var y, false)] (.App (.Var a) (.Var b))]
   let expected := Expr.Case (.Var x)
-    [.Let [(a, .Var y)] (.App (.Var a) (.Var a))]
+    [.Let [(a, .Var y, false)] (.App (.Var a) (.Var a))]
   checkPassResult "cse_recurse_case_alt" (cse e) expected true
 
 -- CSE inside Delay
 #eval do
   let e := Expr.Delay
-    (.Let [(a, .Var x), (b, .Var x)] (.App (.Var a) (.Var b)))
+    (.Let [(a, .Var x, false), (b, .Var x, false)] (.App (.Var a) (.Var b)))
   let expected := Expr.Delay
-    (.Let [(a, .Var x)] (.App (.Var a) (.Var a)))
+    (.Let [(a, .Var x, false)] (.App (.Var a) (.Var a)))
   checkPassResult "cse_recurse_delay" (cse e) expected true
 
 -- CSE inside App
 #eval do
   let e := Expr.App
-    (.Let [(a, .Var x), (b, .Var x)] (.App (.Var a) (.Var b)))
+    (.Let [(a, .Var x, false), (b, .Var x, false)] (.App (.Var a) (.Var b)))
     (.Var y)
   let expected := Expr.App
-    (.Let [(a, .Var x)] (.App (.Var a) (.Var a)))
+    (.Let [(a, .Var x, false)] (.App (.Var a) (.Var a)))
     (.Var y)
   checkPassResult "cse_recurse_app" (cse e) expected true
 
 -- CSE does NOT merge across separate Let blocks
 #eval do
-  let e := Expr.Let [(a, .App (.Var f) (.Var x))]
-    (.Let [(b, .App (.Var f) (.Var x))]
+  let e := Expr.Let [(a, .App (.Var f) (.Var x), false)]
+    (.Let [(b, .App (.Var f) (.Var x), false)]
       (.App (.Var a) (.Var b)))
   checkPassResult "cse_separate_lets_no_merge" (cse e) e false
 
@@ -521,81 +562,89 @@ private def largeLam : Expr :=
 -- Pure unused bindings removed
 #eval do
   checkPassResult "dce_unused_var"
-    (dce (.Let [(a, .Var y)] (.Var x))) (.Var x) true
+    (dce (.Let [(a, .Var y, false)] (.Var x))) (.Var x) true
   checkPassResult "dce_unused_lit"
-    (dce (.Let [(a, intLit 42)] (.Var x))) (.Var x) true
+    (dce (.Let [(a, intLit 42, false)] (.Var x))) (.Var x) true
   checkPassResult "dce_unused_lam"
-    (dce (.Let [(a, .Lam y (.Var y))] (.Var x))) (.Var x) true
+    (dce (.Let [(a, .Lam y (.Var y), false)] (.Var x))) (.Var x) true
   checkPassResult "dce_unused_delay"
-    (dce (.Let [(a, .Delay (.Var y))] (.Var x))) (.Var x) true
+    (dce (.Let [(a, .Delay (.Var y), false)] (.Var x))) (.Var x) true
   checkPassResult "dce_unused_fix"
-    (dce (.Let [(a, .Fix f (.Lam y (.Var y)))] (.Var x))) (.Var x) true
+    (dce (.Let [(a, .Fix f (.Lam y (.Var y)), false)] (.Var x))) (.Var x) true
   checkPassResult "dce_unused_builtin"
-    (dce (.Let [(a, .Builtin .AddInteger)] (.Var x))) (.Var x) true
+    (dce (.Let [(a, .Builtin .AddInteger, false)] (.Var x))) (.Var x) true
   checkPassResult "dce_unused_constr_atoms"
-    (dce (.Let [(a, .Constr 0 [.Var y, .Var z])] (.Var x))) (.Var x) true
+    (dce (.Let [(a, .Constr 0 [.Var y, .Var z], false)] (.Var x))) (.Var x) true
 
--- Pure unused bindings now removed (no Error)
+-- Pure unused bindings removed (no Error, no fallible App)
 #eval do
-  checkPassResult "dce_unused_app"
-    (dce (.Let [(a, .App (.Var f) (.Var x))] (.Var y))) (.Var y) true
   checkPassResult "dce_unused_force"
-    (dce (.Let [(a, .Force (.Var x))] (.Var y))) (.Var y) true
-  checkPassResult "dce_unused_case"
-    (dce (.Let [(a, .Case (.Var x) [.Var y])] (.Var z))) (.Var z) true
-  checkPassResult "dce_unused_constr_app"
-    (dce (.Let [(a, .Constr 0 [.App (.Var f) (.Var x)])] (.Var y))) (.Var y) true
+    (dce (.Let [(a, .Force (.Var x), false)] (.Var y))) (.Var y) true
   checkPassResult "dce_unused_let_rhs"
-    (dce (.Let [(a, .Let [(b, intLit 1)] (.Var b))] (.Var x))) (.Var x) true
+    (dce (.Let [(a, .Let [(b, intLit 1, false)] (.Var b), false)] (.Var x))) (.Var x) true
+  -- Total builtin app is pure → dead binding removed
+  checkPassResult "dce_unused_total_builtin"
+    (dce (.Let [(a, .App (.App (.Builtin .AddInteger) (intLit 1)) (intLit 2), false)] (.Var y))) (.Var y) true
+  -- Var-headed App is impure → dead binding kept (side effect)
+  checkPassResult "dce_unused_app_kept"
+    (dce (.Let [(a, .App (.Var f) (.Var x), false)] (.Var y)))
+    (.Let [(a, .App (.Var f) (.Var x), false)] (.Var y)) false
+  -- Constr with impure arg is impure → kept
+  checkPassResult "dce_unused_constr_app_kept"
+    (dce (.Let [(a, .Constr 0 [.App (.Var f) (.Var x)], false)] (.Var y)))
+    (.Let [(a, .Constr 0 [.App (.Var f) (.Var x)], false)] (.Var y)) false
+  -- Case with pure scrut and alts is pure → dead binding removed
+  checkPassResult "dce_unused_case_pure"
+    (dce (.Let [(a, .Case (.Var x) [.Var y], false)] (.Var z))) (.Var z) true
 
 -- Impure unused bindings kept (contain Error)
 #eval do
-  let e4 := Expr.Let [(a, .Error)] (.Var x)
+  let e4 := Expr.Let [(a, .Error, false)] (.Var x)
   checkPassResult "dce_impure_error" (dce e4) e4 false
-  let e5 := Expr.Let [(a, .App .Error (.Var x))] (.Var y)
+  let e5 := Expr.Let [(a, .App .Error (.Var x), false)] (.Var y)
   checkPassResult "dce_impure_app_error" (dce e5) e5 false
-  let e6 := Expr.Let [(a, .Case .Error [.Var y])] (.Var z)
+  let e6 := Expr.Let [(a, .Case .Error [.Var y], false)] (.Var z)
   checkPassResult "dce_impure_case_error" (dce e6) e6 false
 
 -- Used bindings always kept
 #eval do
-  let e1 := Expr.Let [(a, intLit 1)] (.Var a)
+  let e1 := Expr.Let [(a, intLit 1, false)] (.Var a)
   checkPassResult "dce_used_pure" (dce e1) e1 false
-  let e2 := Expr.Let [(a, .App (.Var f) (.Var x))] (.Var a)
+  let e2 := Expr.Let [(a, .App (.Var f) (.Var x), false)] (.Var a)
   checkPassResult "dce_used_impure" (dce e2) e2 false
 
 -- Transitive dead code: b dead → a's FVs not added → a dead too
 #eval do
-  let e := Expr.Let [(a, intLit 42), (b, .Lam y (.Var a))] (.Var z)
+  let e := Expr.Let [(a, intLit 42, false), (b, .Lam y (.Var a), false)] (.Var z)
   checkPassResult "dce_transitive_2" (dce e) (.Var z) true
 
 -- Transitive chain of 3
 #eval do
-  let e := Expr.Let [(a, intLit 1), (b, .Var a), (c, .Lam y (.Var b))] (.Var x)
+  let e := Expr.Let [(a, intLit 1, false), (b, .Var a, false), (c, .Lam y (.Var b), false)] (.Var x)
   checkPassResult "dce_transitive_3" (dce e) (.Var x) true
 
 -- Transitive: b used → a needed
 #eval do
-  let e := Expr.Let [(a, intLit 1), (b, .Var a)] (.Var b)
+  let e := Expr.Let [(a, intLit 1, false), (b, .Var a, false)] (.Var b)
   checkPassResult "dce_transitive_used" (dce e) e false
 
 -- Mixed: used middle, dead ends
 #eval do
-  let e := Expr.Let [(a, intLit 1), (b, .Var a), (c, intLit 2)] (.Var b)
-  let expected := Expr.Let [(a, intLit 1), (b, .Var a)] (.Var b)
+  let e := Expr.Let [(a, intLit 1, false), (b, .Var a, false), (c, intLit 2, false)] (.Var b)
+  let expected := Expr.Let [(a, intLit 1, false), (b, .Var a, false)] (.Var b)
   checkPassResult "dce_mixed_remove_end" (dce e) expected true
 
 -- Mixed: remove middle
 #eval do
-  let e := Expr.Let [(a, intLit 1), (b, intLit 2), (c, intLit 3)]
+  let e := Expr.Let [(a, intLit 1, false), (b, intLit 2, false), (c, intLit 3, false)]
               (.App (.Var a) (.Var c))
-  let expected := Expr.Let [(a, intLit 1), (c, intLit 3)]
+  let expected := Expr.Let [(a, intLit 1, false), (c, intLit 3, false)]
                     (.App (.Var a) (.Var c))
   checkPassResult "dce_remove_middle" (dce e) expected true
 
 -- All dead → body returned directly
 #eval do
-  let e := Expr.Let [(a, intLit 1), (b, intLit 2)] (.Var x)
+  let e := Expr.Let [(a, intLit 1, false), (b, intLit 2, false)] (.Var x)
   checkPassResult "dce_all_dead" (dce e) (.Var x) true
 
 -- Empty bindings → body
@@ -606,37 +655,37 @@ private def largeLam : Expr :=
 -- Recursion into sub-expressions
 #eval do
   checkPassResult "dce_recurse_lam"
-    (dce (.Lam x (.Let [(a, intLit 1)] (.Var x))))
+    (dce (.Lam x (.Let [(a, intLit 1, false)] (.Var x))))
     (.Lam x (.Var x)) true
   checkPassResult "dce_recurse_fix"
-    (dce (.Fix f (.Let [(a, intLit 1)] (.Var f))))
+    (dce (.Fix f (.Let [(a, intLit 1, false)] (.Var f))))
     (.Fix f (.Var f)) true
   checkPassResult "dce_recurse_app_fn"
-    (dce (.App (.Let [(a, intLit 1)] (.Var f)) (.Var x)))
+    (dce (.App (.Let [(a, intLit 1, false)] (.Var f)) (.Var x)))
     (.App (.Var f) (.Var x)) true
   checkPassResult "dce_recurse_app_arg"
-    (dce (.App (.Var f) (.Let [(a, intLit 1)] (.Var x))))
+    (dce (.App (.Var f) (.Let [(a, intLit 1, false)] (.Var x))))
     (.App (.Var f) (.Var x)) true
   checkPassResult "dce_recurse_force"
-    (dce (.Force (.Let [(a, intLit 1)] (.Var x))))
+    (dce (.Force (.Let [(a, intLit 1, false)] (.Var x))))
     (.Force (.Var x)) true
   checkPassResult "dce_recurse_delay"
-    (dce (.Delay (.Let [(a, intLit 1)] (.Var x))))
+    (dce (.Delay (.Let [(a, intLit 1, false)] (.Var x))))
     (.Delay (.Var x)) true
   checkPassResult "dce_recurse_constr"
-    (dce (.Constr 0 [.Let [(a, intLit 1)] (.Var x)]))
+    (dce (.Constr 0 [.Let [(a, intLit 1, false)] (.Var x)]))
     (.Constr 0 [.Var x]) true
   checkPassResult "dce_recurse_case_scrut"
-    (dce (.Case (.Let [(a, intLit 1)] (.Var x)) [.Var y]))
+    (dce (.Case (.Let [(a, intLit 1, false)] (.Var x)) [.Var y]))
     (.Case (.Var x) [.Var y]) true
   checkPassResult "dce_recurse_case_alt"
-    (dce (.Case (.Var x) [.Let [(a, intLit 1)] (.Var y)]))
+    (dce (.Case (.Var x) [.Let [(a, intLit 1, false)] (.Var y)]))
     (.Case (.Var x) [.Var y]) true
 
 -- Recursion into Let RHS
 #eval do
-  let e := Expr.Let [(b, .Let [(a, intLit 1)] (.App (.Var f) (.Var x)))] (.Var b)
-  let expected := Expr.Let [(b, .App (.Var f) (.Var x))] (.Var b)
+  let e := Expr.Let [(b, .Let [(a, intLit 1, false)] (.App (.Var f) (.Var x)), false)] (.Var b)
+  let expected := Expr.Let [(b, .App (.Var f) (.Var x), false)] (.Var b)
   checkPassResult "dce_recurse_let_rhs" (dce e) expected true
 
 -- Leaf expressions unchanged
@@ -672,35 +721,35 @@ private def largeLam : Expr :=
 
 -- Pattern 2: through-let, single Force use
 #eval do
-  let e := Expr.Let [(v, .Delay (.Var x))] (.Force (.Var v))
-  let expected := Expr.Let [(v, .Delay (.Var x))] (.Var x)
+  let e := Expr.Let [(v, .Delay (.Var x), false)] (.Force (.Var v))
+  let expected := Expr.Let [(v, .Delay (.Var x), false)] (.Var x)
   checkPassResult "fd_through_let_single" (forceDelay e) expected true
 
 -- Pattern 2: through-let, multiple Force uses
 #eval do
-  let e := Expr.Let [(v, .Delay (.Var x))]
+  let e := Expr.Let [(v, .Delay (.Var x), false)]
               (.App (.Force (.Var v)) (.Force (.Var v)))
-  let expected := Expr.Let [(v, .Delay (.Var x))]
+  let expected := Expr.Let [(v, .Delay (.Var x), false)]
                     (.App (.Var x) (.Var x))
   checkPassResult "fd_through_let_multi_force" (forceDelay e) expected true
 
 -- Pattern 2: mixed uses → no change
 #eval do
-  let e := Expr.Let [(v, .Delay (.Var x))]
+  let e := Expr.Let [(v, .Delay (.Var x), false)]
               (.App (.Var v) (.Force (.Var v)))
   checkPassResult "fd_through_let_mixed" (forceDelay e) e false
 
 -- Pattern 2: Force in subsequent binding's RHS
 #eval do
-  let e := Expr.Let [(v, .Delay (.Var x)), (b, .Force (.Var v))]
+  let e := Expr.Let [(v, .Delay (.Var x), false), (b, .Force (.Var v), false)]
               (.Var b)
-  let expected := Expr.Let [(v, .Delay (.Var x)), (b, .Var x)]
+  let expected := Expr.Let [(v, .Delay (.Var x), false), (b, .Var x, false)]
                     (.Var b)
   checkPassResult "fd_through_let_in_rest" (forceDelay e) expected true
 
 -- Pattern 2: shadowed variable
 #eval do
-  let e := Expr.Let [(v, .Delay (.Var x))]
+  let e := Expr.Let [(v, .Delay (.Var x), false)]
               (.Lam v (.Force (.Var v)))
   -- v is shadowed by Lam, the Force(Var v) refers to the Lam's v,
   -- not the Let's v. allUsesAreForce returns true vacuously.
@@ -714,7 +763,7 @@ private def largeLam : Expr :=
 
 -- Non-Delay binding in Let: Pattern 2 doesn't fire
 #eval do
-  let e := Expr.Let [(a, .App (.Var f) (.Var x))] (.Force (.Var a))
+  let e := Expr.Let [(a, .App (.Var f) (.Var x), false)] (.Force (.Var a))
   checkPassResult "fd_non_delay_binding" (forceDelay e) e false
 
 -- Force of non-Delay: no cancellation
@@ -761,8 +810,8 @@ private def largeLam : Expr :=
 
 -- Let with RHS simplification
 #eval do
-  let e := Expr.Let [(a, .Force (.Delay (.Var x)))] (.Var a)
-  let expected := Expr.Let [(a, .Var x)] (.Var a)
+  let e := Expr.Let [(a, .Force (.Delay (.Var x)), false)] (.Var a)
+  let expected := Expr.Let [(a, .Var x, false)] (.Var a)
   checkPassResult "fd_let_rhs_simplify" (forceDelay e) expected true
 
 -- ------------------------------------------------------------------
@@ -771,35 +820,35 @@ private def largeLam : Expr :=
 
 -- Atom var: always inlined
 #eval do
-  let e := Expr.Let [(a, .Var x)] (.Var a)
+  let e := Expr.Let [(a, .Var x, false)] (.Var a)
   let (r, ch) := runFresh (inlinePass e) 1000
   checkAlphaEq "inline_atom_var" r (.Var x)
   check "inline_atom_var_changed" ch
 
 -- Atom var: inlined even with multiple uses
 #eval do
-  let e := Expr.Let [(a, .Var x)] (.App (.Var a) (.Var a))
+  let e := Expr.Let [(a, .Var x, false)] (.App (.Var a) (.Var a))
   let (r, ch) := runFresh (inlinePass e) 1000
   checkAlphaEq "inline_atom_var_multi" r (.App (.Var x) (.Var x))
   check "inline_atom_var_multi_changed" ch
 
 -- Atom lit: inlined
 #eval do
-  let e := Expr.Let [(a, intLit 42)] (.Var a)
+  let e := Expr.Let [(a, intLit 42, false)] (.Var a)
   let (r, ch) := runFresh (inlinePass e) 1000
   checkAlphaEq "inline_atom_lit" r (intLit 42)
   check "inline_atom_lit_changed" ch
 
 -- Atom builtin: inlined
 #eval do
-  let e := Expr.Let [(a, .Builtin .AddInteger)] (.App (.Var a) (.Var x))
+  let e := Expr.Let [(a, .Builtin .AddInteger, false)] (.App (.Var a) (.Var x))
   let (r, ch) := runFresh (inlinePass e) 1000
   checkAlphaEq "inline_atom_builtin" r (.App (.Builtin .AddInteger) (.Var x))
   check "inline_atom_builtin_changed" ch
 
 -- Small value Lam (size 2 <= 5): inlined even if used twice
 #eval do
-  let e := Expr.Let [(a, .Lam y (.Var y))]
+  let e := Expr.Let [(a, .Lam y (.Var y), false)]
               (.App (.Var a) (.App (.Var a) (.Var z)))
   let (r, ch) := runFresh (inlinePass e) 1000
   let expected := Expr.App (.Lam y (.Var y)) (.App (.Lam y (.Var y)) (.Var z))
@@ -808,77 +857,77 @@ private def largeLam : Expr :=
 
 -- Small value Delay (size 2): inlined
 #eval do
-  let e := Expr.Let [(a, .Delay (.Var x))] (.Force (.Var a))
+  let e := Expr.Let [(a, .Delay (.Var x), false)] (.Force (.Var a))
   let (r, ch) := runFresh (inlinePass e) 1000
   checkAlphaEq "inline_small_delay" r (.Force (.Delay (.Var x)))
   check "inline_small_delay_changed" ch
 
 -- Large value, 0 occurrences: kept (DCE handles)
 #eval do
-  let e := Expr.Let [(a, largeLam)] (.Var x)
+  let e := Expr.Let [(a, largeLam, false)] (.Var x)
   let (r, ch) := runFresh (inlinePass e) 1000
   checkAlphaEq "inline_large_0_occ" r e
   check "inline_large_0_occ_no_change" (!ch)
 
 -- Large value, 1 occurrence, not under Fix: inlined
 #eval do
-  let e := Expr.Let [(a, largeLam)] (.App (.Var a) (.Var z))
+  let e := Expr.Let [(a, largeLam, false)] (.App (.Var a) (.Var z))
   let (r, ch) := runFresh (inlinePass e) 1000
   checkAlphaEq "inline_large_1_no_fix" r (.App largeLam (.Var z))
   check "inline_large_1_no_fix_changed" ch
 
 -- Large value, 1 occurrence, under Fix: NOT inlined
 #eval do
-  let e := Expr.Let [(a, largeLam)] (.Fix g (.App (.Var a) (.Var g)))
+  let e := Expr.Let [(a, largeLam, false)] (.Fix g (.App (.Var a) (.Var g)))
   let (r, ch) := runFresh (inlinePass e) 1000
   checkAlphaEq "inline_large_1_under_fix" r e
   check "inline_large_1_under_fix_no_change" (!ch)
 
 -- Large value, 2 occurrences: NOT inlined
 #eval do
-  let e := Expr.Let [(a, largeLam)] (.App (.Var a) (.App (.Var a) (.Var z)))
+  let e := Expr.Let [(a, largeLam, false)] (.App (.Var a) (.App (.Var a) (.Var z)))
   let (r, ch) := runFresh (inlinePass e) 1000
   checkAlphaEq "inline_large_2_occ" r e
   check "inline_large_2_occ_no_change" (!ch)
 
 -- Non-value, 0 occurrences: kept
 #eval do
-  let e := Expr.Let [(a, .App (.Var f) (.Var x))] (.Var y)
+  let e := Expr.Let [(a, .App (.Var f) (.Var x), false)] (.Var y)
   let (r, ch) := runFresh (inlinePass e) 1000
   checkAlphaEq "inline_nonval_0_occ" r e
   check "inline_nonval_0_occ_no_change" (!ch)
 
 -- Non-value, 1 occurrence, not under Fix: inlined
 #eval do
-  let e := Expr.Let [(a, .App (.Var f) (.Var x))] (.App (.Var g) (.Var a))
+  let e := Expr.Let [(a, .App (.Var f) (.Var x), false)] (.App (.Var g) (.Var a))
   let (r, ch) := runFresh (inlinePass e) 1000
   checkAlphaEq "inline_nonval_1_no_fix" r (.App (.Var g) (.App (.Var f) (.Var x)))
   check "inline_nonval_1_no_fix_changed" ch
 
 -- Non-value Force, 1 occurrence: inlined
 #eval do
-  let e := Expr.Let [(a, .Force (.Var x))] (.App (.Var a) (.Var y))
+  let e := Expr.Let [(a, .Force (.Var x), false)] (.App (.Var a) (.Var y))
   let (r, ch) := runFresh (inlinePass e) 1000
   checkAlphaEq "inline_nonval_force" r (.App (.Force (.Var x)) (.Var y))
   check "inline_nonval_force_changed" ch
 
 -- Non-value Case, 1 occurrence: inlined
 #eval do
-  let e := Expr.Let [(a, .Case (.Var x) [.Var y, .Var z])] (.Var a)
+  let e := Expr.Let [(a, .Case (.Var x) [.Var y, .Var z], false)] (.Var a)
   let (r, ch) := runFresh (inlinePass e) 1000
   checkAlphaEq "inline_nonval_case" r (.Case (.Var x) [.Var y, .Var z])
   check "inline_nonval_case_changed" ch
 
 -- Non-value, 1 occurrence, under Fix: NOT inlined
 #eval do
-  let e := Expr.Let [(a, .App (.Var f) (.Var x))] (.Fix g (.App (.Var a) (.Var g)))
+  let e := Expr.Let [(a, .App (.Var f) (.Var x), false)] (.Fix g (.App (.Var a) (.Var g)))
   let (r, ch) := runFresh (inlinePass e) 1000
   checkAlphaEq "inline_nonval_1_under_fix" r e
   check "inline_nonval_1_under_fix_no_change" (!ch)
 
 -- Non-value, 2 occurrences: NOT inlined
 #eval do
-  let e := Expr.Let [(a, .App (.Var f) (.Var x))] (.App (.Var a) (.Var a))
+  let e := Expr.Let [(a, .App (.Var f) (.Var x), false)] (.App (.Var a) (.Var a))
   let (r, ch) := runFresh (inlinePass e) 1000
   checkAlphaEq "inline_nonval_2_occ" r e
   check "inline_nonval_2_occ_no_change" (!ch)
@@ -894,7 +943,7 @@ private def largeLam : Expr :=
   let expensive :=
     Expr.App (.App add (.App (.App add (.App (.App add (.App (.App add (intLit 1)) (intLit 1))) (intLit 1))) (intLit 1))) (intLit 1)
   let e := Expr.Let
-    [(a, expensive)]
+    [(a, expensive, false)]
     (.Fix rep (.Lam n (.App (.App (.Var rep) (.Var n)) (.Var a))))
   let (r, ch) := runFresh (inlinePass e) 1000
   -- `a` is non-value, 1 occurrence under Fix → NOT inlined
@@ -931,7 +980,7 @@ private def largeLam : Expr :=
 
 -- Multiple bindings: first inlined propagates into rest
 #eval do
-  let e := Expr.Let [(a, .Var x), (b, .App (.Var a) (.Var y))] (.Var b)
+  let e := Expr.Let [(a, .Var x, false), (b, .App (.Var a) (.Var y), false)] (.Var b)
   let (r, ch) := runFresh (inlinePass e) 1000
   -- a is atom, inlined into rest+body: b = App (Var x) (Var y), body = Var b
   -- b is non-value, 1 occurrence, not under Fix → inlined
@@ -940,7 +989,7 @@ private def largeLam : Expr :=
 
 -- Chain of atom inlines
 #eval do
-  let e := Expr.Let [(a, .Var x), (b, .Var a), (c, .Var b)] (.Var c)
+  let e := Expr.Let [(a, .Var x, false), (b, .Var a, false), (c, .Var b, false)] (.Var c)
   let (r, ch) := runFresh (inlinePass e) 1000
   checkAlphaEq "inline_chain_atoms" r (.Var x)
   check "inline_chain_atoms_changed" ch
@@ -948,7 +997,7 @@ private def largeLam : Expr :=
 -- Occurrence counting across rest bindings
 #eval do
   -- a used once in b's RHS and once in body = 2 total
-  let e := Expr.Let [(a, largeLam), (b, .Var a)] (.Var a)
+  let e := Expr.Let [(a, largeLam, false), (b, .Var a, false)] (.Var a)
   let (r, ch) := runFresh (inlinePass e) 1000
   -- a has 2 occurrences, large value → NOT inlined
   -- b is atom (Var a), inlined → body becomes Var a
@@ -957,55 +1006,55 @@ private def largeLam : Expr :=
   -- count = countOccurrences a body + rest.foldl = 1 + 1 = 2 → not inlined.
   -- Then process b: b = Var a is atom → inline. body becomes Var a.
   -- Result: Let [(a, largeLam)] (Var a)
-  let expected := Expr.Let [(a, largeLam)] (.Var a)
+  let expected := Expr.Let [(a, largeLam, false)] (.Var a)
   checkAlphaEq "inline_occ_count_rest" r expected
   check "inline_occ_count_rest_changed" ch
 
 -- Recursion into Lam body
 #eval do
-  let e := Expr.Lam x (.Let [(a, .Var y)] (.Var a))
+  let e := Expr.Lam x (.Let [(a, .Var y, false)] (.Var a))
   let (r, ch) := runFresh (inlinePass e) 1000
   checkAlphaEq "inline_recurse_lam" r (.Lam x (.Var y))
   check "inline_recurse_lam_changed" ch
 
 -- Recursion into Fix body
 #eval do
-  let e := Expr.Fix f (.Let [(a, .Var x)] (.App (.Var f) (.Var a)))
+  let e := Expr.Fix f (.Let [(a, .Var x, false)] (.App (.Var f) (.Var a)))
   let (r, ch) := runFresh (inlinePass e) 1000
   checkAlphaEq "inline_recurse_fix" r (.Fix f (.App (.Var f) (.Var x)))
   check "inline_recurse_fix_changed" ch
 
 -- Recursion into Delay
 #eval do
-  let e := Expr.Delay (.Let [(a, .Var x)] (.Var a))
+  let e := Expr.Delay (.Let [(a, .Var x, false)] (.Var a))
   let (r, ch) := runFresh (inlinePass e) 1000
   checkAlphaEq "inline_recurse_delay" r (.Delay (.Var x))
   check "inline_recurse_delay_changed" ch
 
 -- Recursion into Force
 #eval do
-  let e := Expr.Force (.Let [(a, .Var x)] (.Var a))
+  let e := Expr.Force (.Let [(a, .Var x, false)] (.Var a))
   let (r, ch) := runFresh (inlinePass e) 1000
   checkAlphaEq "inline_recurse_force" r (.Force (.Var x))
   check "inline_recurse_force_changed" ch
 
 -- Recursion into Constr
 #eval do
-  let e := Expr.Constr 0 [.Let [(a, .Var x)] (.Var a)]
+  let e := Expr.Constr 0 [.Let [(a, .Var x, false)] (.Var a)]
   let (r, ch) := runFresh (inlinePass e) 1000
   checkAlphaEq "inline_recurse_constr" r (.Constr 0 [.Var x])
   check "inline_recurse_constr_changed" ch
 
 -- Recursion into Case scrutinee
 #eval do
-  let e := Expr.Case (.Let [(a, .Var x)] (.Var a)) [.Var y]
+  let e := Expr.Case (.Let [(a, .Var x, false)] (.Var a)) [.Var y]
   let (r, ch) := runFresh (inlinePass e) 1000
   checkAlphaEq "inline_recurse_case_scrut" r (.Case (.Var x) [.Var y])
   check "inline_recurse_case_scrut_changed" ch
 
 -- Recursion into Case alternatives
 #eval do
-  let e := Expr.Case (.Var x) [.Let [(a, .Var y)] (.Var a)]
+  let e := Expr.Case (.Var x) [.Let [(a, .Var y, false)] (.Var a)]
   let (r, ch) := runFresh (inlinePass e) 1000
   checkAlphaEq "inline_recurse_case_alt" r (.Case (.Var x) [.Var y])
   check "inline_recurse_case_alt_changed" ch
@@ -1016,7 +1065,7 @@ private def largeLam : Expr :=
   -- a is small value (size 2), 1 occurrence → inline
   -- subst a (Lam y (Var z)) in (Lam z (Var a))
   -- z ∈ freeVars(Lam y (Var z)) and z is the Lam binder → freshen z
-  let e := Expr.Let [(a, .Lam y (.Var z))] (.Lam z (.Var a))
+  let e := Expr.Let [(a, .Lam y (.Var z), false)] (.Lam z (.Var a))
   let (r, ch) := runFresh (inlinePass e) 1000
   -- Result should be Lam z' (Lam y (Var z)) where z' is fresh
   -- For checkAlphaEq: Lam <fresh> (Lam y (Var z))
@@ -1056,23 +1105,23 @@ private def largeLam : Expr :=
 
 -- Atom inline cascade: let a=x, b=a, c=b → c reduces to x
 #eval do
-  let e := Expr.Let [(a, .Var x), (b, .Var a), (c, .Var b)] (.Var c)
+  let e := Expr.Let [(a, .Var x, false), (b, .Var a, false), (c, .Var b, false)] (.Var c)
   let r := optimizeExpr e 1000
   checkAlphaEq "pipe_atom_cascade" r (.Var x)
   pure ()
 
 -- Force-delay pipeline from docs: let v=Delay x, w=Force v → x
 #eval do
-  let e := Expr.Let [(v, .Delay (.Var x)),
-                      (w, .Force (.Var v))] (.Var w)
+  let e := Expr.Let [(v, .Delay (.Var x), false),
+                      (w, .Force (.Var v), false)] (.Var w)
   let r := optimizeExpr e 1000
   checkAlphaEq "pipe_force_delay_doc" r (.Var x)
   pure ()
 
 -- CSE + DCE: duplicate eliminated, dead binding removed
 #eval do
-  let e := Expr.Let [(a, .App (.Var f) (.Var x)),
-                      (b, .App (.Var f) (.Var x))]
+  let e := Expr.Let [(a, .App (.Var f) (.Var x), false),
+                      (b, .App (.Var f) (.Var x), false)]
               (.Var a)
   let r := optimizeExpr e 1000
   -- CSE eliminates b (→ renamed to a), then DCE is no-op (a is used)
@@ -1083,22 +1132,22 @@ private def largeLam : Expr :=
 -- Float out + CSE: pure bindings float, then duplicates merged
 #eval do
   let e := Expr.Lam x
-    (.Let [(a, intLit 1), (b, intLit 1), (c, .App (.Var a) (.Var x))]
+    (.Let [(a, intLit 1, false), (b, intLit 1, false), (c, .App (.Var a) (.Var x), false)]
       (.App (.Var c) (.Var b)))
   let _r := optimizeExpr e 1000
 
 -- Inline + beta: let f = lam y . y in f z → z
 #eval do
-  let e := Expr.Let [(f, .Lam y (.Var y))] (.App (.Var f) (.Var z))
+  let e := Expr.Let [(f, .Lam y (.Var y), false)] (.App (.Var f) (.Var z))
   let r := optimizeExpr e 1000
   checkAlphaEq "pipe_inline_beta" r (.Var z)
   pure ()
 
 -- Nested Let flattening through pipeline
 #eval do
-  let e := Expr.Let [(a, intLit 1)]
-              (.Let [(b, .Var a)]
-                (.Let [(c, .Var b)] (.Var c)))
+  let e := Expr.Let [(a, intLit 1, false)]
+              (.Let [(b, .Var a, false)]
+                (.Let [(c, .Var b, false)] (.Var c)))
   let r := optimizeExpr e 1000
   -- All atoms inline away → intLit 1
   checkAlphaEq "pipe_nested_let" r (intLit 1)
@@ -1114,11 +1163,11 @@ private def largeLam : Expr :=
 #eval do
   let inputs := [
     ("factorial", factorialMIR),
-    ("atom_chain", Expr.Let [(a, .Var x), (b, .Var a)] (.Var b)),
-    ("force_delay", Expr.Let [(v, .Delay (.App (.Var f) (.Var x))),
-              (w, .Force (.Var v))] (.Var w)),
-    ("cse_target", Expr.Lam x (.Let [(a, intLit 1), (b, .App (.Builtin .AddInteger) (.Var x)),
-                       (c, .App (.Builtin .AddInteger) (.Var x))]
+    ("atom_chain", Expr.Let [(a, .Var x, false), (b, .Var a, false)] (.Var b)),
+    ("force_delay", Expr.Let [(v, .Delay (.App (.Var f) (.Var x)), false),
+              (w, .Force (.Var v), false)] (.Var w)),
+    ("cse_target", Expr.Lam x (.Let [(a, intLit 1, false), (b, .App (.Builtin .AddInteger) (.Var x), false),
+                       (c, .App (.Builtin .AddInteger) (.Var x), false)]
                   (.App (.Var b) (.Var c))))
   ]
   for ((name, e), i) in inputs.zipIdx do
@@ -1137,8 +1186,8 @@ private def largeLam : Expr :=
 -- → DCE: x
 #eval do
   let dd : VarId := ⟨60, "d"⟩
-  let e := Expr.Let [(dd, .Delay (.Var x)),
-                      (v, .Var dd)]
+  let e := Expr.Let [(dd, .Delay (.Var x), false),
+                      (v, .Var dd, false)]
               (.Force (.Var v))
   let r := optimizeExpr e 1000
   checkAlphaEq "pipe_inline_before_fd" r (.Var x)
@@ -1148,8 +1197,8 @@ private def largeLam : Expr :=
 -- let a = App f x, b = App f x in App a b
 -- → CSE: let a = App f x in App a a (1 binding instead of 2)
 #eval do
-  let e := Expr.Let [(a, .App (.Var f) (.Var x)),
-                      (b, .App (.Var f) (.Var x))]
+  let e := Expr.Let [(a, .App (.Var f) (.Var x), false),
+                      (b, .App (.Var f) (.Var x), false)]
               (.App (.Var a) (.Var b))
   let _r := optimizeExpr e 1000
   -- After CSE: let a = App f x in App a a
@@ -1158,9 +1207,9 @@ private def largeLam : Expr :=
 -- Complex: force-delay feeds into DCE which feeds into further simplification
 #eval do
   let e := Expr.Let
-    [(v, .Delay (.Var x)),
-     (a, .Force (.Var v)),
-     (b, intLit 42)]
+    [(v, .Delay (.Var x), false),
+     (a, .Force (.Var v), false),
+     (b, intLit 42, false)]
     (.Var a)
   let r := optimizeExpr e 1000
   -- force-delay: a = Var x (replacing Force(Var v))
@@ -1180,7 +1229,7 @@ private def largeLam : Expr :=
   let expensive :=
     Expr.App (.App add (.App (.App add (.App (.App add (.App (.App add (intLit 1)) (intLit 1))) (intLit 1))) (intLit 1))) (intLit 1)
   let e := Expr.Let
-    [(a, expensive)]
+    [(a, expensive, false)]
     (.Fix rep (.Lam n (.App (.App (.Var rep) (.Var n)) (.Var a))))
   let r := optimizeExpr e 1000
   pure ()
@@ -1206,8 +1255,8 @@ private def largeLam : Expr :=
   let chain6 := Expr.App hd (.App hd (.App hd (.App hd (.App hd (.App hd (.Var x))))))
   -- let a = f³(x), b = f⁶(x) in g a b
   let e := Expr.Let
-    [(a, chain3),
-     (b, chain6)]
+    [(a, chain3, false),
+     (b, chain6, false)]
     (.App (.App (.Var g) (.Var a)) (.Var b))
   let _r := optimizeExpr e 1000
   -- The optimized result should have fewer App nodes than the naive version
@@ -1234,16 +1283,16 @@ private def largeLam : Expr :=
   let t8 : VarId := ⟨68, "t"⟩
   let rr : VarId := ⟨69, "r"⟩
   let e := Expr.Let
-    [(t0, .App hd (.Var x)),
-     (t1, .App hd (.Var t0)),
-     (t2, .App hd (.Var t1)),
-     (t3, .App hd (.Var x)),       -- duplicate of t0!
-     (t4, .App hd (.Var t3)),      -- after CSE t3→t0: duplicate of t1!
-     (t5, .App hd (.Var t4)),      -- after CSE t4→t1: duplicate of t2!
-     (t6, .App hd (.Var t5)),
-     (t7, .App hd (.Var t6)),
-     (t8, .App hd (.Var t7)),
-     (rr, .App (.Var g) (.Var t2))]
+    [(t0, .App hd (.Var x), false),
+     (t1, .App hd (.Var t0), false),
+     (t2, .App hd (.Var t1), false),
+     (t3, .App hd (.Var x), false),       -- duplicate of t0!
+     (t4, .App hd (.Var t3), false),      -- after CSE t3→t0: duplicate of t1!
+     (t5, .App hd (.Var t4), false),      -- after CSE t4→t1: duplicate of t2!
+     (t6, .App hd (.Var t5), false),
+     (t7, .App hd (.Var t6), false),
+     (t8, .App hd (.Var t7), false),
+     (rr, .App (.Var g) (.Var t2), false)]
     (.App (.Var rr) (.Var t8))
   let r := optimizeExpr e 1000
   pure ()

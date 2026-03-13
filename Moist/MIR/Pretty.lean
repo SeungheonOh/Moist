@@ -169,7 +169,7 @@ private def collectLamParams : Expr → List VarId × Expr
     (x :: params, inner)
   | e => ([], e)
 
-private def collectLetBinds : Expr → List (VarId × Expr) × Expr
+private def collectLetBinds : Expr → List (VarId × Expr × Bool) × Expr
   | .Let binds body =>
     let (moreBinds, innerBody) := collectLetBinds body
     (binds ++ moreBinds, innerBody)
@@ -238,9 +238,9 @@ partial def fmtExpr : Expr → Format
           Format.nest 2 (Format.line ++ fmtExpr rhs))
     match allBinds with
     | [] => fmtExpr innerBody
-    | (v, rhs) :: rest =>
+    | (v, rhs, _) :: rest =>
       let bindsDoc := rest.foldl
-        (fun acc (v, rhs) => acc ++ Format.line ++ fmtBind v rhs)
+        (fun acc (v, rhs, _) => acc ++ Format.line ++ fmtBind v rhs)
         (fmtBind v rhs)
       bindsDoc ++ Format.line ++
         Format.group (.text "in" ++ Format.nest 2 (Format.line ++ fmtExpr innerBody))

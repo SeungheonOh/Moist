@@ -68,16 +68,18 @@ in z
 and tracking whether any were eliminated. Returns `(surviving, eliminated)`
 where `eliminated` is `true` when at least one binding was dropped. -/
 private partial def filterBindings
-    : List (VarId × Expr) → VarSet → List (VarId × Expr) → Bool
-    → List (VarId × Expr) × Bool
+    : List (VarId × Expr × Bool) → VarSet → List (VarId × Expr × Bool) → Bool
+    → List (VarId × Expr × Bool) × Bool
   | [], _, acc, elim => (acc, elim)
-  | (v, rhs) :: rest, needed, acc, elim =>
+  | (v, rhs, er) :: rest, needed, acc, elim =>
     if needed.contains v then
-      filterBindings rest (needed.union (freeVars rhs)) ((v, rhs) :: acc) elim
-    else if isPure rhs then
+      filterBindings rest (needed.union (freeVars rhs)) ((v, rhs, er) :: acc) elim
+    else if isPure rhs || er then
       filterBindings rest needed acc true
     else
-      filterBindings rest needed ((v, rhs) :: acc) elim
+      -- Impure, not needed: keep the binding (side effect) and add its
+      -- free variables to the needed set so dependencies are preserved.
+      filterBindings rest (needed.union (freeVars rhs)) ((v, rhs, er) :: acc) elim
 
 /-- Eliminate unused pure `Let` bindings from `e`.
 
@@ -125,9 +127,9 @@ partial def dce (e : Expr) : Expr × Bool :=
   | .Let binds body =>
     -- Step 1: recursively simplify all RHSs and the body
     let (binds', rhsChanged) := binds.foldl (init := ([], false))
-      fun (acc, ch) (v, rhs) =>
+      fun (acc, ch) (v, rhs, er) =>
         let (rhs', ch') := dce rhs
-        (acc ++ [(v, rhs')], ch || ch')
+        (acc ++ [(v, rhs', er)], ch || ch')
     let (body', bodyChanged) := dce body
     -- Step 2: right-to-left scan with needed set.
     -- We reverse the list, call filterBindings (which walks left-to-right

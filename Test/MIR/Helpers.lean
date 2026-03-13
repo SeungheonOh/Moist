@@ -86,7 +86,7 @@ def factorialMIR : Expr :=
         (.Lam n
           (.Let
             [(t0, .App (.App (.Builtin .EqualsInteger) (.Var n))
-                       (intLit 0))]
+                       (intLit 0), false)]
             (.Force
               (.App
                 (.App
@@ -95,10 +95,10 @@ def factorialMIR : Expr :=
                 (.Delay
                   (.Let
                     [(t1, .App (.App (.Builtin .SubtractInteger) (.Var n))
-                                (intLit 1)),
-                     (t2, .App (.Var fac) (.Var t1))]
+                                (intLit 1), false),
+                     (t2, .App (.Var fac) (.Var t1), false)]
                     (.App (.App (.Builtin .MultiplyInteger) (.Var n))
-                          (.Var t2)))))))))]
+                          (.Var t2)))))))), false)]
     (.App (.Var fac) (intLit 10))
 
 /-! ## Data Deconstruction Expression
@@ -129,12 +129,12 @@ def dataDeconstructMIR : Expr :=
   let hd   := Expr.Force (.Builtin .HeadList)
   let tl   := Expr.Force (.Builtin .TailList)
   .Lam foo
-    (.Let [(flds, .App sndP (.App (.Builtin .UnConstrData) (.Var foo)))]
-      (.Let [(fA, .App (.Builtin .UnIData) (.App hd (.Var flds)))]
+    (.Let [(flds, .App sndP (.App (.Builtin .UnConstrData) (.Var foo)), false)]
+      (.Let [(fA, .App (.Builtin .UnIData) (.App hd (.Var flds)), false)]
         (.Let [(fC, .App (.Builtin .UnIData)
-                (.App hd (.App tl (.App tl (.Var flds)))))]
+                (.App hd (.App tl (.App tl (.Var flds)))), false)]
           (.Let [(fD, .App (.Builtin .UnIData)
-                  (.App hd (.App tl (.App tl (.App tl (.Var flds))))))]
+                  (.App hd (.App tl (.App tl (.App tl (.Var flds))))), false)]
             (.App (.App (.Builtin .AddInteger) (.Var fA))
               (.App (.App (.Builtin .AddInteger) (.Var fC)) (.Var fD)))))))
 

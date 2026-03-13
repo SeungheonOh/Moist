@@ -97,9 +97,9 @@ mutual
   shadowing: once a binding rebinds `v`, subsequent bindings and the body
   are safe regardless. -/
   partial def allUsesAreForceLet (v : VarId)
-      : List (VarId × Expr) → Expr → Bool
+      : List (VarId × Expr × Bool) → Expr → Bool
     | [], body => allUsesAreForce v body
-    | (x, rhs) :: rest, body =>
+    | (x, rhs, _) :: rest, body =>
       allUsesAreForce v rhs &&
         (if x == v then true else allUsesAreForceLet v rest body)
 end
@@ -134,27 +134,18 @@ mutual
   /-- Thread `replaceForceVar` through a let-binding list, stopping at
   binders that shadow `v`. -/
   partial def replaceForceVarLet (v : VarId) (repl : Expr)
-      : List (VarId × Expr) → List (VarId × Expr) → Expr → Expr
+      : List (VarId × Expr × Bool) → List (VarId × Expr × Bool) → Expr → Expr
     | [], acc, body =>
       .Let acc.reverse (replaceForceVar v repl body)
-    | (x, rhs) :: rest, acc, body =>
+    | (x, rhs, er) :: rest, acc, body =>
       let rhs' := replaceForceVar v repl rhs
       if x == v then
-        .Let (acc.reverse ++ [(x, rhs')] ++ rest) body
+        .Let (acc.reverse ++ [(x, rhs', er)] ++ rest) body
       else
-        replaceForceVarLet v repl rest ((x, rhs') :: acc) body
+        replaceForceVarLet v repl rest ((x, rhs', er) :: acc) body
 end
 
 /-! ## Main pass -/
-
-/-- Translation-generated case handlers are delayed thunks bound outside
-the case. Preserve them rather than cancelling `force`/`delay`, otherwise
-the hoisted handler structure disappears before lowering. -/
-private def isCaseHandlerBinding (v : VarId) (rhs : Expr) : Bool :=
-  v.hint.startsWith "case_handler" &&
-  match rhs with
-  | .Delay _ => true
-  | _ => false
 
 /-- Eliminate `Force`/`Delay` pairs from `e`.
 
@@ -212,9 +203,9 @@ partial def forceDelay (e : Expr) : Expr × Bool :=
   | .Let binds body =>
     -- Step 1: recursively simplify all RHSs and the body
     let (binds', rhsChanged) := binds.foldl (init := ([], false))
-      fun (acc, ch) (v, rhs) =>
+      fun (acc, ch) (v, rhs, er) =>
         let (rhs', ch') := forceDelay rhs
-        (acc ++ [(v, rhs')], ch || ch')
+        (acc ++ [(v, rhs', er)], ch || ch')
     let (body', bodyChanged) := forceDelay body
     -- Step 2: for each binding of the form v = Delay e, check whether all
     -- uses of v in subsequent bindings and the body are under Force.
@@ -227,27 +218,24 @@ where
   subsequent uses of `v` are under `Force`, replace `Force (Var v)` with
   `e` in the remaining bindings and body. The now-dead `v = Delay e`
   binding is kept (DCE handles removal). -/
-  processDelayBindings (binds : List (VarId × Expr)) (body : Expr)
-      : List (VarId × Expr) × Expr × Bool :=
+  processDelayBindings (binds : List (VarId × Expr × Bool)) (body : Expr)
+      : List (VarId × Expr × Bool) × Expr × Bool :=
     go binds [] body false
-  go : List (VarId × Expr) → List (VarId × Expr) → Expr → Bool
-      → List (VarId × Expr) × Expr × Bool
+  go : List (VarId × Expr × Bool) → List (VarId × Expr × Bool) → Expr → Bool
+      → List (VarId × Expr × Bool) × Expr × Bool
     | [], acc, body, ch => (acc.reverse, body, ch)
-    | (v, rhs) :: rest, acc, body, ch =>
+    | (v, rhs, er) :: rest, acc, body, ch =>
       match rhs with
       | .Delay inner =>
-        if isCaseHandlerBinding v rhs then
-          go rest ((v, rhs) :: acc) body ch
-        else
         -- Check all uses of v in subsequent bindings and body
-          let restExpr := if rest.isEmpty then body else .Let rest body
-          if allUsesAreForce v restExpr then
-            -- Replace Force (Var v) -> inner in subsequent bindings and body
-            let rest' := rest.map fun (w, r) => (w, replaceForceVar v inner r)
-            let body' := replaceForceVar v inner body
-            go rest' ((v, rhs) :: acc) body' true
-          else
-            go rest ((v, rhs) :: acc) body ch
-      | _ => go rest ((v, rhs) :: acc) body ch
+        let restExpr := if rest.isEmpty then body else .Let rest body
+        if allUsesAreForce v restExpr then
+          -- Replace Force (Var v) -> inner in subsequent bindings and body
+          let rest' := rest.map fun (w, r, er2) => (w, replaceForceVar v inner r, er2)
+          let body' := replaceForceVar v inner body
+          go rest' ((v, rhs, er) :: acc) body' true
+        else
+          go rest ((v, rhs, er) :: acc) body ch
+      | _ => go rest ((v, rhs, er) :: acc) body ch
 
 end Moist.MIR

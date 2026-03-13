@@ -37,20 +37,10 @@ private def flattenLet : Expr → Expr
 
 /-- Count occurrences of `v` in the remaining bindings and body,
     which is the scope where `v` is live. -/
-private def usesInScope (v : VarId) (rest : List (VarId × Expr)) (body : Expr) : Nat :=
+private def usesInScope (v : VarId) (rest : List (VarId × Expr × Bool)) (body : Expr) : Nat :=
   match rest with
   | [] => countOccurrences v body
   | _  => countOccurrences v (.Let rest body)
-
-/-- Translation-generated case bindings should survive pre-lowering:
-delayed handler thunks preserve branch laziness, and hoisted helper
-bindings preserve sharing introduced during translation. -/
-private def isCaseBinding (v : VarId) (rhs : Expr) : Bool :=
-  (v.hint.startsWith "case_handler" &&
-    match rhs with
-    | .Delay _ => true
-    | _ => false) ||
-  v.hint.startsWith "case_hoist"
 
 /-- Pre-lowering inline: substitute atoms, dead-pure, and single-use bindings.
     Walks the MIR tree and processes Let binding lists left-to-right. -/
@@ -87,21 +77,19 @@ where
       else
         return .App f x
     | _ => return .App f x
-  preLowerLetBindings (binds : List (VarId × Expr)) (body : Expr) : FreshM Expr :=
+  preLowerLetBindings (binds : List (VarId × Expr × Bool)) (body : Expr) : FreshM Expr :=
     go binds [] body
-  go : List (VarId × Expr) → List (VarId × Expr) → Expr → FreshM Expr
+  go : List (VarId × Expr × Bool) → List (VarId × Expr × Bool) → Expr → FreshM Expr
     | [], acc, body => do
       let body' ← preLowerInline body
       match acc.reverse with
       | [] => return body'
       | kept => return .Let kept body'
-    | (v, rhs) :: rest, acc, body => do
+    | (v, rhs, er) :: rest, acc, body => do
       let rhs' ← preLowerInline rhs
       let uses := usesInScope v rest body
-      if isCaseBinding v rhs' then
-        go rest ((v, rhs') :: acc) body
       -- Atom RHS: always substitute (trivially cheap, no effects)
-      else if rhs'.isAtom then
+      if rhs'.isAtom then
         let restBody ← subst v rhs' (.Let rest body)
         go [] acc (flattenLet restBody)
       -- Zero uses, pure RHS: drop dead binding
@@ -113,7 +101,7 @@ where
         go [] acc (flattenLet restBody)
       -- General case: keep the binding
       else
-        go rest ((v, rhs') :: acc) body
+        go rest ((v, rhs', er) :: acc) body
 
 /-- Run the pre-lowering inline pass with a given fresh variable start. -/
 def preLowerInlineExpr (e : Expr) (freshStart : Nat := 5000) : Expr :=

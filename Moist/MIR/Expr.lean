@@ -38,7 +38,7 @@ inductive Expr
   | Var     : VarId → Expr
   | Lit     : Const × BuiltinType → Expr
   | Builtin : BuiltinFun → Expr
-  | Let     : List (VarId × Expr) → Expr → Expr
+  | Let     : List (VarId × Expr × Bool) → Expr → Expr
   | Fix     : VarId → Expr → Expr
   | Lam     : VarId → Expr → Expr
   | App     : Expr → Expr → Expr
@@ -51,6 +51,7 @@ deriving Repr
 
 instance : Inhabited Expr where
   default := .Error
+
 
 def Expr.isAtom : Expr → Bool
   | .Var _ | .Lit _ | .Builtin _ => true

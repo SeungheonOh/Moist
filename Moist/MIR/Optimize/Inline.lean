@@ -118,9 +118,9 @@ mutual
     | .Let binds body => occursUnderFixLetAux v underFix binds body
 
   partial def occursUnderFixLetAux (v : VarId) (underFix : Bool)
-      : List (VarId × Expr) → Expr → Bool
+      : List (VarId × Expr × Bool) → Expr → Bool
     | [], body => occursUnderFixAux v underFix body
-    | (x, rhs) :: rest, body =>
+    | (x, rhs, _) :: rest, body =>
       occursUnderFixAux v underFix rhs ||
       (if x == v then false else occursUnderFixLetAux v underFix rest body)
 end
@@ -149,16 +149,6 @@ def shouldInline (rhs : Expr) (occurrences : Nat) (underFix : Bool) : Bool :=
       false
   else
     occurrences == 1 && !underFix
-
-/-- Translation-generated case bindings should survive the optimizer:
-delayed handler thunks preserve branch laziness, and hoisted helper
-bindings preserve sharing introduced during translation. -/
-private def isCaseBinding (v : VarId) (rhs : Expr) : Bool :=
-  (v.hint.startsWith "case_handler" &&
-    match rhs with
-    | .Delay _ => true
-    | _ => false) ||
-  v.hint.startsWith "case_hoist"
 
 /-! ## Inline Pass
 
@@ -223,41 +213,39 @@ mutual
       changed := changed || c
     pure (result, changed)
 
-  partial def inlineBindings (binds : List (VarId × Expr))
-      : FreshM (List (VarId × Expr) × Bool) := do
-    let mut result : List (VarId × Expr) := []
+  partial def inlineBindings (binds : List (VarId × Expr × Bool))
+      : FreshM (List (VarId × Expr × Bool) × Bool) := do
+    let mut result : List (VarId × Expr × Bool) := []
     let mut changed := false
-    for (v, rhs) in binds do
+    for (v, rhs, er) in binds do
       let (rhs', c) ← inlinePass rhs
-      result := result ++ [(v, rhs')]
+      result := result ++ [(v, rhs', er)]
       changed := changed || c
     pure (result, changed)
 
-  partial def inlineLetBindings (binds : List (VarId × Expr)) (body : Expr)
+  partial def inlineLetBindings (binds : List (VarId × Expr × Bool)) (body : Expr)
       : FreshM (Expr × Bool) :=
     go binds [] body false
   where
-    go : List (VarId × Expr) → List (VarId × Expr) → Expr → Bool
+    go : List (VarId × Expr × Bool) → List (VarId × Expr × Bool) → Expr → Bool
         → FreshM (Expr × Bool)
       | [], acc, body, changed =>
         match acc.reverse with
         | [] => pure (body, changed)
         | kept => pure (.Let kept body, changed)
-      | (v, rhs) :: rest, acc, body, changed => do
+      | (v, rhs, er) :: rest, acc, body, changed => do
         let occ := countOccurrences v body +
-          rest.foldl (fun n (_, e) => n + countOccurrences v e) 0
+          rest.foldl (fun n (_, e, _) => n + countOccurrences v e) 0
         let underFix := occursUnderFix v body ||
-          rest.any (fun (_, e) => occursUnderFix v e)
-        if isCaseBinding v rhs then
-          go rest ((v, rhs) :: acc) body changed
-        else if shouldInline rhs occ underFix then do
+          rest.any (fun (_, e, _) => occursUnderFix v e)
+        if shouldInline rhs occ underFix then do
           let body' ← subst v rhs body
-          let rest' ← rest.mapM fun (w, e) => do
+          let rest' ← rest.mapM fun (w, e, er2) => do
             let e' ← subst v rhs e
-            pure (w, e')
+            pure (w, e', er2)
           go rest' acc body' true
         else
-          go rest ((v, rhs) :: acc) body changed
+          go rest ((v, rhs, er) :: acc) body changed
 
   partial def betaReduce (f : Expr) (x : Expr) : FreshM (Expr × Bool) :=
     match f with

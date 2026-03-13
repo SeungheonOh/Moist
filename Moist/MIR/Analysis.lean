@@ -93,9 +93,9 @@ mutual
       (freeVars scrut).union (alts.foldl (init := VarSet.empty) fun acc e => acc.union (freeVars e))
     | .Let binds body => freeVarsLet binds body
 
-  partial def freeVarsLet : List (VarId × Expr) → Expr → VarSet
+  partial def freeVarsLet : List (VarId × Expr × Bool) → Expr → VarSet
     | [], body => freeVars body
-    | (x, rhs) :: rest, body =>
+    | (x, rhs, _) :: rest, body =>
       let rhsFV := freeVars rhs
       let restFV := (freeVarsLet rest body).erase x
       rhsFV.union restFV
@@ -103,8 +103,8 @@ end
 
 /-! ## No-Self-Reference Check -/
 
-def noSelfRef (binds : List (VarId × Expr)) : Bool :=
-  binds.all fun (x, rhs) => !(freeVars rhs).contains x
+def noSelfRef (binds : List (VarId × Expr × Bool)) : Bool :=
+  binds.all fun (x, rhs, _) => !(freeVars rhs).contains x
 
 /-! ## Occurrence Counting -/
 
@@ -122,9 +122,9 @@ mutual
       countOccurrences v scrut + alts.foldl (init := 0) fun acc e => acc + countOccurrences v e
     | .Let binds body => countOccurrencesLet v binds body
 
-  partial def countOccurrencesLet (v : VarId) : List (VarId × Expr) → Expr → Nat
+  partial def countOccurrencesLet (v : VarId) : List (VarId × Expr × Bool) → Expr → Nat
     | [], body => countOccurrences v body
-    | (x, rhs) :: rest, body =>
+    | (x, rhs, _) :: rest, body =>
       let rhsCount := countOccurrences v rhs
       if x == v then rhsCount
       else rhsCount + countOccurrencesLet v rest body
@@ -143,7 +143,7 @@ partial def exprSize : Expr → Nat
   | .Case scrut alts =>
     1 + exprSize scrut + alts.foldl (init := 0) fun acc e => acc + exprSize e
   | .Let binds body =>
-    1 + binds.foldl (init := 0) (fun acc (_, e) => acc + exprSize e) + exprSize body
+    1 + binds.foldl (init := 0) (fun acc (_, e, _) => acc + exprSize e) + exprSize body
 
 /-! ## Simple Rename -/
 
@@ -167,14 +167,14 @@ mutual
     | .Let binds body => renameLet old new_ binds [] body
 
   partial def renameLet (old new_ : VarId)
-      : List (VarId × Expr) → List (VarId × Expr) → Expr → Expr
+      : List (VarId × Expr × Bool) → List (VarId × Expr × Bool) → Expr → Expr
     | [], acc, body => .Let acc.reverse (rename old new_ body)
-    | (x, rhs) :: rest, acc, body =>
+    | (x, rhs, er) :: rest, acc, body =>
       let rhs' := rename old new_ rhs
       if x == old then
-        .Let (acc.reverse ++ [(x, rhs')] ++ rest) body
+        .Let (acc.reverse ++ [(x, rhs', er)] ++ rest) body
       else
-        renameLet old new_ rest ((x, rhs') :: acc) body
+        renameLet old new_ rest ((x, rhs', er) :: acc) body
 end
 
 /-! ## Capture-Avoiding Substitution -/
@@ -225,21 +225,21 @@ mutual
     | .Let binds body => substLet v repl (freeVars repl) binds [] body
 
   partial def substLet (v : VarId) (repl : Expr) (replFV : VarSet)
-      : List (VarId × Expr) → List (VarId × Expr) → Expr → FreshM Expr
+      : List (VarId × Expr × Bool) → List (VarId × Expr × Bool) → Expr → FreshM Expr
     | [], acc, body => do
       let body' ← subst v repl body
       pure (.Let acc.reverse body')
-    | (x, rhs) :: rest, acc, body => do
+    | (x, rhs, er) :: rest, acc, body => do
       let rhs' ← subst v repl rhs
       if x == v then
-        pure (.Let (acc.reverse ++ [(x, rhs')] ++ rest) body)
+        pure (.Let (acc.reverse ++ [(x, rhs', er)] ++ rest) body)
       else if replFV.contains x then do
         let x' ← freshVar x.hint
-        let rest' := rest.map fun (y, e) => (y, rename x x' e)
+        let rest' := rest.map fun (y, e, er2) => (y, rename x x' e, er2)
         let body' := rename x x' body
-        substLet v repl replFV rest' ((x', rhs') :: acc) body'
+        substLet v repl replFV rest' ((x', rhs', er) :: acc) body'
       else
-        substLet v repl replFV rest ((x, rhs') :: acc) body
+        substLet v repl replFV rest ((x, rhs', er) :: acc) body
 end
 
 /-! ## Alpha-Equivalence -/
@@ -281,9 +281,9 @@ mutual
     | _, _ => false
 
   partial def alphaEqLet (env1 env2 : List VarId)
-      : List (VarId × Expr) → List (VarId × Expr) → Expr → Expr → Bool
+      : List (VarId × Expr × Bool) → List (VarId × Expr × Bool) → Expr → Expr → Bool
     | [], [], body1, body2 => alphaEqAux env1 env2 body1 body2
-    | (x, rhs1) :: rest1, (y, rhs2) :: rest2, body1, body2 =>
+    | (x, rhs1, _) :: rest1, (y, rhs2, _) :: rest2, body1, body2 =>
       alphaEqAux env1 env2 rhs1 rhs2 &&
       alphaEqLet (x :: env1) (y :: env2) rest1 rest2 body1 body2
     | _, _, _, _ => false
@@ -312,7 +312,7 @@ partial def Expr.isANF : Expr → Bool
   | .Fix _ body => body.isANF
   | .Delay e => e.isANF
   | .Let binds body =>
-    noSelfRef binds && binds.all (fun (_, rhs) => rhs.isANF) && body.isANF
+    noSelfRef binds && binds.all (fun (_, rhs, _) => rhs.isANF) && body.isANF
   | .App f x => f.isAtom && x.isAtom
   | .Force e => e.isAtom
   | .Constr _ args => args.all (·.isAtom)

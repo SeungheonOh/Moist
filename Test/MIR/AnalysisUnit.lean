@@ -13,7 +13,7 @@ open Test.MIR
   check "isAtom_builtin" (Expr.Builtin .AddInteger).isAtom
   check "not_isAtom_app" (!(Expr.App (.Var f) (.Var x)).isAtom)
   check "not_isAtom_lam" (!(Expr.Lam x (.Var x)).isAtom)
-  check "not_isAtom_let" (!(Expr.Let [(x, .Var y)] (.Var x)).isAtom)
+  check "not_isAtom_let" (!(Expr.Let [(x, .Var y, false)] (.Var x)).isAtom)
   check "not_isAtom_error" (!Expr.Error.isAtom)
 
 -- isValue
@@ -62,8 +62,8 @@ open Test.MIR
 #eval do
   -- Let sequential scoping: e2 can see x1, body sees both
   let e := Expr.Let
-    [(x, .Var a),
-     (y, .App (.Var x) (.Var b))]
+    [(x, .Var a, false),
+     (y, .App (.Var x) (.Var b), false)]
     (.App (.Var x) (.Var y))
   let fv := freeVars e
   check "fv_let_seq_a_free" (fv.contains a)
@@ -75,8 +75,8 @@ open Test.MIR
   -- Let: rhs of first binding cannot see later bindings
   -- let x = y in ... where y is defined LATER is still free
   let e := Expr.Let
-    [(x, .Var y),
-     (y, intLit 1)]
+    [(x, .Var y, false),
+     (y, intLit 1, false)]
     (.Var x)
   let fv := freeVars e
   check "fv_let_forward_ref_y_free" (fv.contains y)
@@ -84,10 +84,10 @@ open Test.MIR
 -- noSelfRef
 
 #eval do
-  check "noSelfRef_ok" (noSelfRef [(x, .Var y)])
-  check "noSelfRef_ok_refs_earlier" (noSelfRef [(x, intLit 1), (y, .Var x)])
-  check "noSelfRef_fail" (!(noSelfRef [(x, .Var x)]))
-  check "noSelfRef_fail_second" (!(noSelfRef [(x, intLit 1), (y, .App (.Var y) (.Var x))]))
+  check "noSelfRef_ok" (noSelfRef [(x, .Var y, false)])
+  check "noSelfRef_ok_refs_earlier" (noSelfRef [(x, intLit 1, false), (y, .Var x, false)])
+  check "noSelfRef_fail" (!(noSelfRef [(x, .Var x, false)]))
+  check "noSelfRef_fail_second" (!(noSelfRef [(x, intLit 1, false), (y, .App (.Var y) (.Var x), false)]))
   check "noSelfRef_empty" (noSelfRef [])
 
 -- countOccurrences
@@ -104,14 +104,14 @@ open Test.MIR
 #eval do
   -- Shadowed partway through Let
   let e := Expr.Let
-    [(y, .Var x),
-     (x, intLit 1)]
+    [(y, .Var x, false),
+     (x, intLit 1, false)]
     (.Var x)
   checkEq "count_let_before_shadow" (countOccurrences x e) 1
 
 #eval do
   -- Not shadowed
-  let e := Expr.Let [(y, .Var x)] (.Var x)
+  let e := Expr.Let [(y, .Var x, false)] (.Var x)
   checkEq "count_let_no_shadow" (countOccurrences x e) 2
 
 -- exprSize
@@ -121,7 +121,7 @@ open Test.MIR
   checkEq "size_lit" (exprSize (intLit 42)) 1
   checkEq "size_app" (exprSize (.App (.Var f) (.Var x))) 3
   checkEq "size_lam" (exprSize (.Lam x (.Var x))) 2
-  checkEq "size_let" (exprSize (.Let [(x, intLit 1)] (.Var x))) 3
+  checkEq "size_let" (exprSize (.Let [(x, intLit 1, false)] (.Var x))) 3
 
 -- isANF
 
@@ -135,7 +135,7 @@ open Test.MIR
   check "isANF_constr_atoms" (Expr.Constr 0 [.Var x, .Var y]).isANF
   check "isANF_case_atom_scrut" (Expr.Case (.Var x) [.Var y, .Var z]).isANF
   check "isANF_lam_anf_body" (Expr.Lam x (.App (.Var f) (.Var x))).isANF
-  check "isANF_let_valid" (Expr.Let [(x, intLit 1)] (.Var x)).isANF
+  check "isANF_let_valid" (Expr.Let [(x, intLit 1, false)] (.Var x)).isANF
 
 #eval do
   -- Non-ANF: App with non-atomic function
@@ -152,7 +152,7 @@ open Test.MIR
     (!(Expr.Constr 0 [.App (.Var f) (.Var x)]).isANF)
   -- Non-ANF: self-referential Let
   check "not_isANF_self_ref"
-    (!(Expr.Let [(x, .Var x)] (.Var x)).isANF)
+    (!(Expr.Let [(x, .Var x, false)] (.Var x)).isANF)
 
 -- uncurryApp
 

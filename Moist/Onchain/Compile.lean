@@ -13,7 +13,7 @@ import Moist.Onchain.Translate
 namespace Moist.Onchain
 
 open Lean Elab Meta
-open Moist.MIR (optimizeExpr preLowerInlineExpr lowerExpr)
+open Moist.MIR (optimizeExpr optimizeDebugBeta preLowerInlineExpr lowerExpr)
 
 -- Use a local alias to avoid ambiguity with Lean.Term
 private abbrev UPLCTerm := Moist.Plutus.Term.Term
@@ -193,6 +193,21 @@ elab "#show_optimized_mir" id:ident : command => do
   let opt := optimizeExpr mir 1000
   let prelow := preLowerInlineExpr opt 5000
   logInfo m!"MIR for {name}:\n{toString prelow}"
+
+/-- Debug elaborator: shows MIR after beta reduction + re-ANF (before simplify). -/
+elab "#show_beta_mir" id:ident : command => do
+  let name ← resolveGlobalConstNoOverload id
+  let env ← getEnv
+  let some ci := env.find? name
+    | throwError "unknown constant: {name}"
+  let some val := ci.value?
+    | throwError "{name} has no definition body"
+  let mir ← try
+    Elab.Command.liftTermElabM (translateDef val)
+  catch e =>
+    logTranslationErrorAtDef name e
+  let (betaMir, betaChanged) := optimizeDebugBeta mir 1000
+  logInfo m!"After beta (changed={betaChanged}):\n{toString betaMir}"
 
 /-- Debug elaborator: shows the raw Lean.Expr for a definition. -/
 elab "#show_expr" id:ident : command => do

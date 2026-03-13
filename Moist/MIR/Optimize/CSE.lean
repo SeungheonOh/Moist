@@ -125,9 +125,9 @@ mutual
     | a :: as_, b :: bs => exprStructEq a b && exprStructEqList as_ bs
     | _, _ => false
 
-  partial def exprStructEqBinds : List (VarId × Expr) → List (VarId × Expr) → Bool
+  partial def exprStructEqBinds : List (VarId × Expr × Bool) → List (VarId × Expr × Bool) → Bool
     | [], [] => true
-    | (x, rhs1) :: rest1, (y, rhs2) :: rest2 =>
+    | (x, rhs1, _) :: rest1, (y, rhs2, _) :: rest2 =>
       x == y && exprStructEq rhs1 rhs2 && exprStructEqBinds rest1 rest2
     | _, _ => false
 end
@@ -211,35 +211,35 @@ mutual
         let (e', c) := cse e
         go rest (e' :: acc) (changed || c)
 
-  partial def cseBindingsRHS (binds : List (VarId × Expr))
-      : List (VarId × Expr) × Bool :=
+  partial def cseBindingsRHS (binds : List (VarId × Expr × Bool))
+      : List (VarId × Expr × Bool) × Bool :=
     go binds [] false
   where
-    go : List (VarId × Expr) → List (VarId × Expr) → Bool
-        → List (VarId × Expr) × Bool
+    go : List (VarId × Expr × Bool) → List (VarId × Expr × Bool) → Bool
+        → List (VarId × Expr × Bool) × Bool
       | [], acc, changed => (acc.reverse, changed)
-      | (v, rhs) :: rest, acc, changed =>
+      | (v, rhs, er) :: rest, acc, changed =>
         let (rhs', c) := cse rhs
-        go rest ((v, rhs') :: acc) (changed || c)
+        go rest ((v, rhs', er) :: acc) (changed || c)
 
-  partial def cseLetBindings (binds : List (VarId × Expr)) (body : Expr)
+  partial def cseLetBindings (binds : List (VarId × Expr × Bool)) (body : Expr)
       : Expr × Bool :=
     go binds [] [] body false
   where
-    go : List (VarId × Expr) → List (Expr × VarId) → List (VarId × Expr)
+    go : List (VarId × Expr × Bool) → List (Expr × VarId) → List (VarId × Expr × Bool)
         → Expr → Bool → Expr × Bool
       | [], _, acc, body, changed =>
         match acc.reverse with
         | [] => (body, changed)
         | kept => (.Let kept body, changed)
-      | (v, rhs) :: rest, seen, acc, body, changed =>
+      | (v, rhs, er) :: rest, seen, acc, body, changed =>
         match lookupStructEq seen rhs with
         | some w =>
-          let rest' := rest.map fun (y, e) => (y, rename v w e)
+          let rest' := rest.map fun (y, e, er2) => (y, rename v w e, er2)
           let body' := rename v w body
           go rest' seen acc body' true
         | none =>
-          go rest ((rhs, v) :: seen) ((v, rhs) :: acc) body changed
+          go rest ((rhs, v) :: seen) ((v, rhs, er) :: acc) body changed
 end
 
 end Moist.MIR

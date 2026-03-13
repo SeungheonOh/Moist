@@ -114,9 +114,9 @@ partial def etaReduce : Expr → Expr × Bool
     let changed := results.any Prod.snd
     (.Case scrut' alts', c1 || changed)
   | .Let binds body =>
-    let bindResults := binds.map fun (v, rhs) =>
+    let bindResults := binds.map fun (v, rhs, er) =>
       let (rhs', changed) := etaReduce rhs
-      ((v, rhs'), changed)
+      ((v, rhs', er), changed)
     let binds' := bindResults.map Prod.fst
     let c1 := bindResults.any Prod.snd
     let (body', c2) := etaReduce body

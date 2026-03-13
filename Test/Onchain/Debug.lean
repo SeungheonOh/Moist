@@ -9,7 +9,7 @@ open Moist.Onchain.Prelude
 open Moist.Plutus.Eval
 namespace Test.Debug
 
-@[plutus_data]
+@[plutus_sop]
 inductive Foo where
   | foo : Int → Int → Int → Int → Int → Int → Int → Foo
 
@@ -25,6 +25,12 @@ def aaa (x : Foo) : Int :=
   match x with
   | .foo a b c d e f g =>
     a + g + e + c
+
+#evaluatePrettyTerm factorial (1 : Int)
+
+#show_mir aaa
+#show_beta_mir aaa
+#show_optimized_mir aaa
 
 @[onchain]
 def bbb : Foo := Foo.foo 1 2 3 4 5 6 42
@@ -79,9 +85,15 @@ def ddd (x : Baz) : Int :=
     | Baz.foo a => a + 1
     | Baz.qux => 0
 
+#show_mir ddd
+
+#show_beta_mir ddd
+
+#show_optimized_mir ddd
+
 def dddd : Term := compile! ddd
 
-@[plutus_data]
+@[plutus_sop]
 structure A where
   x : Int
   y : Int
@@ -89,9 +101,11 @@ structure A where
   a : Int
 
 @[onchain]
-def testing (x : A) : Int := --x.x + x.a
+def testing (x : A) : Int := x.y + x.a
+
+def testing2 (x : A) : Int :=
   match x with
-    | { x, y, z, a } => x + y
+    | { x, y, z, a } => y + a
 
 @[onchain]
 def eee : Baz := Baz.bar 1 2
@@ -100,9 +114,17 @@ def eeee : Term := compile! eee
 
 #show_mir testing
 
+#show_mir testing2
+
 #show_optimized_mir testing
 
-#evaluatePrettyTerm testing
+#show_optimized_mir testing2
+
+#show_beta_mir testing
+
+#evaluatePrettyTerm testing ({ x := 1, y := 2, z := 3, a := 4 } : A)
+
+#evaluatePrettyTerm testing2 ({ x := 1, y := 2, z := 3, a := 4 } : A)
 
 #eval ((compile! ddd).Apply eeee).evaluatePretty
 
@@ -115,3 +137,27 @@ def eeee : Term := compile! eee
 #show_mir bbb
 
 #show_optimized_mir aaa
+
+
+/-
+λx_0.
+  let pair_1 = unConstrData x_0
+  let tag_2 = (force (force fstPair)) pair_1
+  let fields_3 = (force (force sndPair)) pair_1
+  let anf_1027 = force headList
+  let anf_1029 = force tailList
+  let rest0_11 = anf_1029 fields_3
+  in
+    case (equalsInteger tag_2 0) of
+      | let anf_1021 = force headList
+      in
+        case (equalsInteger tag_2 1) of
+          | let anf_1015 = force headList
+          in
+            case (equalsInteger tag_2 2) of
+              | case (equalsInteger tag_2 3) of
+                | 0
+                | addInteger (unIData ((force headList) fields_3)) 1
+              | addInteger (unIData (anf_1015 fields_3)) (unIData (anf_1015 ((force tailList) fields_3)))
+          | addInteger (unIData (anf_1021 fields_3)) (unIData (anf_1021 ((force tailList) fields_3)))
+      | addInteger (addInteger (unIData (anf_1027 fields_3)) (unIData (anf_1027 rest0_11))) (unIData (anf_1027 (anf_1029 rest0_11)))-/

@@ -1,7 +1,6 @@
 import Lean
 import Moist.MIR.Expr
 import Moist.MIR.Analysis
-import Moist.MIR.Optimize.Purity
 import Moist.Onchain.Builtins
 import Moist.Onchain.Repr
 
@@ -237,143 +236,6 @@ private partial def resolveToBuiltin (e : Lean.Expr) (fuel : Nat) : TranslateM (
   else
     return none
 
-/-- Eta-reduce a Lean casesOn alternative expression.
-    Detects `fun a b c d => f a b c d` (where f doesn't reference a,b,c,d)
-    and reduces it to `f`. This exposes the actual match body to
-    `buildFieldExtraction` so it can detect unused wildcard fields.
-
-    In de Bruijn notation with n lambda binders, the full eta pattern is:
-      `lam. lam. ... lam. (bvar n) (bvar (n-1)) ... (bvar 0)`
-    where the head bvar n refers to the outer scope. After eta reduction,
-    this becomes `bvar 0` (shifted down by n). -/
-private def etaReduceLeanAlt (e : Lean.Expr) : Lean.Expr :=
-  -- Peel all leading lambda binders
-  let rec peelLam (e : Lean.Expr) (n : Nat) : Nat × Lean.Expr :=
-    match e with
-    | .lam _ _ body _ => peelLam body (n + 1)
-    | _ => (n, e)
-  let (nLams, body) := peelLam e 0
-  if nLams == 0 then e
-  else
-  -- Check if body is `head (bvar (n-1)) (bvar (n-2)) ... (bvar 0)`
-  let rec peelTrailingBvars (e : Lean.Expr) (expected : Nat) : Option (Lean.Expr × Nat) :=
-    match e with
-    | .app fn (.bvar i) =>
-      if i == expected then peelTrailingBvars fn (expected + 1)
-      else some (e, expected)
-    | _ => some (e, expected)
-  match peelTrailingBvars body 0 with
-  | some (head, nEta) =>
-    if nEta != nLams then e
-    else
-    -- Full eta: fun x0 ... x_{n-1} => head x0 ... x_{n-1}
-    -- head must not reference any lambda-bound var (bvar indices 0..n-1).
-    -- Since we're inside n lambdas, outer refs have index >= n.
-    -- After removing the lambdas, we shift all bvar indices down by n.
-    if !head.hasLooseBVars then
-      -- head is closed (e.g. a const) — safe to eta-reduce
-      head
-    else
-      -- Check all bvars in head are >= nLams (outer scope only)
-      let range := head.looseBVarRange
-      if range <= nLams then
-        -- looseBVarRange <= nLams means max bvar < nLams, so head DOES
-        -- reference lambda-bound vars — can't eta-reduce
-        e
-      else
-        -- All bvars >= nLams. Shift down by nLams.
-        -- But we need to verify NO bvar < nLams exists. looseBVarRange only
-        -- gives the max. For safety, only handle the common case: head is
-        -- a single bvar.
-        match head with
-        | .bvar i =>
-          if i >= nLams then .bvar (i - nLams)
-          else e
-        | _ =>
-          -- General case: use Lean's lowerLooseBVars
-          -- lowerLooseBVars s n subtracts n from all bvars >= s
-          -- We want to subtract nLams from all bvars >= nLams
-          head.lowerLooseBVars nLams nLams
-  | none => e
-
-/-- Hoist case alternatives into delayed handler bindings.
-    We delay each alternative so wrapping it in a strict `let` does not make
-    branch evaluation eager. The corresponding case alternative is a `force`
-    of the bound handler, so only the selected branch is evaluated. -/
-private def canHoistFromHandler (e : MIR.Expr) : Bool :=
-  MIR.isPure e && (MIR.freeVars e).data.isEmpty && !e.isAtom && !e.isValue
-
-/-- Extract closed pure helper subexpressions from a handler body so they can
-    be bound outside the surrounding `delay` without changing semantics.
-    The root expression itself is left in place; only its proper subterms are
-    hoisted. -/
-private partial def extractHandlerHoists (e : MIR.Expr) (allowHoist : Bool := false)
-    : TranslateM (List (MIR.VarId × MIR.Expr) × MIR.Expr) := do
-  let hoistIfAllowed (binds : List (MIR.VarId × MIR.Expr)) (e' : MIR.Expr)
-      : TranslateM (List (MIR.VarId × MIR.Expr) × MIR.Expr) := do
-    if allowHoist && canHoistFromHandler e' then
-      let v ← freshVarId "case_hoist"
-      pure (binds ++ [(v, e')], .Var v)
-    else
-      pure (binds, e')
-  match e with
-  | .Var _ | .Lit _ | .Builtin _ | .Error =>
-    pure ([], e)
-  | .Lam x body => do
-    let (binds, body') ← extractHandlerHoists body true
-    hoistIfAllowed binds (.Lam x body')
-  | .Fix f body => do
-    let (binds, body') ← extractHandlerHoists body true
-    hoistIfAllowed binds (.Fix f body')
-  | .App f x => do
-    let (fBinds, f') ← extractHandlerHoists f true
-    let (xBinds, x') ← extractHandlerHoists x true
-    hoistIfAllowed (fBinds ++ xBinds) (.App f' x')
-  | .Force inner => do
-    let (binds, inner') ← extractHandlerHoists inner true
-    hoistIfAllowed binds (.Force inner')
-  | .Delay inner => do
-    let (binds, inner') ← extractHandlerHoists inner true
-    hoistIfAllowed binds (.Delay inner')
-  | .Constr tag args => do
-    let mut binds : List (MIR.VarId × MIR.Expr) := []
-    let mut args' : List MIR.Expr := []
-    for arg in args do
-      let (argBinds, arg') ← extractHandlerHoists arg true
-      binds := binds ++ argBinds
-      args' := args' ++ [arg']
-    hoistIfAllowed binds (.Constr tag args')
-  | .Case scrut alts => do
-    let (scrutBinds, scrut') ← extractHandlerHoists scrut true
-    let mut binds := scrutBinds
-    let mut alts' : List MIR.Expr := []
-    for alt in alts do
-      let (altBinds, alt') ← extractHandlerHoists alt true
-      binds := binds ++ altBinds
-      alts' := alts' ++ [alt']
-    hoistIfAllowed binds (.Case scrut' alts')
-  | .Let binds body => do
-    let mut outerBinds : List (MIR.VarId × MIR.Expr) := []
-    let mut innerBinds : List (MIR.VarId × MIR.Expr) := []
-    for (v, rhs) in binds do
-      let (rhsBinds, rhs') ← extractHandlerHoists rhs true
-      outerBinds := outerBinds ++ rhsBinds
-      innerBinds := innerBinds ++ [(v, rhs')]
-    let (bodyBinds, body') ← extractHandlerHoists body true
-    hoistIfAllowed (outerBinds ++ bodyBinds) (.Let innerBinds body')
-
-private def hoistCaseHandlers (alts : Array MIR.Expr)
-    : TranslateM (List (MIR.VarId × MIR.Expr) × Array MIR.Expr) := do
-  let mut binds : List (MIR.VarId × MIR.Expr) := []
-  let mut refs : Array MIR.Expr := #[]
-  for alt in alts do
-    let (helperBinds, alt') ← extractHandlerHoists alt
-    binds := binds ++ helperBinds
-    let h ← freshVarId "case_handler"
-    binds := binds ++ [(h, .Delay alt')]
-    refs := refs.push (.Force (.Var h))
-  pure (binds, refs)
-
 /-- Peel leading Lam binders from a MIR expression, up to `n` layers. -/
 private def peelLambdas (e : MIR.Expr) (n : Nat) : Array MIR.VarId × MIR.Expr :=
   go e n #[]
@@ -403,7 +265,7 @@ private partial def encodeToData (codec : DataCodec) (val : MIR.Expr) : Translat
       let nil := MIR.Expr.Lit (.ConstDataList [], .TypeOperator (.TypeList (.AtomicType .TypeData)))
       let consH ← freshVarId "enc_cons"
       let nilH ← freshVarId "enc_nil"
-      let mapBody := MIR.Expr.Let [(consH, .Delay cons), (nilH, .Delay nil)]
+      let mapBody := MIR.Expr.Let [(consH, .Delay cons, false), (nilH, .Delay nil, false)]
         (.Case (.App (mkBuiltin .NullList) (.Var xs))
           [.Force (.Var consH), .Force (.Var nilH)])
       let mapFn := MIR.Expr.Fix mapF (.Lam xs mapBody)
@@ -429,8 +291,8 @@ private partial def encodeToData (codec : DataCodec) (val : MIR.Expr) : Translat
       let consH ← freshVarId "enc_cons"
       let nilH ← freshVarId "enc_nil"
       let mapBody := MIR.Expr.Let
-        [(pair, .App (mkBuiltin .HeadList) (.Var xs)),
-         (consH, .Delay cons), (nilH, .Delay nil)]
+        [(pair, .App (mkBuiltin .HeadList) (.Var xs), false),
+         (consH, .Delay cons, false), (nilH, .Delay nil, false)]
         (.Case (.App (mkBuiltin .NullList) (.Var xs))
           [.Force (.Var consH), .Force (.Var nilH)])
       let mapFn := MIR.Expr.Fix mapF (.Lam xs mapBody)
@@ -541,7 +403,7 @@ mutual
         let v ← freshVarId _name.toString
         let val' ← translateExpr val
         let body' ← withLocal v (translateExpr body)
-        pure (.Let [(v, val')] body')
+        pure (.Let [(v, val', false)] body')
 
     | .lit (.natVal n) =>
       pure (.Lit (.Integer n, .AtomicType .TypeInteger))
@@ -672,7 +534,7 @@ mutual
         let mut result : MIR.Expr := .Var fieldV
         for i in [:bindings.size] do
           let (v, val) := bindings[bindings.size - 1 - i]!
-          result := .Let [(v, val)] result
+          result := .Let [(v, val, false)] result
         pure result
       else
         -- SOP: Case with single branch, extract field positionally
@@ -704,7 +566,7 @@ mutual
         let altsStart := scrutIdx + 1
         let numAlts := iv.ctors.length
         if repr == .sop then
-          -- SOP encoding: hoist handlers, then emit direct Constr/Case.
+          -- SOP encoding: emit direct Constr/Case.
           let mut alts : Array MIR.Expr := #[]
           for i in [:numAlts] do
             if h2 : altsStart + i < args.size then
@@ -712,8 +574,7 @@ mutual
               alts := alts.push alt
             else
               throwError "casesOn for {typeName}: not enough alternatives"
-          let (handlerBinds, handlerRefs) ← hoistCaseHandlers alts
-          pure (.Let handlerBinds (.Case scrut handlerRefs.toList))
+          pure (.Case scrut alts.toList)
         else
           -- Data encoding: unConstrData + tag dispatch + field extraction
           let typeArgs := args.extract 0 np
@@ -744,7 +605,7 @@ mutual
     let mut altBodies : Array MIR.Expr := #[]
     for i in [:numAlts] do
       if h : altsStart + i < args.size then
-        let altExpr := etaReduceLeanAlt (args[altsStart + i])
+        let altExpr := args[altsStart + i]
         let ctorName := iv.ctors[i]!
         let fieldTypes ← getCtorFieldTypesWithArgs env ctorName numParams typeArgs
         let fieldCodecs ← resolveFieldCodecs fieldTypes s!"match on '{iv.name}', constructor '{ctorName}'"
@@ -754,14 +615,13 @@ mutual
         altBodies := altBodies.push body
       else
         throwError "data casesOn for {iv.name}: not enough alternatives"
-    let (handlerBinds, handlerRefs) ← hoistCaseHandlers altBodies
     -- Build tag dispatch: chain of equalsInteger checks
-    let dispatch ← buildTagDispatch (.Var tagV) handlerRefs 0
+    let dispatch ← buildTagDispatch (.Var tagV) altBodies 0
     -- Wrap in let bindings
-    pure (.Let [(pairV, .App (mkBuiltin .UnConstrData) scrut)]
-      (.Let [(tagV, .App (mkBuiltin .FstPair) (.Var pairV))]
-        (.Let [(fieldsV, .App (mkBuiltin .SndPair) (.Var pairV))]
-          (.Let handlerBinds dispatch))))
+    pure (.Let [(pairV, .App (mkBuiltin .UnConstrData) scrut, true)]
+      (.Let [(tagV, .App (mkBuiltin .FstPair) (.Var pairV), true)]
+        (.Let [(fieldsV, .App (mkBuiltin .SndPair) (.Var pairV), true)]
+          dispatch)))
 
   /-- Extract fields from a Data list and apply them to an alternative lambda.
       The alt should be a multi-arg lambda (Lam v1 (Lam v2 ... body)).
@@ -793,7 +653,7 @@ mutual
     -- If no fields are used, return just the inner body
     let some lastUsed := lastUsed? | return innerBody
     -- Build field extraction bindings, skipping unused fields
-    let mut bindings : Array (MIR.VarId × MIR.Expr) := #[]
+    let mut bindings : Array (MIR.VarId × MIR.Expr × Bool) := #[]
     let mut usedFieldVars : Array MIR.VarId := #[]
     let mut currentList := fieldList
     for i in [:lastUsed + 1] do
@@ -801,13 +661,13 @@ mutual
         let headV ← freshVarId s!"f{i}"
         let rawHead := MIR.Expr.App (mkBuiltin .HeadList) currentList
         let field ← decodeFromData fieldCodecs[i]! rawHead
-        bindings := bindings.push (headV, field)
+        bindings := bindings.push (headV, field, true)
         usedFieldVars := usedFieldVars.push headV
       -- Advance list pointer if not at the last needed position
       if i < lastUsed then
         let tailV ← freshVarId s!"rest{i}"
         let tailExpr := MIR.Expr.App (mkBuiltin .TailList) currentList
-        bindings := bindings.push (tailV, tailExpr)
+        bindings := bindings.push (tailV, tailExpr, true)
         currentList := .Var tailV
     -- Re-wrap body with only used params as lambdas (innermost first)
     let mut wrappedBody := innerBody
@@ -822,35 +682,35 @@ mutual
     -- Wrap with let bindings (outside in)
     let mut result := applied
     for i in [:bindings.size] do
-      let (v, val) := bindings[bindings.size - 1 - i]!
-      result := .Let [(v, val)] result
+      let (v, val, er) := bindings[bindings.size - 1 - i]!
+      result := .Let [(v, val, er)] result
     pure result
 
   /-- Fallback: extract all fields unconditionally.
       Used when the alt doesn't have the expected number of lambda binders. -/
   private partial def buildFieldExtractionAll (fieldCodecs : Array DataCodec)
       (alt : MIR.Expr) (fieldList : MIR.Expr) : TranslateM MIR.Expr := do
-    let mut bindings : Array (MIR.VarId × MIR.Expr) := #[]
+    let mut bindings : Array (MIR.VarId × MIR.Expr × Bool) := #[]
     let mut fieldVars : Array MIR.VarId := #[]
     let mut currentList := fieldList
     for i in [:fieldCodecs.size] do
       let headV ← freshVarId s!"f{i}"
       let rawHead := MIR.Expr.App (mkBuiltin .HeadList) currentList
       let field ← decodeFromData fieldCodecs[i]! rawHead
-      bindings := bindings.push (headV, field)
+      bindings := bindings.push (headV, field, true)
       fieldVars := fieldVars.push headV
       if i + 1 < fieldCodecs.size then
         let tailV ← freshVarId s!"rest{i}"
         let tailExpr := MIR.Expr.App (mkBuiltin .TailList) currentList
-        bindings := bindings.push (tailV, tailExpr)
+        bindings := bindings.push (tailV, tailExpr, true)
         currentList := .Var tailV
     let mut body := alt
     for v in fieldVars do
       body := .App body (.Var v)
     let mut result := body
     for i in [:bindings.size] do
-      let (v, val) := bindings[bindings.size - 1 - i]!
-      result := .Let [(v, val)] result
+      let (v, val, er) := bindings[bindings.size - 1 - i]!
+      result := .Let [(v, val, er)] result
     pure result
 
   /-- Build a chain of equalsInteger tag checks to dispatch to the right alternative. -/
