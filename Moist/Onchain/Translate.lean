@@ -443,56 +443,56 @@ private partial def decodeFromData (codec : DataCodec) (val : MIR.Expr) : Transl
   | .identity | .constrData _ => return val
   | .iData => return .App (mkBuiltin .UnIData) val
   | .bData => return .App (mkBuiltin .UnBData) val
-  | .listData elemCodec =>
-    if elemCodec.isIdentity then
-      return .App (mkBuiltin .UnListData) val
-    else
-      let unlistedV ← freshVarId "unlisted"
-      let mapF ← freshVarId "mapDec"
-      let xs ← freshVarId "xs"
-      let headExpr := MIR.Expr.App (mkBuiltin .HeadList) (.Var xs)
-      let decodedHead ← decodeFromData elemCodec headExpr
-      let tailExpr := MIR.Expr.App (mkBuiltin .TailList) (.Var xs)
-      let recurse := MIR.Expr.App (.Var mapF) tailExpr
-      let cons := MIR.Expr.App (.App (mkBuiltin .MkCons) decodedHead) recurse
-      let nil := MIR.Expr.Lit (.ConstDataList [], .TypeOperator (.TypeList (.AtomicType .TypeData)))
-      let consH ← freshVarId "dec_cons"
-      let nilH ← freshVarId "dec_nil"
-      let mapBody := MIR.Expr.Let [(consH, .Delay cons), (nilH, .Delay nil)]
-        (.Case (.App (mkBuiltin .NullList) (.Var xs))
-          [.Force (.Var consH), .Force (.Var nilH)])
-      let mapFn := MIR.Expr.Fix mapF (.Lam xs mapBody)
-      return .Let [(unlistedV, .App (mkBuiltin .UnListData) val)]
-        (.App mapFn (.Var unlistedV))
-  | .mapData keyCodec valCodec =>
-    if keyCodec.isIdentity && valCodec.isIdentity then
-      return .App (mkBuiltin .UnMapData) val
-    else
-      let unmappedV ← freshVarId "unmapped"
-      let mapF ← freshVarId "mapDec"
-      let xs ← freshVarId "xs"
-      let pair ← freshVarId "pair"
-      let rawKey := MIR.Expr.App (mkBuiltin .FstPair) (.Var pair)
-      let rawVal := MIR.Expr.App (mkBuiltin .SndPair) (.Var pair)
-      let decodedKey ← decodeFromData keyCodec rawKey
-      let decodedVal ← decodeFromData valCodec rawVal
-      let newPair := MIR.Expr.App (.App (mkBuiltin .MkPairData) decodedKey) decodedVal
-      let tailExpr := MIR.Expr.App (mkBuiltin .TailList) (.Var xs)
-      let recurse := MIR.Expr.App (.Var mapF) tailExpr
-      let cons := MIR.Expr.App (.App (mkBuiltin .MkCons) newPair) recurse
-      let nil := MIR.Expr.Lit
-        (.ConstPairDataList [], .TypeOperator (.TypeList
-          (.TypeOperator (.TypePair (.AtomicType .TypeData) (.AtomicType .TypeData)))))
-      let consH ← freshVarId "dec_cons"
-      let nilH ← freshVarId "dec_nil"
-      let mapBody := MIR.Expr.Let
-        [(pair, .App (mkBuiltin .HeadList) (.Var xs)),
-         (consH, .Delay cons), (nilH, .Delay nil)]
-        (.Case (.App (mkBuiltin .NullList) (.Var xs))
-          [.Force (.Var consH), .Force (.Var nilH)])
-      let mapFn := MIR.Expr.Fix mapF (.Lam xs mapBody)
-      return .Let [(unmappedV, .App (mkBuiltin .UnMapData) val)]
-        (.App mapFn (.Var unmappedV))
+  | .listData _elemCodec => return .App (mkBuiltin .UnListData) val
+    -- if elemCodec.isIdentity then
+    --   return .App (mkBuiltin .UnListData) val
+    -- else
+    --   let unlistedV ← freshVarId "unlisted"
+    --   let mapF ← freshVarId "mapDec"
+    --   let xs ← freshVarId "xs"
+    --   let headExpr := MIR.Expr.App (mkBuiltin .HeadList) (.Var xs)
+    --   let decodedHead ← decodeFromData elemCodec headExpr
+    --   let tailExpr := MIR.Expr.App (mkBuiltin .TailList) (.Var xs)
+    --   let recurse := MIR.Expr.App (.Var mapF) tailExpr
+    --   let cons := MIR.Expr.App (.App (mkBuiltin .MkCons) decodedHead) recurse
+    --   let nil := MIR.Expr.Lit (.ConstDataList [], .TypeOperator (.TypeList (.AtomicType .TypeData)))
+    --   let consH ← freshVarId "dec_cons"
+    --   let nilH ← freshVarId "dec_nil"
+    --   let mapBody := MIR.Expr.Let [(consH, .Delay cons), (nilH, .Delay nil)]
+    --     (.Case (.App (mkBuiltin .NullList) (.Var xs))
+    --       [.Force (.Var consH), .Force (.Var nilH)])
+    --   let mapFn := MIR.Expr.Fix mapF (.Lam xs mapBody)
+    --   return .Let [(unlistedV, .App (mkBuiltin .UnListData) val)]
+    --     (.App mapFn (.Var unlistedV))
+  | .mapData _keyCodec _valCodec => return .App (mkBuiltin .UnMapData) val
+    -- if keyCodec.isIdentity && valCodec.isIdentity then
+    --   return .App (mkBuiltin .UnMapData) val
+    -- else
+    --   let unmappedV ← freshVarId "unmapped"
+    --   let mapF ← freshVarId "mapDec"
+    --   let xs ← freshVarId "xs"
+    --   let pair ← freshVarId "pair"
+    --   let rawKey := MIR.Expr.App (mkBuiltin .FstPair) (.Var pair)
+    --   let rawVal := MIR.Expr.App (mkBuiltin .SndPair) (.Var pair)
+    --   let decodedKey ← decodeFromData keyCodec rawKey
+    --   let decodedVal ← decodeFromData valCodec rawVal
+    --   let newPair := MIR.Expr.App (.App (mkBuiltin .MkPairData) decodedKey) decodedVal
+    --   let tailExpr := MIR.Expr.App (mkBuiltin .TailList) (.Var xs)
+    --   let recurse := MIR.Expr.App (.Var mapF) tailExpr
+    --   let cons := MIR.Expr.App (.App (mkBuiltin .MkCons) newPair) recurse
+    --   let nil := MIR.Expr.Lit
+    --     (.ConstPairDataList [], .TypeOperator (.TypeList
+    --       (.TypeOperator (.TypePair (.AtomicType .TypeData) (.AtomicType .TypeData)))))
+    --   let consH ← freshVarId "dec_cons"
+    --   let nilH ← freshVarId "dec_nil"
+    --   let mapBody := MIR.Expr.Let
+    --     [(pair, .App (mkBuiltin .HeadList) (.Var xs)),
+    --      (consH, .Delay cons), (nilH, .Delay nil)]
+    --     (.Case (.App (mkBuiltin .NullList) (.Var xs))
+    --       [.Force (.Var consH), .Force (.Var nilH)])
+    --   let mapFn := MIR.Expr.Fix mapF (.Lam xs mapBody)
+    --   return .Let [(unmappedV, .App (mkBuiltin .UnMapData) val)]
+    --     (.App mapFn (.Var unmappedV))
 
 /-- Resolve field types to DataCodec plans. Fails with an error for unsupported types. -/
 private def resolveFieldCodecs (fieldTypes : Array Lean.Expr) (context : String)
@@ -549,12 +549,12 @@ mutual
     | .lit (.strVal s) =>
       pure (.Lit (.String s, .AtomicType .TypeString))
 
-    | .proj _typeName _idx _struct => do
-      if e.hasLooseBVars then
-        throwError "cannot translate projection with loose bvars: {e}"
-      let e' ← whnf e
-      if e' != e then translateExpr e'
-      else throwError "cannot translate projection: {e}"
+    | .proj typeName idx struct => do
+      if !e.hasLooseBVars then
+        let e' ← whnf e
+        if e' != e then return ← translateExpr e'
+      -- Translate projection directly: extract field `idx` from struct
+      translateProj typeName idx struct
 
     | .const name _ => translateConst name
 
@@ -622,6 +622,72 @@ mutual
             return ← translateExpr fullReduced.headBeta
     -- Translate directly
     translateAppDirect e
+
+  /-- Translate a structure projection `struct.fieldN` directly to MIR.
+      For @[plutus_data]: UnConstrData → SndPair → walk list → decode field.
+      For SOP: Case → extract field from the single constructor branch. -/
+  partial def translateProj (typeName : Name) (idx : Nat) (struct : Lean.Expr)
+      : TranslateM MIR.Expr := do
+    let env ← getEnv
+    match env.find? typeName with
+    | some (.inductInfo iv) =>
+      if iv.ctors.length != 1 then
+        throwError "projection on multi-constructor type {typeName} not supported"
+      let ctorName := iv.ctors[0]!
+      let np := iv.numParams
+      -- Get type args from the struct's type if possible
+      let typeArgs ← do
+        if !struct.hasLooseBVars then
+          let ty ← inferType struct
+          let ty' ← whnf ty
+          pure (ty'.getAppArgs.extract 0 np)
+        else
+          pure #[]
+      let fieldTypes ← getCtorFieldTypesWithArgs env ctorName np typeArgs
+      let fieldCodecs ← resolveFieldCodecs fieldTypes s!"projection on '{typeName}'"
+      if h : idx >= fieldCodecs.size then
+        throwError "projection index {idx} out of range for {typeName} ({fieldCodecs.size} fields)"
+      let scrut ← translateExpr struct
+      let repr := getPlutusRepr env typeName
+      if repr == .data then
+        -- @[plutus_data]: UnConstrData → SndPair → walk to field idx → decode
+        let pairV ← freshVarId "pair"
+        let fieldsV ← freshVarId "fields"
+        let mut currentList : MIR.Expr := .Var fieldsV
+        let mut bindings : Array (MIR.VarId × MIR.Expr) := #[
+          (pairV, .App (mkBuiltin .UnConstrData) scrut),
+          (fieldsV, .App (mkBuiltin .SndPair) (.Var pairV))
+        ]
+        -- Walk to field idx
+        for i in [:idx] do
+          let tailV ← freshVarId s!"rest{i}"
+          bindings := bindings.push (tailV, .App (mkBuiltin .TailList) currentList)
+          currentList := .Var tailV
+        -- Extract and decode the field
+        let fieldV ← freshVarId s!"f{idx}"
+        let rawHead := MIR.Expr.App (mkBuiltin .HeadList) currentList
+        let decoded ← decodeFromData fieldCodecs[idx]! rawHead
+        bindings := bindings.push (fieldV, decoded)
+        -- Wrap in let bindings
+        let mut result : MIR.Expr := .Var fieldV
+        for i in [:bindings.size] do
+          let (v, val) := bindings[bindings.size - 1 - i]!
+          result := .Let [(v, val)] result
+        pure result
+      else
+        -- SOP: Case with single branch, extract field positionally
+        let fieldV ← freshVarId s!"f{idx}"
+        let numFields := fieldCodecs.size
+        -- Build a lambda that ignores all fields except idx
+        let mut vars : Array MIR.VarId := #[]
+        for i in [:numFields] do
+          vars := vars.push (← freshVarId s!"sf{i}")
+        let body : MIR.Expr := .Var vars[idx]!
+        let mut alt := body
+        for i in [:numFields] do
+          alt := .Lam vars[numFields - 1 - i]! alt
+        pure (.Case scrut [alt])
+    | _ => throwError "projection on unknown type {typeName}"
 
   partial def translateCasesOn (caseName : Name) (args : Array Lean.Expr)
       : TranslateM MIR.Expr := do

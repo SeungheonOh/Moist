@@ -50,7 +50,7 @@ inductive Baz where
   | foo : Int → Baz
   | qux : Baz
 
-@[plutus_sop]
+@[plutus_data]
 inductive SOPHi where
   | sophi : Int → SOPHi
   | sopbye : SOPHi
@@ -81,14 +81,28 @@ def ddd (x : Baz) : Int :=
 
 def dddd : Term := compile! ddd
 
+@[plutus_data]
+structure A where
+  x : Int
+  y : Int
+  z : Int
+  a : Int
+
+@[onchain]
+def testing (x : A) : Int := --x.x + x.a
+  match x with
+    | { x, y, z, a } => x + y
+
 @[onchain]
 def eee : Baz := Baz.bar 1 2
 
 def eeee : Term := compile! eee
 
-#show_optimized_mir fff
+#show_mir testing
 
-#show_mir ddd
+#show_optimized_mir testing
+
+#evaluatePrettyTerm testing
 
 #eval ((compile! ddd).Apply eeee).evaluatePretty
 
