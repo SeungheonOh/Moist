@@ -93,7 +93,7 @@ def ddd (x : Baz) : Int :=
 
 def dddd : Term := compile! ddd
 
-@[plutus_sop]
+@[plutus_data]
 structure A where
   x : Int
   y : Int
@@ -115,6 +115,12 @@ def eeee : Term := compile! eee
 #show_mir testing
 
 #show_mir testing2
+
+#show_opt_trace testing
+
+#show_beta_mir testing
+
+#show_beta_mir testing2
 
 #show_optimized_mir testing
 
@@ -140,24 +146,14 @@ def eeee : Term := compile! eee
 
 
 /-
-λx_0.
-  let pair_1 = unConstrData x_0
-  let tag_2 = (force (force fstPair)) pair_1
-  let fields_3 = (force (force sndPair)) pair_1
-  let anf_1027 = force headList
-  let anf_1029 = force tailList
-  let rest0_11 = anf_1029 fields_3
-  in
-    case (equalsInteger tag_2 0) of
-      | let anf_1021 = force headList
-      in
-        case (equalsInteger tag_2 1) of
-          | let anf_1015 = force headList
-          in
-            case (equalsInteger tag_2 2) of
-              | case (equalsInteger tag_2 3) of
-                | 0
-                | addInteger (unIData ((force headList) fields_3)) 1
-              | addInteger (unIData (anf_1015 fields_3)) (unIData (anf_1015 ((force tailList) fields_3)))
-          | addInteger (unIData (anf_1021 fields_3)) (unIData (anf_1021 ((force tailList) fields_3)))
-      | addInteger (addInteger (unIData (anf_1027 fields_3)) (unIData (anf_1027 rest0_11))) (unIData (anf_1027 (anf_1029 rest0_11)))-/
+let anf_1001 = force (force sndPair)
+let anf_1002 = force tailList
+let anf_1003 = force headList
+in
+  λx_0.
+    let pair_2 = unConstrData x_0
+    in
+      addInteger
+        (unIData (anf_1003 (anf_1002 (anf_1001 pair_2))))
+        (unIData (anf_1003 (anf_1002 (anf_1002 (anf_1002 (anf_1001 pair_2))))))
+-/

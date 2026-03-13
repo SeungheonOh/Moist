@@ -13,7 +13,7 @@ import Moist.Onchain.Translate
 namespace Moist.Onchain
 
 open Lean Elab Meta
-open Moist.MIR (optimizeExpr optimizeDebugBeta preLowerInlineExpr lowerExpr)
+open Moist.MIR (optimizeExpr optimizeDebugBeta optimizeTraceExpr preLowerInlineExpr lowerExpr OptStep)
 
 -- Use a local alias to avoid ambiguity with Lean.Term
 private abbrev UPLCTerm := Moist.Plutus.Term.Term
@@ -208,6 +208,51 @@ elab "#show_beta_mir" id:ident : command => do
     logTranslationErrorAtDef name e
   let (betaMir, betaChanged) := optimizeDebugBeta mir 1000
   logInfo m!"After beta (changed={betaChanged}):\n{toString betaMir}"
+
+/-- Widget module for the interactive optimization trace viewer.
+Renders a step selector (dropdown + prev/next buttons) with the MIR
+for the selected step displayed below. -/
+@[widget_module]
+def optTraceWidget : Widget.Module where
+  javascript := include_str "../../widget/OptTrace.jsx"
+
+/-- Debug elaborator: interactive optimization trace in the InfoView.
+Click through each optimization pass with prev/next buttons or the
+dropdown. Usage: `#show_opt_trace myFun` -/
+elab "#show_opt_trace" id:ident : command => do
+  let name ← resolveGlobalConstNoOverload id
+  let env ← getEnv
+  let some ci := env.find? name
+    | throwError "unknown constant: {name}"
+  let some val := ci.value?
+    | throwError "{name} has no definition body"
+  let mir ← try
+    Elab.Command.liftTermElabM (translateDef val)
+  catch e =>
+    logTranslationErrorAtDef name e
+  let steps := optimizeTraceExpr mir 1000
+  -- Build JSON steps array: Input + trace steps + PreLowerInline
+  let mut allSteps : Array Json := #[.mkObj [
+    ("pass", .str "Input MIR"),
+    ("expr", .str (toString mir)),
+    ("changed", .bool false)
+  ]]
+  for s in steps do
+    allSteps := allSteps.push (.mkObj [
+      ("pass", .str s.pass),
+      ("expr", .str (toString s.expr)),
+      ("changed", .bool s.changed)
+    ])
+  if let some last := steps.back? then
+    let prelow := preLowerInlineExpr last.expr 5000
+    allSteps := allSteps.push (.mkObj [
+      ("pass", .str "PreLowerInline"),
+      ("expr", .str (toString prelow)),
+      ("changed", .bool true)
+    ])
+  let props : Json := .mkObj [("steps", .arr allSteps)]
+  Elab.Command.liftCoreM <|
+    Widget.savePanelWidgetInfo optTraceWidget.javascriptHash.val (pure props) (← getRef)
 
 /-- Debug elaborator: shows the raw Lean.Expr for a definition. -/
 elab "#show_expr" id:ident : command => do

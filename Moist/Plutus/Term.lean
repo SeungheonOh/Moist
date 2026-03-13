@@ -36,6 +36,21 @@ mutual
   deriving Repr
 end
 
+mutual
+  def beqBuiltinType : BuiltinType → BuiltinType → Bool
+    | .AtomicType a, .AtomicType b => a == b
+    | .TypeOperator a, .TypeOperator b => beqTypeOperator a b
+    | _, _ => false
+
+  def beqTypeOperator : TypeOperator → TypeOperator → Bool
+    | .TypeList a, .TypeList b => beqBuiltinType a b
+    | .TypePair a1 a2, .TypePair b1 b2 => beqBuiltinType a1 b1 && beqBuiltinType a2 b2
+    | _, _ => false
+end
+
+instance : BEq BuiltinType where beq := beqBuiltinType
+instance : BEq TypeOperator where beq := beqTypeOperator
+
 
 inductive Const
   | Integer               : Integer → Const
@@ -59,6 +74,30 @@ inductive Const
   | Bls12_381_MlResult    : Const
     -- NOTE: missing value here (need to check in spec)
 deriving Repr
+
+private def beqConst : Const → Const → Bool
+  | .Integer a, .Integer b => a == b
+  | .ByteString a, .ByteString b => a == b
+  | .String a, .String b => a == b
+  | .Unit, .Unit => true
+  | .Bool a, .Bool b => a == b
+  | .ConstList as, .ConstList bs => beqConstList as bs
+  | .ConstDataList as, .ConstDataList bs => as == bs
+  | .ConstPairDataList as, .ConstPairDataList bs => as == bs
+  | .Pair (a1, a2), .Pair (b1, b2) => beqConst a1 b1 && beqConst a2 b2
+  | .PairData a, .PairData b => a == b
+  | .Data a, .Data b => a == b
+  | .Bls12_381_G1_element, .Bls12_381_G1_element => true
+  | .Bls12_381_G2_element, .Bls12_381_G2_element => true
+  | .Bls12_381_MlResult, .Bls12_381_MlResult => true
+  | _, _ => false
+where
+  beqConstList : List Const → List Const → Bool
+    | [], [] => true
+    | a :: as, b :: bs => beqConst a b && beqConstList as bs
+    | _, _ => false
+
+instance : BEq Const where beq := beqConst
 
 inductive BuiltinFun
 -- Batch 1
