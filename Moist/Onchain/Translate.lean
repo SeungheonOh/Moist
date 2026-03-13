@@ -3,7 +3,7 @@ import Moist.MIR.Expr
 import Moist.MIR.Analysis
 import Moist.MIR.Optimize.Purity
 import Moist.Onchain.Builtins
-import Moist.Onchain.Attribute
+import Moist.Onchain.Repr
 
 namespace Moist.Onchain
 
@@ -124,48 +124,23 @@ private partial def evalNatLit (e : Lean.Expr) : Option Nat :=
     | _ => none
   | _ => none
 
-/-- Determine how to wrap a value as Data based on its Lean type name.
-    Returns the BuiltinFun to apply, or none if the value is already Data. -/
-private def toDataWrapper (env : Environment) (ty : Lean.Expr) : Option BuiltinFun :=
-  match ty with
-  | .const n _ =>
-    if n == ``Int then some .IData
-    else if n == ``Moist.Plutus.ByteString then some .BData
-    else if n == ``Moist.Plutus.Data then none
-    else if plutusDataAttr.hasTag env n then none  -- already Data
-    else none  -- default: assume Data
-  | .app (.const ``List _) (.const ``Moist.Plutus.Data _) => some .ListData
-  | _ => none
-
-/-- Determine how to unwrap a Data value to a field type.
-    Returns the BuiltinFun to apply, or none if identity. -/
-private def fromDataWrapper (env : Environment) (ty : Lean.Expr) : Option BuiltinFun :=
-  match ty with
-  | .const n _ =>
-    if n == ``Int then some .UnIData
-    else if n == ``Moist.Plutus.ByteString then some .UnBData
-    else if n == ``Moist.Plutus.Data then none
-    else if plutusDataAttr.hasTag env n then none
-    else none
-  | .app (.const ``List _) (.const ``Moist.Plutus.Data _) => some .UnListData
-  | _ => none
-
-/-- Get the non-erased field types for a constructor.
-    Skips numParams parameters and returns remaining non-erasable field types. -/
-private def getCtorFieldTypes (env : Environment) (ctorName : Name) (numParams : Nat)
-    : MetaM (Array Lean.Expr) := do
+/-- Get the non-erased field types for a constructor, substituting type parameters
+    with the actual type arguments from the constructor/casesOn application.
+    This gives concrete field types that can be resolved by `resolveDataCodec`. -/
+private def getCtorFieldTypesWithArgs (env : Environment) (ctorName : Name) (numParams : Nat)
+    (typeArgs : Array Lean.Expr := #[]) : MetaM (Array Lean.Expr) := do
   match env.find? ctorName with
   | some (.ctorInfo cval) =>
     let mut fields : Array Lean.Expr := #[]
     let mut ty := cval.type
     let mut paramIdx := 0
-    -- Skip through all forallE binders
     while ty.isForall do
       match ty with
       | .forallE _ dom body bi =>
         if paramIdx < numParams then
-          -- Parameter: skip
-          ty := body.instantiate1 (.const ``Unit.unit [])
+          let subst := if h : paramIdx < typeArgs.size then typeArgs[paramIdx]
+                       else .const ``Unit.unit []
+          ty := body.instantiate1 subst
           paramIdx := paramIdx + 1
         else
           let erase ← isErasableBinder dom bi
@@ -175,18 +150,6 @@ private def getCtorFieldTypes (env : Environment) (ctorName : Name) (numParams :
       | _ => break
     pure fields
   | _ => pure #[]
-
-/-- Wrap a MIR expression in a Data encoder if needed. -/
-private def wrapToData (env : Environment) (fieldTy : Lean.Expr) (val : MIR.Expr) : MIR.Expr :=
-  match toDataWrapper env fieldTy with
-  | some b => .App (mkBuiltin b) val
-  | none => val
-
-/-- Wrap a MIR expression in a Data decoder if needed. -/
-private def wrapFromData (env : Environment) (fieldTy : Lean.Expr) (val : MIR.Expr) : MIR.Expr :=
-  match fromDataWrapper env fieldTy with
-  | some b => .App (mkBuiltin b) val
-  | none => val
 
 /-- Build a Data list from field values: mkCons f0 (mkCons f1 ... []) -/
 private def mkDataList (fields : List MIR.Expr) : MIR.Expr :=
@@ -419,6 +382,73 @@ where
     | .Lam x body, n+1, acc => go body n (acc.push x)
     | e, _, acc => (acc, e)
 
+/-- Encode a MIR expression to Data according to a DataCodec plan. -/
+private partial def encodeToData (codec : DataCodec) (val : MIR.Expr) : TranslateM MIR.Expr := do
+  match codec with
+  | .param idx => throwError "BUG: unresolved type parameter codec (.param {idx}) in encodeToData"
+  | .identity | .constrData _ => return val
+  | .iData => return .App (mkBuiltin .IData) val
+  | .bData => return .App (mkBuiltin .BData) val
+  | .listData elemCodec =>
+    if elemCodec.isIdentity then
+      return .App (mkBuiltin .ListData) val
+    else
+      let mapF ← freshVarId "mapEnc"
+      let xs ← freshVarId "xs"
+      let headExpr := MIR.Expr.App (mkBuiltin .HeadList) (.Var xs)
+      let encodedHead ← encodeToData elemCodec headExpr
+      let tailExpr := MIR.Expr.App (mkBuiltin .TailList) (.Var xs)
+      let recurse := MIR.Expr.App (.Var mapF) tailExpr
+      let cons := MIR.Expr.App (.App (mkBuiltin .MkCons) encodedHead) recurse
+      let nil := MIR.Expr.Lit (.ConstDataList [], .TypeOperator (.TypeList (.AtomicType .TypeData)))
+      let consH ← freshVarId "enc_cons"
+      let nilH ← freshVarId "enc_nil"
+      let mapBody := MIR.Expr.Let [(consH, .Delay cons), (nilH, .Delay nil)]
+        (.Case (.App (mkBuiltin .NullList) (.Var xs))
+          [.Force (.Var consH), .Force (.Var nilH)])
+      let mapFn := MIR.Expr.Fix mapF (.Lam xs mapBody)
+      return .App (mkBuiltin .ListData) (.App mapFn val)
+
+/-- Decode a MIR expression from Data according to a DataCodec plan. -/
+private partial def decodeFromData (codec : DataCodec) (val : MIR.Expr) : TranslateM MIR.Expr := do
+  match codec with
+  | .param idx => throwError "BUG: unresolved type parameter codec (.param {idx}) in decodeFromData"
+  | .identity | .constrData _ => return val
+  | .iData => return .App (mkBuiltin .UnIData) val
+  | .bData => return .App (mkBuiltin .UnBData) val
+  | .listData elemCodec =>
+    if elemCodec.isIdentity then
+      return .App (mkBuiltin .UnListData) val
+    else
+      let unlistedV ← freshVarId "unlisted"
+      let mapF ← freshVarId "mapDec"
+      let xs ← freshVarId "xs"
+      let headExpr := MIR.Expr.App (mkBuiltin .HeadList) (.Var xs)
+      let decodedHead ← decodeFromData elemCodec headExpr
+      let tailExpr := MIR.Expr.App (mkBuiltin .TailList) (.Var xs)
+      let recurse := MIR.Expr.App (.Var mapF) tailExpr
+      let cons := MIR.Expr.App (.App (mkBuiltin .MkCons) decodedHead) recurse
+      let nil := MIR.Expr.Lit (.ConstDataList [], .TypeOperator (.TypeList (.AtomicType .TypeData)))
+      let consH ← freshVarId "dec_cons"
+      let nilH ← freshVarId "dec_nil"
+      let mapBody := MIR.Expr.Let [(consH, .Delay cons), (nilH, .Delay nil)]
+        (.Case (.App (mkBuiltin .NullList) (.Var xs))
+          [.Force (.Var consH), .Force (.Var nilH)])
+      let mapFn := MIR.Expr.Fix mapF (.Lam xs mapBody)
+      return .Let [(unlistedV, .App (mkBuiltin .UnListData) val)]
+        (.App mapFn (.Var unlistedV))
+
+/-- Resolve field types to DataCodec plans. Fails with an error for unsupported types. -/
+private def resolveFieldCodecs (fieldTypes : Array Lean.Expr) (context : String)
+    : TranslateM (Array DataCodec) := do
+  let mut codecs : Array DataCodec := #[]
+  for i in [:fieldTypes.size] do
+    match ← resolveDataCodec fieldTypes[i]! with
+    | .ok codec => codecs := codecs.push codec
+    | .error e =>
+      throwError "@[plutus_data] {context} field {i}: {formatDataCompatError e}"
+  return codecs
+
 mutual
   partial def translateExpr (e : Lean.Expr) : TranslateM MIR.Expr := do
     let ctx ← read
@@ -564,7 +594,8 @@ mutual
           pure (.Let handlerBinds (.Case scrut handlerRefs.toList))
         else
           -- Data encoding: unConstrData + tag dispatch + field extraction
-          translateDataCasesOn env iv np scrut args altsStart numAlts
+          let typeArgs := args.extract 0 np
+          translateDataCasesOn env iv np typeArgs scrut args altsStart numAlts
       else
         throwError "casesOn for {typeName}: not enough arguments (need scrutinee)"
     | _ =>
@@ -578,7 +609,7 @@ mutual
 
   /-- Handle casesOn for @[plutus_data] types using unConstrData + field extraction. -/
   partial def translateDataCasesOn (env : Environment) (iv : InductiveVal)
-      (numParams : Nat) (scrut : MIR.Expr)
+      (numParams : Nat) (typeArgs : Array Lean.Expr) (scrut : MIR.Expr)
       (args : Array Lean.Expr) (altsStart : Nat) (numAlts : Nat)
       : TranslateM MIR.Expr := do
     -- let pair = unConstrData scrut
@@ -593,10 +624,11 @@ mutual
       if h : altsStart + i < args.size then
         let altExpr := etaReduceLeanAlt (args[altsStart + i])
         let ctorName := iv.ctors[i]!
-        let fieldTypes ← getCtorFieldTypes env ctorName numParams
+        let fieldTypes ← getCtorFieldTypesWithArgs env ctorName numParams typeArgs
+        let fieldCodecs ← resolveFieldCodecs fieldTypes s!"match on '{iv.name}', constructor '{ctorName}'"
         let altMir ← translateExpr altExpr
         -- Extract fields from fieldList and apply to altMir
-        let body ← buildFieldExtraction env fieldTypes altMir (.Var fieldsV)
+        let body ← buildFieldExtraction fieldCodecs altMir (.Var fieldsV)
         altBodies := altBodies.push body
       else
         throwError "data casesOn for {iv.name}: not enough alternatives"
@@ -621,20 +653,20 @@ mutual
         let f3 = unIData (headList rest1)
         in (λa d. body) f0 f3
       instead of extracting all 4 fields. -/
-  partial def buildFieldExtraction (env : Environment) (fieldTypes : Array Lean.Expr)
+  partial def buildFieldExtraction (fieldCodecs : Array DataCodec)
       (alt : MIR.Expr) (fieldList : MIR.Expr) : TranslateM MIR.Expr := do
-    if fieldTypes.size == 0 then return alt
+    if fieldCodecs.size == 0 then return alt
     -- Peel lambda binders to detect which fields are actually used
-    let (params, innerBody) := peelLambdas alt fieldTypes.size
+    let (params, innerBody) := peelLambdas alt fieldCodecs.size
     -- If we can't peel the expected number of lambdas, fall back to extracting all
-    if params.size != fieldTypes.size then
-      return ← buildFieldExtractionAll env fieldTypes alt fieldList
+    if params.size != fieldCodecs.size then
+      return ← buildFieldExtractionAll fieldCodecs alt fieldList
     -- Determine which fields are used in the body
     let usedMask : Array Bool := params.map fun p =>
       MIR.countOccurrences p innerBody > 0
     -- Find the last used field index (to know how far to traverse the list)
     let mut lastUsed? : Option Nat := none
-    for i in [:fieldTypes.size] do
+    for i in [:fieldCodecs.size] do
       if usedMask[i]! then lastUsed? := some i
     -- If no fields are used, return just the inner body
     let some lastUsed := lastUsed? | return innerBody
@@ -646,7 +678,7 @@ mutual
       if usedMask[i]! then
         let headV ← freshVarId s!"f{i}"
         let rawHead := MIR.Expr.App (mkBuiltin .HeadList) currentList
-        let field := wrapFromData env fieldTypes[i]! rawHead
+        let field ← decodeFromData fieldCodecs[i]! rawHead
         bindings := bindings.push (headV, field)
         usedFieldVars := usedFieldVars.push headV
       -- Advance list pointer if not at the last needed position
@@ -674,18 +706,18 @@ mutual
 
   /-- Fallback: extract all fields unconditionally.
       Used when the alt doesn't have the expected number of lambda binders. -/
-  private partial def buildFieldExtractionAll (env : Environment) (fieldTypes : Array Lean.Expr)
+  private partial def buildFieldExtractionAll (fieldCodecs : Array DataCodec)
       (alt : MIR.Expr) (fieldList : MIR.Expr) : TranslateM MIR.Expr := do
     let mut bindings : Array (MIR.VarId × MIR.Expr) := #[]
     let mut fieldVars : Array MIR.VarId := #[]
     let mut currentList := fieldList
-    for i in [:fieldTypes.size] do
+    for i in [:fieldCodecs.size] do
       let headV ← freshVarId s!"f{i}"
       let rawHead := MIR.Expr.App (mkBuiltin .HeadList) currentList
-      let field := wrapFromData env fieldTypes[i]! rawHead
+      let field ← decodeFromData fieldCodecs[i]! rawHead
       bindings := bindings.push (headV, field)
       fieldVars := fieldVars.push headV
-      if i + 1 < fieldTypes.size then
+      if i + 1 < fieldCodecs.size then
         let tailV ← freshVarId s!"rest{i}"
         let tailExpr := MIR.Expr.App (mkBuiltin .TailList) currentList
         bindings := bindings.push (tailV, tailExpr)
@@ -831,14 +863,16 @@ mutual
             return .Constr cval.cidx valueArgs.toList
           else
             -- Data encoding: constrData tag (mkCons (toData f0) (mkCons (toData f1) ... mkNilData))
-            let fieldTypes ← getCtorFieldTypes env name
-              (match env.find? cval.induct with
-               | some (.inductInfo iv) => iv.numParams
-               | _ => 0)
+            let numParams := match env.find? cval.induct with
+              | some (.inductInfo iv) => iv.numParams
+              | _ => 0
+            let typeArgs := args.extract 0 numParams
+            let fieldTypes ← getCtorFieldTypesWithArgs env name numParams typeArgs
+            let fieldCodecs ← resolveFieldCodecs fieldTypes s!"constructor '{name}'"
             let mut wrappedArgs : List MIR.Expr := []
             for i in [:valueArgs.size] do
-              let fieldTy := if h : i < fieldTypes.size then fieldTypes[i] else default
-              wrappedArgs := wrappedArgs ++ [wrapToData env fieldTy valueArgs[i]!]
+              let codec := if h : i < fieldCodecs.size then fieldCodecs[i] else .identity
+              wrappedArgs := wrappedArgs ++ [← encodeToData codec valueArgs[i]!]
             let dataList := mkDataList wrappedArgs
             return .App (.App (mkBuiltin .ConstrData)
               (.Lit (.Integer cval.cidx, .AtomicType .TypeInteger))) dataList

@@ -1,4 +1,4 @@
-import Moist.Onchain.Attribute
+import Moist.Onchain.Repr
 import Moist.Plutus.Types
 
 namespace Moist.Cardano.V3
@@ -76,12 +76,17 @@ inductive Extended where
   | posInf : Extended
 
 @[plutus_data]
+inductive Closure where
+  | inclusive : Closure   -- ConstrData 0 []
+  | exclusive : Closure   -- ConstrData 1 []
+
+@[plutus_data]
 inductive LowerBound where
-  | lowerBound : Extended → Bool → LowerBound
+  | lowerBound : Extended → Closure → LowerBound
 
 @[plutus_data]
 inductive UpperBound where
-  | upperBound : Extended → Bool → UpperBound
+  | upperBound : Extended → Closure → UpperBound
 
 @[plutus_data]
 inductive Interval where
