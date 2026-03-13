@@ -107,4 +107,12 @@ def decodeUtf8 (bs : ByteString) : Except String String :=
   then pure (String.fromUTF8 bs h)
   else throw "decodeUtf8: invalid ByteString"
 
+/-- Plutus AssocMap: a list of key-value pairs, encoded as Data.Map on-chain. -/
+structure AssocMap (k v : Type) where
+  toList : List (k × v)
+deriving Repr, BEq
+
+instance : EmptyCollection (AssocMap k v) where
+  emptyCollection := ⟨[]⟩
+
 end Moist.Plutus

@@ -23,6 +23,7 @@ inductive DataCodec where
   | iData                            -- Int via IData/UnIData
   | bData                            -- ByteString via BData/UnBData
   | listData (elem : DataCodec)      -- List α via ListData/UnListData + element codec
+  | mapData (key : DataCodec) (value : DataCodec) -- AssocMap via MapData/UnMapData + key/value codecs
   | constrData (typeName : Name)     -- @[plutus_data] type (already Data at runtime)
   | param (idx : Nat)                -- type parameter placeholder (resolved at instantiation)
 deriving Repr, BEq, Inhabited
@@ -115,6 +116,14 @@ partial def resolveDataCodec (ty : Lean.Expr) : MetaM (Except DataCompatError Da
           | .error e => return .error (.nestedError "List element" e)
         else
           return .error (.unknownType "List with no type argument")
+      else if n == ``Moist.Plutus.AssocMap then
+        if h : 1 < args.size then
+          match ← resolveDataCodec args[0], ← resolveDataCodec args[1] with
+          | .ok keyCodec, .ok valCodec => return .ok (.mapData keyCodec valCodec)
+          | .error e, _ => return .error (.nestedError "AssocMap key" e)
+          | _, .error e => return .error (.nestedError "AssocMap value" e)
+        else
+          return .error (.unknownType "AssocMap with missing type arguments")
       else if isPlutusData env n then
         return .ok (.constrData n)
       else
@@ -236,6 +245,10 @@ partial def resolveParamCodec (codec : DataCodec) (typeArgs : Array Lean.Expr)
   | .listData elem =>
     let elem' ← resolveParamCodec elem typeArgs
     return .listData elem'
+  | .mapData key value =>
+    let key' ← resolveParamCodec key typeArgs
+    let value' ← resolveParamCodec value typeArgs
+    return .mapData key' value'
   | other => return other
 
 end Moist.Onchain

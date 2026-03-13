@@ -408,6 +408,33 @@ private partial def encodeToData (codec : DataCodec) (val : MIR.Expr) : Translat
           [.Force (.Var consH), .Force (.Var nilH)])
       let mapFn := MIR.Expr.Fix mapF (.Lam xs mapBody)
       return .App (mkBuiltin .ListData) (.App mapFn val)
+  | .mapData keyCodec valCodec =>
+    if keyCodec.isIdentity && valCodec.isIdentity then
+      return .App (mkBuiltin .MapData) val
+    else
+      let mapF ← freshVarId "mapEnc"
+      let xs ← freshVarId "xs"
+      let pair ← freshVarId "pair"
+      let rawKey := MIR.Expr.App (mkBuiltin .FstPair) (.Var pair)
+      let rawVal := MIR.Expr.App (mkBuiltin .SndPair) (.Var pair)
+      let encodedKey ← encodeToData keyCodec rawKey
+      let encodedVal ← encodeToData valCodec rawVal
+      let newPair := MIR.Expr.App (.App (mkBuiltin .MkPairData) encodedKey) encodedVal
+      let tailExpr := MIR.Expr.App (mkBuiltin .TailList) (.Var xs)
+      let recurse := MIR.Expr.App (.Var mapF) tailExpr
+      let cons := MIR.Expr.App (.App (mkBuiltin .MkCons) newPair) recurse
+      let nil := MIR.Expr.Lit
+        (.ConstPairDataList [], .TypeOperator (.TypeList
+          (.TypeOperator (.TypePair (.AtomicType .TypeData) (.AtomicType .TypeData)))))
+      let consH ← freshVarId "enc_cons"
+      let nilH ← freshVarId "enc_nil"
+      let mapBody := MIR.Expr.Let
+        [(pair, .App (mkBuiltin .HeadList) (.Var xs)),
+         (consH, .Delay cons), (nilH, .Delay nil)]
+        (.Case (.App (mkBuiltin .NullList) (.Var xs))
+          [.Force (.Var consH), .Force (.Var nilH)])
+      let mapFn := MIR.Expr.Fix mapF (.Lam xs mapBody)
+      return .App (mkBuiltin .MapData) (.App mapFn val)
 
 /-- Decode a MIR expression from Data according to a DataCodec plan. -/
 private partial def decodeFromData (codec : DataCodec) (val : MIR.Expr) : TranslateM MIR.Expr := do
@@ -437,6 +464,35 @@ private partial def decodeFromData (codec : DataCodec) (val : MIR.Expr) : Transl
       let mapFn := MIR.Expr.Fix mapF (.Lam xs mapBody)
       return .Let [(unlistedV, .App (mkBuiltin .UnListData) val)]
         (.App mapFn (.Var unlistedV))
+  | .mapData keyCodec valCodec =>
+    if keyCodec.isIdentity && valCodec.isIdentity then
+      return .App (mkBuiltin .UnMapData) val
+    else
+      let unmappedV ← freshVarId "unmapped"
+      let mapF ← freshVarId "mapDec"
+      let xs ← freshVarId "xs"
+      let pair ← freshVarId "pair"
+      let rawKey := MIR.Expr.App (mkBuiltin .FstPair) (.Var pair)
+      let rawVal := MIR.Expr.App (mkBuiltin .SndPair) (.Var pair)
+      let decodedKey ← decodeFromData keyCodec rawKey
+      let decodedVal ← decodeFromData valCodec rawVal
+      let newPair := MIR.Expr.App (.App (mkBuiltin .MkPairData) decodedKey) decodedVal
+      let tailExpr := MIR.Expr.App (mkBuiltin .TailList) (.Var xs)
+      let recurse := MIR.Expr.App (.Var mapF) tailExpr
+      let cons := MIR.Expr.App (.App (mkBuiltin .MkCons) newPair) recurse
+      let nil := MIR.Expr.Lit
+        (.ConstPairDataList [], .TypeOperator (.TypeList
+          (.TypeOperator (.TypePair (.AtomicType .TypeData) (.AtomicType .TypeData)))))
+      let consH ← freshVarId "dec_cons"
+      let nilH ← freshVarId "dec_nil"
+      let mapBody := MIR.Expr.Let
+        [(pair, .App (mkBuiltin .HeadList) (.Var xs)),
+         (consH, .Delay cons), (nilH, .Delay nil)]
+        (.Case (.App (mkBuiltin .NullList) (.Var xs))
+          [.Force (.Var consH), .Force (.Var nilH)])
+      let mapFn := MIR.Expr.Fix mapF (.Lam xs mapBody)
+      return .Let [(unmappedV, .App (mkBuiltin .UnMapData) val)]
+        (.App mapFn (.Var unmappedV))
 
 /-- Resolve field types to DataCodec plans. Fails with an error for unsupported types. -/
 private def resolveFieldCodecs (fieldTypes : Array Lean.Expr) (context : String)

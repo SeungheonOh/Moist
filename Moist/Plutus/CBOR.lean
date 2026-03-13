@@ -346,6 +346,49 @@ def dataFromCBORBytes (bs : ByteString) : Option (ByteString × Data) := do
   let (rest, d) ← dData bs.data.toList
   .some (ByteArray.mk rest.toArray, d)
 
+/-- Parse a single hex character to its 4-bit value. -/
+def hexCharToNat : Char → Option Nat
+  | '0' => some 0  | '1' => some 1  | '2' => some 2  | '3' => some 3
+  | '4' => some 4  | '5' => some 5  | '6' => some 6  | '7' => some 7
+  | '8' => some 8  | '9' => some 9
+  | 'a' | 'A' => some 10 | 'b' | 'B' => some 11
+  | 'c' | 'C' => some 12 | 'd' | 'D' => some 13
+  | 'e' | 'E' => some 14 | 'f' | 'F' => some 15
+  | _ => none
+
+/-- Parse a hex string into a ByteArray. Returns none for odd-length or invalid chars. -/
+def hexStringToByteArray (s : String) : Option ByteArray := do
+  let chars := s.data
+  if chars.length % 2 != 0 then none
+  else
+    let rec go : List Char → ByteArray → Option ByteArray
+      | [], acc => some acc
+      | c1 :: c2 :: rest, acc => do
+        let hi ← hexCharToNat c1
+        let lo ← hexCharToNat c2
+        go rest (acc.push (hi * 16 + lo).toUInt8)
+      | _, _ => none
+    go chars ByteArray.empty
+
+/-- Decode a Data value from a CBOR hex string. -/
+def dataFromCBORHex (hex : String) : Option Data := do
+  let bytes ← hexStringToByteArray hex
+  let (_, d) ← dataFromCBORBytes bytes
+  some d
+
+/-- Encode a ByteArray to a lowercase hex string. -/
+def byteArrayToHex (ba : ByteArray) : String :=
+  let hexChar (n : Nat) : Char :=
+    if n < 10 then Char.ofNat (n + 48) else Char.ofNat (n - 10 + 97)
+  String.mk (ba.toList.flatMap fun b =>
+    let n := b.toNat
+    [hexChar (n / 16), hexChar (n % 16)])
+
+/-- Encode a Data value to a CBOR hex string. -/
+def dataToCBORHex (d : Data) : Option String := do
+  let bytes ← dataToCBORBytes d
+  some (byteArrayToHex (ByteArray.mk bytes.toArray))
+
 end CBOR
 end Plutus
 end Moist

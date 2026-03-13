@@ -3,7 +3,7 @@ import Moist.Plutus.Types
 
 namespace Moist.Cardano.V3
 
-open Moist.Plutus (Data ByteString)
+open Moist.Plutus (Data ByteString AssocMap)
 
 /-! # Plutus V3 Ledger API Types
 
@@ -23,8 +23,9 @@ inductive MaybeData (α : Type) where
   | nothingData : MaybeData α
 
 @[plutus_data]
-inductive RationalData where
-  | rationalData : Int → Int → RationalData
+structure RationalData where
+  numerator : Int
+  denominator : Int
 
 /-! ## Crypto -/
 
@@ -44,10 +45,10 @@ abbrev TokenName := ByteString
 abbrev Lovelace := Int
 
 /-- Value: Map CurrencySymbol (Map TokenName Integer) -/
-abbrev Value := Data
+abbrev Value := AssocMap CurrencySymbol (AssocMap TokenName Int)
 
 /-- MintValue: same on-chain representation as Value -/
-abbrev MintValue := Data
+abbrev MintValue := AssocMap CurrencySymbol (AssocMap TokenName Int)
 
 /-! ## Credentials and Addresses -/
 
@@ -62,8 +63,9 @@ inductive StakingCredential where
   | stakingPtr : Int → Int → Int → StakingCredential
 
 @[plutus_data]
-inductive Address where
-  | address : Credential → MaybeData StakingCredential → Address
+structure Address where
+  credential : Credential
+  stakingCredential : MaybeData StakingCredential
 
 /-! ## Time and Intervals -/
 
@@ -77,20 +79,23 @@ inductive Extended where
 
 @[plutus_data]
 inductive Closure where
-  | inclusive : Closure   -- ConstrData 0 []
-  | exclusive : Closure   -- ConstrData 1 []
+  | exclusive : Closure   -- ConstrData 0 [] (= Plutus False)
+  | inclusive : Closure    -- ConstrData 1 [] (= Plutus True)
 
 @[plutus_data]
-inductive LowerBound where
-  | lowerBound : Extended → Closure → LowerBound
+structure LowerBound where
+  bound : Extended
+  closure : Closure
 
 @[plutus_data]
-inductive UpperBound where
-  | upperBound : Extended → Closure → UpperBound
+structure UpperBound where
+  bound : Extended
+  closure : Closure
 
 @[plutus_data]
-inductive Interval where
-  | interval : LowerBound → UpperBound → Interval
+structure Interval where
+  lowerBound : LowerBound
+  upperBound : UpperBound
 
 abbrev POSIXTimeRange := Interval
 
@@ -99,8 +104,9 @@ abbrev POSIXTimeRange := Interval
 abbrev TxId := ByteString
 
 @[plutus_data]
-inductive TxOutRef where
-  | txOutRef : TxId → Int → TxOutRef
+structure TxOutRef where
+  id : TxId
+  idx : Int
 
 @[plutus_data]
 inductive OutputDatum where
@@ -109,12 +115,16 @@ inductive OutputDatum where
   | outputDatum : Datum → OutputDatum
 
 @[plutus_data]
-inductive TxOut where
-  | txOut : Address → Value → OutputDatum → MaybeData ScriptHash → TxOut
+structure TxOut where
+  address : Address
+  value : Value
+  datum : OutputDatum
+  referenceScript : MaybeData ScriptHash
 
 @[plutus_data]
-inductive TxInInfo where
-  | txInInfo : TxOutRef → TxOut → TxInInfo
+structure TxInInfo where
+  outRef : TxOutRef
+  resolved : TxOut
 
 /-! ## CIP-1694 Governance Types -/
 
@@ -156,46 +166,49 @@ inductive Voter where
 
 @[plutus_data]
 inductive Vote where
-  | voteYes : Vote
-  | voteNo : Vote
-  | abstain : Vote
+  | voteNo : Vote      -- ConstrData 0 []
+  | voteYes : Vote     -- ConstrData 1 []
+  | abstain : Vote     -- ConstrData 2 []
 
 @[plutus_data]
-inductive GovernanceActionId where
-  | governanceActionId : TxId → Int → GovernanceActionId
+structure GovernanceActionId where
+  txId : TxId
+  govActionIx : Int
 
 abbrev ChangedParameters := Data
 
 @[plutus_data]
-inductive ProtocolVersion where
-  | protocolVersion : Int → Int → ProtocolVersion
+structure ProtocolVersion where
+  major : Int
+  minor : Int
 
 abbrev Constitution := MaybeData ScriptHash
 
 @[plutus_data]
-inductive Committee where
-  | committee : Data → RationalData → Committee
-  -- first field: Map ColdCommitteeCredential Integer
+structure Committee where
+  members : AssocMap ColdCommitteeCredential Int
+  quorum : RationalData
 
 @[plutus_data]
 inductive GovernanceAction where
   | parameterChange : MaybeData GovernanceActionId → ChangedParameters → MaybeData ScriptHash → GovernanceAction
   | hardForkInitiation : MaybeData GovernanceActionId → ProtocolVersion → GovernanceAction
-  | treasuryWithdrawals : Data → MaybeData ScriptHash → GovernanceAction
-  -- first field: Map Credential Lovelace
+  | treasuryWithdrawals : AssocMap Credential Lovelace → MaybeData ScriptHash → GovernanceAction
   | noConfidence : MaybeData GovernanceActionId → GovernanceAction
   | updateCommittee :
       MaybeData GovernanceActionId →
       List ColdCommitteeCredential →
-      Data →             -- Map ColdCommitteeCredential Integer
+      AssocMap ColdCommitteeCredential Int →
       RationalData →
       GovernanceAction
   | newConstitution : MaybeData GovernanceActionId → Constitution → GovernanceAction
   | infoAction : GovernanceAction
 
 @[plutus_data]
-inductive ProposalProcedure where
-  | proposalProcedure : Lovelace → Credential → GovernanceAction → ProposalProcedure
+structure ProposalProcedure where
+  deposit : Lovelace
+  returnAddr : Credential
+  governanceAction : GovernanceAction
 
 /-! ## Script Purpose and Script Info -/
 
@@ -227,13 +240,13 @@ structure TxInfo where
   fee : Lovelace
   mint : MintValue
   txCerts : List TxCert
-  wdrl : Data                       -- Map Credential Lovelace
+  wdrl : AssocMap Credential Lovelace
   validRange : POSIXTimeRange
   signatories : List PubKeyHash
-  redeemers : Data                   -- Map ScriptPurpose Redeemer
-  datumWitnesses : Data              -- Map DatumHash Datum
+  redeemers : AssocMap ScriptPurpose Redeemer
+  datumWitnesses : AssocMap DatumHash Datum
   id : TxId
-  votes : Data                       -- Map Voter (Map GovernanceActionId Vote)
+  votes : AssocMap Voter (AssocMap GovernanceActionId Vote)
   proposalProcedures : List ProposalProcedure
   currentTreasuryAmount : MaybeData Lovelace
   treasuryDonation : MaybeData Lovelace
@@ -241,7 +254,9 @@ structure TxInfo where
 /-! ## Script Context -/
 
 @[plutus_data]
-inductive ScriptContext where
-  | scriptContext : TxInfo → Redeemer → ScriptInfo → ScriptContext
+structure ScriptContext where
+  txInfo : TxInfo
+  redeemer : Redeemer
+  scriptInfo : ScriptInfo
 
 end Moist.Cardano.V3
