@@ -50,6 +50,26 @@ inductive Baz where
   | foo : Int → Baz
   | qux : Baz
 
+@[plutus_sop]
+inductive SOPHi where
+  | sophi : Int → SOPHi
+  | sopbye : SOPHi
+  | fooooo : Int → SOPHi
+
+@[plutus_data]
+inductive Maybe α where
+  | none : Maybe α
+  | some : α → Maybe α
+
+@[onchain]
+def fff : Int :=
+  let bad (x : Maybe SOPHi) : Int :=
+    match x with
+    | Maybe.none => 0
+    | Maybe.some (.sophi a) => a
+    | _ => 42
+  bad .none
+
 @[onchain]
 def ddd (x : Baz) : Int :=
   match x with
@@ -66,15 +86,13 @@ def eee : Baz := Baz.bar 1 2
 
 def eeee : Term := compile! eee
 
-#show_optimized_mir ddd
+#show_optimized_mir fff
 
 #show_mir ddd
 
-#eval ddd.compile!
-
 #eval ((compile! ddd).Apply eeee).evaluatePretty
 
-#evaluatePrettyTerm ddd (Baz.foo 2)
+#evaluatePrettyTerm (Baz.aaa 1 123)
 
 #show_optimized_mir ccc
 

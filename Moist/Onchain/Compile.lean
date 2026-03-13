@@ -76,8 +76,24 @@ private def compileConstToUPLCOrThrow (name : Name) (requireOnchain : Bool := tr
   | .ok term => pure term
   | .error e => throwError "compilation of {name} failed: {e}"
 
+/-- Build a synthetic Syntax ref pointing at a local definition's source range.
+    Returns `none` for imported constants or if no declaration range is found. -/
+private def defSyntaxRef? (name : Name) : CoreM (Option Syntax) := do
+  let env ← getEnv
+  if env.isImportedConst name then return none
+  let some ranges ← findDeclarationRanges? name | return none
+  let fileMap ← getFileMap
+  return some (Syntax.ofRange ⟨fileMap.ofPosition ranges.range.pos,
+                                fileMap.ofPosition ranges.range.endPos⟩)
+
 private def elabCompiledConst (name : Name) : TermElabM Expr := do
-  let term ← compileConstToUPLCOrThrow name
+  let term ← try
+    compileConstToUPLCOrThrow name
+  catch e =>
+    if let some ref ← defSyntaxRef? name then
+      logErrorAt ref e.toMessageData
+      Elab.throwAbortTerm
+    throw e
   -- Reflect the Term value back into a Lean.Expr via ToExpr
   return Moist.Onchain.ToExprInstances.uplcTermToExpr term
 
@@ -140,6 +156,14 @@ elab "#evaluatePrettyTerm" t:term : command => do
   | .error (err, budget, msg) =>
       logInfo m!"Error: {err} - {msg}\nCPU:    {budget.cpu}\nMemory: {budget.mem}"
 
+/-- Log a translation error at the definition's source location, then abort. -/
+private def logTranslationErrorAtDef (name : Name) (e : Exception)
+    : Elab.Command.CommandElabM α := do
+  if let some ref ← Elab.Command.liftCoreM (defSyntaxRef? name) then
+    logErrorAt ref e.toMessageData
+    Elab.throwAbortCommand
+  throw e
+
 /-- Debug elaborator: shows the MIR before optimization. -/
 elab "#show_mir" id:ident : command => do
   let name ← resolveGlobalConstNoOverload id
@@ -148,11 +172,10 @@ elab "#show_mir" id:ident : command => do
     | throwError "unknown constant: {name}"
   let some val := ci.value?
     | throwError "{name} has no definition body"
-  let mir ← Elab.Command.liftTermElabM do
-    try
-      translateDef val
-    catch e =>
-      throwError "translation error: {← e.toMessageData.toString}"
+  let mir ← try
+    Elab.Command.liftTermElabM (translateDef val)
+  catch e =>
+    logTranslationErrorAtDef name e
   logInfo m!"MIR for {name}:\n{toString mir}"
 
 /-- Debug elaborator: shows the MIR after optimization. -/
@@ -163,11 +186,10 @@ elab "#show_optimized_mir" id:ident : command => do
     | throwError "unknown constant: {name}"
   let some val := ci.value?
     | throwError "{name} has no definition body"
-  let mir ← Elab.Command.liftTermElabM do
-    try
-      translateDef val
-    catch e =>
-      throwError "translation error: {← e.toMessageData.toString}"
+  let mir ← try
+    Elab.Command.liftTermElabM (translateDef val)
+  catch e =>
+    logTranslationErrorAtDef name e
   let opt := optimizeExpr mir 1000
   let prelow := preLowerInlineExpr opt 5000
   logInfo m!"MIR for {name}:\n{toString prelow}"
