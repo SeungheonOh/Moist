@@ -1,0 +1,8 @@
+@ result
+(con data (Constr 0 [(Constr 0 [(List []), (List []), (List []), (I 0), (Map []), (List []), (Map []), (Constr 0 [(Constr 0 [(Constr 0 []), (Constr 1 [])]), (Constr 0 [(Constr 2 []), (Constr 1 [])])]), (List []), (Map []), (Map []), (B #aabbccdd), (Map []), (List []), (Constr 1 []), (Constr 1 [])]), (I 42), (Constr 1 [(Constr 0 [(B #aabbccdd), (I 0)]), (Constr 1 [])])]))
+
+@ cpu
+16100
+
+@ mem
+200

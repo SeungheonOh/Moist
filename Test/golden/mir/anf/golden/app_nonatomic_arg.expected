@@ -1,0 +1,6 @@
+@ output
+let anf_100 = g_5 x_1
+in f_4 anf_100
+
+@ isANF
+true

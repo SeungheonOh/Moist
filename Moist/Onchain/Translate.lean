@@ -20,6 +20,68 @@ Constants are resolved via the builtin map or unfolded transitively.
 private def mkBuiltin (b : BuiltinFun) : MIR.Expr :=
   Nat.repeat MIR.Expr.Force (builtinForceCount b) (.Builtin b)
 
+/-- UPLC has builtin representations for certain Lean inductives.
+    When classified as a builtin type, constructors and eliminators
+    bypass SOP/Data encoding and use UPLC builtins directly. -/
+inductive BuiltinTypeKind | bool | unit | list | pair
+  deriving BEq, DecidableEq
+
+/-- Classify a Lean inductive as a UPLC builtin type, if applicable. -/
+def builtinTypeKind (typeName : Name) : Option BuiltinTypeKind :=
+  if typeName == ``Bool then some .bool
+  else if typeName == ``Unit || typeName == ``PUnit then some .unit
+  else if typeName == ``List then some .list
+  else if typeName == ``Prod then some .pair
+  else none
+
+/-- Map a Lean type expression to a UPLC BuiltinType (for constant typing). -/
+private partial def leanTypeToBuiltinType (e : Lean.Expr) : MetaM (Option BuiltinType) := do
+  match e with
+  | .const n _ =>
+    if n == ``Int || n == ``Moist.Plutus.Integer then
+      return some (.AtomicType .TypeInteger)
+    else if n == ``Bool then return some (.AtomicType .TypeBool)
+    else if n == ``String then return some (.AtomicType .TypeString)
+    else if n == ``Unit || n == ``PUnit then return some (.AtomicType .TypeUnit)
+    else if n == ``Moist.Plutus.Data then return some (.AtomicType .TypeData)
+    else if n == ``Moist.Plutus.ByteString || n == ``ByteArray then
+      return some (.AtomicType .TypeByteString)
+    else
+      -- Try resolving abbreviations via whnf
+      if !e.hasLooseBVars then
+        let e' ← whnf e
+        if e' != e then return ← leanTypeToBuiltinType e'
+      return none
+  | .app (.const ``List _) elemTy => do
+    let some et ← leanTypeToBuiltinType elemTy | return none
+    return some (.TypeOperator (.TypeList et))
+  | .app (.app (.const ``Prod _) aTy) bTy => do
+    let some a ← leanTypeToBuiltinType aTy | return none
+    let some b ← leanTypeToBuiltinType bTy | return none
+    return some (.TypeOperator (.TypePair a b))
+  | _ =>
+    if !e.hasLooseBVars then
+      let e' ← whnf e
+      if e' != e then return ← leanTypeToBuiltinType e'
+    return none
+
+/-- Emit an empty list constant with the correct element type. -/
+private def emptyListLit (elemType : BuiltinType) : MIR.Expr :=
+  let listType := BuiltinType.TypeOperator (.TypeList elemType)
+  match elemType with
+  | .AtomicType .TypeData => .Lit (.ConstDataList [], listType)
+  | _ => .Lit (.ConstList [], listType)
+
+/-- Try to fold List.cons into a constant list node.
+    Returns `some folded` if both head and tail are constants. -/
+private def foldListCons (head tail : MIR.Expr) : Option MIR.Expr :=
+  match head, tail with
+  | .Lit (.Data d, _), .Lit (.ConstDataList ds, ty) =>
+    some (.Lit (.ConstDataList (d :: ds), ty))
+  | .Lit (hc, _), .Lit (.ConstList cs, ty) =>
+    some (.Lit (.ConstList (hc :: cs), ty))
+  | _, _ => none
+
 structure TranslateState where
   nextFresh : Nat := 0
 
@@ -557,28 +619,79 @@ mutual
     let env ← getEnv
     match env.find? typeName with
     | some (.inductInfo iv) =>
-      let repr := getPlutusRepr env typeName
       let np := iv.numParams
       -- casesOn layout: [params...] [motive] [scrutinee] [alts...]
       let scrutIdx := np + 1
       if h : scrutIdx < args.size then
-        let scrut ← translateExpr args[scrutIdx]
         let altsStart := scrutIdx + 1
-        let numAlts := iv.ctors.length
-        if repr == .sop then
-          -- SOP encoding: emit direct Constr/Case.
-          let mut alts : Array MIR.Expr := #[]
-          for i in [:numAlts] do
-            if h2 : altsStart + i < args.size then
-              let alt ← translateExpr args[altsStart + i]
-              alts := alts.push alt
-            else
-              throwError "casesOn for {typeName}: not enough alternatives"
-          pure (.Case scrut alts.toList)
+
+        -- Check for UPLC builtin types first
+        if let some kind := builtinTypeKind typeName then
+          let scrut ← translateExpr args[scrutIdx]
+          match kind with
+          | .bool =>
+            -- Bool.casesOn scrut false_alt true_alt
+            -- → Force (IfThenElse scrut (Delay true_alt) (Delay false_alt))
+            -- Note: casesOn alts are [cidx=0=false, cidx=1=true],
+            --        IfThenElse returns arg2 on True, arg3 on False.
+            if h2 : altsStart + 1 < args.size then
+              let falseAlt ← translateExpr args[altsStart]
+              let trueAlt ← translateExpr args[altsStart + 1]
+              return .Force (.App (.App (.App (mkBuiltin .IfThenElse) scrut)
+                (.Delay trueAlt)) (.Delay falseAlt))
+            else throwError "Bool.casesOn: not enough alternatives"
+          | .unit =>
+            -- Unit.casesOn scrut alt → alt (unit carries no information)
+            if h2 : altsStart < args.size then
+              return ← translateExpr args[altsStart]
+            else throwError "Unit.casesOn: not enough alternatives"
+          | .list =>
+            -- List.casesOn scrut nil_alt cons_alt
+            -- cons_alt is a lambda: λ head. λ tail. body
+            -- → let s = scrut in
+            --   Force (ChooseList s (Delay nil_alt)
+            --     (Delay (cons_alt (Force HeadList s) (Force TailList s))))
+            if h2 : altsStart + 1 < args.size then
+              let nilAlt ← translateExpr args[altsStart]
+              let consAlt ← translateExpr args[altsStart + 1]
+              let s ← freshVarId "ls"
+              let hd := MIR.Expr.App (mkBuiltin .HeadList) (.Var s)
+              let tl := MIR.Expr.App (mkBuiltin .TailList) (.Var s)
+              let consBody := MIR.Expr.App (.App consAlt hd) tl
+              return .Let [(s, scrut, false)]
+                (.Force (.App (.App (.App (mkBuiltin .ChooseList) (.Var s))
+                  (.Delay nilAlt)) (.Delay consBody)))
+            else throwError "List.casesOn: not enough alternatives"
+          | .pair =>
+            -- Prod.casesOn scrut (λ fst snd => body)
+            -- → let s = scrut in alt (Force (Force FstPair) s) (Force (Force SndPair) s)
+            if h2 : altsStart < args.size then
+              let alt ← translateExpr args[altsStart]
+              let s ← freshVarId "pr"
+              let fst := MIR.Expr.App (mkBuiltin .FstPair) (.Var s)
+              let snd := MIR.Expr.App (mkBuiltin .SndPair) (.Var s)
+              return .Let [(s, scrut, false)]
+                (.App (.App alt fst) snd)
+            else throwError "Prod.casesOn: not enough alternatives"
         else
-          -- Data encoding: unConstrData + tag dispatch + field extraction
-          let typeArgs := args.extract 0 np
-          translateDataCasesOn env iv np typeArgs scrut args altsStart numAlts
+          -- Non-builtin: SOP or Data encoding
+          let scrut ← translateExpr args[scrutIdx]
+          let numAlts := iv.ctors.length
+          let repr := getPlutusRepr env typeName
+          if repr == .sop then
+            -- SOP encoding: emit direct Constr/Case.
+            let mut alts : Array MIR.Expr := #[]
+            for i in [:numAlts] do
+              if h2 : altsStart + i < args.size then
+                let alt ← translateExpr args[altsStart + i]
+                alts := alts.push alt
+              else
+                throwError "casesOn for {typeName}: not enough alternatives"
+            pure (.Case scrut alts.toList)
+          else
+            -- Data encoding: unConstrData + tag dispatch + field extraction
+            let typeArgs := args.extract 0 np
+            translateDataCasesOn env iv np typeArgs scrut args altsStart numAlts
       else
         throwError "casesOn for {typeName}: not enough arguments (need scrutinee)"
     | _ =>
@@ -830,6 +943,44 @@ mutual
       if let some (.ctorInfo cval) := env.find? name then
         -- Skip Int constructors (handled in translateApp)
         unless name == ``Int.ofNat || name == ``Int.negSucc do
+          -- UPLC builtin type constructors bypass SOP/Data encoding
+          if let some kind := builtinTypeKind cval.induct then
+            -- Collect non-erased arguments (but keep raw args for type inspection)
+            let mut valueArgs : Array MIR.Expr := #[]
+            let mut currentFn := fn
+            for arg in args do
+              let erase ← shouldEraseArg currentFn
+              if !erase then
+                valueArgs := valueArgs.push (← translateExpr arg)
+              currentFn := .app currentFn arg
+            match kind with
+            | .bool =>
+              return .Lit (.Bool (cval.cidx == 1), .AtomicType .TypeBool)
+            | .unit =>
+              return .Lit (.Unit, .AtomicType .TypeUnit)
+            | .list =>
+              if cval.cidx == 0 then
+                -- List.nil → constant empty list with correct element type
+                let elemType ← if args.size > 0 then
+                  match ← leanTypeToBuiltinType args[0]! with
+                  | some bt => pure bt
+                  | none => pure (.AtomicType .TypeData)
+                else pure (.AtomicType .TypeData)
+                return emptyListLit elemType
+              else
+                -- List.cons head tail → try constant folding, else MkCons
+                if valueArgs.size == 2 then
+                  match foldListCons valueArgs[0]! valueArgs[1]! with
+                  | some folded => return folded
+                  | none => return .App (.App (mkBuiltin .MkCons) valueArgs[0]!) valueArgs[1]!
+                else
+                  throwError "List.cons: expected 2 value arguments, got {valueArgs.size}"
+            | .pair =>
+              -- Prod.mk fst snd → try constant folding, else MkPairData
+              if valueArgs.size == 2 then
+                return .App (.App (.Builtin .MkPairData) valueArgs[0]!) valueArgs[1]!
+              else
+                throwError "Prod.mk: expected 2 value arguments, got {valueArgs.size}"
           let repr := getPlutusRepr env cval.induct
           let mut valueArgs : Array MIR.Expr := #[]
           let mut valueArgExprs : Array Lean.Expr := #[]
@@ -925,6 +1076,17 @@ mutual
       | none =>
         -- Constructor?
         if let some (.ctorInfo cval) := env.find? name then
+          -- UPLC builtin type constructors (nullary: Bool, Unit, List.nil)
+          if let some kind := builtinTypeKind cval.induct then
+            match kind with
+            | .bool => return .Lit (.Bool (cval.cidx == 1), .AtomicType .TypeBool)
+            | .unit => return .Lit (.Unit, .AtomicType .TypeUnit)
+            | .list =>
+              if cval.cidx == 0 then  -- nil (no type info → default to list data)
+                return emptyListLit (.AtomicType .TypeData)
+              else  -- cons without args: return partially-applied MkCons
+                return mkBuiltin .MkCons
+            | .pair => return mkBuiltin .MkPairData  -- partial application
           let repr := getPlutusRepr env cval.induct
           if repr == .sop then
             pure (.Constr cval.cidx [])

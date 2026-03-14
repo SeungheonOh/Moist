@@ -1,6 +1,0 @@
---- Input ---
-λx_1. f_4 x_1
---- Optimized ---
-f_4
---- isANF ---
-true

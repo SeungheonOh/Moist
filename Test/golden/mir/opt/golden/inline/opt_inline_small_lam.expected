@@ -1,0 +1,5 @@
+@ output
+(λy_2. y_2) ((λy_2. y_2) z_3)
+
+@ changed
+true

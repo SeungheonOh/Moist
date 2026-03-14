@@ -1,0 +1,2 @@
+@ uplc
+(lam [(lam (con integer 2)) [(var 1) (con integer 1)]])

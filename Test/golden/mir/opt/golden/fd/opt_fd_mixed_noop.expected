@@ -1,0 +1,6 @@
+@ output
+let v_50 = delay x_1
+in v_50 (force v_50)
+
+@ changed
+false

@@ -1,0 +1,6 @@
+@ output
+let anf_100 = f_4 x_1
+in force anf_100
+
+@ isANF
+true

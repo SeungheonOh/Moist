@@ -93,7 +93,7 @@ def ddd (x : Baz) : Int :=
 
 def dddd : Term := compile! ddd
 
-@[plutus_data]
+@[plutus_sop]
 structure A where
   x : Int
   y : Int
@@ -101,11 +101,13 @@ structure A where
   a : Int
 
 @[onchain]
-def testing (x : A) : Int := x.y + x.a
+def testing (x : A) (y : A): Int := x.y + x.a + y.y + y.x
 
-def testing2 (x : A) : Int :=
+def testing2 (x : A) (k : A) : Int :=
   match x with
-    | { x, y, z, a } => y + a
+    | { x, y, z, a } => y + a + k.y + k.x
+      -- match k with
+      --   | { x:=xa, y:=ya, z:=za, a:=aa } => y + a + ya + aa
 
 @[onchain]
 def eee : Baz := Baz.bar 1 2
@@ -128,13 +130,24 @@ def eeee : Term := compile! eee
 
 #show_beta_mir testing
 
-#evaluatePrettyTerm testing ({ x := 1, y := 2, z := 3, a := 4 } : A)
+#evaluatePrettyTerm testing ({ x := 1, y := 2, z := 3, a := 4 } : A) ({ x := 5, y := 6, z := 7, a := 8 } : A)
 
-#evaluatePrettyTerm testing2 ({ x := 1, y := 2, z := 3, a := 4 } : A)
+#evaluatePrettyTerm testing2 ({ x := 1, y := 2, z := 3, a := 4 } : A) ({ x := 5, y := 6, z := 7, a := 8 } : A)
+
+#evaluatePrettyTerm ([1,2,3] : List Int)
 
 #eval ((compile! ddd).Apply eeee).evaluatePretty
 
 #evaluatePrettyTerm (Baz.aaa 1 123)
+
+#evaluatePrettyTerm (ifThenElse (equalsInteger 1 1) (42: Int) 0)
+
+#evaluatePrettyTerm ([(), (), ()] : List Unit)
+
+@[onchain]
+def a : List Unit := [(), (), ()]
+
+#show_optimized_mir a
 
 #show_optimized_mir ccc
 
@@ -143,6 +156,8 @@ def eeee : Term := compile! eee
 #show_mir bbb
 
 #show_optimized_mir aaa
+
+end Test.Debug
 
 
 /-

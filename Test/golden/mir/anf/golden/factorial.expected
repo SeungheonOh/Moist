@@ -1,0 +1,22 @@
+@ output
+let fac_10 =
+  fix fac_10 =
+    λn_11.
+      let anf_100 = equalsInteger n_11
+      let isZero_12 = anf_100 0
+      let anf_101 = ifThenElse isZero_12
+      let anf_102 = delay 1
+      let anf_105 = anf_101 anf_102
+      let anf_106 =
+        delay
+          let anf_103 = subtractInteger n_11
+          let n1_13 = anf_103 1
+          let facN1_14 = fac_10 n1_13
+          let anf_104 = multiplyInteger n_11
+          in anf_104 facN1_14
+      let anf_107 = anf_105 anf_106
+      in force anf_107
+in fac_10 10
+
+@ isANF
+true

@@ -1,0 +1,6 @@
+@ output
+let x_1 = f_4 y_2
+in x_1
+
+@ changed
+true

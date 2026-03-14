@@ -304,6 +304,55 @@ def isClosed (e : Expr) : Bool := (freeVars e).data.isEmpty
 
 def fixIsRecursive (f : VarId) (body : Expr) : Bool := (freeVars body).contains f
 
+/-! ## Deferred Position Detection -/
+
+mutual
+  /-- Return `true` when variable `v` has at least one free occurrence in a
+  deferred evaluation position in `e`. Deferred positions are:
+
+  - `Lam` body (evaluated per-call, not at definition time)
+  - `Fix` body (evaluated on each recursive call)
+  - `Delay` body (evaluated when forced, not at definition time)
+  - `Case` alternatives (only one is selected; others are not evaluated)
+
+  The `Case` scrutinee, `App` arguments, `Force` arguments, `Constr` arguments,
+  and `Let` binding RHSs are all in strict (non-deferred) position.
+
+  Used by inlining passes to prevent moving non-value computations into
+  positions where their evaluation is not guaranteed or changes multiplicity. -/
+  partial def occursInDeferredAux (v : VarId) (deferred : Bool) : Expr → Bool
+    | .Var x => deferred && x == v
+    | .Lit _ | .Builtin _ | .Error => false
+    | .Lam x body =>
+      if x == v then false
+      else occursInDeferredAux v true body
+    | .Fix f body =>
+      if f == v then false
+      else occursInDeferredAux v true body
+    | .Delay e => occursInDeferredAux v true e
+    | .App f x =>
+      occursInDeferredAux v deferred f || occursInDeferredAux v deferred x
+    | .Force e => occursInDeferredAux v deferred e
+    | .Constr _ args => args.any (occursInDeferredAux v deferred)
+    | .Case scrut alts =>
+      occursInDeferredAux v deferred scrut ||
+      alts.any (occursInDeferredAux v true)
+    | .Let binds body => occursInDeferredLetAux v deferred binds body
+
+  partial def occursInDeferredLetAux (v : VarId) (deferred : Bool)
+      : List (VarId × Expr × Bool) → Expr → Bool
+    | [], body => occursInDeferredAux v deferred body
+    | (x, rhs, _) :: rest, body =>
+      occursInDeferredAux v deferred rhs ||
+      (if x == v then false else occursInDeferredLetAux v deferred rest body)
+end
+
+/-- Return `true` when variable `v` has at least one free occurrence in a
+deferred evaluation position (Lam body, Fix body, Delay body, or Case
+alternative) in `e`. See `occursInDeferredAux` for details. -/
+def occursInDeferred (v : VarId) (e : Expr) : Bool :=
+  occursInDeferredAux v false e
+
 /-! ## ANF Predicate and Subtype -/
 
 partial def Expr.isANF : Expr → Bool

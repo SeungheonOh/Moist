@@ -14,20 +14,25 @@ structural translation.
 
 For each `let v = rhs in rest; body`:
 
-| RHS kind              | Uses | Decision                               |
-|------------------------|------|----------------------------------------|
-| Atom (Var/Lit/Builtin) | any  | Substitute (zero cost, no effects)     |
-| Pure                   | 0    | Drop (dead binding)                    |
-| Any                    | 1    | Substitute (single evaluation, safe)   |
-| Otherwise              | ≥ 2  | Keep                                   |
+| RHS kind              | Uses | Position | Decision                            |
+|------------------------|------|----------|-------------------------------------|
+| Atom (Var/Lit/Builtin) | any  | --       | Substitute (zero cost, no effects)  |
+| Pure                   | 0    | --       | Drop (dead binding)                 |
+| Value/pure             | 1    | any      | Substitute (no evaluation effects)  |
+| Impure non-value       | 1    | strict   | Substitute (single evaluation)      |
+| Impure non-value       | 1    | deferred | Keep (would change eval semantics)  |
+| Otherwise              | ≥ 2  | --       | Keep                                |
 
 ## Beta Reduction
 
 Reduces `(λx. body) arg` → `body[x := arg]` when `x` occurs at most
-once in `body`. Safe under CEK because:
-- Single use: `arg` is evaluated exactly once in both cases.
+once in `body` and the substitution is safe:
 - Zero use + pure arg: `arg` is dropped (pure, no observable effect).
 - Zero use + impure arg: kept as-is (must preserve evaluation of `arg`).
+- Single use + value arg: always safe (values have no evaluation effects).
+- Single use + non-value arg in strict position: safe.
+- Single use + non-value arg in deferred position: kept as-is (would move
+  impure computation from eager to deferred evaluation).
 -/
 
 /-- Flatten degenerate empty-binding Lets that arise from substitution. -/
@@ -60,7 +65,8 @@ partial def preLowerInline (e : Expr) : FreshM Expr := do
   | .Let binds body => preLowerLetBindings binds body
   | e => return e  -- Var, Lit, Builtin, Error
 where
-  /-- Beta-reduce `(λx. body) arg` when x occurs at most once in body.
+  /-- Beta-reduce `(λx. body) arg` when x occurs at most once in body
+      and the substitution is safe.
       Recurses to handle multi-arg beta: `(λa. λb. e) x y`. -/
   preLowerBeta (f : Expr) (x : Expr) : FreshM Expr := do
     match f with
@@ -69,6 +75,9 @@ where
       if uses <= 1 then
         if uses == 0 && !isPure x then
           -- Zero uses, impure arg: can't drop, keep the application
+          return .App f x
+        else if uses == 1 && !x.isValue && !isPure x && occursInDeferred param body then
+          -- Impure non-value arg in deferred position: would change eval semantics
           return .App f x
         else
           let result ← subst param x body
@@ -95,10 +104,13 @@ where
       -- Zero uses, pure RHS: drop dead binding
       else if uses == 0 && isPure rhs' then
         go rest acc body
-      -- Single use: always substitute (UPLC has no mutable state)
+      -- Single use: substitute if safe (values/pure always, impure only in strict position)
       else if uses == 1 then
-        let restBody ← subst v rhs' (.Let rest body)
-        go [] acc (flattenLet restBody)
+        if rhs'.isValue || isPure rhs' || !occursInDeferred v (.Let rest body) then
+          let restBody ← subst v rhs' (.Let rest body)
+          go [] acc (flattenLet restBody)
+        else
+          go rest ((v, rhs', er) :: acc) body
       -- General case: keep the binding
       else
         go rest ((v, rhs', er) :: acc) body

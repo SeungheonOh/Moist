@@ -1,0 +1,6 @@
+@ optimized
+let a_7 = f_4 (f_4 (f_4 x_1))
+in g_5 a_7 (f_4 (f_4 (f_4 a_7)))
+
+@ isANF
+false

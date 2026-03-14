@@ -1,0 +1,2 @@
+@ uplc
+[(lam (var 1)) (con integer 42)]

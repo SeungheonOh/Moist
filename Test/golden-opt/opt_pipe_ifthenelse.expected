@@ -1,6 +1,0 @@
---- Input ---
-force (ifThenElse x_1 (delay 1) (delay 0))
---- Optimized ---
-force (ifThenElse x_1 (delay 1) (delay 0))
---- isANF ---
-false

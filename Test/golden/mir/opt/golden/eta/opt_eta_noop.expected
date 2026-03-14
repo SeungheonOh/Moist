@@ -1,0 +1,5 @@
+@ output
+λx_1. addInteger x_1 x_1
+
+@ changed
+false

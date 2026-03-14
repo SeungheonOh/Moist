@@ -1,5 +1,6 @@
 import Moist.MIR.Expr
 import Moist.MIR.Analysis
+import Moist.MIR.Optimize.Purity
 
 namespace Moist.MIR
 
@@ -15,27 +16,37 @@ For each `let v = rhs in body` binding the pass inspects the RHS kind,
 the number of free occurrences of `v` in `body`, and whether those
 occurrences fall under a `Fix` node.
 
-| RHS kind             | Occurrences | Under Fix? | Decision                        |
-|----------------------|-------------|------------|---------------------------------|
-| Atom (Var/Lit/Builtin) | any       | --         | ALWAYS inline (atoms are free)  |
-| Value, size <= 5     | any         | --         | Inline (small, cheap to dup)    |
-| Value, large         | 0           | --         | Keep (DCE handles dead code)    |
-| Value, large         | 1           | no         | Inline (single use, no dup)     |
-| Value, large         | 1           | yes        | Keep (recursion = unbounded)    |
-| Value, large         | >= 2        | --         | Keep (avoids code bloat)        |
-| Non-value            | 0           | --         | Keep (DCE handles dead code)    |
-| Non-value            | 1           | no         | Inline (single evaluation)      |
-| Non-value            | 1           | yes        | Keep (recursion duplicates it)  |
-| Non-value            | >= 2        | --         | Keep (avoids re-evaluation)     |
+| RHS kind               | Occurrences | Position   | Decision                        |
+|------------------------|-------------|------------|---------------------------------|
+| Atom (Var/Lit/Builtin) | any         | --         | ALWAYS inline (atoms are free)  |
+| Value/pure, size <= 5  | any         | --         | Inline (small, cheap to dup)    |
+| Value/pure, large      | 0           | --         | Keep (DCE handles dead code)    |
+| Value/pure, large      | 1           | not in Fix | Inline (single use, no dup)     |
+| Value/pure, large      | 1           | in Fix     | Keep (recursion = unbounded)    |
+| Value/pure, large      | >= 2        | --         | Keep (avoids code bloat)        |
+| Impure non-value       | 0           | --         | Keep (DCE handles dead code)    |
+| Impure non-value       | 1           | strict     | Inline (single evaluation)      |
+| Impure non-value       | 1           | deferred   | Keep (see below)                |
+| Impure non-value       | >= 2        | --         | Keep (avoids re-evaluation)     |
 
-## Fix Boundary Rule
+## Deferred Position Rule
 
-When a binding's only occurrence is inside a `Fix f body` node, the
-recursive function `f` could evaluate the inlined expression an unbounded
-number of times. For non-value RHS expressions this changes semantics
-(duplicates an effectful computation); for large value expressions it
-causes unbounded code growth after unrolling. We therefore refuse to
-inline across a Fix boundary even for single-use bindings.
+Under strict evaluation, a let binding `let v = rhs in body` always
+evaluates `rhs` before `body`. Inlining `v` moves the evaluation of
+`rhs` to wherever `v` appears in `body`. For non-value expressions
+(which have evaluation effects — they may error), this is only safe
+when the occurrence is in **strict position**: it will definitely be
+evaluated, exactly once, in the same evaluation context.
+
+Deferred positions where inlining non-values is unsafe:
+- **Lam body**: evaluation moves from once-at-binding to per-call.
+- **Fix body**: evaluation could happen an unbounded number of times.
+- **Delay body**: evaluation moves from eager to lazy (only on Force).
+- **Case alternative**: evaluation conditional on branch selection.
+
+For **value** RHS expressions (Lam, Delay, Fix), only the Fix boundary
+matters (to prevent unbounded code growth from recursion). Values have
+no evaluation effects, so moving them into Lam/Delay/Case is safe.
 
 ## Beta Reduction
 
@@ -67,9 +78,19 @@ let g = Lam x (Var x) in Fix f (App (Var g) (Var f))
 let unused = App (Var f) (Var x) in Var y
   ==> let unused = App (Var f) (Var x) in Var y
 
--- Non-value single use not under Fix: inlined
+-- Non-value single use in strict position: inlined
 let r = App (Var f) (Var x) in App (Var g) (Var r)
   ==> App (Var g) (App (Var f) (Var x))
+
+-- Non-value single use in Case alternative: NOT inlined (deferred position)
+let r = App (Var f) (Var x) in Case (Var s) [Var r, Var y]
+  ==> let r = App (Var f) (Var x) in Case (Var s) [Var r, Var y]
+  (kept because the single use is in a Case branch — evaluation is conditional)
+
+-- Non-value single use in Lam body: NOT inlined (deferred position)
+let r = App (Var f) (Var x) in Lam y (Var r)
+  ==> let r = App (Var f) (Var x) in Lam y (Var r)
+  (kept because the single use is inside a lambda — changes eval from once to per-call)
 
 -- Beta reduction on atomic argument
 App (Lam x (App (Var x) (Var x))) (Var z)
@@ -133,14 +154,26 @@ def occursUnderFix (v : VarId) (e : Expr) : Bool :=
 /-! ## Inlining Decision -/
 
 /-- Determine whether to inline a `let v = rhs in ...` binding given the
-occurrence count and Fix boundary status. Returns `true` when inlining
-is profitable.
+occurrence count, Fix boundary status (for values), and deferred position
+status (for impure non-values). Returns `true` when inlining is profitable
+and semantics-preserving.
+
+- `underFix`: the variable occurs inside a `Fix` body (used for values and
+  pure non-values to prevent unbounded code growth from recursion).
+- `inDeferred`: the variable occurs inside a Lam/Fix/Delay body or Case
+  alternative (used for impure non-values to prevent moving effectful
+  computations into positions where evaluation is not guaranteed).
+
+Pure non-values (e.g. partial application of a total builtin like
+`addInteger x`) follow the value rules: they have no evaluation effects,
+so moving them into Lam/Delay/Case is safe. Only Fix matters (code bloat).
 
 See the module-level decision table for the full specification. -/
-def shouldInline (rhs : Expr) (occurrences : Nat) (underFix : Bool) : Bool :=
+def shouldInline (rhs : Expr) (occurrences : Nat) (underFix : Bool)
+    (inDeferred : Bool) : Bool :=
   if rhs.isAtom then
     true
-  else if rhs.isValue then
+  else if rhs.isValue || isPure rhs then
     if exprSize rhs <= inlineThreshold then
       true
     else if occurrences == 1 && !underFix then
@@ -148,7 +181,7 @@ def shouldInline (rhs : Expr) (occurrences : Nat) (underFix : Bool) : Bool :=
     else
       false
   else
-    occurrences == 1 && !underFix
+    occurrences == 1 && !inDeferred
 
 /-! ## Inline Pass
 
@@ -238,7 +271,9 @@ mutual
           rest.foldl (fun n (_, e, _) => n + countOccurrences v e) 0
         let underFix := occursUnderFix v body ||
           rest.any (fun (_, e, _) => occursUnderFix v e)
-        if shouldInline rhs occ underFix then do
+        let inDeferred := occursInDeferred v body ||
+          rest.any (fun (_, e, _) => occursInDeferred v e)
+        if shouldInline rhs occ underFix inDeferred then do
           let body' ← subst v rhs body
           let rest' ← rest.mapM fun (w, e, er2) => do
             let e' ← subst v rhs e

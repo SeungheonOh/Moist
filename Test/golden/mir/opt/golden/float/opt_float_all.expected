@@ -1,0 +1,7 @@
+@ output
+let a_7 = 1
+let b_8 = 2
+in λx_1. x_1
+
+@ changed
+true

@@ -1,0 +1,6 @@
+@ output
+let a_7 = error x_1
+in y_2
+
+@ changed
+false

@@ -1,0 +1,2 @@
+@ uplc
+(force (delay (con integer 1)))

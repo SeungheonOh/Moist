@@ -1,7 +1,0 @@
---- Input ---
-let a_7 = λy_2. y_2 (y_2 (y_2 y_2))
-in a_7 z_3
---- Output ---
-(λy_2. y_2 (y_2 (y_2 y_2))) z_3
---- Changed ---
-true

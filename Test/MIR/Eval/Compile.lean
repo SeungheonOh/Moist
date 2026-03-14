@@ -1,0 +1,98 @@
+import Test.MIR.Helpers
+import Test.Onchain.Debug
+import Moist.Onchain
+import Moist.Onchain.Prelude
+
+namespace Test.MIR.Eval.Compile
+
+open Moist.Plutus.Term
+open Moist.Onchain.Prelude
+open Test.MIR
+open Test.Framework
+open Test.Debug
+
+/-! ## UPLC constant helpers -/
+
+private def intTerm (n : Int) : Term :=
+  .Constant (.Integer n, .AtomicType .TypeInteger)
+
+/-! ## SOP test data (@[plutus_sop]) -/
+
+@[onchain]
+def mkA1 : A := { x := 1, y := 2, z := 3, a := 4 }
+
+@[onchain]
+def mkA2 : A := { x := 5, y := 6, z := 7, a := 8 }
+
+def testingUPLC   : Term := compile! testing
+def mkA1UPLC      : Term := compile! mkA1
+def mkA2UPLC      : Term := compile! mkA2
+
+/-! ## Data test data (@[plutus_data]) -/
+
+@[onchain]
+def mkBazBaz : Baz := Baz.baz 10 20 30
+
+@[onchain]
+def mkBazAaa : Baz := Baz.aaa 1 123
+
+@[onchain]
+def mkBazFoo : Baz := Baz.foo 5
+
+@[onchain]
+def mkBazQux : Baz := Baz.qux
+
+def mkBazBazUPLC  : Term := compile! mkBazBaz
+def mkBazAaaUPLC  : Term := compile! mkBazAaa
+def mkBazFooUPLC  : Term := compile! mkBazFoo
+def mkBazQuxUPLC  : Term := compile! mkBazQux
+
+def cccUPLC       : Term := compile! ccc
+def fffUPLC       : Term := compile! fff
+def factorialUPLC : Term := compile! factorial
+
+/-! ## Golden tests -/
+
+def compileTree : TestTree := suite "compile" do
+  -- SOP encoding (@[plutus_sop]): Constr/Case
+  group "sop" do
+    -- Foo.foo 1 2 3 4 5 6 42 standalone construction
+    mkTermEvalGolden "sop_construct_foo" bbbb
+    -- A{1,2,3,4} standalone construction
+    mkTermEvalGolden "sop_construct_a" mkA1UPLC
+    -- aaa extracts a+g+e+c from Foo.foo 1 2 3 4 5 6 42 → 1+42+5+3 = 51
+    mkTermApplyEvalGolden "sop_foo_extract" aaaa [bbbb]
+    -- testing(A{1,2,3,4}, A{5,6,7,8}) = x.y+x.a+y.y+y.x = 2+4+6+5 = 17
+    mkTermApplyEvalGolden "sop_struct_access" testingUPLC [mkA1UPLC, mkA2UPLC]
+
+  -- Data encoding (@[plutus_data]): ConstrData/UnConstrData
+  group "data" do
+    -- Bar{x:=1, y:=2, z:=3} construction
+    mkTermEvalGolden "data_construct_bar" cccUPLC
+    -- Baz.bar 1 2 construction
+    mkTermEvalGolden "data_construct_baz_bar" eeee
+    -- Baz.baz 10 20 30 construction
+    mkTermEvalGolden "data_construct_baz_baz" mkBazBazUPLC
+    -- ddd(Baz.bar 1 2)  = 1+2  = 3
+    mkTermApplyEvalGolden "data_match_bar" dddd [eeee]
+    -- ddd(Baz.baz 10 20 30) = 10+20+30 = 60
+    mkTermApplyEvalGolden "data_match_baz" dddd [mkBazBazUPLC]
+    -- ddd(Baz.aaa 1 123) = 1+123 = 124
+    mkTermApplyEvalGolden "data_match_aaa" dddd [mkBazAaaUPLC]
+    -- ddd(Baz.foo 5) = 5+1 = 6
+    mkTermApplyEvalGolden "data_match_foo" dddd [mkBazFooUPLC]
+    -- ddd(Baz.qux)  = 0
+    mkTermApplyEvalGolden "data_match_qux" dddd [mkBazQuxUPLC]
+    -- fff: nested match (Maybe SOPHi), bad .none = 0
+    mkTermEvalGolden "data_nested_match" fffUPLC
+
+  -- Recursion (WellFounded.fix → Z combinator)
+  group "recursion" do
+    -- factorial(1) = 1
+    mkTermApplyEvalGolden "factorial_1" factorialUPLC [intTerm 1]
+    -- factorial(5) = 120
+    mkTermApplyEvalGolden "factorial_5" factorialUPLC [intTerm 5]
+    -- factorial(10) = 3628800
+    mkTermApplyEvalGolden "factorial_10" factorialUPLC [intTerm 10]
+
+end Test.MIR.Eval.Compile

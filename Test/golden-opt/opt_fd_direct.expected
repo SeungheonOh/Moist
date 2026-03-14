@@ -1,6 +1,0 @@
---- Input ---
-force (delay f_4 x_1)
---- Output ---
-f_4 x_1
---- Changed ---
-true

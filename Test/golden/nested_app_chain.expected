@@ -1,8 +1,0 @@
---- Input ---
-addInteger 1 2 3
---- Output ---
-let anf_100 = addInteger 1
-let anf_101 = anf_100 2
-in anf_101 3
---- isANF ---
-true

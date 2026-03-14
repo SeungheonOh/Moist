@@ -1,7 +1,0 @@
---- Input ---
-let f_4 = λy_2. y_2
-in f_4 z_3
---- Optimized ---
-z_3
---- isANF ---
-true

@@ -1,4 +1,0 @@
---- Input ---
-λf_4. let a_7 = f_4 1 in 2
---- UPLC ---
-(lam [(lam (con integer 2)) [(var 1) (con integer 1)]])

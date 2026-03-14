@@ -1,0 +1,7 @@
+@ output
+let a_7 = 1
+let c_9 = 3
+in a_7 c_9
+
+@ changed
+true

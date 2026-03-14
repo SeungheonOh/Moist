@@ -8,6 +8,7 @@ import Moist.MIR.Optimize.DCE
 import Moist.MIR.Optimize.EtaReduce
 import Moist.MIR.Optimize.ForceDelay
 import Moist.MIR.Optimize.BetaReduce
+import Moist.MIR.Optimize.CaseMerge
 
 namespace Moist.MIR
 
@@ -37,11 +38,12 @@ Float Out (2nd)      ← hoist ANF-created lets out of Case alternatives
 ┌─────────────────┐
 │ Simplify (loop) │  repeat until no pass
 │  1. ANF         │  makes progress
-│  2. CSE         │
-│  3. Inlining    │
-│  4. Eta Reduce  │
-│  5. Force-Delay │
-│  6. DCE         │
+│  2. Case Merge  │
+│  3. CSE         │
+│  4. Inlining    │
+│  5. Eta Reduce  │
+│  6. Force-Delay │
+│  7. DCE         │
 └─────────────────┘
   │
   ▼
@@ -154,12 +156,15 @@ In practice the pipeline converges in 2--4 iterations. -/
 def maxOptIterations : Nat := 20
 
 /-- Run one iteration of the simplify loop:
-ANF → CSE → Inline → Eta Reduce → ForceDelay → DCE.
+ANF → CaseMerge → CSE → Inline → Eta Reduce → ForceDelay → DCE.
 ANF re-normalization at the start re-lifts sub-expressions that inlining
-collapsed, exposing them as let-binding RHS values for CSE. -/
+collapsed, exposing them as let-binding RHS values for CSE.
+CaseMerge runs before CSE to merge duplicate cases on the same scrutinee,
+exposing field references as simple variable bindings for CSE and inlining. -/
 partial def simplifyOnce (e : Expr) : FreshM Expr := do
   let e0 ← anfNormalize e
-  let (e1, _) := cse e0
+  let (e0b, _) := caseMergePass e0
+  let (e1, _) := cse e0b
   let (e2, _) ← inlinePass e1
   let (e3, _) := etaReduce e2
   let (e4, _) := forceDelay e3
@@ -245,12 +250,15 @@ partial def optimizeTrace (e : Expr) : FreshM (Array OptStep) := do
   repeat
     if fuel == 0 then break
     let e0 ← anfNormalize current
-    let (e1, c1) := cse e0
+    let (e0b, c0b) := caseMergePass e0
+    let (e1, c1) := cse e0b
     let (e2, c2) ← inlinePass e1
     let (e3, c3) := etaReduce e2
     let (e4, c4) := forceDelay e3
     let (e5, c5) := dce e4
     steps := steps.push ⟨s!"Simplify {iter}: ANF", e0, true⟩
+    if c0b then
+      steps := steps.push ⟨s!"Simplify {iter}: CaseMerge", e0b, c0b⟩
     if c1 then
       steps := steps.push ⟨s!"Simplify {iter}: CSE", e1, c1⟩
     if c2 then

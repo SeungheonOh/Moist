@@ -1,0 +1,24 @@
+@ uplc
+[(lam [(var 1) (con integer 10)])
+  [(lam
+      (lam
+        [(lam
+            (force
+              [[[(builtin ifThenElse) (var 1)] (delay (con integer 1))]
+                (delay
+                  [(lam
+                      [(lam [[(builtin multiplyInteger) (var 4)] (var 1)])
+                        [(lam [[(var 5) (var 5)] (var 1)]) (var 1)]])
+                    [[(builtin subtractInteger) (var 2)] (con integer 1)]])]))
+          [[(builtin equalsInteger) (var 1)] (con integer 0)]]))
+    (lam
+      (lam
+        [(lam
+            (force
+              [[[(builtin ifThenElse) (var 1)] (delay (con integer 1))]
+                (delay
+                  [(lam
+                      [(lam [[(builtin multiplyInteger) (var 4)] (var 1)])
+                        [(lam [[(var 5) (var 5)] (var 1)]) (var 1)]])
+                    [[(builtin subtractInteger) (var 2)] (con integer 1)]])]))
+          [[(builtin equalsInteger) (var 1)] (con integer 0)]]))]]

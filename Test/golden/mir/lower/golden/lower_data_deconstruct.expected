@@ -1,0 +1,17 @@
+@ optimized
+λfoo_20.
+  let flds_21 = (force (force sndPair)) (unConstrData foo_20)
+  let anf_1032 = (force tailList) ((force tailList) flds_21)
+  in
+    addInteger (unIData ((force headList) flds_21)) (addInteger (unIData ((force headList) anf_1032)) (unIData ((force headList) ((force tailList) anf_1032))))
+
+@ uplc
+(lam
+  [(lam
+      [(lam
+          [[(builtin addInteger) [(builtin unIData) [(force (builtin headList)) (var 2)]]]
+            [[(builtin addInteger) [(builtin unIData) [(force (builtin headList)) (var 1)]]]
+              [(builtin unIData)
+                [(force (builtin headList)) [(force (builtin tailList)) (var 1)]]]]])
+        [(force (builtin tailList)) [(force (builtin tailList)) (var 1)]]])
+    [(force (force (builtin sndPair))) [(builtin unConstrData) (var 1)]]])

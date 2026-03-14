@@ -1,0 +1,5 @@
+@ output
+λx_1. let a_7 = x_1 x_1 in a_7
+
+@ changed
+false

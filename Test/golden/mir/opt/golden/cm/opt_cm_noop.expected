@@ -1,0 +1,7 @@
+@ output
+let t1_80 = case x_1 of | λf0_70. f0_70
+let t2_81 = case y_2 of | λg0_74. g0_74
+in t1_80 t2_81
+
+@ changed
+false

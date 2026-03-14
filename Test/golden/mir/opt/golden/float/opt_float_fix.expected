@@ -1,0 +1,6 @@
+@ output
+let a_7 = 1
+in fix f_4 = λx_1. f_4 a_7
+
+@ changed
+true

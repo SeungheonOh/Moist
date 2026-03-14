@@ -1,0 +1,8 @@
+@ result
+(con integer 42)
+
+@ cpu
+171053
+
+@ mem
+602

@@ -1,6 +1,0 @@
---- Input ---
-λx_1. f_4 x_1 y_2
---- Output ---
-λx_1. let anf_100 = f_4 x_1 in anf_100 y_2
---- isANF ---
-true

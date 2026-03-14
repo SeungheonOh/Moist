@@ -1,0 +1,5 @@
+@ optimized
+λx_1. addInteger x_1 (addInteger x_1)
+
+@ isANF
+false

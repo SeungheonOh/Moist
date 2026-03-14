@@ -1,9 +1,0 @@
---- Input ---
-let a_7 = f_4 x_1 y_2
-in a_7
---- Output ---
-let anf_100 = f_4 x_1
-let a_7 = anf_100 y_2
-in a_7
---- isANF ---
-true

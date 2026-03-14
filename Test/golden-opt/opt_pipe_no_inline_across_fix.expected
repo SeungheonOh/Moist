@@ -1,8 +1,0 @@
---- Input ---
-let a_7 = addInteger (addInteger (addInteger (addInteger 1 1) 1) 1) 1
-in fix rep_60 = λn_6. rep_60 n_6 a_7
---- Optimized ---
-let a_7 = addInteger (addInteger (addInteger (addInteger 1 1) 1) 1) 1
-in fix rep_60 = λn_6. rep_60 n_6 a_7
---- isANF ---
-false

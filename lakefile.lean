@@ -53,12 +53,3 @@ lean_exe moist where
 @[test_driver]
 lean_exe tests where
   root := `TestMain
-
-lean_exe «test-golden» where
-  root := `TestGolden
-
-lean_exe «test-opt-golden» where
-  root := `TestOptGolden
-
-lean_exe «test-lower-golden» where
-  root := `TestLowerGolden

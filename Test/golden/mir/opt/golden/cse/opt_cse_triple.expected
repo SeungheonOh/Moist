@@ -1,0 +1,6 @@
+@ output
+let a_7 = force x_1
+in constr(0 a_7 a_7 a_7)
+
+@ changed
+true

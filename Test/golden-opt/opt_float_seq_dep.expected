@@ -1,7 +1,0 @@
---- Input ---
-λx_1. let a_7 = x_1 y_2 let b_8 = a_7 let c_9 = 1 in b_8 c_9
---- Output ---
-let c_9 = 1
-in λx_1. let a_7 = x_1 y_2 let b_8 = a_7 in b_8 c_9
---- Changed ---
-true

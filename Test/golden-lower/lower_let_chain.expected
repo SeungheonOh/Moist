@@ -1,6 +1,0 @@
---- Input ---
-let a_7 = delay 1
-let b_8 = delay a_7
-in force b_8
---- UPLC ---
-[(lam [(lam (force (var 1))) (delay (var 1))]) (delay (con integer 1))]

@@ -1,0 +1,7 @@
+@ output
+let v_50 = delay x_1
+let b_8 = x_1
+in b_8
+
+@ changed
+true

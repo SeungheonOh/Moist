@@ -1,0 +1,6 @@
+@ output
+let a_7 = λy_2. y_2 (y_2 (y_2 y_2))
+in fix g_5 = a_7 g_5
+
+@ changed
+false

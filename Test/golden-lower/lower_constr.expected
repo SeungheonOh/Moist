@@ -1,4 +1,0 @@
---- Input ---
-λx_1. constr(0 x_1 1)
---- UPLC ---
-(lam (constr 0 (var 1) (con integer 1)))

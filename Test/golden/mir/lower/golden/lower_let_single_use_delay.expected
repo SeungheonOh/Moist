@@ -1,0 +1,2 @@
+@ uplc
+[(lam (force (var 1))) (delay (con integer 1))]

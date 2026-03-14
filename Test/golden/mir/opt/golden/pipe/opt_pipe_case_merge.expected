@@ -1,0 +1,6 @@
+@ optimized
+case x_1 of
+  | addInteger
+
+@ isANF
+true

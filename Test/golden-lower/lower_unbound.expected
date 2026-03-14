@@ -1,4 +1,0 @@
---- Input ---
-oops_999
---- Error ---
-unbound variable: oops_999

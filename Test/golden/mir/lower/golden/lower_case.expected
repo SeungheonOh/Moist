@@ -1,0 +1,2 @@
+@ uplc
+(lam (case (var 1) (con integer 10) (con integer 20)))

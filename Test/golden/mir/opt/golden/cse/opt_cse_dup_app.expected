@@ -1,0 +1,6 @@
+@ output
+let a_7 = f_4 x_1
+in a_7 a_7
+
+@ changed
+true

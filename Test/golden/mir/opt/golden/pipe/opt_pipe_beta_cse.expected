@@ -1,0 +1,6 @@
+@ optimized
+let anf_1006 = unIData ((force headList) ((force (force sndPair)) (unConstrData x_1)))
+in addInteger anf_1006 anf_1006
+
+@ isANF
+false

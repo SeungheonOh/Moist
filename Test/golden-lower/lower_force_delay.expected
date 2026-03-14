@@ -1,4 +1,0 @@
---- Input ---
-force (delay 1)
---- UPLC ---
-(force (delay (con integer 1)))

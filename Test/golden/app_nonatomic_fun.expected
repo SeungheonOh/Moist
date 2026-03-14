@@ -1,7 +1,0 @@
---- Input ---
-f_4 x_1 y_2
---- Output ---
-let anf_100 = f_4 x_1
-in anf_100 y_2
---- isANF ---
-true

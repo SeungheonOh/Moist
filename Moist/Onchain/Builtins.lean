@@ -21,6 +21,8 @@ where
     , (`Int.div,                     .DivideInteger)
     , (`Int.mod,                     .ModInteger)
     , (`Int.natAbs,                  .EqualsInteger) -- placeholder; see below
+    -- ifThenElse: NOT mapped here. It unfolds to Bool.casesOn, which
+    -- translateCasesOn handles via Force(IfThenElse(Delay t)(Delay f)).
     -- Direct Plutus builtins (for manual usage)
     , (`Moist.Onchain.Prelude.addInteger,         .AddInteger)
     , (`Moist.Onchain.Prelude.subtractInteger,    .SubtractInteger)
@@ -219,9 +221,8 @@ def builtinIsTotal : BuiltinFun → Bool
   | .DecodeUtf8 => false
   -- Lists: HeadList/TailList fail on empty, MkCons can fail on type mismatch
   | .HeadList | .TailList | .MkCons => false
-  -- Data: Un* fail on wrong Data constructor, ConstrData/MapData/ListData can fail
+  -- Data: Un* fail on wrong Data constructor.
   | .UnConstrData | .UnMapData | .UnListData | .UnIData | .UnBData => false
-  | .ConstrData | .MapData | .ListData => false
   -- BLS: uncompress/hashToGroup can fail on invalid input
   | .Bls12_381_G1_uncompress | .Bls12_381_G1_hashToGroup => false
   | .Bls12_381_G2_uncompress | .Bls12_381_G2_hashToGroup => false

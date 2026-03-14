@@ -1,0 +1,7 @@
+@ output
+case x_1 of
+  | λf0_70. let t1_80 = f0_70 let t2_81 = f0_70 in constr(0 t1_80 t2_81)
+  | λf0_70 f1_71. let t1_80 = f0_70 let t2_81 = f1_71 in constr(0 t1_80 t2_81)
+
+@ changed
+true
