@@ -140,7 +140,8 @@ noncomputable def csCheckPolicy (expectedCs : CurrencySymbol)
 @[onchain]
 noncomputable def nftMintPolicy (expectedTxId : ByteString) (expectedIdx : Int)
     (ctx : ScriptContext) : Bool :=
-  match ctx.scriptInfo with
+  let foo := ctx.scriptInfo
+  match foo with
   | .mintingScript _ =>
     let rdList := unListData ctx.redeemer
     let rdTxId := unBData (headList rdList)
@@ -158,6 +159,16 @@ section Compiled
   def cCsCheck      := compile! csCheckPolicy
   def cNftMint      := compile! nftMintPolicy
 end Compiled
+
+#eval cNftMint.printPrettyTerm
+
+#show_mir alwaysMintPolicy
+#show_optimized_mir redeemerGatePolicy
+
+#show_mir nftMintPolicy
+#show_optimized_mir nftMintPolicy
+
+#show_opt_trace alwaysMintPolicy
 
 /-! ## Golden test tree -/
 

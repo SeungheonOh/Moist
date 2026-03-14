@@ -722,9 +722,14 @@ mutual
         let ctorName := iv.ctors[i]!
         let fieldTypes ← getCtorFieldTypesWithArgs env ctorName numParams typeArgs
         let fieldCodecs ← resolveFieldCodecs fieldTypes s!"match on '{iv.name}', constructor '{ctorName}'"
-        let altMir ← translateExpr altExpr
-        -- Extract fields from fieldList and apply to altMir
-        let body ← buildFieldExtraction fieldCodecs altMir (.Var fieldsV)
+        let body ←
+          match ← translateAltBodyWithFieldLocals fieldCodecs altExpr (.Var fieldsV) with
+          | some directBody => pure directBody
+          | none =>
+            let altMir ← translateExpr altExpr
+            -- Fallback for unexpected branch shapes: translate the whole
+            -- alternative and re-apply the extracted fields.
+            buildFieldExtraction fieldCodecs altMir (.Var fieldsV)
         altBodies := altBodies.push body
       else
         throwError "data casesOn for {iv.name}: not enough alternatives"
@@ -798,6 +803,156 @@ mutual
       let (v, val, er) := bindings[bindings.size - 1 - i]!
       result := .Let [(v, val, er)] result
     pure result
+
+  /-- Translate a branch body directly with constructor fields bound as MIR
+      locals, avoiding the reconstruct-and-apply artifact from elaborated
+      wildcard branches like `fun a b => (fun _ => False) (Ctor a b)`.
+
+      Returns `none` when the branch does not expose the expected number of
+      value lambdas, allowing the caller to fall back to the older
+      translate-then-apply path. -/
+  partial def translateAltBodyWithFieldLocals (fieldCodecs : Array DataCodec)
+      (altExpr : Lean.Expr) (fieldList : MIR.Expr) : TranslateM (Option MIR.Expr) := do
+    let some (fieldVars, bodyMir) ← peelAltFieldLambdas fieldCodecs.size altExpr #[]
+      | return none
+    let bodyMir := simplifyDeadCtorApps bodyMir
+    let body ← buildFieldBindingsForBody fieldCodecs fieldVars bodyMir fieldList
+    return some body
+
+  /-- Peel exactly `remaining` non-erased lambda binders from a branch
+      alternative, binding them to fresh MIR locals. Erased binders are
+      instantiated away. Returns the translated body under those locals. -/
+  partial def peelAltFieldLambdas (remaining : Nat) (e : Lean.Expr)
+      (fieldVars : Array MIR.VarId) : TranslateM (Option (Array MIR.VarId × MIR.Expr)) := do
+    if remaining == 0 then
+      let bodyExpr ← normalizeAltBodyExpr e
+      return some (fieldVars, ← translateExpr bodyExpr)
+    match e with
+    | .lam name ty body bi =>
+      if ← isErasableBinder ty bi then
+        peelAltFieldLambdas remaining (body.instantiate1 (.const ``Unit.unit [])) fieldVars
+      else
+        let fieldV ← freshVarId name.toString
+        withLocal fieldV do
+          peelAltFieldLambdas (remaining - 1) body (fieldVars.push fieldV)
+    | _ => pure none
+
+  /-- Normalize a branch body enough to expose obvious dead beta-redexes and
+      unfolded match helpers even when the expression still contains bound
+      field variables. This is the key step that turns elaborated wildcard
+      branches like `(fun _ => False) (Ctor a b)` into just `False` before
+      MIR translation. -/
+  partial def normalizeAltBodyExpr (e : Lean.Expr) : TranslateM Lean.Expr := do
+    let e' := e.headBeta
+    if e' != e then
+      return ← normalizeAltBodyExpr e'
+    let e'' ← peelTypeLambdas e'
+    if e'' != e' then
+      return ← normalizeAltBodyExpr e''
+    let (fn, args) := uncurryApp e''
+    if let .const headName _ := fn then
+      let isMatchAux := match headName with
+        | .str _ s => s.startsWith "match_"
+        | _ => false
+      if isMatchAux then
+        let env ← getEnv
+        if let some ci := env.find? headName then
+          if let some headVal := ci.value? then
+            let fullApp := args.foldl (init := headVal) fun acc arg => .app acc arg
+            let reduced := fullApp.headBeta
+            if reduced != e'' then
+              return ← normalizeAltBodyExpr reduced
+    if !e''.hasLooseBVars then
+      let whnfExpr ← whnf e''
+      if whnfExpr != e'' then
+        return ← normalizeAltBodyExpr whnfExpr
+    pure e''
+
+  /-- Bind only the constructor fields actually referenced by `body`.
+      This is the direct-body counterpart to `buildFieldExtraction`, but the
+      branch body already refers to the target field variables directly, so no
+      lambda re-wrapping or field application is needed. -/
+  partial def buildFieldBindingsForBody (fieldCodecs : Array DataCodec)
+      (fieldVars : Array MIR.VarId) (body : MIR.Expr) (fieldList : MIR.Expr)
+      : TranslateM MIR.Expr := do
+    if fieldCodecs.size == 0 then return body
+    let usedMask : Array Bool := fieldVars.map fun v =>
+      MIR.countOccurrences v body > 0
+    let mut lastUsed? : Option Nat := none
+    for i in [:fieldCodecs.size] do
+      if usedMask[i]! then
+        lastUsed? := some i
+    let some lastUsed := lastUsed? | return body
+    let mut bindings : Array (MIR.VarId × MIR.Expr × Bool) := #[]
+    let mut currentList := fieldList
+    for i in [:lastUsed + 1] do
+      if usedMask[i]! then
+        let rawHead := MIR.Expr.App (mkBuiltin .HeadList) currentList
+        let field ← decodeFromData fieldCodecs[i]! rawHead
+        bindings := bindings.push (fieldVars[i]!, field, true)
+      if i < lastUsed then
+        let tailV ← freshVarId s!"rest{i}"
+        let tailExpr := MIR.Expr.App (mkBuiltin .TailList) currentList
+        bindings := bindings.push (tailV, tailExpr, true)
+        currentList := .Var tailV
+    let mut result := body
+    for i in [:bindings.size] do
+      let (v, val, er) := bindings[bindings.size - 1 - i]!
+      result := .Let [(v, val, er)] result
+    pure result
+
+  /-- Extract the builtin head from an application spine, ignoring `force`. -/
+  private partial def extractBuiltinHead : MIR.Expr → Option BuiltinFun
+    | .Builtin b => some b
+    | .Force e => extractBuiltinHead e
+    | _ => none
+
+  /-- Recognize the narrow class of constructor-building expressions we can
+      safely discard when they are passed to an unused lambda parameter in the
+      direct data-match branch path. -/
+  private partial def isCtorBuilderExpr : MIR.Expr → Bool
+    | .Var _ | .Lit _ => true
+    | .Constr _ args => args.all isCtorBuilderExpr
+    | e =>
+      let (head, args) := countAppArgs e
+      match extractBuiltinHead head with
+      | some .ConstrData => args.length == 2 && args.all isCtorBuilderExpr
+      | some .IData | some .BData => args.length == 1 && args.all isCtorBuilderExpr
+      | some .MkCons => args.length == 2 && args.all isCtorBuilderExpr
+      | _ => false
+  where
+    countAppArgs : MIR.Expr → MIR.Expr × List MIR.Expr
+      | .App f x =>
+        let (head, args) := countAppArgs f
+        (head, args ++ [x])
+      | e => (e, [])
+
+  /-- Simplify dead lambda applications that only rebuild constructors.
+      This complements the direct branch-body translation by removing the
+      residual artifact from elaborated wildcard branches before we decide
+      which extracted fields are actually needed. -/
+  private partial def simplifyDeadCtorApps : MIR.Expr → MIR.Expr
+    | .App f x =>
+      let f' := simplifyDeadCtorApps f
+      let x' := simplifyDeadCtorApps x
+      match f' with
+      | .Lam v body =>
+        let body' := simplifyDeadCtorApps body
+        if MIR.countOccurrences v body' == 0 && isCtorBuilderExpr x' then
+          body'
+        else
+          .App f' x'
+      | _ => .App f' x'
+    | .Lam v body => .Lam v (simplifyDeadCtorApps body)
+    | .Fix v body => .Fix v (simplifyDeadCtorApps body)
+    | .Force e => .Force (simplifyDeadCtorApps e)
+    | .Delay e => .Delay (simplifyDeadCtorApps e)
+    | .Constr tag args => .Constr tag (args.map simplifyDeadCtorApps)
+    | .Case scrut alts => .Case (simplifyDeadCtorApps scrut) (alts.map simplifyDeadCtorApps)
+    | .Let binds body =>
+      .Let (binds.map fun (v, rhs, er) => (v, simplifyDeadCtorApps rhs, er))
+        (simplifyDeadCtorApps body)
+    | e => e
 
   /-- Fallback: extract all fields unconditionally.
       Used when the alt doesn't have the expected number of lambda binders. -/
