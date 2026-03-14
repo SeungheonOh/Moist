@@ -81,24 +81,24 @@ def goldenTree : TestTree := suite "golden" do
       (Expr.Let [(a, .App (.Var f) (.Var x), false),
                  (b, .App (.Var f) (.Var x), false)]
         (.App (.Var a) (.Var b)))
-      cse
+      (cse [])
     mkPassGolden "opt_cse_triple"
       (Expr.Let [(a, .Force (.Var x), false),
                  (b, .Force (.Var x), false),
                  (c, .Force (.Var x), false)]
         (.Constr 0 [.Var a, .Var b, .Var c]))
-      cse
+      (cse [])
     mkPassGolden "opt_cse_propagate"
       (Expr.Let [(a, .App (.Var f) (.Var x), false),
                  (b, .App (.Var f) (.Var x), false),
                  (c, .App (.Var g) (.Var b), false)]
         (.Var c))
-      cse
+      (cse [])
     mkPassGolden "opt_cse_noop"
       (Expr.Let [(a, .App (.Var f) (.Var x), false),
                  (b, .App (.Var f) (.Var y), false)]
         (.App (.Var a) (.Var b)))
-      cse
+      (cse [])
   group "dce" do
     mkPassGolden "opt_dce_pure_unused"
       (Expr.Let [(a, intLit 42, false), (b, .App (.Var f) (.Var x), false)] (.Var b))

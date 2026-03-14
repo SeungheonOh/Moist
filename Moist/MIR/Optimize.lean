@@ -164,7 +164,7 @@ exposing field references as simple variable bindings for CSE and inlining. -/
 partial def simplifyOnce (e : Expr) : FreshM Expr := do
   let e0 ← anfNormalize e
   let (e0b, _) := caseMergePass e0
-  let (e1, _) := cse e0b
+  let (e1, _) := cse [] e0b
   let (e2, _) ← inlinePass e1
   let (e3, _) := etaReduce e2
   let (e4, _) := forceDelay e3
@@ -251,7 +251,7 @@ partial def optimizeTrace (e : Expr) : FreshM (Array OptStep) := do
     if fuel == 0 then break
     let e0 ← anfNormalize current
     let (e0b, c0b) := caseMergePass e0
-    let (e1, c1) := cse e0b
+    let (e1, c1) := cse [] e0b
     let (e2, c2) ← inlinePass e1
     let (e3, c3) := etaReduce e2
     let (e4, c4) := forceDelay e3

@@ -1,9 +1,9 @@
 @ optimized
 λfoo_20.
   let flds_21 = (force (force sndPair)) (unConstrData foo_20)
-  let anf_1032 = (force tailList) ((force tailList) flds_21)
+  let anf_1009 = (force tailList) ((force tailList) flds_21)
   in
-    addInteger (unIData ((force headList) flds_21)) (addInteger (unIData ((force headList) anf_1032)) (unIData ((force headList) ((force tailList) anf_1032))))
+    addInteger (unIData ((force headList) flds_21)) (addInteger (unIData ((force headList) anf_1009)) (unIData ((force headList) ((force tailList) anf_1009))))
 
 @ uplc
 (lam
