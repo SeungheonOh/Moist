@@ -20,6 +20,11 @@ Constants are resolved via the builtin map or unfolded transitively.
 private def mkBuiltin (b : BuiltinFun) : MIR.Expr :=
   Nat.repeat MIR.Expr.Force (builtinForceCount b) (.Builtin b)
 
+/-- `Force (IfThenElse scrut (Delay trueAlt) (Delay falseAlt))` -/
+private def mkBoolBranch (scrut trueAlt falseAlt : MIR.Expr) : MIR.Expr :=
+  .Force (.App (.App (.App (mkBuiltin .IfThenElse) scrut)
+    (.Delay trueAlt)) (.Delay falseAlt))
+
 /-- UPLC has builtin representations for certain Lean inductives.
     When classified as a builtin type, constructors and eliminators
     bypass SOP/Data encoding and use UPLC builtins directly. -/
@@ -32,6 +37,8 @@ def builtinTypeKind (typeName : Name) : Option BuiltinTypeKind :=
   else if typeName == ``Unit || typeName == ``PUnit then some .unit
   else if typeName == ``List then some .list
   else if typeName == ``Prod then some .pair
+  -- PProd intentionally NOT a builtin pair: it wraps arbitrary types
+  -- (used by brecOn) and needs SOP encoding (Constr/Case), not Data pairs.
   else none
 
 /-- Map a Lean type expression to a UPLC BuiltinType (for constant typing). -/
@@ -163,6 +170,29 @@ private def isRec (name : Name) : Bool :=
   | .str _ "rec" => true
   | .str _ "recOn" => true
   | _ => false
+
+private def isBrecOn (name : Name) : Bool :=
+  match name with
+  | .str _ "brecOn" => true
+  | _ => false
+
+private def explicitRecursorName? (e : Lean.Expr) : Option Name :=
+  match e.find? fun
+      | .const n _ => isRec n || isBrecOn n
+      | _ => false with
+  | some (.const n _) => some n
+  | _ => none
+
+private def smartUnfoldingValue? (env : Environment) (name : Name) : Option Lean.Expr :=
+  match env.find? (name ++ `_sunfold) with
+  | some ci => ci.value?
+  | none => none
+
+private def explicitRecursorCompileError (owner recursor : Name) : MessageData :=
+  m!"cannot compile {owner}: explicit recursor {recursor} is unsupported in `compile!` when Lean did not generate {(owner ++ `_sunfold)}; write recursive equations and let Lean generate `_sunfold`, or use well-founded recursion"
+
+private def explicitRecursorExprError (recursor : Name) : MessageData :=
+  m!"explicit recursor {recursor} is unsupported; write recursive equations and let Lean generate `_sunfold`, or use well-founded recursion"
 
 /-- Check if an expression syntactically references a constant name. -/
 private def exprContainsConst (e : Lean.Expr) (name : Name) : Bool :=
@@ -436,7 +466,7 @@ mutual
       throwError "translation depth exceeded (probable infinite unfolding)"
     match e with
     | .bvar i =>
-      match ctx.locals.get? i with
+      match ctx.locals[i]? with
       | some vid => pure (.Var vid)
       | none => throwError "unbound de Bruijn index {i}"
 
@@ -498,6 +528,19 @@ mutual
         return ← translateIntNegSucc args
       if name == ``WellFounded.fix then
         return ← translateWellFoundedFix fn args
+      -- ite: `if b then t else f` where b : Bool
+      -- Lean elaborates this as @ite α (@Eq Bool b Bool.true) inst t f
+      if name == ``ite && args.size >= 5 then
+        let prop := args[1]!
+        let (propFn, propArgs) := uncurryApp prop
+        if propFn.isConstOf ``Eq && propArgs.size >= 3 && propArgs[0]!.isConstOf ``Bool then
+          let boolExpr := propArgs[1]!
+          let scrut ← translateExpr boolExpr
+          let trueAlt ← translateExpr args[3]!
+          let falseAlt ← translateExpr args[4]!
+          return ← applyOverArgs (mkBoolBranch scrut trueAlt falseAlt) args 5
+      if isRec name then
+        throwError (explicitRecursorExprError name)
 
     -- Try whnf to reduce the expression
     if !e.hasLooseBVars then
@@ -567,14 +610,19 @@ mutual
           pure (ty'.getAppArgs.extract 0 np)
         else
           pure #[]
+      -- Check for builtin pair type first (Prod)
+      if let some .pair := builtinTypeKind typeName then
+        let scrut ← translateExpr struct
+        if idx == 0 then return .App (mkBuiltin .FstPair) scrut
+        else return .App (mkBuiltin .SndPair) scrut
       let fieldTypes ← getCtorFieldTypesWithArgs env ctorName np typeArgs
-      let fieldCodecs ← resolveFieldCodecs fieldTypes s!"projection on '{typeName}'"
-      if h : idx >= fieldCodecs.size then
-        throwError "projection index {idx} out of range for {typeName} ({fieldCodecs.size} fields)"
       let scrut ← translateExpr struct
       let repr := getPlutusRepr env typeName
       if repr == .data then
         -- @[plutus_data]: UnConstrData → SndPair → walk to field idx → decode
+        let fieldCodecs ← resolveFieldCodecs fieldTypes s!"projection on '{typeName}'"
+        if idx >= fieldCodecs.size then
+          throwError "projection index {idx} out of range for {typeName} ({fieldCodecs.size} fields)"
         let pairV ← freshVarId "pair"
         let fieldsV ← freshVarId "fields"
         let mut currentList : MIR.Expr := .Var fieldsV
@@ -600,8 +648,9 @@ mutual
         pure result
       else
         -- SOP: Case with single branch, extract field positionally
-        let fieldV ← freshVarId s!"f{idx}"
-        let numFields := fieldCodecs.size
+        let numFields := fieldTypes.size
+        if idx >= numFields then
+          throwError "projection index {idx} out of range for {typeName} ({numFields} fields)"
         -- Build a lambda that ignores all fields except idx
         let mut vars : Array MIR.VarId := #[]
         for i in [:numFields] do
@@ -612,6 +661,28 @@ mutual
           alt := .Lam vars[numFields - 1 - i]! alt
         pure (.Case scrut [alt])
     | _ => throwError "projection on unknown type {typeName}"
+
+  /-- Apply over-applied args beyond the casesOn alternatives.
+      When WellFounded.fix threads the recursive function through a match,
+      the casesOn result is a function and extra args must be applied. -/
+  private partial def applyOverArgs (result : MIR.Expr) (args : Array Lean.Expr)
+      (startIdx : Nat) : TranslateM MIR.Expr := do
+    if startIdx ≥ args.size then return result
+    let mut r := result
+    for i in [startIdx : args.size] do
+      let arg := args[i]!
+      let erase ← if arg.hasLooseBVars then pure false
+        else try
+          let argTy ← inferType arg
+          if argTy.isSort then pure true
+          else if isTypeFamily argTy then pure true
+          else if ← isProp argTy then pure true
+          else pure false
+        catch _ => pure false
+      if !erase then
+        let arg' ← translateExpr arg
+        r := .App r arg'
+    return r
 
   partial def translateCasesOn (caseName : Name) (args : Array Lean.Expr)
       : TranslateM MIR.Expr := do
@@ -624,6 +695,8 @@ mutual
       let scrutIdx := np + 1
       if h : scrutIdx < args.size then
         let altsStart := scrutIdx + 1
+        let numAlts := iv.ctors.length
+        let expectedEnd := altsStart + numAlts
 
         -- Check for UPLC builtin types first
         if let some kind := builtinTypeKind typeName then
@@ -637,13 +710,13 @@ mutual
             if h2 : altsStart + 1 < args.size then
               let falseAlt ← translateExpr args[altsStart]
               let trueAlt ← translateExpr args[altsStart + 1]
-              return .Force (.App (.App (.App (mkBuiltin .IfThenElse) scrut)
-                (.Delay trueAlt)) (.Delay falseAlt))
+              return ← applyOverArgs (mkBoolBranch scrut trueAlt falseAlt) args expectedEnd
             else throwError "Bool.casesOn: not enough alternatives"
           | .unit =>
             -- Unit.casesOn scrut alt → alt (unit carries no information)
             if h2 : altsStart < args.size then
-              return ← translateExpr args[altsStart]
+              let core ← translateExpr args[altsStart]
+              return ← applyOverArgs core args expectedEnd
             else throwError "Unit.casesOn: not enough alternatives"
           | .list =>
             -- List.casesOn scrut nil_alt cons_alt
@@ -658,9 +731,10 @@ mutual
               let hd := MIR.Expr.App (mkBuiltin .HeadList) (.Var s)
               let tl := MIR.Expr.App (mkBuiltin .TailList) (.Var s)
               let consBody := MIR.Expr.App (.App consAlt hd) tl
-              return .Let [(s, scrut, false)]
+              let core := MIR.Expr.Let [(s, scrut, false)]
                 (.Force (.App (.App (.App (mkBuiltin .ChooseList) (.Var s))
                   (.Delay nilAlt)) (.Delay consBody)))
+              return ← applyOverArgs core args expectedEnd
             else throwError "List.casesOn: not enough alternatives"
           | .pair =>
             -- Prod.casesOn scrut (λ fst snd => body)
@@ -670,13 +744,13 @@ mutual
               let s ← freshVarId "pr"
               let fst := MIR.Expr.App (mkBuiltin .FstPair) (.Var s)
               let snd := MIR.Expr.App (mkBuiltin .SndPair) (.Var s)
-              return .Let [(s, scrut, false)]
+              let core := MIR.Expr.Let [(s, scrut, false)]
                 (.App (.App alt fst) snd)
+              return ← applyOverArgs core args expectedEnd
             else throwError "Prod.casesOn: not enough alternatives"
         else
           -- Non-builtin: SOP or Data encoding
           let scrut ← translateExpr args[scrutIdx]
-          let numAlts := iv.ctors.length
           let repr := getPlutusRepr env typeName
           if repr == .sop then
             -- SOP encoding: emit direct Constr/Case.
@@ -687,11 +761,13 @@ mutual
                 alts := alts.push alt
               else
                 throwError "casesOn for {typeName}: not enough alternatives"
-            pure (.Case scrut alts.toList)
+            let core := MIR.Expr.Case scrut alts.toList
+            return ← applyOverArgs core args expectedEnd
           else
             -- Data encoding: unConstrData + tag dispatch + field extraction
             let typeArgs := args.extract 0 np
-            translateDataCasesOn env iv np typeArgs scrut args altsStart numAlts
+            let core ← translateDataCasesOn env iv np typeArgs scrut args altsStart numAlts
+            return ← applyOverArgs core args expectedEnd
       else
         throwError "casesOn for {typeName}: not enough arguments (need scrutinee)"
     | _ =>
@@ -1101,13 +1177,22 @@ mutual
           -- UPLC builtin type constructors bypass SOP/Data encoding
           if let some kind := builtinTypeKind cval.induct then
             -- Collect non-erased arguments (but keep raw args for type inspection)
+            -- Pre-compute erasure mask from the constructor's declared type
+            -- (avoids shouldEraseArg failures when currentFn has loose bvars)
+            let mut eraseMask : Array Bool := #[]
+            let mut ctorTy := cval.type
+            for _ in args do
+              match ctorTy with
+              | .forallE _ paramTy body bi =>
+                eraseMask := eraseMask.push (← isErasableBinder paramTy bi)
+                ctorTy := body
+              | _ => eraseMask := eraseMask.push false
             let mut valueArgs : Array MIR.Expr := #[]
-            let mut currentFn := fn
-            for arg in args do
-              let erase ← shouldEraseArg currentFn
+            for i in [:args.size] do
+              let erase := if h : i < eraseMask.size then eraseMask[i] else false
               if !erase then
-                valueArgs := valueArgs.push (← translateExpr arg)
-              currentFn := .app currentFn arg
+                valueArgs := valueArgs.push (← translateExpr args[i]!)
+
             match kind with
             | .bool =>
               return .Lit (.Bool (cval.cidx == 1), .AtomicType .TypeBool)
@@ -1169,7 +1254,18 @@ mutual
     let mut relevantArgs : Array Lean.Expr := #[]
     let mut currentFn := fn
     for arg in args do
-      let erase ← shouldEraseArg currentFn
+      let mut erase ← shouldEraseArg currentFn
+      -- Fallback: when shouldEraseArg fails (function has loose bvars),
+      -- check if the argument's head constant is a proof (type is Prop).
+      -- This catches proof args threaded through WellFounded.fix match branches.
+      if !erase then
+        let head := arg.getAppFn
+        if let .const _ _ := head then
+          if !head.hasLooseBVars then
+            erase ← try
+              let headTy ← inferType head
+              isProp headTy
+            catch _ => pure false
       if !erase then
         relevantArgs := relevantArgs.push arg
       currentFn := .app currentFn arg
@@ -1215,19 +1311,31 @@ mutual
     | some ci =>
       match ci.value? with
       | some val =>
-        -- Check if this definition is self-recursive
-        if exprContainsConst val name then
-          -- Set up Fix for recursive definition
+        if let some sunfoldVal := smartUnfoldingValue? env name then
           let fVar ← freshVarId name.toString
           let body ← withReader (fun ctx => { ctx with
             unfolding := ctx.unfolding.insert name
             selfName := some name
             selfVar := some fVar
             maxDepth := ctx.maxDepth - 1
-          }) (translateExpr val)
+          }) (translateExpr sunfoldVal)
           pure (.Fix fVar body)
+        else if let some recName := explicitRecursorName? val then
+          throwError (explicitRecursorCompileError name recName)
         else
-          withUnfolding name (translateExpr val)
+          if exprContainsConst val name then
+            -- Check if this definition is self-recursive.
+            -- Set up Fix for recursive definition.
+            let fVar ← freshVarId name.toString
+            let body ← withReader (fun ctx => { ctx with
+              unfolding := ctx.unfolding.insert name
+              selfName := some name
+              selfVar := some fVar
+              maxDepth := ctx.maxDepth - 1
+            }) (translateExpr val)
+            pure (.Fix fVar body)
+          else
+            withUnfolding name (translateExpr val)
       | none =>
         -- Constructor?
         if let some (.ctorInfo cval) := env.find? name then
@@ -1251,15 +1359,48 @@ mutual
               (.Lit (.Integer cval.cidx, .AtomicType .TypeInteger)))
               (.Lit (.ConstDataList [], .TypeOperator (.TypeList (.AtomicType .TypeData)))))
         else
-          throwError "cannot compile {name}: no definition body (axiom or opaque)"
+          -- Check if this is an inductive type name (should have been erased as a type)
+          if let some (.inductInfo _) := env.find? name then
+            return .Error
+          else if let some (.recInfo _) := env.find? name then
+            -- Explicit recursors are rejected before translation reaches here.
+            return .Error
+          else
+            throwError "cannot compile {name}: no definition body (axiom or opaque)"
     | none => throwError "unknown constant: {name}"
 end
 
 /-- Run the translation on a definition's body. -/
 def translateDef (val : Lean.Expr) (freshStart : Nat := 0) : MetaM MIR.Expr := do
-  let ctx : TranslateCtx := { locals := [], unfolding := {}, maxDepth := 200 }
+  let ctx : TranslateCtx := {
+    locals := []
+    unfolding := {}
+    maxDepth := 200
+  }
   let state : TranslateState := { nextFresh := freshStart }
   let (result, _) ← (translateExpr val).run ctx |>.run state
   pure result
+
+/-- Translate a named definition. Prefer the smart-unfolding equation when Lean
+    generated one; otherwise reject explicit recursors and compile the body
+    directly. -/
+def translateDefByName (name : Name) (val : Lean.Expr)
+    (freshStart : Nat := 0) : MetaM MIR.Expr := do
+  let env ← getEnv
+  let selfVar : MIR.VarId := ⟨freshStart, name.toString⟩
+  let namedCtx : TranslateCtx := {
+    locals := []
+    unfolding := .insert {} name
+    maxDepth := 200
+    selfName := some name
+    selfVar := some selfVar
+  }
+  if let some sunfoldVal := smartUnfoldingValue? env name then
+    let state : TranslateState := { nextFresh := freshStart + 1 }
+    let (body, _) ← (translateExpr sunfoldVal).run namedCtx |>.run state
+    return .Fix selfVar body
+  if let some recName := explicitRecursorName? val then
+    throwError (explicitRecursorCompileError name recName)
+  translateDef val freshStart
 
 end Moist.Onchain

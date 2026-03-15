@@ -1,5 +1,5 @@
 @ optimized
-(λy_2. y_2) z_3
+z_3
 
 @ isANF
-false
+true

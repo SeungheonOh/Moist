@@ -1,6 +1,7 @@
 import Lean
 import Moist.Plutus.Eval
 import Moist.Plutus.Term
+import Moist.Plutus.PrettyHuman
 import Moist.MIR.Expr
 import Moist.MIR.Optimize
 import Moist.MIR.Optimize.PreLower
@@ -46,7 +47,7 @@ def compileToUPLC (name : Name) (optFresh : Nat := 1000) (lowerFresh : Nat := 50
     | return .error s!"{name} has no definition body"
   -- 2. Translate Lean.Expr → MIR.Expr
   let mir ← try
-    translateDef val
+    translateDefByName name val
   catch e =>
     return .error s!"translation error: {← e.toMessageData.toString}"
   -- 3. Optimize MIR
@@ -173,7 +174,7 @@ elab "#show_mir" id:ident : command => do
   let some val := ci.value?
     | throwError "{name} has no definition body"
   let mir ← try
-    Elab.Command.liftTermElabM (translateDef val)
+    Elab.Command.liftTermElabM (translateDefByName name val)
   catch e =>
     logTranslationErrorAtDef name e
   logInfo m!"MIR for {name}:\n{toString mir}"
@@ -187,7 +188,7 @@ elab "#show_optimized_mir" id:ident : command => do
   let some val := ci.value?
     | throwError "{name} has no definition body"
   let mir ← try
-    Elab.Command.liftTermElabM (translateDef val)
+    Elab.Command.liftTermElabM (translateDefByName name val)
   catch e =>
     logTranslationErrorAtDef name e
   let opt := optimizeExpr mir 1000
@@ -203,7 +204,7 @@ elab "#show_beta_mir" id:ident : command => do
   let some val := ci.value?
     | throwError "{name} has no definition body"
   let mir ← try
-    Elab.Command.liftTermElabM (translateDef val)
+    Elab.Command.liftTermElabM (translateDefByName name val)
   catch e =>
     logTranslationErrorAtDef name e
   let (betaMir, betaChanged) := optimizeDebugBeta mir 1000
@@ -227,7 +228,7 @@ elab "#show_opt_trace" id:ident : command => do
   let some val := ci.value?
     | throwError "{name} has no definition body"
   let mir ← try
-    Elab.Command.liftTermElabM (translateDef val)
+    Elab.Command.liftTermElabM (translateDefByName name val)
   catch e =>
     logTranslationErrorAtDef name e
   let steps := optimizeTraceExpr mir 1000
@@ -253,6 +254,25 @@ elab "#show_opt_trace" id:ident : command => do
   let props : Json := .mkObj [("steps", .arr allSteps)]
   Elab.Command.liftCoreM <|
     Widget.savePanelWidgetInfo optTraceWidget.javascriptHash.val (pure props) (← getRef)
+
+/-- Compile each explicit term in an application spine to a single UPLC term. -/
+private def compileAppSpineToUPLC (stx : Syntax) : Elab.Command.CommandElabM UPLCTerm := do
+  let targets := getExplicitAppTargets stx
+  let compiled ← Elab.Command.liftTermElabM do
+    targets.mapM compileTermSyntaxToUPLCOrThrow
+  let some applied := mkAppliedTerm compiled
+    | throwError "expects at least one term"
+  pure applied
+
+/-- Debug elaborator: compiles any term to UPLC and shows standard Plutus textual format. -/
+elab "#show_uplc" t:term : command => do
+  let term ← compileAppSpineToUPLC t.raw
+  logInfo m!"{Moist.Plutus.Pretty.prettyTerm term}"
+
+/-- Debug elaborator: compiles any term to UPLC and shows human-readable output. -/
+elab "#show_pretty_uplc" t:term : command => do
+  let term ← compileAppSpineToUPLC t.raw
+  logInfo m!"{Moist.Plutus.PrettyHuman.prettyHuman term}"
 
 /-- Debug elaborator: shows the raw Lean.Expr for a definition. -/
 elab "#show_expr" id:ident : command => do

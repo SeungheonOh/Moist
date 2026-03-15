@@ -160,15 +160,15 @@ section Compiled
   def cNftMint      := compile! nftMintPolicy
 end Compiled
 
-#eval cNftMint.printPrettyTerm
+#eval cNftMint.printTerm
 
 #show_mir alwaysMintPolicy
-#show_optimized_mir redeemerGatePolicy
+#show_optimized_mir alwaysMintPolicy
 
 #show_mir nftMintPolicy
 #show_optimized_mir nftMintPolicy
 
-#show_opt_trace alwaysMintPolicy
+#show_opt_trace nftMintPolicy
 
 /-! ## Golden test tree -/
 

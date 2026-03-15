@@ -41,7 +41,7 @@ def tests : TestTree := suite "pipeline" do
   test "pipe_inline_beta" do
     let e := Expr.Let [(f, .Lam y (.Var y), false)] (.App (.Var f) (.Var z))
     let r := optimizeExpr e 1000
-    checkAlphaEq "pipe_inline_beta" r (.App (.Lam y (.Var y)) (.Var z))
+    checkAlphaEq "pipe_inline_beta" r (.Var z)
   test "pipe_nested_let" do
     let e := Expr.Let [(a, intLit 1, false)]
                 (.Let [(b, .Var a, false)]
@@ -75,6 +75,56 @@ def tests : TestTree := suite "pipeline" do
                 (.Force (.Var v))
     let r := optimizeExpr e 1000
     checkAlphaEq "pipe_inline_before_fd" r (.Var x)
+  test "pipe_inline_impure_partial_under_delay" do
+    let addall : VarId := ⟨61, "addall"⟩
+    let anf : VarId := ⟨62, "anf"⟩
+    let rhs :=
+      Expr.App (Expr.Builtin .AddInteger)
+        (Expr.App (Expr.Force (Expr.Builtin .HeadList)) (.Var x))
+    let arg :=
+      Expr.App (.Var addall)
+        (Expr.App (Expr.Force (Expr.Builtin .TailList)) (.Var x))
+    let e :=
+      Expr.Delay (.Let [(anf, rhs, false)] (.App (.Var anf) arg))
+    let r := optimizeExpr e 1000
+    checkAlphaEq "pipe_inline_impure_partial_under_delay" r (.Delay (.App rhs arg))
+  test "pipe_beta_exposes_inline_in_recursive_delay_branch" do
+    let addall : VarId := ⟨63, "addall"⟩
+    let xs : VarId := ⟨64, "xs"⟩
+    let anf : VarId := ⟨65, "anf"⟩
+    let tail : VarId := ⟨66, "tail"⟩
+    let rhs :=
+      Expr.App (Expr.Builtin .AddInteger)
+        (Expr.App (Expr.Force (Expr.Builtin .HeadList)) (.Var xs))
+    let tailExpr :=
+      Expr.App (Expr.Force (Expr.Builtin .TailList)) (.Var xs)
+    let delayedBranch :=
+      Expr.Delay
+        (.Let [(anf, rhs, false)]
+          (.App
+            (.Lam tail (.App (.Var anf) (.App (.Var addall) (.Var tail))))
+            tailExpr))
+    let chooseList :=
+      Expr.Force
+        (.App
+          (.App
+            (.App (Expr.Force (Expr.Force (Expr.Builtin .ChooseList))) (.Var xs))
+            (Expr.Delay (intLit 0)))
+          delayedBranch)
+    let e := Expr.Fix addall (.Lam xs chooseList)
+    let expectedBranch :=
+      Expr.Delay (.App rhs (.App (.Var addall) tailExpr))
+    let expected :=
+      Expr.Fix addall
+        (.Lam xs
+          (Expr.Force
+            (.App
+              (.App
+                (.App (Expr.Force (Expr.Force (Expr.Builtin .ChooseList))) (.Var xs))
+                (Expr.Delay (intLit 0)))
+              expectedBranch)))
+    let r := optimizeExpr e 1000
+    checkAlphaEq "pipe_beta_exposes_inline_in_recursive_delay_branch" r expected
   test "pipe_cse_before_inline" do
     let e := Expr.Let [(a, .App (.Var f) (.Var x), false),
                         (b, .App (.Var f) (.Var x), false)]

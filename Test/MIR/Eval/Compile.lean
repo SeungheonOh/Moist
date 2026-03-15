@@ -50,6 +50,10 @@ def mkBazQuxUPLC  : Term := compile! mkBazQux
 def cccUPLC       : Term := compile! ccc
 def fffUPLC       : Term := compile! fff
 def factorialUPLC : Term := compile! factorial
+def treeSumUPLC   : Term := compile! treeSum
+def treeLeaf5UPLC : Term := compile! treeLeaf5
+def treeSmallUPLC : Term := compile! treeSmall
+def treeBigUPLC   : Term := compile! treeBig
 
 /-! ## Golden tests -/
 
@@ -94,5 +98,14 @@ def compileTree : TestTree := suite "compile" do
     mkTermApplyEvalGolden "factorial_5" factorialUPLC [intTerm 5]
     -- factorial(10) = 3628800
     mkTermApplyEvalGolden "factorial_10" factorialUPLC [intTerm 10]
+
+  -- Structural recursion on user-defined SOP type (Tree)
+  group "tree" do
+    -- treeSum(leaf 5) = 5
+    mkTermApplyEvalGolden "tree_sum_leaf" treeSumUPLC [treeLeaf5UPLC]
+    -- treeSum(node (leaf 2) (leaf 3)) = 2 + 3 = 5
+    mkTermApplyEvalGolden "tree_sum_small" treeSumUPLC [treeSmallUPLC]
+    -- treeSum(node (node (leaf 1) (leaf 2)) (node (leaf 3) (leaf 4))) = 1+2+3+4 = 10
+    mkTermApplyEvalGolden "tree_sum_big" treeSumUPLC [treeBigUPLC]
 
 end Test.MIR.Eval.Compile

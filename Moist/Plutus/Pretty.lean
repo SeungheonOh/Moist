@@ -253,8 +253,5 @@ instance : Std.ToFormat Program where
 
 end Moist.Plutus.Pretty
 
-def Moist.Plutus.Term.Term.prettyTerm (t : Moist.Plutus.Term.Term) (width : Nat := 100) : String :=
-  Moist.Plutus.Pretty.prettyTerm t width
-
-def Moist.Plutus.Term.Term.printPrettyTerm (t : Moist.Plutus.Term.Term) (width : Nat := 100) : IO Unit :=
+def Moist.Plutus.Term.Term.printTerm (t : Moist.Plutus.Term.Term) (width : Nat := 100) : IO Unit :=
   IO.println (Moist.Plutus.Pretty.prettyTerm t width)
