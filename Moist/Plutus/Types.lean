@@ -52,7 +52,7 @@ inductive Data where
   | List : List Data → Data
   | I : Integer → Data
   | B : ByteString → Data
-deriving Repr
+deriving Repr, Inhabited
 
 mutual
   private def dataStr : Data → String
@@ -114,5 +114,8 @@ deriving Repr, BEq
 
 instance : EmptyCollection (AssocMap k v) where
   emptyCollection := ⟨[]⟩
+
+instance : Inhabited (AssocMap k v) where
+  default := ⟨[]⟩
 
 end Moist.Plutus

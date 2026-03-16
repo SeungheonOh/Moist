@@ -53,3 +53,6 @@ lean_exe moist where
 @[test_driver]
 lean_exe tests where
   root := `TestMain
+
+lean_exe nft_test where
+  root := `Test.Onchain.Testing

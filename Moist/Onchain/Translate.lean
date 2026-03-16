@@ -527,6 +527,26 @@ mutual
 
     | .app _ _ => translateApp e
 
+  /-- Check if `e` is a `panic` / `panicWithPosWithDecl` / `panicCore` application
+      and translate it to `Trace msg Error`. Returns `none` if not a panic call.
+      This must run *before* `whnf`, which would reduce `panic` to `default`. -/
+  partial def extractPanic (e : Lean.Expr) : TranslateM (Option MIR.Expr) := do
+    let (fn, args) := uncurryApp e
+    if let .const name _ := fn then
+      -- @panic {α} [Inhabited α] (msg : String) : α
+      if name == ``panic && args.size >= 3 then
+        let msg ← translateExpr args[2]!
+        return some (.App (.App (mkBuiltin .Trace) msg) .Error)
+      -- @panicWithPosWithDecl {α} [inst] file mod line col (msg : String) : α
+      if name == ``panicWithPosWithDecl && args.size >= 7 then
+        let msg ← translateExpr args[6]!
+        return some (.App (.App (mkBuiltin .Trace) msg) .Error)
+      -- @panicCore {α} [Inhabited α] (msg : String) : α
+      if name == ``panicCore && args.size >= 3 then
+        let msg ← translateExpr args[2]!
+        return some (.App (.App (mkBuiltin .Trace) msg) .Error)
+    return none
+
   partial def translateApp (e : Lean.Expr) : TranslateM MIR.Expr := do
     -- Check for casesOn/rec patterns before whnf
     let (fn, args) := uncurryApp e
@@ -568,6 +588,15 @@ mutual
         let env ← getEnv
         if plutusDataAttr.hasTag env typeName || typeName == ``Moist.Plutus.Data then
           return ← translateExpr args[2]!
+      -- panic / panicWithPosWithDecl → Trace msg Error
+      -- @panic {α} [Inhabited α] (msg : String) : α
+      if name == ``panic && args.size >= 3 then
+        let msg ← translateExpr args[2]!
+        return .App (.App (mkBuiltin .Trace) msg) .Error
+      -- @panicWithPosWithDecl {α} [inst] file mod line col (msg : String) : α
+      if name == ``panicWithPosWithDecl && args.size >= 7 then
+        let msg ← translateExpr args[6]!
+        return .App (.App (mkBuiltin .Trace) msg) .Error
       -- ByteArray/ByteString literal: evaluate to concrete bytes
       if name == ``ByteArray.mk && !e.hasLooseBVars then
         if let some ba ← evalByteArrayLit e then
@@ -575,11 +604,15 @@ mutual
 
     -- Try whnf to reduce the expression
     if !e.hasLooseBVars then
+      -- Before full whnf, beta-reduce and check for panic (whnf would
+      -- reduce panic → panicCore → default, losing the trace message).
+      if let some r ← extractPanic e.headBeta then return r
       let e' ← whnf e
       if !e'.isApp then
         return ← translateExpr e'
       let headChanged := e'.getAppFn.constName? != e.getAppFn.constName?
       if headChanged then
+        if let some r ← extractPanic e' then return r
         return ← translateExpr e'
     else
       -- Expression has loose bvars — whnf on the full expr would panic.
@@ -600,6 +633,7 @@ mutual
               let reduced := fullApp.headBeta
               let newFn := reduced.getAppFn
               if newFn.constName? != some headName then
+                if let some r ← extractPanic reduced then return r
                 return ← translateExpr reduced
       -- Try whnf on the longest bvar-free prefix (e.g. HAdd.hAdd Int Int Int inst)
       -- to resolve typeclass methods to concrete implementations.
@@ -617,13 +651,17 @@ mutual
           if reduced != prefixExpr then
             let remainingArgs := args.extract nConsumed args.size
             let fullReduced := remainingArgs.foldl (init := reduced) fun acc a => .app acc a
-            return ← translateExpr fullReduced.headBeta
+            let betaReduced := fullReduced.headBeta
+            if let some r ← extractPanic betaReduced then return r
+            return ← translateExpr betaReduced
         -- Fallback: whnf for compound typeclass methods (e.g. BEq.beq → fun a b => equalsData ...)
         let whnfResult ← whnf prefixExpr
         if whnfResult != prefixExpr then
           let remainingArgs := args.extract nConsumed args.size
           let fullReduced := remainingArgs.foldl (init := whnfResult) fun acc a => .app acc a
-          return ← translateExpr fullReduced.headBeta
+          let betaReduced := fullReduced.headBeta
+          if let some r ← extractPanic betaReduced then return r
+          return ← translateExpr betaReduced
     -- Translate directly
     translateAppDirect e
 
@@ -982,9 +1020,14 @@ mutual
             if reduced != e'' then
               return ← normalizeAltBodyExpr reduced
     if !e''.hasLooseBVars then
-      let whnfExpr ← whnf e''
-      if whnfExpr != e'' then
-        return ← normalizeAltBodyExpr whnfExpr
+      -- Don't whnf panic/panicCore/panicWithPosWithDecl — whnf would reduce
+      -- them to Inhabited.default, losing the error message.
+      let headConst := e''.getAppFn.constName?.getD .anonymous
+      unless headConst == ``panic || headConst == ``panicCore
+          || headConst == ``panicWithPosWithDecl do
+        let whnfExpr ← whnf e''
+        if whnfExpr != e'' then
+          return ← normalizeAltBodyExpr whnfExpr
     pure e''
 
   /-- Bind only the constructor fields actually referenced by `body`.
@@ -1344,6 +1387,9 @@ mutual
 
   partial def translateConst (name : Name) : TranslateM MIR.Expr := do
     let ctx ← read
+    -- 0. pError → MIR Error
+    if name == ``Moist.Onchain.Prelude.pError then
+      return .Error
     -- 1. Check builtin map
     if let some b := lookupBuiltin name then
       return mkBuiltin b

@@ -29,9 +29,17 @@ inductive DataCodec where
   | param (idx : Nat)                -- type parameter placeholder (resolved at instantiation)
 deriving Repr, BEq, Inhabited
 
-/-- Returns true if encoding/decoding is a no-op (value is already Data). -/
+/-- Returns true if encoding/decoding is a no-op (value is already Data at runtime).
+    Both `.identity` (raw Data) and `.constrData` (@[plutus_data] types) qualify
+    at the UPLC level. For Lean-side toData generation, use `isLeanIdentity`. -/
 def DataCodec.isIdentity : DataCodec → Bool
   | .identity | .constrData _ => true
+  | _ => false
+
+/-- Strict identity: true only for `.identity` (raw Data).
+    `.constrData` types still need `PlutusData.toData` on the Lean side. -/
+def DataCodec.isLeanIdentity : DataCodec → Bool
+  | .identity => true
   | _ => false
 
 /-- Why a type cannot be embedded in Data. -/
@@ -219,56 +227,12 @@ open Moist.Plutus (Data ByteString)
 /-- Encode a field value to a Data expression based on its codec. -/
 private partial def mkEncodeFieldExpr (codec : DataCodec) (val : Lean.Expr) : MetaM Lean.Expr := do
   match codec with
-  | .iData => pure <| mkApp (mkConst ``Data.I []) val
-  | .bData => pure <| mkApp (mkConst ``Data.B []) val
   | .identity => pure val
-  | .constrData _ | .param _ => mkAppM ``PlutusData.toData #[val]
-  | .listData elemCodec =>
-    if elemCodec.isIdentity then
-      pure <| mkApp (mkConst ``Data.List []) val
-    else
-      -- Data.List (val.map (fun x => encodeField elemCodec x))
-      let elemTy ← do
-        let listTy ← inferType val
-        let listTy' ← whnf listTy
-        match listTy'.getAppArgs with
-        | #[t] => pure t
-        | _ => throwError "expected List type, got {listTy'}"
-      withLocalDecl `x .default elemTy fun x => do
-        let body ← mkEncodeFieldExpr elemCodec x
-        let mapFn ← mkLambdaFVars #[x] body
-        let mapped ← mkAppM ``List.map #[mapFn, val]
-        pure <| mkApp (mkConst ``Data.List []) mapped
-  | .mapData keyCodec valCodec =>
-    if keyCodec.isIdentity && valCodec.isIdentity then
-      -- AssocMap already has toList : List (k × v), just need Data.Map
-      let pairs ← mkAppM ``Moist.Plutus.AssocMap.toList #[val]
-      pure <| mkApp (mkConst ``Data.Map []) pairs
-    else
-      let pairList ← mkAppM ``Moist.Plutus.AssocMap.toList #[val]
-      let pairListTy' ← inferType pairList
-      let pairListTy'' ← whnf pairListTy'
-      let pairTy ← match pairListTy''.getAppArgs with
-        | #[t] => pure t
-        | _ => throwError "expected List type from AssocMap.toList"
-      let pairTy' ← whnf pairTy
-      let (_, _) ← match pairTy'.getAppArgs with
-        | #[k, v] => pure (k, v)
-        | _ => throwError "expected Prod type, got {pairTy'}"
-      withLocalDecl `p .default pairTy fun p => do
-        let k ← mkAppM ``Prod.fst #[p]
-        let v ← mkAppM ``Prod.snd #[p]
-        let kEnc ← mkEncodeFieldExpr keyCodec k
-        let vEnc ← mkEncodeFieldExpr valCodec v
-        let pair ← mkAppM ``Prod.mk #[kEnc, vEnc]
-        let mapFn ← mkLambdaFVars #[p] pair
-        let mapped ← mkAppM ``List.map #[mapFn, pairList]
-        pure <| mkApp (mkConst ``Data.Map []) mapped
+  | _ => mkAppM ``PlutusData.toData #[val]
 
 /-- Decode a Data expression to a field value based on its codec.
-    Uses `unsafeFromData` since we are inside a tag-matched constructor
-    where the data shape is known to be valid.
-    `targetTy` is the expected Lean type of the decoded value. -/
+    Uses inline decoding for primitive/collection codecs and falls back
+    to `unsafeFromData` for constrData / param codecs. -/
 private partial def mkDecodeFieldExpr (codec : DataCodec) (val : Lean.Expr)
     (targetTy : Lean.Expr) : MetaM Lean.Expr := do
   match codec with
@@ -521,8 +485,11 @@ def derivePlutusDataInstance (iv : InductiveVal) (plan : InductiveCodecPlan) : M
         pure true
       catch _ => pure false
       if !hasInhabited then do
-        -- Build default from first constructor using Inhabited.default for each field
-        let firstCtor := plan.ctors[0]!
+        -- Pick the constructor with the fewest fields to minimise Inhabited
+        -- requirements (e.g. `nothingData` over `justData : α → MaybeData α`).
+        let firstCtor := plan.ctors.foldl
+          (init := plan.ctors[0]!)
+          fun best c => if c.fieldCodecs.size < best.fieldCodecs.size then c else best
         let env ← getEnv
         let some (.ctorInfo cval) := env.find? firstCtor.ctorName
           | throwError "constructor not found: {firstCtor.ctorName}"
