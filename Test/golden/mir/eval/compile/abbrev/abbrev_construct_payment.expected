@@ -1,0 +1,8 @@
+@ result
+(con data (Constr 0 [(I 1000000), (I 42)]))
+
+@ cpu
+501573
+
+@ mem
+2160

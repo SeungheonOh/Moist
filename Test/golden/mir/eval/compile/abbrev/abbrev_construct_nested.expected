@@ -1,0 +1,8 @@
+@ result
+(con data (Constr 0 [(Constr 0 [(I 10), (I 20), (I 30)]), (I 7)]))
+
+@ cpu
+1139408
+
+@ mem
+4652

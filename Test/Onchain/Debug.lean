@@ -7,6 +7,8 @@ open Moist.Plutus.Term
 open Moist.Plutus.Pretty (prettyTerm)
 open Moist.Onchain.Prelude
 open Moist.Plutus.Eval
+open Moist.Cardano.V3
+open Moist.Onchain.PlutusData
 namespace Test.Debug
 
 @[plutus_sop]
@@ -61,9 +63,10 @@ inductive SOPHi where
   | sophi : Int → SOPHi
   | sopbye : SOPHi
   | fooooo : Int → SOPHi
+  deriving Repr
 
-@[plutus_data]
-inductive Maybe α where
+@[plutus_sop]
+inductive Maybe (α : Type) where
   | none : Maybe α
   | some : α → Maybe α
 
@@ -85,7 +88,14 @@ def ddd (x : Baz) : Int :=
     | Baz.foo a => a + 1
     | Baz.qux => 0
 
-#show_mir ddd
+def testMaybe : Maybe Int :=
+  .some 42
+
+#print SOPHi.instPlutusData
+#print SOPHi.instBEq
+-- #eval (fromData (.I 14) : Maybe SOPHi)  -- needs PlutusData (Maybe SOPHi), but Maybe is @[plutus_sop]
+-- #eval (toData (.some (.sophi 42) : Maybe SOPHi))
+#show_mir testMaybe
 
 #show_beta_mir ddd
 
@@ -93,7 +103,7 @@ def ddd (x : Baz) : Int :=
 
 def dddd : Term := compile! ddd
 
-@[plutus_sop]
+@[plutus_data]
 structure A where
   x : Int
   y : Int
@@ -114,7 +124,7 @@ def eee : Baz := Baz.bar 1 2
 
 def eeee : Term := compile! eee
 
-#show_mir testing
+#show_mir eee
 
 #show_mir testing2
 
@@ -131,6 +141,10 @@ def eeee : Term := compile! eee
 #show_beta_mir testing
 
 #evaluatePrettyTerm testing ({ x := 1, y := 2, z := 3, a := 4 } : A) ({ x := 5, y := 6, z := 7, a := 8 } : A)
+
+#evaluatePrettyTerm testing
+
+#show_pretty_uplc testing
 
 #evaluatePrettyTerm testing2 ({ x := 1, y := 2, z := 3, a := 4 } : A) ({ x := 5, y := 6, z := 7, a := 8 } : A)
 
@@ -198,12 +212,6 @@ error: compilation of Test.Debug.listSumBrecOnViaHelper failed: translation erro
 #guard_msgs(error) in
 #check (compile! listSumBrecOnViaHelper : Term)
 
-@[onchain]
-def intListNil : List Int := []
-
-@[onchain]
-def intList123 : List Int := [1, 2, 3]
-
 /-! ## Recursive SOP type (structural recursion) -/
 
 inductive Tree where
@@ -225,18 +233,148 @@ def treeSmall : Tree := .node (.leaf 2) (.leaf 3)
 @[onchain]
 def treeBig : Tree := .node (.node (.leaf 1) (.leaf 2)) (.node (.leaf 3) (.leaf 4))
 
+
+@[onchain]
+def eqTxOutRef (a b : TxOutRef) : Bool :=
+  ifThenElse (equalsByteString a.id b.id)
+    (equalsInteger a.idx b.idx)
+    false
+
+@[onchain]
+def findInputByOutRef (inputs : List TxInInfo) (ref : TxOutRef) : Maybe TxInInfo :=
+  match inputs with
+  | [] => .none
+  | x :: xs =>
+    if x.outRef == ref
+    then .some x
+    else findInputByOutRef xs ref
+
+#show_optimized_mir findInputByOutRef
+
+#show_pretty_uplc findInputByOutRef
+
+@[onchain]
+def testingIns : List TxInInfo := [{ outRef := { id := "12312123", idx := 0 }, resolved := { address := { credential := .scriptCredential "aaaa", stakingCredential := .nothingData}, value := .mk [], datum := .noOutputDatum, referenceScript := .nothingData } }]
+@[onchain]
+def testingRef : TxOutRef := { id := "abc", idx := 0 }
+
+#show_mir testingIns
+#show_optimized_mir testingIns
+#evaluatePrettyTerm testingIns
+
+@[onchain]
+def addall (xs : List Int) : Int :=
+  match xs with
+  | [] => 0
+  | x :: xs => x + addall xs
+
+#show_optimized_mir addall
+
+@[onchain]
+def hello (x : Bool) : Int :=
+  if x then 42 else 0
+  -- match x with
+  -- | true => 42
+  -- | false => 0
+
+#show_optimized_mir hello
+#evaluatePrettyTerm hello false
+
+/-! ## PlutusData fromData safety -/
+
+/-! ## Abbrev field test types for PlutusData -/
+
+-- Structure with Int abbrev fields (Lovelace, POSIXTime)
+@[plutus_data]
+structure TestPayment where
+  amount : Lovelace
+  time   : POSIXTime
+
+-- Multi-constructor with mixed abbrev fields
+@[plutus_data]
+inductive TestAction where
+  | pay      : Lovelace → TestAction
+  | certify  : Int → TestAction
+  | empty    : TestAction
+
+-- Nested @[plutus_data] type as a field
+@[plutus_data]
+structure TestNested where
+  inner : Bar
+  tag   : Int
+
+-- Structure with POSIXTime abbrev fields
+@[plutus_data]
+structure TestTime where
+  start : POSIXTime
+  end_  : POSIXTime
+
+-- Onchain construction functions for abbrev types
+@[onchain]
+def mkTestPayment : TestPayment :=
+  { amount := 1000000, time := 42 }
+
+@[onchain]
+def mkTestActionPay : TestAction :=
+  .pay 500
+
+@[onchain]
+def mkTestActionEmpty : TestAction :=
+  .empty
+
+@[onchain]
+def mkTestNested : TestNested :=
+  { inner := { x := 10, y := 20, z := 30 }, tag := 7 }
+
+@[onchain]
+def mkTestTime : TestTime :=
+  { start := 1000, end_ := 2000 }
+
+-- Onchain match on abbrev fields
+@[onchain]
+def extractLovelace (p : TestPayment) : Int := p.amount
+
+@[onchain]
+def matchTestAction (a : TestAction) : Int :=
+  match a with
+  | .pay amt => amt
+  | .certify _ => -1
+  | .empty => 0
+
+@[onchain]
+def extractPOSIXTime (t : TestTime) : Int := t.start + t.end_
+
+/-! ## BEq on @[plutus_data] types -/
+
+@[onchain]
+def eqBar (a b : Bar) : Bool := a == b
+
+@[onchain]
+def eqBaz (a b : Baz) : Bool := a == b
+
+#show_optimized_mir eqBar
+#show_optimized_mir eqBaz
+
 end Test.Debug
 
 
 /-
-let anf_1001 = force (force sndPair)
-let anf_1002 = force tailList
-let anf_1003 = force headList
-in
-  λx_0.
-    let pair_2 = unConstrData x_0
-    in
-      addInteger
-        (unIData (anf_1003 (anf_1002 (anf_1001 pair_2))))
-        (unIData (anf_1003 (anf_1002 (anf_1002 (anf_1002 (anf_1001 pair_2))))))
+MIR for Test.Debug.findInputByOutRef:
+fix Test.Debug.findInputByOutRef_0 =
+  λinputs_1 ref_2.
+    force ((force (force chooseList)) inputs_1 (delay
+      constr(0)) (delay
+      let head_3 = (force headList) inputs_1
+      let tail_4 = (force tailList) inputs_1
+      in
+        force ((force ifThenElse) ((case constr(0 (λa_9 b_10.
+          let fields_14 = (force (force sndPair)) (unConstrData a_9)
+          let fields_24 = (force (force sndPair)) (unConstrData b_10)
+          in
+            equalsData constr(0 0 ((force mkCons) constr(4 (unBData ((force headList) fields_14))) ((force mkCons) constr(3 (unIData ((force headList) ((force tailList) fields_14)))) []))) constr(0 0 ((force mkCons) constr(4 (unBData ((force headList) fields_24))) ((force mkCons) constr(3 (unIData ((force headList) ((force tailList) fields_24)))) []))))) of
+          | λsf0_8.
+            sf0_8) ((force headList) ((force (force sndPair)) (unConstrData head_3))) ref_2) (delay
+          constr(1 head_3)) (delay Test.Debug.findInputByOutRef_0 tail_4 ref_2))))
 -/
+
+#show_expr Moist.Cardano.V3.TxOutRef.instBEq

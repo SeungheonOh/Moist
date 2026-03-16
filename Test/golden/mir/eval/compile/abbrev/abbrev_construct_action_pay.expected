@@ -1,0 +1,8 @@
+@ result
+(con data (Constr 0 [(I 500)]))
+
+@ cpu
+301912
+
+@ mem
+1396

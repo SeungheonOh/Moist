@@ -88,15 +88,17 @@ where
   lowerFix (env : List VarId) (f : VarId) (body : Expr) : LowerM Term := do
     match body with
     | .Lam x e =>
-      -- Z combinator (CBV-safe):
-      -- (λs. λx. e'[f := λv. s s v]) (λs. λx. e'[f := λv. s s v])
+      -- Z combinator (CBV-safe), let-shared to avoid duplicating the functional:
+      -- (λz. z z) (λs. λx. e'[f := λv. s s v])
       let s ← liftFresh (freshVar "s")
       let v ← liftFresh (freshVar "v")
       let selfApp := Expr.Lam v (.App (.App (.Var s) (.Var s)) (.Var v))
       let e' ← liftFresh (subst f selfApp e)
       let inner := Expr.Lam s (.Lam x e')
       let innerTerm ← lower env inner
-      pure (.Apply innerTerm innerTerm)
+      -- (λz. z z) innerTerm — the functional appears only once
+      let omega := Term.Lam 0 (.Apply (.Var 1) (.Var 1))
+      pure (.Apply omega innerTerm)
     | _ =>
       ExceptT.mk (pure (.error s!"Fix body must be a Lam, got: {repr body}"))
 

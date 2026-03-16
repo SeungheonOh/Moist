@@ -215,6 +215,17 @@ private partial def evalNatLit (e : Lean.Expr) : Option Nat :=
     | _ => none
   | _ => none
 
+/-- Evaluate a closed ByteArray expression to a concrete value.
+    Uses `evalExpr` to handle all forms of construction (string coercion, array literals, etc.). -/
+private unsafe def evalByteArrayLitImpl (e : Lean.Expr) : MetaM (Option ByteArray) := do
+  try
+    let ba ← Lean.Meta.evalExpr ByteArray (mkConst ``ByteArray) e
+    return some ba
+  catch _ => return none
+
+@[implemented_by evalByteArrayLitImpl]
+private opaque evalByteArrayLit (e : Lean.Expr) : MetaM (Option ByteArray)
+
 /-- Get the non-erased field types for a constructor, substituting type parameters
     with the actual type arguments from the constructor/casesOn application.
     This gives concrete field types that can be resolved by `resolveDataCodec`. -/
@@ -376,15 +387,17 @@ private partial def encodeToData (codec : DataCodec) (val : MIR.Expr) : Translat
       let newPair := MIR.Expr.App (.App (mkBuiltin .MkPairData) encodedKey) encodedVal
       let tailExpr := MIR.Expr.App (mkBuiltin .TailList) (.Var xs)
       let recurse := MIR.Expr.App (.Var mapF) tailExpr
-      let cons := MIR.Expr.App (.App (mkBuiltin .MkCons) newPair) recurse
+      -- Bind `pair = headList xs` inside the delayed cons branch
+      -- so headList is only called when the list is non-empty
+      let consBody := MIR.Expr.App (.App (mkBuiltin .MkCons) newPair) recurse
+      let cons := MIR.Expr.Let [(pair, .App (mkBuiltin .HeadList) (.Var xs), false)] consBody
       let nil := MIR.Expr.Lit
         (.ConstPairDataList [], .TypeOperator (.TypeList
           (.TypeOperator (.TypePair (.AtomicType .TypeData) (.AtomicType .TypeData)))))
       let consH ← freshVarId "enc_cons"
       let nilH ← freshVarId "enc_nil"
       let mapBody := MIR.Expr.Let
-        [(pair, .App (mkBuiltin .HeadList) (.Var xs), false),
-         (consH, .Delay cons, false), (nilH, .Delay nil, false)]
+        [(consH, .Delay cons, false), (nilH, .Delay nil, false)]
         (.Case (.App (mkBuiltin .NullList) (.Var xs))
           [.Force (.Var consH), .Force (.Var nilH)])
       let mapFn := MIR.Expr.Fix mapF (.Lam xs mapBody)
@@ -541,6 +554,24 @@ mutual
           return ← applyOverArgs (mkBoolBranch scrut trueAlt falseAlt) args 5
       if isRec name then
         throwError (explicitRecursorExprError name)
+      -- PlutusData.toData on @[plutus_data] types: identity
+      if name == `Moist.Onchain.PlutusData.toData && args.size >= 3 then
+        let ty' ← whnf args[0]!
+        let typeName := ty'.getAppFn.constName?.getD Name.anonymous
+        let env ← getEnv
+        if plutusDataAttr.hasTag env typeName || typeName == ``Moist.Plutus.Data then
+          return ← translateExpr args[2]!
+      -- PlutusData.unsafeFromData on @[plutus_data] types: identity
+      if name == `Moist.Onchain.PlutusData.unsafeFromData && args.size >= 3 then
+        let ty' ← whnf args[0]!
+        let typeName := ty'.getAppFn.constName?.getD Name.anonymous
+        let env ← getEnv
+        if plutusDataAttr.hasTag env typeName || typeName == ``Moist.Plutus.Data then
+          return ← translateExpr args[2]!
+      -- ByteArray/ByteString literal: evaluate to concrete bytes
+      if name == ``ByteArray.mk && !e.hasLooseBVars then
+        if let some ba ← evalByteArrayLit e then
+          return .Lit (.ByteString ba, .AtomicType .TypeByteString)
 
     -- Try whnf to reduce the expression
     if !e.hasLooseBVars then
@@ -580,13 +611,19 @@ mutual
         prefixExpr := candidate
         nConsumed := nConsumed + 1
       if nConsumed > 0 && !prefixExpr.hasLooseBVars then
+        -- Try resolveToBuiltin first — handles simple cases (e.g. HAdd.hAdd → Int.add)
         let resolved ← resolveToBuiltin prefixExpr 20
         if let some reduced := resolved then
-          -- Only use the result if it actually changed the expression
           if reduced != prefixExpr then
             let remainingArgs := args.extract nConsumed args.size
             let fullReduced := remainingArgs.foldl (init := reduced) fun acc a => .app acc a
             return ← translateExpr fullReduced.headBeta
+        -- Fallback: whnf for compound typeclass methods (e.g. BEq.beq → fun a b => equalsData ...)
+        let whnfResult ← whnf prefixExpr
+        if whnfResult != prefixExpr then
+          let remainingArgs := args.extract nConsumed args.size
+          let fullReduced := remainingArgs.foldl (init := whnfResult) fun acc a => .app acc a
+          return ← translateExpr fullReduced.headBeta
     -- Translate directly
     translateAppDirect e
 
@@ -651,6 +688,12 @@ mutual
         let numFields := fieldTypes.size
         if idx >= numFields then
           throwError "projection index {idx} out of range for {typeName} ({numFields} fields)"
+        -- Transparent newtype: single-constructor, single-value-field, no explicit @[plutus_sop] → identity
+        let numCtors := match env.find? typeName with
+          | some (.inductInfo iv) => iv.ctors.length
+          | _ => 0
+        if numCtors == 1 && numFields == 1 && idx == 0 && !plutusSopAttr.hasTag env typeName then
+          return scrut
         -- Build a lambda that ignores all fields except idx
         let mut vars : Array MIR.VarId := #[]
         for i in [:numFields] do
@@ -1233,6 +1276,13 @@ mutual
               valueArgExprs := valueArgExprs.push arg
             currentFn := .app currentFn arg
           if repr == .sop then
+            -- Transparent newtype: single-constructor, single-value-field,
+            -- no explicit @[plutus_sop] → erase the wrapper
+            let numCtors := match env.find? cval.induct with
+              | some (.inductInfo iv) => iv.ctors.length
+              | _ => 0
+            if numCtors == 1 && valueArgs.size == 1 && !plutusSopAttr.hasTag env cval.induct then
+              return valueArgs[0]!
             return .Constr cval.cidx valueArgs.toList
           else
             -- Data encoding: constrData tag (mkCons (toData f0) (mkCons (toData f1) ... mkNilData))

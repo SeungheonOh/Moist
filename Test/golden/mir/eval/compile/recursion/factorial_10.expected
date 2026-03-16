@@ -1,8 +1,8 @@
-@ error
-OutOfBudget: OutOfBudget
+@ result
+(con integer 3628800)
 
 @ cpu
-10002218372
+8453912
 
 @ mem
-46949468
+32162

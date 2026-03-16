@@ -49,6 +49,17 @@ def mkBazQuxUPLC  : Term := compile! mkBazQux
 
 def cccUPLC       : Term := compile! ccc
 def fffUPLC       : Term := compile! fff
+
+/-! ## Abbrev field test data (@[plutus_data] with Lovelace, POSIXTime, Credential) -/
+
+def mkTestPaymentUPLC     : Term := compile! mkTestPayment
+def mkTestActionPayUPLC   : Term := compile! mkTestActionPay
+def mkTestActionEmptyUPLC : Term := compile! mkTestActionEmpty
+def mkTestNestedUPLC      : Term := compile! mkTestNested
+def mkTestTimeUPLC        : Term := compile! mkTestTime
+def extractLovelaceUPLC   : Term := compile! extractLovelace
+def matchTestActionUPLC   : Term := compile! matchTestAction
+def extractPOSIXTimeUPLC  : Term := compile! extractPOSIXTime
 def factorialUPLC : Term := compile! factorial
 def treeSumUPLC   : Term := compile! treeSum
 def treeLeaf5UPLC : Term := compile! treeLeaf5
@@ -98,6 +109,27 @@ def compileTree : TestTree := suite "compile" do
     mkTermApplyEvalGolden "factorial_5" factorialUPLC [intTerm 5]
     -- factorial(10) = 3628800
     mkTermApplyEvalGolden "factorial_10" factorialUPLC [intTerm 10]
+
+  -- Abbrev field types (@[plutus_data] with Lovelace, POSIXTime, Credential)
+  group "abbrev" do
+    -- TestPayment{amount:=1000000, time:=42} construction
+    mkTermEvalGolden "abbrev_construct_payment" mkTestPaymentUPLC
+    -- TestAction.pay 500 construction
+    mkTermEvalGolden "abbrev_construct_action_pay" mkTestActionPayUPLC
+    -- TestAction.empty construction
+    mkTermEvalGolden "abbrev_construct_action_empty" mkTestActionEmptyUPLC
+    -- TestNested{inner:=Bar{10,20,30}, tag:=7} construction (nested @[plutus_data])
+    mkTermEvalGolden "abbrev_construct_nested" mkTestNestedUPLC
+    -- TestTime{start:=1000, end_:=2000} construction
+    mkTermEvalGolden "abbrev_construct_time" mkTestTimeUPLC
+    -- extractLovelace(TestPayment{1000000, 42}) = 1000000
+    mkTermApplyEvalGolden "abbrev_extract_lovelace" extractLovelaceUPLC [mkTestPaymentUPLC]
+    -- matchTestAction(.pay 500) = 500
+    mkTermApplyEvalGolden "abbrev_match_action_pay" matchTestActionUPLC [mkTestActionPayUPLC]
+    -- matchTestAction(.empty) = 0
+    mkTermApplyEvalGolden "abbrev_match_action_empty" matchTestActionUPLC [mkTestActionEmptyUPLC]
+    -- extractPOSIXTime(TestTime{1000, 2000}) = 1000 + 2000 = 3000
+    mkTermApplyEvalGolden "abbrev_extract_posixtime" extractPOSIXTimeUPLC [mkTestTimeUPLC]
 
   -- Structural recursion on user-defined SOP type (Tree)
   group "tree" do
