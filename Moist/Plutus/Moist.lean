@@ -2,19 +2,18 @@ import Lean.Meta
 import Lean.Elab
 import Lean
 
-import Moist.Plutus.Term
+import PlutusCore.UPLC.Term
 import Moist.Plutus.Encode
 
 namespace Moist.Plutus.Moist
 
-open Moist.Plutus.Term
+open PlutusCore.UPLC.Term
 open Moist.Plutus.Encode
 open Lean.Meta
 open Lean.Elab
 open Lean.Elab.Tactic
-open Moist.Plutus (Integer)
+open PlutusCore.Integer (Integer)
 
---inductive MTerm
 universe u v
 
 inductive PTerm' (t : Type) : Type where
@@ -25,9 +24,7 @@ class PlutusType (t : Type) where
   pcon' : t → PTerm' PInner
   pmatch' : PTerm' PInner → (t → PTerm' r) → PTerm' r
 
---abbrev PInner (C) [PlutusType C] := PlutusType.PInner C
 @[reducible]def PInner (C : Type) [PlutusType C] := PlutusType.PInner C
--- TIL @[reducible]def ∼ abbrev
 
 def PTerm (t :Type) [PlutusType t] : Type :=
   PTerm' t
@@ -37,10 +34,10 @@ def runPTerm [PlutusType a] (n : Nat) (x : PTerm a) : Option Term :=
   | PTerm'.toTerm f => f n
 
 namespace PTerm
-def compile [PlutusType a] (t : PTerm a) : Option Term.Program :=
+def compile [PlutusType a] (t : PTerm a) : Option Program :=
   .Program (.Version 1 1 0) <$> runPTerm 0 t
 
-def compile! [PlutusType a] (t : PTerm a) : Term.Program :=
+def compile! [PlutusType a] (t : PTerm a) : Program :=
   match t.compile with
   | .none => panic! "compilation failed"
   | .some a => a
@@ -48,8 +45,6 @@ end PTerm
 
 instance [PlutusType a] : Repr (PTerm a) where
   reprPrec x n := reprPrec x.compile! n
-
-#check List.get!
 
 def punsafeCoerce [PlutusType a] [PlutusType b] (x : PTerm a) : PTerm b :=
   match x with
@@ -64,8 +59,6 @@ def pcon [PlutusType t] [PlutusType (PInner t)] (x : t) : PTerm t :=
 def pmatch [PlutusType t] [PlutusType (PInner t)] [PlutusType r]
   (x : PTerm t) (f : t → PTerm r) : PTerm r :=
   PlutusType.pmatch' (punsafeCoerce x : PTerm (PInner t)) f
-
-
 
 inductive Opaque
   | mk : Opaque
@@ -109,8 +102,9 @@ def padd : PTerm (Integer → Integer → Integer) :=
 
 def plam' [PlutusType a] [PlutusType b] (f: PTerm a → PTerm b) : PTerm (a → b) :=
   PTerm'.toTerm (λ i =>
-    let v : PTerm a := PTerm'.toTerm (λ j => .some (.Var (j - i)))
-    .Lam 0 <$> runPTerm (i+1) (f v)
+    let name := s!"v{i}"
+    let v : PTerm a := PTerm'.toTerm (λ _ => .some (.Var name))
+    .Lam name <$> runPTerm (i+1) (f v)
   )
 
 def papp' [PlutusType a] [PlutusType b] (f : PTerm (a → b)) (x : PTerm a) : PTerm b :=
@@ -132,12 +126,7 @@ instance [PlutusType a] : Foo (PTerm a) where
 instance [PlutusType a] [PlutusType b] : Foo (PTerm a → PTerm b) where
   foo := a → b
 
-
-#reduce (types := true) Foo.foo (PTerm Nat → PTerm Opaque)
-
 infixl:60 " ⊕ " => fun l r => (!l && r) || (l && !r)
-
-def mytermValues := [1, 2]
 
 infixl:80 " # "  => papp'
 infixr:0  " #$ " => papp'
@@ -151,7 +140,7 @@ def IsPTerm (e : Lean.Expr) : Bool :=
 
 elab "plam" lam:term : term => do
   let ty ← Lean.Meta.inferType (← Lean.Elab.Term.elabTerm lam none)
-  forallTelescope ty fun argTs _resultTy => -- check returnTy
+  forallTelescope ty fun argTs _resultTy =>
     match argTs.toList with
     | [] => throwError "plam: expected at least one argument"
     | ts => do
@@ -165,21 +154,6 @@ elab "plam" lam:term : term => do
       let lams ← ids.foldrM (λ (x : Lean.Ident) r => `(plam' λ $x => $r)) apps
       Lean.Elab.Term.elabTerm lams none
 
-
-
-#check Lean.mkApp
-#check Lean.mkLambdaEx
-#check Lean.Meta.withLocalDecl
-#check Repr
-
-#check PTerm Unit
-
-#check `(λ x => x)
-
-def myFunc (x : Integer) := x + 1
-
-def foo := 1
-def bar (x : Nat) : Nat := x + 1
 def baz (_x : PTerm Integer) : PTerm Integer := perror
 def bob (a b c : PTerm Integer) : PTerm Integer :=
   padd # a #$ padd # b # c
@@ -191,38 +165,5 @@ def bob (a b c : PTerm Integer) : PTerm Integer :=
 #check plam bob
 
 #eval (plam bob).compile!
-
-
-
-
-
-
-
-
-
-
-
-
-
-#check  plam' λ b => plam' λ a => (λ (x : PTerm Nat) (y : PTerm Nat) => pcon (42 : Nat)) a b
-
-#eval mkAppM ``List.get! #[.const ``mytermValues [], Lean.mkNatLit 1]
-#eval `(λ x => x)
-#eval do Lean.Elab.Term.elabTerm (← `(λ x => x)) none
-
-#check Lean.Elab.Term.elabTermEnsuringType
-
-
-#check plam' (λ (_ : PTerm Nat) => @perror Opaque _)
-
-#eval! runPTerm 0 (plam' (λ (x : PTerm Nat) => plam' (λ (y : PTerm Nat) => plam' (λ (z : PTerm Nat) => papp' (@perror (Nat → Opaque) _) z))))
-
-#reduce (types := true) PInner (PInner (PInner (Opaque)))
-
-#reduce PInner
-
-#reduce (types := true) PlutusType.PInner Nat
-
-
 
 end Moist.Plutus.Moist

@@ -1,2 +1,2 @@
 @ uplc
-(lam (lam [(var 2) (var 1)]))
+(lam f_4 (lam x_1 [(var f_4) (var x_1)]))

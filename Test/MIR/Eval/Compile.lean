@@ -5,7 +5,7 @@ import Moist.Onchain.Prelude
 
 namespace Test.MIR.Eval.Compile
 
-open Moist.Plutus.Term
+open PlutusCore.UPLC.Term
 open Moist.Onchain.Prelude
 open Test.MIR
 open Test.Framework
@@ -14,7 +14,7 @@ open Test.Debug
 /-! ## UPLC constant helpers -/
 
 private def intTerm (n : Int) : Term :=
-  .Constant (.Integer n, .AtomicType .TypeInteger)
+  .Const (.Integer n)
 
 /-! ## SOP test data (@[plutus_sop]) -/
 

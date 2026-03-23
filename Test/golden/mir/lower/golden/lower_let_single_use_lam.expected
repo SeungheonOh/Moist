@@ -1,2 +1,2 @@
 @ uplc
-[(lam [(var 1) (con integer 5)]) (lam (var 1))]
+[(lam a_7 [(var a_7) (con integer 5)]) (lam x_1 (var x_1))]

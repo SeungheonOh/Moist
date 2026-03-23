@@ -1,15 +1,16 @@
-import Moist.Plutus.Term
+import PlutusCore.UPLC.Term
+import Moist.Plutus.Convert
 
 namespace Moist.Plutus.PrettyHuman
 
-open Moist.Plutus.Term
+open PlutusCore.UPLC.Term
 open Std (Format)
 
 /-! # Human-Readable UPLC Pretty Printer
 
 Renders UPLC terms in a readable, high-level format:
-- `Apply (Lam _ body) arg` is shown as `let x = arg in body`
-- Lambdas get generated names (`i0`, `i1`, ...)
+- `Apply (Lam name body) arg` is shown as `let name = arg in body`
+- Variables show their actual names from the term
 - Applications are uncurried: `f x y z`
 - Builtins shown by name without wrapper
 - Minimal parenthesization
@@ -106,30 +107,30 @@ private def builtinName : BuiltinFun → String
   | .ExpModInteger => "expModInteger"
 
 mutual
-  private def fmtByteString : ByteString → String
-    | bs =>
-        let hex := bs.data.toList.map fun b =>
-          let hi := b.toNat / 16
-          let lo := b.toNat % 16
-          let hexChar n := if n < 10 then Char.ofNat (48 + n) else Char.ofNat (87 + n)
-          s!"{hexChar hi}{hexChar lo}"
-        "#" ++ String.join hex
+  private def fmtByteString (bs : PlutusCore.ByteString.ByteString) : String :=
+    let hex := bs.data.data.map fun c =>
+      let b := c.toNat
+      let hi := b / 16
+      let lo := b % 16
+      let hexChar n := if n < 10 then Char.ofNat (48 + n) else Char.ofNat (87 + n)
+      s!"{hexChar hi}{hexChar lo}"
+    "#" ++ String.join hex
 
-  private def fmtData : Moist.Plutus.Data → String
+  private def fmtData : PlutusCore.Data.Data → String
     | .Constr idx fields => s!"(Constr {idx} {fmtDataList fields})"
     | .Map entries => s!"(Map {fmtDataPairList entries})"
     | .List xs => s!"(List {fmtDataList xs})"
     | .I n => s!"(I {n})"
     | .B bs => s!"(B {fmtByteString bs})"
 
-  private def fmtDataList : List Moist.Plutus.Data → String
+  private def fmtDataList : List PlutusCore.Data.Data → String
     | [] => "[]"
     | xs => "[" ++ String.intercalate ", " (xs.map fmtData) ++ "]"
 
-  private def fmtDataPair : Moist.Plutus.Data × Moist.Plutus.Data → String
+  private def fmtDataPair : PlutusCore.Data.Data × PlutusCore.Data.Data → String
     | (a, b) => s!"({fmtData a}, {fmtData b})"
 
-  private def fmtDataPairList : List (Moist.Plutus.Data × Moist.Plutus.Data) → String
+  private def fmtDataPairList : List (PlutusCore.Data.Data × PlutusCore.Data.Data) → String
     | [] => "[]"
     | xs => "[" ++ String.intercalate ", " (xs.map fmtDataPair) ++ "]"
 
@@ -157,23 +158,9 @@ mutual
     | .Bls12_381_MlResult => "<MlResult>"
 end
 
-/-- Generate a readable variable name from a counter.
-    0→a, 1→b, ..., 25→z, 26→a1, 27→b1, ..., 51→z1, 52→a2, ... -/
-private def freshName (n : Nat) : String :=
-  let letter := Char.ofNat (97 + n % 26)  -- 'a' + offset
-  let cycle := n / 26
-  if cycle == 0 then s!"{letter}" else s!"{letter}{cycle}"
-
-/-- Look up a De Bruijn variable in the name environment.
-    `env` has outermost binder at index 0, innermost at the end.
-    De Bruijn index 1 = innermost binder. -/
-private def lookupVar (env : Array String) (idx : Nat) : String :=
-  if idx == 0 || idx > env.size then s!"?{idx}"
-  else env[env.size - idx]!
-
 /-- Does this term need parentheses when used as an argument? -/
 private def needsParens : Term → Bool
-  | .Var _ | .Constant _ | .Builtin _ | .Error => false
+  | .Var _ | .Const _ | .Builtin _ | .Error => false
   | .Constr _ _ => false
   | _ => true
 
@@ -200,149 +187,131 @@ private def uncurryApp : Term → Term × List Term
   | other => (other, [])
 
 /-- Render a UPLC term in human-readable format.
-    `env` tracks generated names for De Bruijn variables.
-    `c` is the fresh name counter.
-    Returns `(Format, updated counter)`. -/
-partial def fmtHuman (t : Term) (env : Array String) (c : Nat) : Format × Nat :=
+    Since terms carry their own variable names, no environment is needed. -/
+partial def fmtHuman (t : Term) : Format :=
   match t with
-  | .Var n => (.text (lookupVar env n), c)
+  | .Var name => .text name
 
-  | .Constant (cv, _) => (.text (fmtConst cv), c)
+  | .Const cv => .text (fmtConst cv)
 
-  | .Builtin b => (.text (builtinName b), c)
+  | .Builtin b => .text (builtinName b)
 
-  | .Error => (.text "error", c)
+  | .Error => .text "error"
 
-  -- Let binding: Apply (Lam _ body) arg → let name = arg in body
+  -- Let binding: Apply (Lam name body) arg -> let name = arg in body
   | t@(.Apply (.Lam _ _) _) =>
-    let (binds, inner, env', c') := collectLets t env c
-    let (bodyFmt, c'') := fmtHuman inner env' c'
+    let (binds, inner) := collectLets t
+    let bodyFmt := fmtHuman inner
     let bindsFmt := binds.map fun (name, val) =>
       Format.group
         (.text s!"let {name} =" ++ Format.nest 2 (Format.line ++ val))
     match bindsFmt with
-    | [] => (bodyFmt, c'')
+    | [] => bodyFmt
     | first :: rest =>
       let bindsDoc := rest.foldl (fun acc b => acc ++ Format.line ++ b) first
-      (bindsDoc ++ Format.line ++
-        Format.group (.text "in" ++ Format.nest 2 (Format.line ++ bodyFmt)), c'')
+      bindsDoc ++ Format.line ++
+        Format.group (.text "in" ++ Format.nest 2 (Format.line ++ bodyFmt))
 
   -- Lambda: collect multi-param lambdas
   | t@(.Lam _ _) =>
-    let (names, inner, env', c') := collectLams t env c
-    let (bodyFmt, c'') := fmtHuman inner env' c'
+    let (names, inner) := collectLams t
+    let bodyFmt := fmtHuman inner
     let paramStr := String.intercalate " " names
     let fmt := .text s!"λ{paramStr}." ++ Format.nest 2 (Format.line ++ bodyFmt)
-    (if forcesMultiline inner then fmt else Format.group fmt, c'')
+    if forcesMultiline inner then fmt else Format.group fmt
 
   -- Application: uncurry into f x y z
   | t@(.Apply _ _) =>
     let (head, args) := uncurryApp t
-    let (headFmt, c1) := fmtHuman head env c
-    let (argFmts, c2) := fmtArgs args env c1
+    let headFmt := fmtHuman head
+    let argFmts := fmtArgs args
     let headFmt' := parensIf (needsParens head) headFmt
     let argsDoc := argFmts.foldl (fun acc a => acc ++ Format.line ++ a) .nil
-    (Format.group (headFmt' ++ Format.nest 2 argsDoc), c2)
+    Format.group (headFmt' ++ Format.nest 2 argsDoc)
 
   | .Force e =>
-    let (eFmt, c') := fmtHuman e env c
-    (Format.group
-      (.text "force " ++ parensIf (needsParens e) eFmt), c')
+    let eFmt := fmtHuman e
+    Format.group
+      (.text "force " ++ parensIf (needsParens e) eFmt)
 
   | .Delay e =>
-    let (eFmt, c') := fmtHuman e env c
-    (Format.group
-      (.text "delay" ++ Format.nest 2 (Format.line ++ parensIf (needsParens e) eFmt)), c')
+    let eFmt := fmtHuman e
+    Format.group
+      (.text "delay" ++ Format.nest 2 (Format.line ++ parensIf (needsParens e) eFmt))
 
   | .Constr tag args =>
-    let (argFmts, c') := fmtArgs args env c
-    (Format.group
+    let argFmts := fmtArgs args
+    Format.group
       (.text s!"constr({tag}" ++
         (if args.isEmpty then .nil
          else .text " " ++ Format.joinSep argFmts (.text " ")) ++
-        .text ")"), c')
+        .text ")")
 
   | .Case scrut alts =>
-    let (scrutFmt, c1) := fmtHuman scrut env c
-    let (altFmts, c2) := fmtCaseAlts alts env c1
+    let scrutFmt := fmtHuman scrut
+    let altFmts := fmtCaseAlts alts
     let altsDoc := altFmts.foldl (fun acc a => acc ++ Format.line ++ a) .nil
-    (.text "case " ++ parensIf (needsParens scrut) scrutFmt ++ .text " of" ++
-      Format.nest 2 altsDoc, c2)
+    .text "case " ++ parensIf (needsParens scrut) scrutFmt ++ .text " of" ++
+      Format.nest 2 altsDoc
 
 where
-  /-- Collect a chain of let bindings (Apply (Lam _ body) arg). -/
-  collectLets (t : Term) (env : Array String) (c : Nat)
-      : List (String × Format) × Term × Array String × Nat :=
+  /-- Collect a chain of let bindings (Apply (Lam name body) arg). -/
+  collectLets (t : Term) : List (String × Format) × Term :=
     match t with
-    | .Apply (.Lam _ body) arg =>
-      let (argFmt, c1) := fmtHuman arg env c
-      let name := freshName c1
-      let c2 := c1 + 1
-      let env' := env.push name
-      let (moreBinds, inner, env'', c3) := collectLets body env' c2
-      ((name, argFmt) :: moreBinds, inner, env'', c3)
-    | other => ([], other, env, c)
+    | .Apply (.Lam name body) arg =>
+      let argFmt := fmtHuman arg
+      let (moreBinds, inner) := collectLets body
+      ((name, argFmt) :: moreBinds, inner)
+    | other => ([], other)
 
   /-- Collect consecutive lambdas into a multi-param lambda. -/
-  collectLams (t : Term) (env : Array String) (c : Nat)
-      : List String × Term × Array String × Nat :=
+  collectLams (t : Term) : List String × Term :=
     match t with
-    | .Lam _ body =>
-      let name := freshName c
-      let c1 := c + 1
-      let env' := env.push name
-      let (moreNames, inner, env'', c2) := collectLams body env' c1
-      (name :: moreNames, inner, env'', c2)
-    | other => ([], other, env, c)
+    | .Lam name body =>
+      let (moreNames, inner) := collectLams body
+      (name :: moreNames, inner)
+    | other => ([], other)
 
   /-- Format a list of argument terms, wrapping non-atoms in parens. -/
-  fmtArgs (args : List Term) (env : Array String) (c : Nat)
-      : List Format × Nat :=
-    args.foldl (fun (acc, ci) arg =>
-      let (fmt, ci') := fmtHuman arg env ci
-      (acc ++ [parensIf (needsParens arg) fmt], ci'))
-      ([], c)
+  fmtArgs (args : List Term) : List Format :=
+    args.map fun arg =>
+      let fmt := fmtHuman arg
+      parensIf (needsParens arg) fmt
 
   /-- Format a single case alternative.
       If the alt is a lambda, render as `λparams. body` with body on next line. -/
-  fmtCaseAlt (alt : Term) (env : Array String) (c : Nat)
-      : Format × Nat :=
+  fmtCaseAlt (alt : Term) : Format :=
     match alt with
     | .Lam _ _ =>
-      let (names, inner, env', c') := collectLams alt env c
-      let (bodyFmt, c'') := fmtHuman inner env' c'
+      let (names, inner) := collectLams alt
+      let bodyFmt := fmtHuman inner
       let paramStr := String.intercalate " " names
-      (.text s!"λ{paramStr}." ++ Format.nest 2 (Format.line ++ bodyFmt), c'')
+      .text s!"λ{paramStr}." ++ Format.nest 2 (Format.line ++ bodyFmt)
     | other =>
-      let (fmt, c') := fmtHuman other env c
-      (fmt, c')
+      fmtHuman other
 
   /-- Format case alternatives. -/
-  fmtCaseAlts (alts : List Term) (env : Array String) (c : Nat)
-      : List Format × Nat :=
-    alts.foldl (fun (acc, ci) alt =>
-      let (fmt, ci') := fmtCaseAlt alt env ci
-      (acc ++ [.text "| " ++ fmt], ci'))
-      ([], c)
+  fmtCaseAlts (alts : List Term) : List Format :=
+    alts.map fun alt => .text "| " ++ fmtCaseAlt alt
 
 def fmtHumanProgram : Program → Format
   | .Program (.Version a b c) t =>
-    let (termFmt, _) := fmtHuman t #[] 0
+    let termFmt := fmtHuman t
     Format.group
       (.text s!"(program {a}.{b}.{c}" ++
         Format.nest 2 (Format.line ++ termFmt) ++
         .text ")")
 
 def prettyHuman (t : Term) (width : Nat := 100) : String :=
-  (fmtHuman t #[] 0).1.pretty width
+  (fmtHuman t).pretty width
 
 def prettyHumanProgram (p : Program) (width : Nat := 100) : String :=
   (fmtHumanProgram p).pretty width
 
 end Moist.Plutus.PrettyHuman
 
-def Moist.Plutus.Term.Term.prettyTerm (t : Moist.Plutus.Term.Term) (width : Nat := 100) : String :=
+def PlutusCore.UPLC.Term.Term.prettyTerm (t : PlutusCore.UPLC.Term.Term) (width : Nat := 100) : String :=
   Moist.Plutus.PrettyHuman.prettyHuman t width
 
-def Moist.Plutus.Term.Term.printPrettyTerm (t : Moist.Plutus.Term.Term) (width : Nat := 100) : IO Unit :=
+def PlutusCore.UPLC.Term.Term.printPrettyTerm (t : PlutusCore.UPLC.Term.Term) (width : Nat := 100) : IO Unit :=
   IO.println (Moist.Plutus.PrettyHuman.prettyHuman t width)

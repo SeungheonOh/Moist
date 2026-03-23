@@ -1,2 +1,2 @@
 @ uplc
-(lam (var 1))
+(lam x_1 (var x_1))

@@ -1,4 +1,4 @@
-import Moist.Plutus.Term
+import PlutusCore.UPLC.Term
 import Moist.Plutus.Encode
 import Moist.Plutus.Decode
 import Moist.Plutus.BitBuffer
@@ -6,7 +6,7 @@ import Moist.Plutus.Pretty
 
 namespace Moist.Plutus.Eval
 
-open Moist.Plutus.Term
+open PlutusCore.UPLC.Term
 open Moist.Plutus.Encode (encode_program)
 open Moist.Plutus.Decode.Internal (decodeProgramFromBits)
 
@@ -75,7 +75,7 @@ instance : ToString ExBudget where
 
 /-- Result of CEK machine evaluation. -/
 structure EvalResult where
-  term   : Term
+  term   : PlutusCore.UPLC.Term.Term
   budget : ExBudget
 deriving Repr
 
@@ -106,7 +106,7 @@ opaque evalFlatRaw (program : @& ByteArray) (cpuBudget : UInt64) (memBudget : UI
 
     Encodes the program to flat bytes, sends it to the Zig machine,
     and decodes the result back to a Lean Term. -/
-def evalProgram (prog : Program) (cpuBudget memBudget : UInt64) : IO (Except (CEKError × ExBudget × String) EvalResult) := do
+def evalProgram (prog : PlutusCore.UPLC.Term.Program) (cpuBudget memBudget : UInt64) : IO (Except (CEKError × ExBudget × String) EvalResult) := do
   let flatBytes := bitBufferToByteArray (encode_program prog)
   let (errCode, cpuUsed, memUsed, payload) ← evalFlatRaw flatBytes cpuBudget memBudget
   let budget := ExBudget.mk cpuUsed memUsed
@@ -126,25 +126,25 @@ def defaultCpuBudget : UInt64 := 10000000000
 def defaultMemBudget : UInt64 := 14000000
 
 /-- Evaluate a Program with default Cardano mainnet budget. -/
-def eval (prog : Program) : IO (Except (CEKError × ExBudget × String) EvalResult) :=
+def eval (prog : PlutusCore.UPLC.Term.Program) : IO (Except (CEKError × ExBudget × String) EvalResult) :=
   evalProgram prog defaultCpuBudget defaultMemBudget
 
 /-- Evaluate a Term directly. Wraps it in a Program v1.1.0, evaluates, and returns the result Term. -/
-def evalTerm (term : Term) (cpuBudget memBudget : UInt64 := defaultCpuBudget) : IO (Except (CEKError × ExBudget × String) EvalResult) :=
+def evalTerm (term : PlutusCore.UPLC.Term.Term) (cpuBudget memBudget : UInt64 := defaultCpuBudget) : IO (Except (CEKError × ExBudget × String) EvalResult) :=
   -- Terms produced by the onchain compiler may contain `Constr`/`Case`,
   -- which require at least Plutus Core 1.1.0.
   evalProgram (.Program (.Version 1 1 0) term) cpuBudget memBudget
 
 end Moist.Plutus.Eval
 
-namespace Moist.Plutus.Term.Term
+namespace PlutusCore.UPLC.Term.Term
 
 open Moist.Plutus.Eval
 
-def evaluate (t : Term) (cpuBudget memBudget : UInt64 := defaultCpuBudget) : IO (Except (CEKError × ExBudget × String) EvalResult) :=
+def evaluate (t : PlutusCore.UPLC.Term.Term) (cpuBudget memBudget : UInt64 := defaultCpuBudget) : IO (Except (CEKError × ExBudget × String) EvalResult) :=
   evalTerm t cpuBudget memBudget
 
-def evaluatePretty (t : Term) (cpuBudget memBudget : UInt64 := defaultCpuBudget) : IO Unit := do
+def evaluatePretty (t : PlutusCore.UPLC.Term.Term) (cpuBudget memBudget : UInt64 := defaultCpuBudget) : IO Unit := do
   match ← evalTerm t cpuBudget memBudget with
   | .ok r =>
     IO.println s!"Result: {r.term}"
@@ -155,14 +155,14 @@ def evaluatePretty (t : Term) (cpuBudget memBudget : UInt64 := defaultCpuBudget)
     IO.println s!"CPU:    {budget.cpu}"
     IO.println s!"Memory: {budget.mem}"
 
-end Moist.Plutus.Term.Term
+end PlutusCore.UPLC.Term.Term
 
 open Moist.Plutus.Eval in
-def Moist.Plutus.Term.Program.evaluate (p : Moist.Plutus.Term.Program) (cpuBudget memBudget : UInt64 := defaultCpuBudget) : IO (Except (CEKError × ExBudget × String) EvalResult) :=
+def PlutusCore.UPLC.Term.Program.evaluate (p : PlutusCore.UPLC.Term.Program) (cpuBudget memBudget : UInt64 := defaultCpuBudget) : IO (Except (CEKError × ExBudget × String) EvalResult) :=
   evalProgram p cpuBudget memBudget
 
 open Moist.Plutus.Eval in
-def Moist.Plutus.Term.Program.evaluatePretty (p : Moist.Plutus.Term.Program) (cpuBudget memBudget : UInt64 := defaultCpuBudget) : IO Unit := do
+def PlutusCore.UPLC.Term.Program.evaluatePretty (p : PlutusCore.UPLC.Term.Program) (cpuBudget memBudget : UInt64 := defaultCpuBudget) : IO Unit := do
   match ← evalProgram p cpuBudget memBudget with
   | .ok r =>
     IO.println s!"Result: {r.term}"

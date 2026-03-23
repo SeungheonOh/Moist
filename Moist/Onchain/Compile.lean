@@ -10,6 +10,7 @@ import Moist.MIR.Pretty
 import Moist.Onchain.Attribute
 import Moist.Onchain.ToExpr
 import Moist.Onchain.Translate
+import PlutusCore.UPLC.Term
 
 namespace Moist.Onchain
 
@@ -17,7 +18,7 @@ open Lean Elab Meta
 open Moist.MIR (optimizeExpr optimizeDebugBeta optimizeTraceExpr preLowerInlineExpr lowerExpr OptStep)
 
 -- Use a local alias to avoid ambiguity with Lean.Term
-private abbrev UPLCTerm := Moist.Plutus.Term.Term
+private abbrev UPLCTerm := PlutusCore.UPLC.Term.Term
 
 /-! # compile! Term Elaborator
 
@@ -96,7 +97,7 @@ private def elabCompiledConst (name : Name) : TermElabM Expr := do
       Elab.throwAbortTerm
     throw e
   -- Reflect the Term value back into a Lean.Expr via ToExpr
-  return Moist.Onchain.ToExprInstances.uplcTermToExpr term
+  return PlutusCore.UPLC.Term.termToExpr term
 
 private def resolveCompileTarget (stx : Syntax) : TermElabM Name := do
   match stx with

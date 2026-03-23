@@ -151,6 +151,21 @@ noncomputable def nftMintPolicy (expectedTxId : ByteString) (expectedIdx : Int)
       false
   | _ => false
 
+@[onchain]
+def foo (ins : List TxInInfo) : Bool :=
+  match ins with
+  | [] => false
+  | .cons i rest =>
+    let txId := i.outRef.id
+    let idx := i.outRef.idx
+    ifThenElse (equalsByteString txId testTxId)
+      (equalsInteger idx 0)
+      (foo rest)
+termination_by ins.length
+decreasing_by simp_all
+
+#show_optimized_mir foo
+
 /-! ## Compile policies -/
 
 section Compiled
@@ -160,13 +175,6 @@ section Compiled
   def cNftMint      := compile! nftMintPolicy
 end Compiled
 
-#eval cNftMint.printTerm
-
-#show_mir alwaysMintPolicy
-#show_optimized_mir alwaysMintPolicy
-
-#show_mir nftMintPolicy
-#show_optimized_mir nftMintPolicy
 
 #show_opt_trace nftMintPolicy
 

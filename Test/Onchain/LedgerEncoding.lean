@@ -3,9 +3,11 @@ import Moist.Onchain.Prelude
 import Moist.Plutus.Eval
 import Moist.Plutus.CBOR
 import Moist.Cardano.V3
+import Moist.Plutus.Convert
 
-open Moist.Plutus.Term
+open PlutusCore.UPLC.Term
 open Moist.Plutus (Data ByteString)
+open Moist.Plutus.Convert (byteArrayToByteString convertData)
 open Moist.Onchain.Prelude
 open Moist.Plutus.Eval
 open Moist.Cardano.V3
@@ -15,13 +17,13 @@ namespace Test.LedgerEncoding
 /-! ## Helpers -/
 
 def dataTerm (d : Moist.Plutus.Data) : Term :=
-  Term.Constant (Const.Data d, BuiltinType.AtomicType AtomicType.TypeData)
+  Term.Const (.Data (convertData d))
 
 def bsTerm (bs : ByteString) : Term :=
-  Term.Constant (Const.ByteString bs, BuiltinType.AtomicType AtomicType.TypeByteString)
+  Term.Const (.ByteString (byteArrayToByteString bs))
 
 def intTerm (n : Int) : Term :=
-  Term.Constant (Const.Integer n, BuiltinType.AtomicType AtomicType.TypeInteger)
+  Term.Const (.Integer n)
 
 def fromHex! (hex : String) : Moist.Plutus.Data :=
   match Moist.Plutus.CBOR.dataFromCBORHex hex with
@@ -33,22 +35,23 @@ def checkResult (name : String) (result : Except (CEKError × ExBudget × String
   match result with
   | .ok r =>
     match r.term with
-    | .Constant (Const.Data d, _) =>
-      if d == expected then IO.println s!"  ✓ {name}"
+    | .Const (.Data d) =>
+      let d' := Moist.Plutus.Convert.unconvertData d
+      if d' == expected then IO.println s!"  ✓ {name}"
       else do
         IO.println s!"  ✗ {name}"
         IO.println s!"    expected: {expected}"
-        IO.println s!"    got:      {d}"
-    | .Constant (Const.Integer i, _) =>
+        IO.println s!"    got:      {d'}"
+    | .Const (.Integer i) =>
       match expected with
       | .I n =>
         if i == n then IO.println s!"  ✓ {name}"
         else IO.println s!"  ✗ {name}: expected I {n}, got I {i}"
       | _ => IO.println s!"  ✗ {name}: got Integer but expected {expected}"
-    | .Constant (Const.ByteString bs, _) =>
+    | .Const (.ByteString bs) =>
       match expected with
       | .B b =>
-        if bs == b then IO.println s!"  ✓ {name}"
+        if bs == byteArrayToByteString b then IO.println s!"  ✓ {name}"
         else IO.println s!"  ✗ {name}: ByteString mismatch"
       | _ => IO.println s!"  ✗ {name}: got ByteString but expected {expected}"
     | other => IO.println s!"  ✗ {name}: unexpected result: {repr other}"

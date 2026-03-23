@@ -1,5 +1,6 @@
 import Lean.ToExpr
 import Moist.Plutus.Term
+import PlutusCore.UPLC.Term
 
 namespace Moist.Onchain.ToExprInstances
 
@@ -196,46 +197,5 @@ instance : ToExpr BuiltinFun where
     | .ExpModInteger => ``BuiltinFun.ExpModInteger
     .const name []
   toTypeExpr := .const ``BuiltinFun []
-
-/-! ## ToExpr for Term (UPLC AST)
-
-Use fully qualified names to avoid ambiguity with Lean.Term. -/
-
-partial def uplcTermToExpr : Moist.Plutus.Term.Term → Lean.Expr
-  | .Var n => mkApp (.const ``Moist.Plutus.Term.Term.Var []) (toExpr n)
-  | .Constant (c, ty) =>
-    mkApp (.const ``Moist.Plutus.Term.Term.Constant [])
-      (mkApp4 (.const ``Prod.mk [.zero, .zero])
-        (.const ``Const []) (.const ``BuiltinType [])
-        (toExpr c) (toExpr ty))
-  | .Builtin b => mkApp (.const ``Moist.Plutus.Term.Term.Builtin []) (toExpr b)
-  | .Lam n body => mkApp2 (.const ``Moist.Plutus.Term.Term.Lam []) (toExpr n) (uplcTermToExpr body)
-  | .Apply f a => mkApp2 (.const ``Moist.Plutus.Term.Term.Apply []) (uplcTermToExpr f) (uplcTermToExpr a)
-  | .Delay e => mkApp (.const ``Moist.Plutus.Term.Term.Delay []) (uplcTermToExpr e)
-  | .Force e => mkApp (.const ``Moist.Plutus.Term.Term.Force []) (uplcTermToExpr e)
-  | .Constr tag args =>
-    mkApp2 (.const ``Moist.Plutus.Term.Term.Constr []) (toExpr tag) (listUplcTermToExpr args)
-  | .Case scrut alts =>
-    mkApp2 (.const ``Moist.Plutus.Term.Term.Case []) (uplcTermToExpr scrut) (listUplcTermToExpr alts)
-  | .Error => .const ``Moist.Plutus.Term.Term.Error []
-where
-  listUplcTermToExpr : List Moist.Plutus.Term.Term → Lean.Expr
-    | [] => mkApp (.const ``List.nil [.zero]) (.const ``Moist.Plutus.Term.Term [])
-    | t :: ts => mkApp3 (.const ``List.cons [.zero]) (.const ``Moist.Plutus.Term.Term [])
-        (uplcTermToExpr t) (listUplcTermToExpr ts)
-
-instance : ToExpr Moist.Plutus.Term.Term where
-  toExpr := uplcTermToExpr
-  toTypeExpr := .const ``Moist.Plutus.Term.Term []
-
-instance : ToExpr Version where
-  toExpr
-    | .Version a b c => mkApp3 (.const ``Version.Version []) (toExpr a) (toExpr b) (toExpr c)
-  toTypeExpr := .const ``Version []
-
-instance : ToExpr Program where
-  toExpr
-    | .Program v t => mkApp2 (.const ``Program.Program []) (toExpr v) (toExpr t)
-  toTypeExpr := .const ``Program []
 
 end Moist.Onchain.ToExprInstances

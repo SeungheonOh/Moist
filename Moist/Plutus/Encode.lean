@@ -1,14 +1,13 @@
 import Moist.Plutus.BitBuffer
 import Moist.Plutus.Lemma
 import Moist.Plutus.CBOR
-import Moist.Plutus.Term
+import PlutusCore.UPLC.Term
+import Moist.Plutus.Convert
 namespace Moist.Plutus.Encode
 
-open Moist.Plutus (Data ByteString)
 open Moist.Plutus.BitBuffer
 open Moist.Plutus.Lemma
-open Moist.Plutus
-open Moist.Plutus.Term
+open PlutusCore.UPLC.Term
 
 /-- A bit-level encoder matches the shape of `ℰ_X` in the specification. -/
 abbrev Encoder (α : Type) := BitBuffer → α → BitBuffer
@@ -71,17 +70,15 @@ def stringToUTF8Bytes (s : String) : List UInt8 :=
 def ℰ_U : Encoder String := fun buf s =>
   ℰ_B buf (stringToUTF8Bytes s)
 
-
-/-- Encode a `Data` object by first CBOR-serialising it, then applying E_{B*}. -/
-def ℰ_Data : Encoder Data := fun buf d =>
-  match CBOR.dataToCBORBytes d with
+/-- Encode a `Data` object by first CBOR-serialising it, then applying E_{B*}.
+    Converts sc-fvt Data to Moist Data for CBOR encoding. -/
+def ℰ_Data : Encoder PlutusCore.Data.Data := fun buf d =>
+  let moistData := Moist.Plutus.Convert.unconvertData d
+  match Moist.Plutus.CBOR.dataToCBORBytes moistData with
   | some bytes => ℰ_B buf bytes
   | none => buf
 
---#eval (encodeDataValue BitBuffer.empty (Data.List (Data.I 1 :: Data.I 2 :: Data.I 10 :: []))).pad.toBitString
-#eval (ℰ_U BitBuffer.empty "hi").pad.toBitString
-
--- Convert an atomic type to its 4-bit tag (0–4 or 8).
+-- Convert an atomic type to its 4-bit tag (0-4 or 8).
 def atomicTypeTag (t : AtomicType) : Nat :=
   match t with
   | AtomicType.TypeInteger => 0
@@ -106,19 +103,15 @@ def ℰ_type (buf : BitBuffer) (t : BuiltinType) : BitBuffer :=
 def ℰ_name (buf : BitBuffer) (n : Nat) : BitBuffer :=
   ℰ_ℕ buf n
 
--- Encode a binder name (always 0 for de Bruijn; consumes no input, ℰ_binder).
-def ℰ_binder (buf : BitBuffer) (_ : Nat) : BitBuffer :=
-  buf
-
 /-- Encode a constant value following spec/flat-serialisation.tex:531-540.
-    Type is inferred from the constant via constType.
+    Type is derived from the constant via scFvtConstType.
     NOTE: Uses partial to skip termination proof; recursion is on structural
     sub-constants (lists/pairs), which are guaranteed to terminate. -/
 partial def ℰ_constant : Encoder Const
   | buf, Const.Integer n =>
     ℰ_ℤ buf n
   | buf, Const.ByteString bs =>
-    let bytes := bs.data.toList
+    let bytes := bs.data.data.toArray.map (fun c => c.toNat.toUInt8) |>.toList
     ℰ_B buf bytes
   | buf, Const.String s =>
     ℰ_U buf s
@@ -137,7 +130,7 @@ partial def ℰ_constant : Encoder Const
       let ℰ_elem buf elem := ℰ_constant buf (Const.Data elem)
       ℰ_list ℰ_elem buf elems
     | buf, Const.ConstPairDataList pairs =>
-      let ℰ_pair buf (p : Data × Data) :=
+      let ℰ_pair buf (p : PlutusCore.Data.Data × PlutusCore.Data.Data) :=
       let buf := ℰ_constant buf (Const.Data p.1)
       ℰ_constant buf (Const.Data p.2)
       ℰ_list ℰ_pair buf pairs
@@ -148,7 +141,7 @@ partial def ℰ_constant : Encoder Const
 
 /-- Map a BuiltinFun to its 7-bit tag per spec/flat-serialisation.tex:600-748. -/
 def builtinFunTag : BuiltinFun → Nat
-  -- Batch 1: Core operations (0–50)
+  -- Batch 1: Core operations (0-50)
   | BuiltinFun.AddInteger => 0
   | BuiltinFun.SubtractInteger => 1
   | BuiltinFun.MultiplyInteger => 2
@@ -202,10 +195,10 @@ def builtinFunTag : BuiltinFun → Nat
   | BuiltinFun.MkNilPairData => 50
   -- Batch 2 (51)
   | BuiltinFun.SerializeData => 51
-  -- Batch 3 (52–53)
+  -- Batch 3 (52-53)
   | BuiltinFun.VerifyEcdsaSecp256k1Signature => 52
   | BuiltinFun.VerifySchnorrSecp256k1Signature => 53
-  -- Batch 4: BLS and Keccak (54–74)
+  -- Batch 4: BLS and Keccak (54-74)
   | BuiltinFun.Bls12_381_G1_add => 54
   | BuiltinFun.Bls12_381_G1_neg => 55
   | BuiltinFun.Bls12_381_G1_scalarMul => 56
@@ -227,7 +220,7 @@ def builtinFunTag : BuiltinFun → Nat
   | BuiltinFun.Blake2b_224 => 72
   | BuiltinFun.IntegerToByteString => 73
   | BuiltinFun.ByteStringToInteger => 74
-  -- Batch 5: Bitwise operations (75–86)
+  -- Batch 5: Bitwise operations (75-86)
   | BuiltinFun.AndByteString => 75
   | BuiltinFun.OrByteString => 76
   | BuiltinFun.XorByteString => 77
@@ -240,49 +233,47 @@ def builtinFunTag : BuiltinFun → Nat
   | BuiltinFun.CountSetBits => 84
   | BuiltinFun.FindFirstSetBit => 85
   | BuiltinFun.Ripemd_160 => 86
-  -- Batch 6: Advanced (87–93)
+  -- Batch 6: Advanced (87-93)
   | BuiltinFun.ExpModInteger => 87
-  --| BuiltinFun.AndByteString => 88  -- Note: Spec has "dropList" but Term has AndByteString; using placeholder
-  --| BuiltinFun.OrByteString => 89   -- Note: Spec has "lengthOfArray"
-  --| BuiltinFun.XorByteString => 90  -- Note: Spec has "listToArray"
-  --| BuiltinFun.ComplementByteString => 91  -- Note: Spec has "indexArray"
-  --| BuiltinFun.Bls12_381_G1_add => 92  -- Note: Spec has "bls12_381_G1_multiScalarMul"
-  --| BuiltinFun.Bls12_381_G2_add => 93  -- Note: Spec has "bls12_381_G2_multiScalarMul"
 
 /-- Encode a builtin function as a 7-bit value. -/
 def ℰ_builtin (buf : BitBuffer) (b : BuiltinFun) : BitBuffer :=
   ℰ_n buf (7, builtinFunTag b)
 
 /-- Encode a term recursively following spec/flat-serialisation.tex:362-408.
+    Carries an environment (List String) for computing de Bruijn indices
+    from named variables on-the-fly.
     NOTE: Uses partial def to handle recursion on sub-terms. -/
-partial def ℰ_term : Encoder Term
-  -- Variable: tag 0000, then ℰ_name(x) where x is de Bruijn index
-  | buf, Term.Var x =>
+partial def ℰ_term (env : List String) : Encoder Term
+  -- Variable: tag 0000, then ℰ_name(idx) where idx is de Bruijn index computed from env
+  | buf, Term.Var name =>
     let buf := buf.appendNibble 0
-    ℰ_name buf x
+    match env.findIdx? (· == name) with
+    | some idx => ℰ_name buf (idx + 1)
+    | none => buf  -- unbound variable, should not happen
   -- Delay: tag 0001, then recursive encode
   | buf, Term.Delay t =>
     let buf := buf.appendNibble 1
-    ℰ_term buf t
-  -- Lambda: tag 0010, then ℰ_binder(x), then recursive encode
-  | buf, Term.Lam x t =>
+    ℰ_term env buf t
+  -- Lambda: tag 0010, push binder name onto env, then recursive encode body
+  | buf, Term.Lam name body =>
     let buf := buf.appendNibble 2
-    let buf := ℰ_binder buf x
-    ℰ_term buf t
+    ℰ_term (name :: env) buf body
   -- Application: tag 0011, encode t1, then encode t2
   | buf, Term.Apply t1 t2 =>
     let buf := buf.appendNibble 3
-    let buf := ℰ_term buf t1
-    ℰ_term buf t2
-  -- Constant: tag 0100, encode type via ℰ_type, then encode constant value
-  | buf, Moist.Plutus.Term.Term.Constant c =>
+    let buf := ℰ_term env buf t1
+    ℰ_term env buf t2
+  -- Constant: tag 0100, derive type via scFvtConstType, encode type, then encode constant value
+  | buf, .Const c =>
     let buf := buf.appendNibble 4
-    let buf := ℰ_type buf c.2
-    ℰ_constant buf c.1
+    let ty := Moist.Plutus.Convert.scFvtConstType c
+    let buf := ℰ_type buf ty
+    ℰ_constant buf c
   -- Force: tag 0101, then recursive encode
   | buf, Term.Force t =>
     let buf := buf.appendNibble 5
-    ℰ_term buf t
+    ℰ_term env buf t
   -- Error: tag 0110 (no additional data)
   | buf, Term.Error =>
     buf.appendNibble 6
@@ -294,62 +285,28 @@ partial def ℰ_term : Encoder Term
   | buf, Term.Constr i terms =>
     let buf := buf.appendNibble 8
     let buf := ℰ_ℕ buf i
-    ℰ_list ℰ_term buf terms
+    ℰ_list (ℰ_term env) buf terms
   -- Case: tag 1001, encode scrutinee, then encode alternatives
   | buf, Term.Case scrutinee alts =>
     let buf := buf.appendNibble 9
-    let buf := ℰ_term buf scrutinee
-    ℰ_list ℰ_term buf alts
+    let buf := ℰ_term env buf scrutinee
+    ℰ_list (ℰ_term env) buf alts
 
 /-- Encode a program by encoding the version triple, then the term body,
     then padding to byte boundary following spec/flat-serialisation.tex:333-357. -/
 def encode_program : Program → BitBuffer
-  | ⟨⟨a, b, c⟩, t⟩ =>
+  | .Program (.Version a b c) t =>
       let buf := BitBuffer.empty
       -- Encode version triple: ℰ_ℕ(ℰ_ℕ(ℰ_ℕ(ε, a), b), c)
       let buf := ℰ_ℕ buf a
       let buf := ℰ_ℕ buf b
       let buf := ℰ_ℕ buf c
-      -- Encode term body
-      let buf := ℰ_term buf t
+      -- Encode term body (empty initial environment)
+      let buf := ℰ_term [] buf t
       -- Pad to byte boundary and convert to bytestring
-      let padded := buf.pad
-      padded
-
-/-
-(program 5.0.2
-[
-  [(builtin indexByteString)(con bytestring #1a5f783625ee8c)]
-  (con integer 54321)
-])
--/
-
-def testProg : Program :=
-  Program.Program (Version.Version 5 0 2)
-    (Term.Apply
-      (Term.Apply
-        (Term.Builtin BuiltinFun.IndexByteString)
-        (Term.Constant (Prod.mk (Const.ByteString (ByteArray.mk (Array.mk ([26, 95, 120, 54, 37, 238, 140] : List UInt8)))) (BuiltinType.AtomicType AtomicType.TypeByteString)))
-      )
-      (Term.Constant (Prod.mk (Const.Integer 54321) (BuiltinType.AtomicType AtomicType.TypeInteger))))
-
-#eval (encode_program testProg).toHexString
-
-/-
-00000101 00000000 00000010 00110011 01110001 11001001
-00010001 00000111 00011010 01011111 01111000 00110110
-00100101 11101110 10001100 00000000 01001000 00111000
-10110100 00000001 10000001"
--/
-/-
-00000101 00000000 00000010 00110011 01110001 11001001 ...3q.
-00010001 00000111 00011010 01011111 01111000 00110110 ..._x6
-00100101 11101110 10001100 00000000 01001000 00111000 %...H8
-10110100 00000001 10000001
--/
+      buf.pad
 
 end Moist.Plutus.Encode
 
-namespace Moist.Plutus.Term.Program
-def encode : Moist.Plutus.Term.Program → BitBuffer := Moist.Plutus.Encode.encode_program
-end Moist.Plutus.Term.Program
+def PlutusCore.UPLC.Term.Program.encode (p : PlutusCore.UPLC.Term.Program) : Moist.Plutus.BitBuffer :=
+  Moist.Plutus.Encode.encode_program p

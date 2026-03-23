@@ -1,2 +1,2 @@
 @ uplc
-[(lam [(lam (con integer 1)) (lam (var 1))]) (con integer 99)]
+[(lam a_7 [(lam b_8 (con integer 1)) (lam x_1 (var x_1))]) (con integer 99)]

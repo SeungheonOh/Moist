@@ -1,24 +1,14 @@
 @ uplc
-[(lam [(var 1) (con integer 10)])
-  [(lam
-      (lam
-        [(lam
+[(lam fac_10 [(var fac_10) (con integer 10)])
+  [(lam z [(var z) (var z)])
+    (lam s_10000
+      (lam n_11
+        [(lam isZero_12
             (force
-              [[[(builtin ifThenElse) (var 1)] (delay (con integer 1))]
+              [[[(builtin ifThenElse) (var isZero_12)] (delay (con integer 1))]
                 (delay
-                  [(lam
-                      [(lam [[(builtin multiplyInteger) (var 4)] (var 1)])
-                        [(lam [[(var 5) (var 5)] (var 1)]) (var 1)]])
-                    [[(builtin subtractInteger) (var 2)] (con integer 1)]])]))
-          [[(builtin equalsInteger) (var 1)] (con integer 0)]]))
-    (lam
-      (lam
-        [(lam
-            (force
-              [[[(builtin ifThenElse) (var 1)] (delay (con integer 1))]
-                (delay
-                  [(lam
-                      [(lam [[(builtin multiplyInteger) (var 4)] (var 1)])
-                        [(lam [[(var 5) (var 5)] (var 1)]) (var 1)]])
-                    [[(builtin subtractInteger) (var 2)] (con integer 1)]])]))
-          [[(builtin equalsInteger) (var 1)] (con integer 0)]]))]]
+                  [(lam n1_13
+                      [(lam facN1_14 [[(builtin multiplyInteger) (var n_11)] (var facN1_14)])
+                        [(lam v_10001 [[(var s_10000) (var s_10000)] (var v_10001)]) (var n1_13)]])
+                    [[(builtin subtractInteger) (var n_11)] (con integer 1)]])]))
+          [[(builtin equalsInteger) (var n_11)] (con integer 0)]]))]]

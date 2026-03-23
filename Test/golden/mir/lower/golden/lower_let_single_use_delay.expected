@@ -1,2 +1,2 @@
 @ uplc
-[(lam (force (var 1))) (delay (con integer 1))]
+[(lam a_7 (force (var a_7))) (delay (con integer 1))]

@@ -4,6 +4,9 @@ open Lake DSL
 package moist where
   version := v!"0.1.0"
 
+require PlutusCore from git "https://github.com/input-output-hk/sc-fvt" @ "staging" / "PlutusCore"
+require Blaster from git "https://github.com/input-output-hk/Lean-blaster" @ "main"
+
 -- Build the Zig FFI static library (plutuz CEK machine)
 extern_lib libplutuz_ffi (pkg : NPackage _) := do
   let ffiName := nameToStaticLib "plutuz_ffi"

@@ -3,7 +3,7 @@ import Moist.Plutus.Pretty
 import Moist.Onchain.Prelude
 import Moist.Plutus.Eval
 
-open Moist.Plutus.Term
+private abbrev UPLCTerm := PlutusCore.UPLC.Term.Term
 open Moist.Plutus.Pretty (prettyTerm)
 open Moist.Onchain.Prelude
 open Moist.Plutus.Eval
@@ -37,9 +37,9 @@ def aaa (x : Foo) : Int :=
 @[onchain]
 def bbb : Foo := Foo.foo 1 2 3 4 5 6 42
 
-def aaaa : Term := compile! aaa
+def aaaa : UPLCTerm := compile! aaa
 
-def bbbb : Term := compile! bbb
+def bbbb : UPLCTerm := compile! bbb
 
 @[plutus_data]
 structure Bar where
@@ -101,7 +101,7 @@ def testMaybe : Maybe Int :=
 
 #show_optimized_mir ddd
 
-def dddd : Term := compile! ddd
+def dddd : UPLCTerm := compile! ddd
 
 @[plutus_data]
 structure A where
@@ -122,7 +122,7 @@ def testing2 (x : A) (k : A) : Int :=
 @[onchain]
 def eee : Baz := Baz.bar 1 2
 
-def eeee : Term := compile! eee
+def eeee : UPLCTerm := compile! eee
 
 #show_mir eee
 
@@ -192,25 +192,25 @@ def a : List Unit := [(), (), ()]
 error: compilation of Test.Debug.listSumRecOn failed: translation error: cannot compile Test.Debug.listSumRecOn: explicit recursor List.recOn is unsupported in `compile!` when Lean did not generate Test.Debug.listSumRecOn._sunfold; write recursive equations and let Lean generate `_sunfold`, or use well-founded recursion
 -/
 #guard_msgs(error) in
-#check (compile! listSumRecOn : Term)
+#check (compile! listSumRecOn : UPLCTerm)
 
 /--
 error: compilation of Test.Debug.listSumBrecOn failed: translation error: cannot compile Test.Debug.listSumBrecOn: explicit recursor List.brecOn is unsupported in `compile!` when Lean did not generate Test.Debug.listSumBrecOn._sunfold; write recursive equations and let Lean generate `_sunfold`, or use well-founded recursion
 -/
 #guard_msgs(error) in
-#check (compile! listSumBrecOn : Term)
+#check (compile! listSumBrecOn : UPLCTerm)
 
 /--
 error: compilation of Test.Debug.listSumRecOnViaHelper failed: translation error: cannot compile Test.Debug.listSumRecOn: explicit recursor List.recOn is unsupported in `compile!` when Lean did not generate Test.Debug.listSumRecOn._sunfold; write recursive equations and let Lean generate `_sunfold`, or use well-founded recursion
 -/
 #guard_msgs(error) in
-#check (compile! listSumRecOnViaHelper : Term)
+#check (compile! listSumRecOnViaHelper : UPLCTerm)
 
 /--
 error: compilation of Test.Debug.listSumBrecOnViaHelper failed: translation error: cannot compile Test.Debug.listSumBrecOn: explicit recursor List.brecOn is unsupported in `compile!` when Lean did not generate Test.Debug.listSumBrecOn._sunfold; write recursive equations and let Lean generate `_sunfold`, or use well-founded recursion
 -/
 #guard_msgs(error) in
-#check (compile! listSumBrecOnViaHelper : Term)
+#check (compile! listSumBrecOnViaHelper : UPLCTerm)
 
 /-! ## Recursive SOP type (structural recursion) -/
 

@@ -1,8 +1,9 @@
-import Moist.Plutus.Term
+import PlutusCore.UPLC.Term
+import Moist.Plutus.Convert
 
 namespace Moist.Plutus.Pretty
 
-open Moist.Plutus.Term
+open PlutusCore.UPLC.Term
 open Std (Format)
 
 /-! # UPLC Pretty Printer
@@ -10,7 +11,7 @@ open Std (Format)
 Renders UPLC Terms in the standard Plutus textual format:
 - Application uses square brackets: `[f x]`
 - Everything else uses parentheses
-- De Bruijn indexed variables
+- Named variables
 -/
 
 private def fmtBuiltin : BuiltinFun → String
@@ -112,30 +113,30 @@ private def fmtAtomicType : AtomicType → String
   | .TypeData => "data"
 
 mutual
-  private def fmtByteString : ByteString → String
-    | bs =>
-        let hex := bs.data.toList.map fun b =>
-          let hi := b.toNat / 16
-          let lo := b.toNat % 16
-          let hexChar n := if n < 10 then Char.ofNat (48 + n) else Char.ofNat (87 + n)
-          s!"{hexChar hi}{hexChar lo}"
-        "#" ++ String.join hex
+  private def fmtByteString (bs : PlutusCore.ByteString.ByteString) : String :=
+    let hex := bs.data.data.map fun c =>
+      let b := c.toNat
+      let hi := b / 16
+      let lo := b % 16
+      let hexChar n := if n < 10 then Char.ofNat (48 + n) else Char.ofNat (87 + n)
+      s!"{hexChar hi}{hexChar lo}"
+    "#" ++ String.join hex
 
-  private def fmtData : Moist.Plutus.Data → String
+  private def fmtData : PlutusCore.Data.Data → String
     | .Constr idx fields => s!"(Constr {idx} {fmtDataList fields})"
     | .Map entries => s!"(Map {fmtDataPairList entries})"
     | .List xs => s!"(List {fmtDataList xs})"
     | .I n => s!"(I {n})"
     | .B bs => s!"(B {fmtByteString bs})"
 
-  private def fmtDataList : List Moist.Plutus.Data → String
+  private def fmtDataList : List PlutusCore.Data.Data → String
     | [] => "[]"
     | xs => "[" ++ String.intercalate ", " (xs.map fmtData) ++ "]"
 
-  private def fmtDataPair : Moist.Plutus.Data × Moist.Plutus.Data → String
+  private def fmtDataPair : PlutusCore.Data.Data × PlutusCore.Data.Data → String
     | (a, b) => s!"({fmtData a}, {fmtData b})"
 
-  private def fmtDataPairList : List (Moist.Plutus.Data × Moist.Plutus.Data) → String
+  private def fmtDataPairList : List (PlutusCore.Data.Data × PlutusCore.Data.Data) → String
     | [] => "[]"
     | xs => "[" ++ String.intercalate ", " (xs.map fmtDataPair) ++ "]"
 
@@ -174,10 +175,11 @@ mutual
 end
 
 partial def fmtTerm : Term → Format
-  | .Var n =>
-    .text s!"(var {n})"
+  | .Var name =>
+    .text s!"(var {name})"
 
-  | .Constant (c, ty) =>
+  | .Const c =>
+    let ty := Moist.Plutus.Convert.scFvtConstType c
     .text s!"(con {fmtBuiltinType ty} {fmtConst c})"
 
   | .Builtin b =>
@@ -186,9 +188,9 @@ partial def fmtTerm : Term → Format
   | .Error =>
     .text "(error)"
 
-  | .Lam _ body =>
+  | .Lam name body =>
     Format.group
-      (.text "(lam" ++
+      (.text s!"(lam {name}" ++
         Format.nest 2 (Format.line ++ fmtTerm body) ++
         .text ")")
 
@@ -253,5 +255,5 @@ instance : Std.ToFormat Program where
 
 end Moist.Plutus.Pretty
 
-def Moist.Plutus.Term.Term.printTerm (t : Moist.Plutus.Term.Term) (width : Nat := 100) : IO Unit :=
+def PlutusCore.UPLC.Term.Term.printTerm (t : PlutusCore.UPLC.Term.Term) (width : Nat := 100) : IO Unit :=
   IO.println (Moist.Plutus.Pretty.prettyTerm t width)

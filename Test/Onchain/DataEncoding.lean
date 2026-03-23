@@ -2,7 +2,7 @@ import Moist.Onchain
 import Moist.Plutus.Pretty
 import Moist.Onchain.Prelude
 
-open Moist.Plutus.Term
+open PlutusCore.UPLC.Term
 open Moist.Plutus.Pretty (prettyTerm)
 open Moist.Onchain.Prelude
 

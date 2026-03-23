@@ -1,2 +1,2 @@
 @ uplc
-(lam (constr 0 (var 1) (con integer 1)))
+(lam x_1 (constr 0 (var x_1) (con integer 1)))

@@ -9,7 +9,7 @@ import Test.Framework
 namespace Test.MIR
 
 open Moist.MIR
-open Moist.Plutus.Term
+open PlutusCore.UPLC.Term (Term)
 open Moist.Plutus.Eval (evalTerm)
 open Moist.Plutus.Pretty (prettyTerm)
 open Test.Framework
@@ -185,6 +185,6 @@ def mkTermEvalGolden (name : String) (term : Term) : TreeBuilder Unit :=
 
 /-- Golden test that applies arguments to a UPLC function term, evaluates, and records result + budget. -/
 def mkTermApplyEvalGolden (name : String) (fn : Term) (args : List Term) : TreeBuilder Unit :=
-  mkTermEvalGolden name (args.foldl Term.Apply fn)
+  mkTermEvalGolden name (args.foldl PlutusCore.UPLC.Term.Term.Apply fn)
 
 end Test.MIR

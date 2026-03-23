@@ -2,9 +2,11 @@ import Moist.Onchain
 import Moist.Plutus.Pretty
 import Moist.Onchain.Prelude
 import Moist.Plutus.Eval
+import Moist.Plutus.Convert
 
-open Moist.Plutus.Term
+open PlutusCore.UPLC.Term
 open Moist.Plutus (Data ByteString)
+open Moist.Plutus.Convert (convertData)
 open Moist.Plutus.Pretty (prettyTerm)
 open Moist.Onchain.Prelude
 open Moist.Plutus.Eval
@@ -44,7 +46,7 @@ def cNft := compile! nft
 /-! ## Helpers -/
 
 private def dataTerm (d : Data) : Term :=
-  .Constant (.Data d, .AtomicType .TypeData)
+  .Const (.Data (convertData d))
 
 /-! ## Mock ledger values -/
 

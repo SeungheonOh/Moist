@@ -655,13 +655,17 @@ mutual
             if let some r ← extractPanic betaReduced then return r
             return ← translateExpr betaReduced
         -- Fallback: whnf for compound typeclass methods (e.g. BEq.beq → fun a b => equalsData ...)
-        let whnfResult ← whnf prefixExpr
-        if whnfResult != prefixExpr then
-          let remainingArgs := args.extract nConsumed args.size
-          let fullReduced := remainingArgs.foldl (init := whnfResult) fun acc a => .app acc a
-          let betaReduced := fullReduced.headBeta
-          if let some r ← extractPanic betaReduced then return r
-          return ← translateExpr betaReduced
+        -- Skip whnf when resolveToBuiltin found the head is already a builtin
+        -- (returned some but unchanged). whnf would destructively unfold the
+        -- builtin def (e.g. lessThanEqInteger → Int.le → Eq.rec).
+        if resolved.isNone then
+          let whnfResult ← whnf prefixExpr
+          if whnfResult != prefixExpr then
+            let remainingArgs := args.extract nConsumed args.size
+            let fullReduced := remainingArgs.foldl (init := whnfResult) fun acc a => .app acc a
+            let betaReduced := fullReduced.headBeta
+            if let some r ← extractPanic betaReduced then return r
+            return ← translateExpr betaReduced
     -- Translate directly
     translateAppDirect e
 
@@ -830,6 +834,27 @@ mutual
               return ← applyOverArgs core args expectedEnd
             else throwError "Prod.casesOn: not enough alternatives"
         else
+          -- Decidable.casesOn with @Eq Bool b true → direct Bool branch.
+          -- Avoids builtin Bool → SOP Decidable → Case roundtrip that occurs
+          -- when _sunfold expands `if b then t else f` to Decidable.casesOn.
+          if typeName == ``Decidable then
+            let p := args[0]!
+            let (propFn, propArgs) := uncurryApp p
+            if propFn.isConstOf ``Eq && propArgs.size >= 3 && propArgs[0]!.isConstOf ``Bool then
+              let boolExpr := propArgs[1]!
+              let scrut ← translateExpr boolExpr
+              if h2 : altsStart + 1 < args.size then
+                -- Strip proof lambda (h : p or h : ¬p) from each alt
+                let falseBody := match args[altsStart] with
+                  | .lam _ _ body _ => body.instantiate1 (.const ``Unit.unit [])
+                  | e => e
+                let trueBody := match args[altsStart + 1] with
+                  | .lam _ _ body _ => body.instantiate1 (.const ``Unit.unit [])
+                  | e => e
+                let falseAlt ← translateExpr falseBody
+                let trueAlt ← translateExpr trueBody
+                return ← applyOverArgs (mkBoolBranch scrut trueAlt falseAlt) args expectedEnd
+              else throwError "Decidable.casesOn: not enough alternatives"
           -- Non-builtin: SOP or Data encoding
           let scrut ← translateExpr args[scrutIdx]
           let repr := getPlutusRepr env typeName
