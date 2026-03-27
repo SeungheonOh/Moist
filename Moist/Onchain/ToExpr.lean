@@ -57,6 +57,9 @@ instance : ToExpr AtomicType where
     | .TypeBool       => .const ``AtomicType.TypeBool []
     | .TypeUnit       => .const ``AtomicType.TypeUnit []
     | .TypeData       => .const ``AtomicType.TypeData []
+    | .TypeBls12_381_G1_element => .const ``AtomicType.TypeBls12_381_G1_element []
+    | .TypeBls12_381_G2_element => .const ``AtomicType.TypeBls12_381_G2_element []
+    | .TypeBls12_381_MlResult   => .const ``AtomicType.TypeBls12_381_MlResult []
   toTypeExpr := .const ``AtomicType []
 
 mutual
@@ -67,6 +70,7 @@ mutual
   private def typeOperatorToExpr : TypeOperator → Lean.Expr
     | .TypeList t => mkApp (.const ``TypeOperator.TypeList []) (builtinTypeToExpr t)
     | .TypePair a b => mkApp2 (.const ``TypeOperator.TypePair []) (builtinTypeToExpr a) (builtinTypeToExpr b)
+    | .TypeArray t => mkApp (.const ``TypeOperator.TypeArray []) (builtinTypeToExpr t)
 end
 
 instance : ToExpr BuiltinType where
@@ -89,6 +93,7 @@ private partial def constToExpr : Const → Lean.Expr
   | .Pair p               => mkApp (.const ``Const.Pair []) (pairConstToExpr p)
   | .PairData p           => mkApp (.const ``Const.PairData []) (toExpr p)
   | .Data d               => mkApp (.const ``Const.Data []) (toExpr d)
+  | .ConstArray cs        => mkApp (.const ``Const.ConstArray []) (listConstToExpr cs)
   | .Bls12_381_G1_element => .const ``Const.Bls12_381_G1_element []
   | .Bls12_381_G2_element => .const ``Const.Bls12_381_G2_element []
   | .Bls12_381_MlResult   => .const ``Const.Bls12_381_MlResult []
@@ -194,6 +199,19 @@ instance : ToExpr BuiltinFun where
     | .FindFirstSetBit => ``BuiltinFun.FindFirstSetBit
     | .Ripemd_160 => ``BuiltinFun.Ripemd_160
     | .ExpModInteger => ``BuiltinFun.ExpModInteger
+    | .DropList => ``BuiltinFun.DropList
+    | .IndexArray => ``BuiltinFun.IndexArray
+    | .LengthOfArray => ``BuiltinFun.LengthOfArray
+    | .ListToArray => ``BuiltinFun.ListToArray
+    | .InsertCoin => ``BuiltinFun.InsertCoin
+    | .LookupCoin => ``BuiltinFun.LookupCoin
+    | .ScaleValue => ``BuiltinFun.ScaleValue
+    | .UnionValue => ``BuiltinFun.UnionValue
+    | .ValueContains => ``BuiltinFun.ValueContains
+    | .ValueData => ``BuiltinFun.ValueData
+    | .UnValueData => ``BuiltinFun.UnValueData
+    | .Bls12_381_G1_multiScalarMul => ``BuiltinFun.Bls12_381_G1_multiScalarMul
+    | .Bls12_381_G2_multiScalarMul => ``BuiltinFun.Bls12_381_G2_multiScalarMul
     .const name []
   toTypeExpr := .const ``BuiltinFun []
 

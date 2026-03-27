@@ -104,6 +104,19 @@ private def builtinName : BuiltinFun → String
   | .FindFirstSetBit => "findFirstSetBit"
   | .Ripemd_160 => "ripemd_160"
   | .ExpModInteger => "expModInteger"
+  | .DropList => "dropList"
+  | .IndexArray => "indexArray"
+  | .LengthOfArray => "lengthOfArray"
+  | .ListToArray => "listToArray"
+  | .InsertCoin => "insertCoin"
+  | .LookupCoin => "lookupCoin"
+  | .ScaleValue => "scaleValue"
+  | .UnionValue => "unionValue"
+  | .ValueContains => "valueContains"
+  | .ValueData => "valueData"
+  | .UnValueData => "unValueData"
+  | .Bls12_381_G1_multiScalarMul => "bls12_381_G1_multiScalarMul"
+  | .Bls12_381_G2_multiScalarMul => "bls12_381_G2_multiScalarMul"
 
 mutual
   private def fmtByteString : ByteString → String
@@ -152,6 +165,7 @@ mutual
     | .ConstPairDataList xs => fmtDataPairList xs
     | .Pair p => fmtConstPair p
     | .PairData p => fmtDataPair p
+    | .ConstArray xs => fmtConstList xs
     | .Bls12_381_G1_element => "<G1>"
     | .Bls12_381_G2_element => "<G2>"
     | .Bls12_381_MlResult => "<MlResult>"

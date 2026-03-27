@@ -80,25 +80,32 @@ def litEq (a b : Const × BuiltinType) : Bool :=
 /-! ## Free Variables -/
 
 mutual
-  partial def freeVars : Expr → VarSet
+  def freeVars (e : Expr) : VarSet :=
+    match e with
     | .Var x => VarSet.singleton x
     | .Lit _ | .Builtin _ | .Error => VarSet.empty
     | .Lam x body => (freeVars body).erase x
     | .Fix f body => (freeVars body).erase f
     | .App f x => (freeVars f).union (freeVars x)
-    | .Force e => freeVars e
-    | .Delay e => freeVars e
-    | .Constr _ args => args.foldl (init := VarSet.empty) fun acc e => acc.union (freeVars e)
+    | .Force e | .Delay e => freeVars e
+    | .Constr _ args => freeVarsList args
     | .Case scrut alts =>
-      (freeVars scrut).union (alts.foldl (init := VarSet.empty) fun acc e => acc.union (freeVars e))
+      (freeVars scrut).union (freeVarsList alts)
     | .Let binds body => freeVarsLet binds body
+  termination_by sizeOf e
 
-  partial def freeVarsLet : List (VarId × Expr × Bool) → Expr → VarSet
-    | [], body => freeVars body
-    | (x, rhs, _) :: rest, body =>
-      let rhsFV := freeVars rhs
-      let restFV := (freeVarsLet rest body).erase x
-      rhsFV.union restFV
+  def freeVarsList (es : List Expr) : VarSet :=
+    match es with
+    | [] => VarSet.empty
+    | e :: rest => (freeVars e).union (freeVarsList rest)
+  termination_by sizeOf es
+
+  def freeVarsLet (binds : List (VarId × Expr × Bool)) (body : Expr) : VarSet :=
+    match binds with
+    | [] => freeVars body
+    | (x, rhs, _) :: rest =>
+      (freeVars rhs).union ((freeVarsLet rest body).erase x)
+  termination_by sizeOf binds + sizeOf body
 end
 
 /-! ## No-Self-Reference Check -/
@@ -145,10 +152,44 @@ partial def exprSize : Expr → Nat
   | .Let binds body =>
     1 + binds.foldl (init := 0) (fun acc (_, e, _) => acc + exprSize e) + exprSize body
 
+/-! ## Node Count (rename-invariant termination measure) -/
+
+mutual
+  def Expr.nodes (e : Expr) : Nat :=
+    match e with
+    | .Var _ | .Lit _ | .Builtin _ | .Error => 1
+    | .Lam _ body | .Fix _ body => 1 + body.nodes
+    | .App f x => 1 + f.nodes + x.nodes
+    | .Force e | .Delay e => 1 + e.nodes
+    | .Constr _ args => 1 + Expr.nodesList args
+    | .Case scrut alts => 1 + scrut.nodes + Expr.nodesList alts
+    | .Let binds body => 1 + Expr.nodesBinds binds + body.nodes
+  termination_by sizeOf e
+
+  def Expr.nodesList (es : List Expr) : Nat :=
+    match es with
+    | [] => 1
+    | e :: rest => 1 + e.nodes + Expr.nodesList rest
+  termination_by sizeOf es
+
+  def Expr.nodesBinds (binds : List (VarId × Expr × Bool)) : Nat :=
+    match binds with
+    | [] => 1
+    | (_, rhs, _) :: rest => 1 + rhs.nodes + Expr.nodesBinds rest
+  termination_by sizeOf binds
+end
+
+attribute [simp] Expr.nodes.eq_1 Expr.nodes.eq_2 Expr.nodes.eq_3 Expr.nodes.eq_4
+  Expr.nodes.eq_5 Expr.nodes.eq_6 Expr.nodes.eq_7 Expr.nodes.eq_8 Expr.nodes.eq_9
+  Expr.nodes.eq_10 Expr.nodes.eq_11 Expr.nodes.eq_12
+  Expr.nodesList.eq_1 Expr.nodesList.eq_2
+  Expr.nodesBinds.eq_1 Expr.nodesBinds.eq_2
+
 /-! ## Simple Rename -/
 
 mutual
-  partial def rename (old new_ : VarId) : Expr → Expr
+  def rename (old new_ : VarId) (e : Expr) : Expr :=
+    match e with
     | .Var x => if x == old then .Var new_ else .Var x
     | .Lit c => .Lit c
     | .Builtin b => .Builtin b
@@ -162,25 +203,107 @@ mutual
     | .App f x => .App (rename old new_ f) (rename old new_ x)
     | .Force e => .Force (rename old new_ e)
     | .Delay e => .Delay (rename old new_ e)
-    | .Constr tag args => .Constr tag (args.map (rename old new_))
-    | .Case scrut alts => .Case (rename old new_ scrut) (alts.map (rename old new_))
-    | .Let binds body => renameLet old new_ binds [] body
+    | .Constr tag args => .Constr tag (renameList old new_ args)
+    | .Case scrut alts => .Case (rename old new_ scrut) (renameList old new_ alts)
+    | .Let binds body =>
+      let (binds', body') := renameLet old new_ binds body
+      .Let binds' body'
+  termination_by sizeOf e
 
-  partial def renameLet (old new_ : VarId)
-      : List (VarId × Expr × Bool) → List (VarId × Expr × Bool) → Expr → Expr
-    | [], acc, body => .Let acc.reverse (rename old new_ body)
-    | (x, rhs, er) :: rest, acc, body =>
+  def renameList (old new_ : VarId) (es : List Expr) : List Expr :=
+    match es with
+    | [] => []
+    | e :: rest => rename old new_ e :: renameList old new_ rest
+  termination_by sizeOf es
+
+  def renameLet (old new_ : VarId) (binds : List (VarId × Expr × Bool)) (body : Expr)
+      : List (VarId × Expr × Bool) × Expr :=
+    match binds with
+    | [] => ([], rename old new_ body)
+    | (x, rhs, er) :: rest =>
       let rhs' := rename old new_ rhs
-      if x == old then
-        .Let (acc.reverse ++ [(x, rhs', er)] ++ rest) body
+      if x == old then ((x, rhs', er) :: rest, body)
       else
-        renameLet old new_ rest ((x, rhs', er) :: acc) body
+        let (rest', body') := renameLet old new_ rest body
+        ((x, rhs', er) :: rest', body')
+  termination_by sizeOf binds + sizeOf body
 end
+
+def renameBinds (old new_ : VarId) : List (VarId × Expr × Bool) → List (VarId × Expr × Bool)
+  | [] => []
+  | (x, rhs, er) :: rest => (x, rename old new_ rhs, er) :: renameBinds old new_ rest
+
+/-! ## Rename preserves node count -/
+
+mutual
+  @[simp] theorem Expr.nodes_rename (old new_ : VarId) (e : Expr) :
+      (rename old new_ e).nodes = e.nodes := by
+    match e with
+    | .Var x => simp [rename, Expr.nodes]; split <;> simp [Expr.nodes]
+    | .Lit _ => simp [rename]
+    | .Builtin _ => simp [rename]
+    | .Error => simp [rename]
+    | .Lam x body =>
+      simp only [rename]; split
+      · rfl
+      · simp [Expr.nodes, Expr.nodes_rename old new_ body]
+    | .Fix f body =>
+      simp only [rename]; split
+      · rfl
+      · simp [Expr.nodes, Expr.nodes_rename old new_ body]
+    | .App f x =>
+      simp [rename, Expr.nodes, Expr.nodes_rename old new_ f, Expr.nodes_rename old new_ x]
+    | .Force e' => simp [rename, Expr.nodes, Expr.nodes_rename old new_ e']
+    | .Delay e' => simp [rename, Expr.nodes, Expr.nodes_rename old new_ e']
+    | .Constr tag args =>
+      simp [rename, Expr.nodes, Expr.nodesList_rename old new_ args]
+    | .Case scrut alts =>
+      simp [rename, Expr.nodes, Expr.nodes_rename old new_ scrut,
+            Expr.nodesList_rename old new_ alts]
+    | .Let binds body =>
+      simp only [rename]
+      have ⟨h1, h2⟩ := Expr.nodesBinds_renameLet old new_ binds body
+      revert h1 h2
+      cases renameLet old new_ binds body with
+      | mk b bo => simp_all [Expr.nodes]
+  termination_by sizeOf e
+
+  @[simp] theorem Expr.nodesList_rename (old new_ : VarId) (es : List Expr) :
+      Expr.nodesList (renameList old new_ es) = Expr.nodesList es := by
+    unfold renameList
+    split
+    · rfl
+    · rename_i e rest
+      simp [Expr.nodes_rename old new_ e, Expr.nodesList_rename old new_ rest]
+  termination_by sizeOf es
+
+  theorem Expr.nodesBinds_renameLet (old new_ : VarId)
+      (binds : List (VarId × Expr × Bool)) (body : Expr) :
+      Expr.nodesBinds (renameLet old new_ binds body).1 = Expr.nodesBinds binds ∧
+      (renameLet old new_ binds body).2.nodes = body.nodes := by
+    unfold renameLet
+    split
+    · simp [Expr.nodes_rename old new_ body]
+    · rename_i x rhs er rest
+      split
+      · simp [Expr.nodes_rename old new_ rhs]
+      · have ⟨ih1, ih2⟩ := Expr.nodesBinds_renameLet old new_ rest body
+        simp [Expr.nodes_rename old new_ rhs, ih1, ih2]
+  termination_by sizeOf binds + sizeOf body
+end
+
+@[simp] theorem Expr.nodesBinds_renameBinds (old new_ : VarId)
+    (binds : List (VarId × Expr × Bool)) :
+    Expr.nodesBinds (renameBinds old new_ binds) = Expr.nodesBinds binds := by
+  induction binds with
+  | nil => simp [renameBinds]
+  | cons b rest ih => obtain ⟨x, rhs, er⟩ := b; simp [renameBinds, ih]
 
 /-! ## Capture-Avoiding Substitution -/
 
 mutual
-  partial def subst (v : VarId) (repl : Expr) : Expr → FreshM Expr
+  def subst (v : VarId) (repl : Expr) (e : Expr) : FreshM Expr :=
+    match e with
     | .Var x => pure (if x == v then repl else .Var x)
     | .Lit c => pure (.Lit c)
     | .Builtin b => pure (.Builtin b)
@@ -216,30 +339,49 @@ mutual
       let e' ← subst v repl e
       pure (.Delay e')
     | .Constr tag args => do
-      let args' ← args.mapM (subst v repl)
+      let args' ← substList v repl args
       pure (.Constr tag args')
     | .Case scrut alts => do
       let scrut' ← subst v repl scrut
-      let alts' ← alts.mapM (subst v repl)
+      let alts' ← substList v repl alts
       pure (.Case scrut' alts')
-    | .Let binds body => substLet v repl (freeVars repl) binds [] body
+    | .Let binds body =>
+      substLet v repl (freeVars repl) binds body >>= fun (b, bo) =>
+      pure (.Let b bo)
+  termination_by e.nodes
+  decreasing_by all_goals (simp_wf; try (first | omega | (simp_all; done)))
 
-  partial def substLet (v : VarId) (repl : Expr) (replFV : VarSet)
-      : List (VarId × Expr × Bool) → List (VarId × Expr × Bool) → Expr → FreshM Expr
-    | [], acc, body => do
-      let body' ← subst v repl body
-      pure (.Let acc.reverse body')
-    | (x, rhs, er) :: rest, acc, body => do
+  def substList (v : VarId) (repl : Expr) (es : List Expr) : FreshM (List Expr) :=
+    match es with
+    | [] => pure []
+    | e :: rest => do
+      let e' ← subst v repl e
+      let rest' ← substList v repl rest
+      pure (e' :: rest')
+  termination_by Expr.nodesList es
+  decreasing_by all_goals (simp_wf; try (first | omega | (simp_all; done)))
+
+  def substLet (v : VarId) (repl : Expr) (replFV : VarSet)
+      (binds : List (VarId × Expr × Bool)) (body : Expr)
+      : FreshM (List (VarId × Expr × Bool) × Expr) :=
+    match binds with
+    | [] =>
+      subst v repl body >>= fun b => pure ([], b)
+    | (x, rhs, er) :: rest => do
       let rhs' ← subst v repl rhs
       if x == v then
-        pure (.Let (acc.reverse ++ [(x, rhs', er)] ++ rest) body)
+        pure ((x, rhs', er) :: rest, body)
       else if replFV.contains x then do
         let x' ← freshVar x.hint
-        let rest' := rest.map fun (y, e, er2) => (y, rename x x' e, er2)
+        let rest' := renameBinds x x' rest
         let body' := rename x x' body
-        substLet v repl replFV rest' ((x', rhs', er) :: acc) body'
+        substLet v repl replFV rest' body' >>= fun (r, b) =>
+        pure ((x', rhs', er) :: r, b)
       else
-        substLet v repl replFV rest ((x, rhs', er) :: acc) body
+        substLet v repl replFV rest body >>= fun (r, b) =>
+        pure ((x, rhs', er) :: r, b)
+  termination_by Expr.nodesBinds binds + body.nodes
+  decreasing_by all_goals (simp_wf; try (first | omega | (simp_all; done)))
 end
 
 /-! ## Alpha-Equivalence -/

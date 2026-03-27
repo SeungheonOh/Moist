@@ -56,3 +56,6 @@ lean_exe tests where
 
 lean_exe nft_test where
   root := `Test.Onchain.Testing
+
+lean_exe conformance where
+  root := `Test.CEK.Conformance

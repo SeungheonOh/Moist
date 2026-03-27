@@ -12,6 +12,9 @@ inductive AtomicType
   | TypeBool
   | TypeUnit
   | TypeData
+  | TypeBls12_381_G1_element
+  | TypeBls12_381_G2_element
+  | TypeBls12_381_MlResult
 deriving BEq
 
 instance : Repr AtomicType where
@@ -23,6 +26,9 @@ instance : Repr AtomicType where
     | AtomicType.TypeBool => "Bool"
     | AtomicType.TypeUnit => "Unit"
     | AtomicType.TypeData => "Data"
+    | AtomicType.TypeBls12_381_G1_element => "Bls12_381_G1_element"
+    | AtomicType.TypeBls12_381_G2_element => "Bls12_381_G2_element"
+    | AtomicType.TypeBls12_381_MlResult => "Bls12_381_MlResult"
 
 mutual
   inductive BuiltinType
@@ -33,6 +39,7 @@ mutual
   inductive TypeOperator
     | TypeList : BuiltinType → TypeOperator
     | TypePair : BuiltinType → BuiltinType → TypeOperator
+    | TypeArray : BuiltinType → TypeOperator
   deriving Repr
 end
 
@@ -45,6 +52,7 @@ mutual
   def beqTypeOperator : TypeOperator → TypeOperator → Bool
     | .TypeList a, .TypeList b => beqBuiltinType a b
     | .TypePair a1 a2, .TypePair b1 b2 => beqBuiltinType a1 b1 && beqBuiltinType a2 b2
+    | .TypeArray a, .TypeArray b => beqBuiltinType a b
     | _, _ => false
 end
 
@@ -67,6 +75,7 @@ inductive Const
   | PairData              : Data × Data → Const
     -- NOTE: Added to properly implement builtins evaluation and to avoid using List.map
   | Data                  : Data → Const
+  | ConstArray            : List Const → Const
   | Bls12_381_G1_element  : Const
     -- NOTE: missing value here (need to check in spec)
   | Bls12_381_G2_element  : Const
@@ -87,6 +96,7 @@ private def beqConst : Const → Const → Bool
   | .Pair (a1, a2), .Pair (b1, b2) => beqConst a1 b1 && beqConst a2 b2
   | .PairData a, .PairData b => a == b
   | .Data a, .Data b => a == b
+  | .ConstArray as, .ConstArray bs => beqConstList as bs
   | .Bls12_381_G1_element, .Bls12_381_G1_element => true
   | .Bls12_381_G2_element, .Bls12_381_G2_element => true
   | .Bls12_381_MlResult, .Bls12_381_MlResult => true
@@ -211,6 +221,10 @@ inductive BuiltinFun
   | Ripemd_160
 -- Batch 6
   | ExpModInteger
+-- Batch 7
+  | DropList | IndexArray | LengthOfArray | ListToArray
+  | InsertCoin | LookupCoin | ScaleValue | UnionValue | ValueContains | ValueData | UnValueData
+  | Bls12_381_G1_multiScalarMul | Bls12_381_G2_multiScalarMul
 deriving Repr, BEq
 
 inductive Term
@@ -284,8 +298,9 @@ def constType : Const → BuiltinType
   | Const.Pair _               => BuiltinType.TypeOperator (TypeOperator.TypePair (BuiltinType.AtomicType AtomicType.TypeData) (BuiltinType.AtomicType AtomicType.TypeData))
   | Const.PairData _           => BuiltinType.TypeOperator (TypeOperator.TypePair (BuiltinType.AtomicType AtomicType.TypeData) (BuiltinType.AtomicType AtomicType.TypeData)) -- This is wrong : ( fix .
   | Const.Data _               => BuiltinType.AtomicType AtomicType.TypeData
-  | Const.Bls12_381_G1_element => BuiltinType.AtomicType AtomicType.TypeData
-  | Const.Bls12_381_G2_element => BuiltinType.AtomicType AtomicType.TypeData
-  | Const.Bls12_381_MlResult   => BuiltinType.AtomicType AtomicType.TypeData
+  | Const.ConstArray _         => BuiltinType.TypeOperator (TypeOperator.TypeArray (BuiltinType.AtomicType AtomicType.TypeData))
+  | Const.Bls12_381_G1_element => BuiltinType.AtomicType AtomicType.TypeBls12_381_G1_element
+  | Const.Bls12_381_G2_element => BuiltinType.AtomicType AtomicType.TypeBls12_381_G2_element
+  | Const.Bls12_381_MlResult   => BuiltinType.AtomicType AtomicType.TypeBls12_381_MlResult
 
 end Moist.Plutus.Term

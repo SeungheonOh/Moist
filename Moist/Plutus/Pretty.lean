@@ -102,6 +102,19 @@ private def fmtBuiltin : BuiltinFun → String
   | .FindFirstSetBit => "findFirstSetBit"
   | .Ripemd_160 => "ripemd_160"
   | .ExpModInteger => "expModInteger"
+  | .DropList => "dropList"
+  | .IndexArray => "indexArray"
+  | .LengthOfArray => "lengthOfArray"
+  | .ListToArray => "listToArray"
+  | .InsertCoin => "insertCoin"
+  | .LookupCoin => "lookupCoin"
+  | .ScaleValue => "scaleValue"
+  | .UnionValue => "unionValue"
+  | .ValueContains => "valueContains"
+  | .ValueData => "valueData"
+  | .UnValueData => "unValueData"
+  | .Bls12_381_G1_multiScalarMul => "bls12_381_G1_multiScalarMul"
+  | .Bls12_381_G2_multiScalarMul => "bls12_381_G2_multiScalarMul"
 
 private def fmtAtomicType : AtomicType → String
   | .TypeInteger => "integer"
@@ -110,6 +123,9 @@ private def fmtAtomicType : AtomicType → String
   | .TypeBool => "bool"
   | .TypeUnit => "unit"
   | .TypeData => "data"
+  | .TypeBls12_381_G1_element => "bls12_381_G1_element"
+  | .TypeBls12_381_G2_element => "bls12_381_G2_element"
+  | .TypeBls12_381_MlResult => "bls12_381_MlResult"
 
 mutual
   private def fmtByteString : ByteString → String
@@ -158,6 +174,7 @@ mutual
     | .ConstPairDataList xs => fmtDataPairList xs
     | .Pair p => fmtConstPair p
     | .PairData p => fmtDataPair p
+    | .ConstArray xs => fmtConstList xs
     | .Bls12_381_G1_element => "<G1>"
     | .Bls12_381_G2_element => "<G2>"
     | .Bls12_381_MlResult => "<MlResult>"
@@ -171,6 +188,7 @@ mutual
   private def fmtTypeOp : TypeOperator → String
     | .TypeList t => s!"(list {fmtBuiltinType t})"
     | .TypePair a b => s!"(pair {fmtBuiltinType a} {fmtBuiltinType b})"
+    | .TypeArray t => s!"(array {fmtBuiltinType t})"
 end
 
 partial def fmtTerm : Term → Format

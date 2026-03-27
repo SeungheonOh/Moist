@@ -90,12 +90,16 @@ def atomicTypeTag (t : AtomicType) : Nat :=
   | AtomicType.TypeUnit => 3
   | AtomicType.TypeBool => 4
   | AtomicType.TypeData => 8
+  | AtomicType.TypeBls12_381_G1_element => 9
+  | AtomicType.TypeBls12_381_G2_element => 10
+  | AtomicType.TypeBls12_381_MlResult => 11
 
 -- Convert a BuiltinType to a list of 4-bit tags following the spec (e_type).
 def e_type : BuiltinType → List Nat
   | BuiltinType.AtomicType t => [atomicTypeTag t]
   | BuiltinType.TypeOperator (TypeOperator.TypeList t) => [7,5] ++ e_type t
   | BuiltinType.TypeOperator (TypeOperator.TypePair t₁ t₂) => [7,7,6] ++ e_type t₁ ++ e_type t₂
+  | BuiltinType.TypeOperator (TypeOperator.TypeArray t) => [7,9] ++ e_type t
 
 -- Encode a BuiltinType as a list of 4-bit nibbles using ℰ_list (ℰ_type).
 def ℰ_type (buf : BitBuffer) (t : BuiltinType) : BitBuffer :=
@@ -240,14 +244,22 @@ def builtinFunTag : BuiltinFun → Nat
   | BuiltinFun.CountSetBits => 84
   | BuiltinFun.FindFirstSetBit => 85
   | BuiltinFun.Ripemd_160 => 86
-  -- Batch 6: Advanced (87–93)
+  -- Batch 6: Advanced (87)
   | BuiltinFun.ExpModInteger => 87
-  --| BuiltinFun.AndByteString => 88  -- Note: Spec has "dropList" but Term has AndByteString; using placeholder
-  --| BuiltinFun.OrByteString => 89   -- Note: Spec has "lengthOfArray"
-  --| BuiltinFun.XorByteString => 90  -- Note: Spec has "listToArray"
-  --| BuiltinFun.ComplementByteString => 91  -- Note: Spec has "indexArray"
-  --| BuiltinFun.Bls12_381_G1_add => 92  -- Note: Spec has "bls12_381_G1_multiScalarMul"
-  --| BuiltinFun.Bls12_381_G2_add => 93  -- Note: Spec has "bls12_381_G2_multiScalarMul"
+  -- Batch 7 (88–100)
+  | BuiltinFun.DropList => 88
+  | BuiltinFun.LengthOfArray => 89
+  | BuiltinFun.ListToArray => 90
+  | BuiltinFun.IndexArray => 91
+  | BuiltinFun.Bls12_381_G1_multiScalarMul => 92
+  | BuiltinFun.Bls12_381_G2_multiScalarMul => 93
+  | BuiltinFun.InsertCoin => 94
+  | BuiltinFun.LookupCoin => 95
+  | BuiltinFun.ScaleValue => 96
+  | BuiltinFun.UnionValue => 97
+  | BuiltinFun.ValueContains => 98
+  | BuiltinFun.ValueData => 99
+  | BuiltinFun.UnValueData => 100
 
 /-- Encode a builtin function as a 7-bit value. -/
 def ℰ_builtin (buf : BitBuffer) (b : BuiltinFun) : BitBuffer :=

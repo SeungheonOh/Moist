@@ -113,12 +113,17 @@ partial def decodeConstType : List Nat → Option (List Nat × BuiltinType)
   | 7 :: 5      :: l => do
       let (l', t) ← decodeConstType l
       .some (l', .TypeOperator (.TypeList t))
-  -- | 7 :: 12     :: l => sorry -- TODO: implement array for batch 6
+  | 7 :: 9      :: l => do
+      let (l', t) ← decodeConstType l
+      .some (l', .TypeOperator (.TypeArray t))
   | 7 :: 7 :: 6 :: l => do
       let (l₁, t₁) ← decodeConstType l
       let (l₂, t₂) ← decodeConstType l₁
       .some (l₂, .TypeOperator (.TypePair t₁ t₂))
   | 8           :: l => .some (l, .AtomicType .TypeData)
+  | 9           :: l => .some (l, .AtomicType .TypeBls12_381_G1_element)
+  | 10          :: l => .some (l, .AtomicType .TypeBls12_381_G2_element)
+  | 11          :: l => .some (l, .AtomicType .TypeBls12_381_MlResult)
   | _      => .none
 
 partial def decodeConstValue (s : List Bool) : BuiltinType → Option (List Bool × Const)
@@ -137,6 +142,16 @@ partial def decodeConstValue (s : List Bool) : BuiltinType → Option (List Bool
       let (s₁, c₁) ← decodeConstValue s  t₁
       let (s₂, c₂) ← decodeConstValue s₁ t₂
       .some (s₂, .Pair (c₁, c₂))
+  | .TypeOperator (.TypeArray t)    => Prod.map id .ConstArray <$> decodeList (flip decodeConstValue t) s
+  | .AtomicType .TypeBls12_381_G1_element => do
+      let (s', _bs) ← decodeBytestring s
+      .some (s', .Bls12_381_G1_element)
+  | .AtomicType .TypeBls12_381_G2_element => do
+      let (s', _bs) ← decodeBytestring s
+      .some (s', .Bls12_381_G2_element)
+  | .AtomicType .TypeBls12_381_MlResult => do
+      let (s', _bs) ← decodeBytestring s
+      .some (s', .Bls12_381_MlResult)
 
 /- Decodes a constant. -/
 def decodeConst (s : List Bool) : Option (List Bool × (Const × BuiltinType)) := do
@@ -236,18 +251,19 @@ def builtinTable : List (Nat × BuiltinFun) :=
     (85, .FindFirstSetBit),
     (86, .Ripemd_160),
     (87, .ExpModInteger),
-    -- (88, .DropList),   -- TODO: implement these for batch 6
-    -- (89, .LengthOfArray),
-    -- (90, .ListToArray),
-    -- (91, .IndexArray),
-    -- (92, .Bls12_381_G1_multiScalarMul),
-    -- (93, .Bls12_381_G2_multiScalarMul),
-    -- (94, .InsertCoin),
-    -- (95, .LookupCoin),
-    -- (96, .UnionValue),
-    -- (97, .ValueContains),
-    -- (98, .ValueData),
-    -- (99, .UnValueData),
+    (88, .DropList),
+    (89, .LengthOfArray),
+    (90, .ListToArray),
+    (91, .IndexArray),
+    (92, .Bls12_381_G1_multiScalarMul),
+    (93, .Bls12_381_G2_multiScalarMul),
+    (94, .InsertCoin),
+    (95, .LookupCoin),
+    (96, .ScaleValue),
+    (97, .UnionValue),
+    (98, .ValueContains),
+    (99, .ValueData),
+    (100, .UnValueData),
   ]
 
 def decodeBuiltinFun (_v : Version) (s : List Bool) : Option (List Bool × BuiltinFun) := do

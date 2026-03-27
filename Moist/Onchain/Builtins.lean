@@ -88,6 +88,8 @@ def builtinForceCount : BuiltinFun → Nat
   | .FstPair | .SndPair | .ChooseList => 2
   | .IfThenElse | .ChooseUnit | .ChooseData
   | .HeadList | .TailList | .NullList | .MkCons | .Trace => 1
+  | .DropList | .IndexArray | .ListToArray => 1
+  | .Bls12_381_G1_multiScalarMul | .Bls12_381_G2_multiScalarMul => 0
   | _ => 0
 
 /-! ## Builtin Arity
@@ -201,6 +203,20 @@ def builtinArity : BuiltinFun → Nat
   | .Ripemd_160 => 1
   -- Batch 6
   | .ExpModInteger => 3
+  -- Batch 7
+  | .DropList => 2
+  | .IndexArray => 2
+  | .LengthOfArray => 1
+  | .ListToArray => 1
+  | .InsertCoin => 4
+  | .LookupCoin => 3
+  | .ScaleValue => 2
+  | .UnionValue => 2
+  | .ValueContains => 2
+  | .ValueData => 1
+  | .UnValueData => 1
+  | .Bls12_381_G1_multiScalarMul => 2
+  | .Bls12_381_G2_multiScalarMul => 2
 
 /-! ## Builtin Totality
 
@@ -232,6 +248,9 @@ def builtinIsTotal : BuiltinFun → Bool
   | .ReadBit | .WriteBits | .ReplicateByte => false
   -- Batch 6: ExpModInteger (modulus <= 0, etc.)
   | .ExpModInteger => false
+  -- Batch 7: value builtins can fail on key size / decoding
+  | .LookupCoin | .InsertCoin => false
+  | .UnValueData => false
   -- Everything else is total
   | _ => true
 
