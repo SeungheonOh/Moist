@@ -9,6 +9,7 @@ open Moist.CEK
 open Moist.Plutus.Term
 open Moist.Verified.Semantics
 open Moist.Verified
+open Moist.Verified (renameTerm renameTermList liftRename liftRename_id renameTerm_id renameTermList_id renameTermList_length renameTermList_getElem)
 
 /-! # CEK State Bisimulation
 
@@ -489,13 +490,17 @@ When ValueRelV.refl, both sides have the same value v. The step function
 produces identical results on both sides (modulo the stack tail). -/
 
 /-- Handle force + refl: step (ret (.force :: s) v) for a given v -/
+private theorem stateRel_compute_refl {s₁ s₂ : Stack} (hs : StackRel s₁ s₂) (env : CekEnv) (t : Term) :
+    StateRel (State.compute s₁ env t) (State.compute s₂ env t) := by
+  have ⟨d, hd⟩ := closedAt_exists t
+  have h := StateRel.compute hs id d (envRelV_refl d env) hd
+  simp only [renameTerm_id] at h; exact h
+
 private theorem step_force_refl {s₁ s₂ : Stack} (hrest : StackRel s₁ s₂) (v : CekValue) :
     StateRel (step (.ret (.force :: s₁) v)) (step (.ret (.force :: s₂) v)) := by
   simp only [step]
   cases v with
-  | VDelay body env =>
-    have ⟨d', hclosed⟩ := closedAt_exists body
-    exact .compute hrest d' (envRelV_refl d' env) hclosed
+  | VDelay body env => exact stateRel_compute_refl hrest env body
   | VBuiltin b args ea =>
     cases h_head : ea.head with
     | argQ =>
@@ -520,9 +525,10 @@ private theorem step_funV_refl {s₁ s₂ : Stack} (hrest : StackRel s₁ s₂)
   cases v with
   | VLam body env =>
     have ⟨d', hclosed⟩ := closedAt_exists body
-    exact .compute hrest (d' + 1)
-      (envRelV_extend d' env env _ _ (envRelV_refl d' env) hvx)
+    have h := StateRel.compute hrest (liftRename id) (d' + 1)
+      (envRelV_extend id d' env env _ _ (envRelV_refl d' env) hvx)
       (closedAt_mono hclosed (by omega))
+    simp only [renameTerm, liftRename_id, renameTerm_id] at h; exact h
   | VBuiltin b args ea =>
     cases h_head : ea.head with
     | argV =>
@@ -547,9 +553,10 @@ private theorem step_applyArg_refl {s₁ s₂ : Stack} (hrest : StackRel s₁ s�
   cases v with
   | VLam body env =>
     have ⟨d', hclosed⟩ := closedAt_exists body
-    exact .compute hrest (d' + 1)
-      (envRelV_extend d' env env _ _ (envRelV_refl d' env) hvx)
+    have h := StateRel.compute hrest (liftRename id) (d' + 1)
+      (envRelV_extend id d' env env _ _ (envRelV_refl d' env) hvx)
       (closedAt_mono hclosed (by omega))
+    simp only [renameTerm, liftRename_id, renameTerm_id] at h; exact h
   | VBuiltin b args ea =>
     cases h_head : ea.head with
     | argV =>
@@ -566,65 +573,61 @@ private theorem step_applyArg_refl {s₁ s₂ : Stack} (hrest : StackRel s₁ s�
   | VDelay _ _ => exact .error
   | VConstr _ _ => exact .error
 
-/-- Handle caseScrutinee + refl -/
+/-- Handle caseScrutinee + refl: same value on both sides, envs may differ by σ -/
 private theorem step_case_refl {s₁ s₂ : Stack} (hrest : StackRel s₁ s₂)
-    (v : CekValue) {d' : Nat} {alts : List Term}
+    (v : CekValue) {σ' : Nat → Nat} {d' : Nat} {alts : List Term}
     (halts : closedAtList d' alts = true)
-    {env₁ env₂ : CekEnv} (henv' : EnvRelV d' env₁ env₂) :
+    {env₁ env₂ : CekEnv} (henv' : EnvRelV σ' d' env₁ env₂) :
     StateRel (step (.ret (.caseScrutinee alts env₁ :: s₁) v))
-             (step (.ret (.caseScrutinee alts env₂ :: s₂) v)) := by
+             (step (.ret (.caseScrutinee (renameTermList σ' alts) env₂ :: s₂) v)) := by
   cases v with
   | VConstr tag fields =>
-    -- step produces: match alts[tag]? with | some alt => compute (fields.map applyArg ++ s) env alt | none => error
-    show StateRel
-      (match alts[tag]? with
-       | some alt => .compute (fields.map Frame.applyArg ++ s₁) env₁ alt
-       | none => .error)
-      (match alts[tag]? with
-       | some alt => .compute (fields.map Frame.applyArg ++ s₂) env₂ alt
-       | none => .error)
+    simp only [step]
     cases h_idx : alts[tag]? with
-    | none => exact .error
+    | none =>
+      have : (renameTermList σ' alts)[tag]? = none := by
+        simp [List.getElem?_eq_none_iff, renameTermList_length] at h_idx ⊢; exact h_idx
+      simp [h_idx, this]; exact .error
     | some alt =>
       have ⟨hi, heq_alt⟩ := List.getElem?_eq_some_iff.mp h_idx
       subst heq_alt
-      exact .compute
-        (stackRel_append (listValueRelV_map_applyArg_stackRel (listValueRelV_refl fields)) hrest)
-        d' henv' (closedAtList_getElem halts hi)
+      have hi2 : tag < (renameTermList σ' alts).length := by rw [renameTermList_length]; exact hi
+      have : (renameTermList σ' alts)[tag]? = some (renameTerm σ' alts[tag]) := by
+        rw [List.getElem?_eq_some_iff]; exact ⟨hi2, renameTermList_getElem σ' alts tag hi⟩
+      simp [h_idx, this]
+      exact .compute (stackRel_append (listValueRelV_map_applyArg_stackRel (listValueRelV_refl fields)) hrest)
+        σ' d' henv' (closedAtList_getElem halts hi)
   | VCon c =>
-    show StateRel
-      (match constToTagAndFields c with
-       | some (tag, numCtors, fields) =>
-         if numCtors > 0 && alts.length > numCtors then .error
-         else match alts[tag]? with
-           | some alt => .compute (fields.map Frame.applyArg ++ s₁) env₁ alt
-           | none => .error
-       | none => .error)
-      (match constToTagAndFields c with
-       | some (tag, numCtors, fields) =>
-         if numCtors > 0 && alts.length > numCtors then .error
-         else match alts[tag]? with
-           | some alt => .compute (fields.map Frame.applyArg ++ s₂) env₂ alt
-           | none => .error
-       | none => .error)
+    simp only [step]
     cases h_ctf : constToTagAndFields c with
     | none => simp [h_ctf]; exact .error
     | some val =>
       obtain ⟨tag, numCtors, fields⟩ := val
       simp only [h_ctf]
       cases h_check : (decide (numCtors > 0) && decide (alts.length > numCtors)) with
-      | true => simp [h_check]; exact .error
+      | true =>
+        have : (decide (numCtors > 0) && decide ((renameTermList σ' alts).length > numCtors)) = true := by
+          rw [renameTermList_length]; exact h_check
+        simp [h_check, this]; exact .error
       | false =>
-        simp [h_check]
+        have hcheck2 : (decide (numCtors > 0) && decide ((renameTermList σ' alts).length > numCtors)) = false := by
+          rw [renameTermList_length]; exact h_check
+        simp [h_check, hcheck2]
         cases h_idx : alts[tag]? with
-        | none => simp [h_idx]; exact .error
+        | none =>
+          have : (renameTermList σ' alts)[tag]? = none := by
+            simp [List.getElem?_eq_none_iff, renameTermList_length] at h_idx ⊢; exact h_idx
+          simp [h_idx, this]; exact .error
         | some alt =>
-          simp [h_idx]
           have ⟨hi, heq_alt⟩ := List.getElem?_eq_some_iff.mp h_idx
           subst heq_alt
+          have hi2 : tag < (renameTermList σ' alts).length := by rw [renameTermList_length]; exact hi
+          have : (renameTermList σ' alts)[tag]? = some (renameTerm σ' alts[tag]) := by
+            rw [List.getElem?_eq_some_iff]; exact ⟨hi2, renameTermList_getElem σ' alts tag hi⟩
+          simp [h_idx, this]
           exact .compute
             (stackRel_append (listValueRelV_map_applyArg_stackRel (listValueRelV_refl fields)) hrest)
-            d' henv' (closedAtList_getElem halts hi)
+            σ' d' henv' (closedAtList_getElem halts hi)
   | VDelay _ _ => show StateRel .error .error; exact .error
   | VLam _ _ => show StateRel .error .error; exact .error
   | VBuiltin _ _ _ => show StateRel .error .error; exact .error
@@ -652,50 +655,50 @@ theorem step_preserves {s₁ s₂ : State} (h : StateRel s₁ s₂) :
   cases h with
   | error => exact .error
   | halt hv => exact .halt hv
-  | compute hs d henv ht =>
+  | compute hs σ d henv ht =>
     cases ‹Term› with
     | Var n =>
-      simp only [step]
+      simp only [renameTerm, step]
       have hle := closedAt_var ht
       by_cases hn : n = 0
-      · subst hn; simp [lookup_zero]; exact .error
+      · subst hn; rw [envRelV_zero henv]; simp [lookup_zero]; exact .error
       · have hpos : 0 < n := Nat.pos_of_ne_zero hn
         have hlr := envRelV_elim henv hpos hle
         generalize h1 : CekEnv.lookup _ n = r1
-        generalize h2 : CekEnv.lookup _ n = r2
+        generalize h2 : CekEnv.lookup _ (σ n) = r2
         rw [h1, h2] at hlr
         cases hlr with
         | bothNone => exact .error
         | bothSome hv => exact .ret hs hv
     | Constant p =>
-      obtain ⟨c, ty⟩ := p; simp only [step]; exact .ret hs .vcon
+      obtain ⟨c, ty⟩ := p; simp only [renameTerm, step]; exact .ret hs .vcon
     | Builtin b =>
-      simp only [step]; exact .ret hs (.vbuiltin rfl .nil rfl)
+      simp only [renameTerm, step]; exact .ret hs (.vbuiltin rfl .nil rfl)
     | Lam n body =>
-      simp only [step]; exact .ret hs (.vlam d (closedAt_lam ht) henv)
+      simp only [renameTerm, step]; exact .ret hs (.vlam σ d (closedAt_lam ht) henv)
     | Delay body =>
-      simp only [step]; exact .ret hs (.vdelay d (closedAt_delay ht) henv)
+      simp only [renameTerm, step]; exact .ret hs (.vdelay σ d (closedAt_delay ht) henv)
     | Force e =>
-      simp only [step]
-      exact .compute (.cons .force hs) d henv (closedAt_force ht)
+      simp only [renameTerm, step]
+      exact .compute (.cons .force hs) σ d henv (closedAt_force ht)
     | Apply f x =>
-      simp only [step]
+      simp only [renameTerm, step]
       have ⟨hf, hx⟩ := closedAt_apply ht
-      exact .compute (.cons (.arg d x henv hx) hs) d henv hf
+      exact .compute (.cons (.arg σ d henv hx) hs) σ d henv hf
     | Constr tag args =>
-      simp only [step]
+      simp only [renameTerm, step]
       cases args with
       | nil => exact .ret hs (.vconstr rfl .nil)
       | cons m ms =>
         have hargs := closedAt_constr ht
         have ⟨hm, hms⟩ := closedAt_constr_cons hargs
-        exact .compute (.cons (.constrField d tag .nil ms hms henv) hs) d henv hm
+        exact .compute (.cons (.constrField σ d tag .nil hms henv) hs) σ d henv hm
     | Case scrut alts =>
-      simp only [step]
+      simp only [renameTerm, step]
       have ⟨hscrut, halts⟩ := closedAt_case ht
-      exact .compute (.cons (.caseScrutinee d alts halts henv) hs) d henv hscrut
+      exact .compute (.cons (.caseScrutinee σ d halts henv) hs) σ d henv hscrut
     | Error =>
-      simp only [step]; exact .error
+      simp only [renameTerm, step]; exact .error
 
   | ret hs hv =>
     cases hs with
@@ -704,8 +707,8 @@ theorem step_preserves {s₁ s₂ : State} (h : StateRel s₁ s₂) :
       cases hf with
       | force =>
         cases hv with
-        | vdelay d' hclosed henv' =>
-          simp only [step]; exact .compute hrest d' henv' hclosed
+        | vdelay σ' d' hclosed henv' =>
+          simp only [step]; exact .compute hrest σ' d' henv' hclosed
         | vbuiltin hb hargs hea =>
           subst hb; subst hea; simp only [step]
           cases h_head : ExpectedArgs.head ‹_› with
@@ -716,19 +719,19 @@ theorem step_preserves {s₁ s₂ : State} (h : StateRel s₁ s₂) :
             | none => simp [h_tail]; exact ret_evalBuiltin_relV hargs hrest
           | argV => simp [h_head]; exact .error
         | refl => exact step_force_refl hrest _
-        | vlam _ _ _ => simp only [step]; exact .error
+        | vlam _ _ _ _ => simp only [step]; exact .error
         | vcon => simp only [step]; exact .error
         | vconstr _ _ => simp only [step]; exact .error
 
-      | arg d' t henv' hclosed =>
+      | arg σ' d' henv' hclosed =>
         simp only [step]
-        exact .compute (.cons (.funV hv) hrest) d' henv' hclosed
+        exact .compute (.cons (.funV hv) hrest) σ' d' henv' hclosed
 
       | funV hv_fun =>
         cases hv_fun with
-        | vlam d' hclosed henv' =>
+        | vlam σ' d' hclosed henv' =>
           simp only [step]
-          exact .compute hrest (d' + 1) (envRelV_extend d' _ _ _ _ henv' hv) hclosed
+          exact .compute hrest (liftRename σ') (d' + 1) (envRelV_extend σ' d' _ _ _ _ henv' hv) hclosed
         | vbuiltin hb hargs hea =>
           subst hb; subst hea; simp only [step]
           cases h_head : ExpectedArgs.head ‹_› with
@@ -741,13 +744,13 @@ theorem step_preserves {s₁ s₂ : State} (h : StateRel s₁ s₂) :
         | refl => exact step_funV_refl hrest _ hv
         | vcon => simp only [step]; exact .error
         | vconstr _ _ => simp only [step]; exact .error
-        | vdelay _ _ _ => simp only [step]; exact .error
+        | vdelay _ _ _ _ => simp only [step]; exact .error
 
       | applyArg hv_arg =>
         cases hv with
-        | vlam d' hclosed henv' =>
+        | vlam σ' d' hclosed henv' =>
           simp only [step]
-          exact .compute hrest (d' + 1) (envRelV_extend d' _ _ _ _ henv' hv_arg) hclosed
+          exact .compute hrest (liftRename σ') (d' + 1) (envRelV_extend σ' d' _ _ _ _ henv' hv_arg) hclosed
         | vbuiltin hb hargs hea =>
           subst hb; subst hea; simp only [step]
           cases h_head : ExpectedArgs.head ‹_› with
@@ -760,75 +763,45 @@ theorem step_preserves {s₁ s₂ : State} (h : StateRel s₁ s₂) :
         | refl => exact step_applyArg_refl hrest _ hv_arg
         | vcon => simp only [step]; exact .error
         | vconstr _ _ => simp only [step]; exact .error
-        | vdelay _ _ _ => simp only [step]; exact .error
+        | vdelay _ _ _ _ => simp only [step]; exact .error
 
-      | constrField d' tag hdone todo htodo henv' =>
-        cases todo with
+      | constrField σ' d' tag hdone htodo henv' =>
+        cases ‹List Term› with
         | cons m ms =>
           simp only [step]
           have ⟨hm, hms⟩ := closedAt_constr_cons htodo
-          exact .compute (.cons (.constrField d' tag (.cons hv hdone) ms hms henv') hrest) d' henv' hm
+          exact .compute (.cons (.constrField σ' d' tag (.cons hv hdone) hms henv') hrest) σ' d' henv' hm
         | nil =>
           simp only [step]
           exact .ret hrest (.vconstr rfl (listValueRelV_cons_rev hv hdone))
 
-      | caseScrutinee d' alts halts henv' =>
+      | caseScrutinee σ' d' halts henv' =>
+        -- LHS: step (.ret (.caseScrutinee alts env₁ :: s₁) v₁)
+        -- RHS: step (.ret (.caseScrutinee (renameTermList σ' alts) env₂ :: s₂) v₂)
         cases hv with
         | vconstr htag hfs =>
           subst htag; simp only [step]
           rename_i tag _ _
-          cases h_idx : alts[tag]? with
-          | none => simp [h_idx]; exact .error
+          -- LHS matches on alts[tag]?, RHS on (renameTermList σ' alts)[tag]?
+          cases h_idx : (‹List Term›)[tag]? with
+          | none =>
+            have h_idx2 : (renameTermList σ' ‹List Term›)[tag]? = none := by
+              rw [List.getElem?_eq_none_iff, renameTermList_length]
+              exact List.getElem?_eq_none_iff.mp h_idx
+            simp [h_idx, h_idx2]; exact .error
           | some alt =>
-            simp [h_idx]
             have ⟨hi, heq_alt⟩ := List.getElem?_eq_some_iff.mp h_idx
             subst heq_alt
+            have hi2 : tag < (renameTermList σ' ‹List Term›).length := by rw [renameTermList_length]; exact hi
+            have h_idx2 : (renameTermList σ' ‹List Term›)[tag]? = some (renameTerm σ' (‹List Term›[tag])) := by
+              rw [List.getElem?_eq_some_iff]; exact ⟨hi2, renameTermList_getElem σ' _ tag hi⟩
+            simp [h_idx, h_idx2]
             exact .compute (stackRel_append (listValueRelV_map_applyArg_stackRel hfs) hrest)
-              d' henv' (closedAtList_getElem halts hi)
-        | vcon =>
-          -- vcon: v1 = v2 = VCon c. Same c on both sides.
-          -- step produces match on constToTagAndFields c.
-          rename_i c
-          show StateRel
-            (match constToTagAndFields c with
-             | some (tag, numCtors, fields) =>
-               if numCtors > 0 && alts.length > numCtors then .error
-               else match alts[tag]? with
-                 | some alt =>
-                   let fieldFrames := fields.map Frame.applyArg
-                   .compute (fieldFrames ++ _) _ alt
-                 | none => .error
-             | none => .error)
-            (match constToTagAndFields c with
-             | some (tag, numCtors, fields) =>
-               if numCtors > 0 && alts.length > numCtors then .error
-               else match alts[tag]? with
-                 | some alt =>
-                   let fieldFrames := fields.map Frame.applyArg
-                   .compute (fieldFrames ++ _) _ alt
-                 | none => .error
-             | none => .error)
-          cases h_ctf : constToTagAndFields c with
-          | none => simp [h_ctf]; exact .error
-          | some val =>
-            obtain ⟨tag, numCtors, fields⟩ := val
-            simp only [h_ctf]
-            cases h_check : (decide (numCtors > 0) && decide (alts.length > numCtors)) with
-            | true => simp [h_check]; exact .error
-            | false =>
-              simp [h_check]
-              cases h_idx : alts[tag]? with
-              | none => simp [h_idx]; exact .error
-              | some alt =>
-                simp [h_idx]
-                have ⟨hi, heq_alt⟩ := List.getElem?_eq_some_iff.mp h_idx
-                subst heq_alt
-                exact .compute
-                  (stackRel_append (listValueRelV_map_applyArg_stackRel (listValueRelV_refl fields)) hrest)
-                  d' henv' (closedAtList_getElem halts hi)
+              σ' d' henv' (closedAtList_getElem halts hi)
+        | vcon => exact step_case_refl hrest _ halts henv'
         | refl => exact step_case_refl hrest _ halts henv'
-        | vlam _ _ _ => simp only [step]; exact .error
-        | vdelay _ _ _ => simp only [step]; exact .error
+        | vlam _ _ _ _ => simp only [step]; exact .error
+        | vdelay _ _ _ _ => simp only [step]; exact .error
         | vbuiltin _ _ _ => simp only [step]; exact .error
 
 /-! ## Main bisimulation extraction -/

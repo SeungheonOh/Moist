@@ -3,6 +3,7 @@ import Moist.Verified.StepLift
 import Moist.MIR.LowerTotal
 import Moist.Plutus.DecidableEq
 import Moist.Verified.Bisim
+import Moist.Verified.Rename
 
 set_option linter.unusedSimpArgs false
 
@@ -14,7 +15,8 @@ open Moist.MIR
 open Moist.Verified.Semantics
 open Moist.Verified
 open Moist.Verified.StepLift (beta_reaches beta_reaches_error beta_apply_from_inner)
-open Moist.Verified.Bisim (bisim_reaches_error)
+open Moist.Verified.Bisim (bisim_reaches_error steps_preserves)
+open Moist.Verified (renameTerm liftRename renameTerm_id)
 
 /-! # Dead Let Elimination -- Semantic Correctness
 
@@ -152,6 +154,47 @@ mutual
   theorem listValueEq_refl : ∀ (k : Nat) (vs : List CekValue), ListValueEq k vs vs
     | _, [] => by simp [ListValueEq]
     | k, v :: vs => by simp only [ListValueEq]; exact ⟨valueEq_refl k v, listValueEq_refl k vs⟩
+  theorem valueEq_symm : ∀ (k : Nat) (v₁ v₂ : CekValue), ValueEq k v₁ v₂ → ValueEq k v₂ v₁
+    | 0, _, _, _ => by simp [ValueEq]
+    | _ + 1, .VCon _, .VCon _, h => by simp only [ValueEq] at h ⊢; exact h.symm
+    | k + 1, .VLam _ _, .VLam _ _, h => by
+      simp only [ValueEq] at h ⊢; intro arg v₁ v₂ h₁ h₂
+      exact valueEq_symm k _ _ (h arg v₂ v₁ h₂ h₁)
+    | k + 1, .VDelay _ _, .VDelay _ _, h => by
+      simp only [ValueEq] at h ⊢; intro v₁ v₂ h₁ h₂
+      exact valueEq_symm k _ _ (h v₂ v₁ h₂ h₁)
+    | _ + 1, .VConstr _ _, .VConstr _ _, h => by
+      unfold ValueEq at h ⊢; exact ⟨h.1.symm, listValueEq_symm _ _ _ h.2⟩
+    | k + 1, .VBuiltin _ _ _, .VBuiltin _ _ _, h => by
+      unfold ValueEq at h ⊢; exact ⟨h.1.symm, listValueEq_symm k _ _ h.2.1, h.2.2.symm⟩
+    | _ + 1, .VCon _, .VLam _ _, h => by simp [ValueEq] at h
+    | _ + 1, .VCon _, .VDelay _ _, h => by simp [ValueEq] at h
+    | _ + 1, .VCon _, .VConstr _ _, h => by simp [ValueEq] at h
+    | _ + 1, .VCon _, .VBuiltin _ _ _, h => by simp [ValueEq] at h
+    | _ + 1, .VLam _ _, .VCon _, h => by simp [ValueEq] at h
+    | _ + 1, .VLam _ _, .VDelay _ _, h => by simp [ValueEq] at h
+    | _ + 1, .VLam _ _, .VConstr _ _, h => by simp [ValueEq] at h
+    | _ + 1, .VLam _ _, .VBuiltin _ _ _, h => by simp [ValueEq] at h
+    | _ + 1, .VDelay _ _, .VCon _, h => by simp [ValueEq] at h
+    | _ + 1, .VDelay _ _, .VLam _ _, h => by simp [ValueEq] at h
+    | _ + 1, .VDelay _ _, .VConstr _ _, h => by simp [ValueEq] at h
+    | _ + 1, .VDelay _ _, .VBuiltin _ _ _, h => by simp [ValueEq] at h
+    | _ + 1, .VConstr _ _, .VCon _, h => by simp [ValueEq] at h
+    | _ + 1, .VConstr _ _, .VLam _ _, h => by simp [ValueEq] at h
+    | _ + 1, .VConstr _ _, .VDelay _ _, h => by simp [ValueEq] at h
+    | _ + 1, .VConstr _ _, .VBuiltin _ _ _, h => by simp [ValueEq] at h
+    | _ + 1, .VBuiltin _ _ _, .VCon _, h => by simp [ValueEq] at h
+    | _ + 1, .VBuiltin _ _ _, .VLam _ _, h => by simp [ValueEq] at h
+    | _ + 1, .VBuiltin _ _ _, .VDelay _ _, h => by simp [ValueEq] at h
+    | _ + 1, .VBuiltin _ _ _, .VConstr _ _, h => by simp [ValueEq] at h
+  theorem listValueEq_symm : ∀ (k : Nat) (vs₁ vs₂ : List CekValue),
+      ListValueEq k vs₁ vs₂ → ListValueEq k vs₂ vs₁
+    | _, [], [], _ => by simp [ListValueEq]
+    | k, _ :: _, _ :: _, h => by
+      simp only [ListValueEq] at h ⊢
+      exact ⟨valueEq_symm k _ _ h.1, listValueEq_symm k _ _ h.2⟩
+    | _, [], _ :: _, h => by exact absurd h (by simp [ListValueEq])
+    | _, _ :: _, [], h => by exact absurd h (by simp [ListValueEq])
 end
 
 /-! ## MIRDeadLetCond -/
@@ -239,20 +282,20 @@ Case-splits on the `ValueRelV` constructor:
 
 private theorem relV_implies_valueEq_succ (k : Nat)
     (ihA : ∀ d t env₁ env₂ v₁ v₂,
-      closedAt d t = true → EnvRelV d env₁ env₂ →
+      closedAt d t = true → ∀ σ, EnvRelV σ d env₁ env₂ →
       Reaches (.compute [] env₁ t) (.halt v₁) →
-      Reaches (.compute [] env₂ t) (.halt v₂) →
+      Reaches (.compute [] env₂ (renameTerm σ t)) (.halt v₂) →
       ValueEq k v₁ v₂)
     (ihC : ∀ vs₁ vs₂, ListValueRelV vs₁ vs₂ → ListValueEq k vs₁ vs₂)
     (v₁ v₂ : CekValue) (hr : ValueRelV v₁ v₂) : ValueEq (k + 1) v₁ v₂ := by
   cases hr with
   | vcon => simp [ValueEq]
-  | vlam d hcl henv =>
+  | vlam σ d hcl henv =>
     simp only [ValueEq]; intro arg w₁ w₂ hw₁ hw₂
-    exact ihA (d + 1) _ _ _ w₁ w₂ hcl (envRelV_extend d _ _ arg arg henv .refl) hw₁ hw₂
-  | vdelay d hcl henv =>
+    exact ihA (d + 1) _ _ _ w₁ w₂ hcl (liftRename σ) (envRelV_extend σ d _ _ arg arg henv .refl) hw₁ hw₂
+  | vdelay σ d hcl henv =>
     simp only [ValueEq]; intro w₁ w₂ hw₁ hw₂
-    exact ihA d _ _ _ w₁ w₂ hcl henv hw₁ hw₂
+    exact ihA d _ _ _ w₁ w₂ hcl σ henv hw₁ hw₂
   | vconstr htag hfs => subst htag; unfold ValueEq; exact ⟨rfl, ihC _ _ hfs⟩
   | vbuiltin hb hargs hea => subst hb; subst hea; unfold ValueEq; exact ⟨rfl, ihC _ _ hargs, rfl⟩
   | refl => exact valueEq_refl _ _
@@ -270,15 +313,15 @@ Given that (A) holds at index `k` and (B) holds at index `k+1`, derive
 
 private theorem closed_eval_valueEq_succ (k : Nat)
     (ihA : ∀ d t env₁ env₂ v₁ v₂,
-      closedAt d t = true → EnvRelV d env₁ env₂ →
+      closedAt d t = true → ∀ σ, EnvRelV σ d env₁ env₂ →
       Reaches (.compute [] env₁ t) (.halt v₁) →
-      Reaches (.compute [] env₂ t) (.halt v₂) →
+      Reaches (.compute [] env₂ (renameTerm σ t)) (.halt v₂) →
       ValueEq k v₁ v₂)
     (relV_to_eq : ∀ v₁ v₂, ValueRelV v₁ v₂ → ValueEq (k + 1) v₁ v₂)
-    (d : Nat) (t : Term) (env₁ env₂ : CekEnv) (v₁ v₂ : CekValue)
-    (hcl : closedAt d t = true) (hrel : EnvRelV d env₁ env₂)
+    (σ : Nat → Nat) (d : Nat) (t : Term) (env₁ env₂ : CekEnv) (v₁ v₂ : CekValue)
+    (hcl : closedAt d t = true) (hrel : EnvRelV σ d env₁ env₂)
     (h₁ : Reaches (.compute [] env₁ t) (.halt v₁))
-    (h₂ : Reaches (.compute [] env₂ t) (.halt v₂)) :
+    (h₂ : Reaches (.compute [] env₂ (renameTerm σ t)) (.halt v₂)) :
     ValueEq (k + 1) v₁ v₂ := by
   match t with
   | .Var 0 =>
@@ -293,61 +336,66 @@ private theorem closed_eval_valueEq_succ (k : Nat)
         cases N with | zero => simp [steps] at hN | succ => simp [steps, step, hn₁, steps_error] at hN
     | some w₁ =>
       rw [hn₁] at hlr
-      generalize hn₂ : env₂.lookup (m + 1) = r₂ at hlr
+      generalize hn₂ : env₂.lookup (σ (m + 1)) = r₂ at hlr
       cases hlr with
       | bothSome hv =>
         have hreach₁ : Reaches (.compute [] env₁ (.Var (m+1))) (.halt w₁) :=
           ⟨2, by simp [steps, step, hn₁]⟩
         rename_i w₂
-        have hreach₂ : Reaches (.compute [] env₂ (.Var (m+1))) (.halt w₂) :=
+        have hreach₂ : Reaches (.compute [] env₂ (.Var (σ (m+1)))) (.halt w₂) :=
           ⟨2, by simp [steps, step, hn₂]⟩
         have hv₁ := reaches_unique h₁ hreach₁
-        have hv₂ := reaches_unique h₂ hreach₂
+        -- h₂ is about renameTerm σ (.Var (m+1)) = .Var (σ (m+1))
+        have hv₂ := reaches_unique h₂ (by show Reaches (.compute [] env₂ (renameTerm σ (.Var (m+1)))) (.halt w₂); simp [renameTerm]; exact hreach₂)
         subst hv₁; subst hv₂; exact relV_to_eq _ _ hv
   | .Constant (c, _) =>
     have := reaches_unique h₁ ⟨2, rfl⟩; subst this
-    have := reaches_unique h₂ ⟨2, rfl⟩; subst this
+    have := reaches_unique h₂ (by show Reaches (.compute [] env₂ (renameTerm σ (.Constant (c, _)))) (.halt _); simp [renameTerm]; exact ⟨2, rfl⟩); subst this
     simp [ValueEq]
   | .Builtin b =>
     have := reaches_unique h₁ (⟨2, rfl⟩ : Reaches _ (.halt _)); subst this
-    have := reaches_unique h₂ (⟨2, rfl⟩ : Reaches _ (.halt _)); subst this
+    have := reaches_unique h₂ (by show Reaches (.compute [] env₂ (renameTerm σ (.Builtin b))) (.halt _); simp [renameTerm]; exact ⟨2, rfl⟩); subst this
     simp [ValueEq, ListValueEq]
   | .Error =>
+    simp only [renameTerm] at h₂
     exact absurd h₁ fun ⟨N, hN⟩ => by
       cases N with | zero => simp [steps] at hN | succ => simp [steps, step, steps_error] at hN
   | .Lam m body =>
     have := reaches_unique h₁ (⟨2, rfl⟩ : Reaches _ (.halt _)); subst this
+    -- renameTerm σ (.Lam m body) = .Lam m (renameTerm (liftRename σ) body)
+    simp only [renameTerm] at h₂
     have := reaches_unique h₂ (⟨2, rfl⟩ : Reaches _ (.halt _)); subst this
     simp only [ValueEq]; intro arg w₁ w₂ hw₁ hw₂
     exact ihA (d + 1) body _ _ w₁ w₂
-      (closedAt_lam hcl) (envRelV_extend d env₁ env₂ arg arg hrel .refl) hw₁ hw₂
+      (closedAt_lam hcl) (liftRename σ) (envRelV_extend σ d env₁ env₂ arg arg hrel .refl) hw₁ hw₂
   | .Delay body =>
     have := reaches_unique h₁ (⟨2, rfl⟩ : Reaches _ (.halt _)); subst this
+    simp only [renameTerm] at h₂
     have := reaches_unique h₂ (⟨2, rfl⟩ : Reaches _ (.halt _)); subst this
     simp only [ValueEq]; intro w₁ w₂ hw₁ hw₂
-    exact ihA d body env₁ env₂ w₁ w₂ (closedAt_delay hcl) hrel hw₁ hw₂
+    exact ihA d body env₁ env₂ w₁ w₂ (closedAt_delay hcl) σ hrel hw₁ hw₂
   | .Apply _ _ | .Force _ | .Constr _ _ | .Case _ _ =>
-    exact relV_to_eq v₁ v₂ (Bisim.bisim_reaches (.compute .nil d hrel hcl) h₁ h₂)
+    exact relV_to_eq v₁ v₂ (Bisim.bisim_reaches (.compute .nil σ d hrel hcl) h₁ h₂)
 
 /-! ### Step 3: tie the knot by induction on k -/
 
 private theorem env_rel_bundle_aux (k : Nat) :
     (∀ d t env₁ env₂ v₁ v₂,
-      closedAt d t = true → EnvRelV d env₁ env₂ →
+      closedAt d t = true → ∀ σ, EnvRelV σ d env₁ env₂ →
       Reaches (.compute [] env₁ t) (.halt v₁) →
-      Reaches (.compute [] env₂ t) (.halt v₂) →
+      Reaches (.compute [] env₂ (renameTerm σ t)) (.halt v₂) →
       ValueEq k v₁ v₂) ∧
     (∀ v₁ v₂, ValueRelV v₁ v₂ → ValueEq k v₁ v₂) ∧
     (∀ vs₁ vs₂, ListValueRelV vs₁ vs₂ → ListValueEq k vs₁ vs₂) := by
   induction k with
   | zero =>
-    exact ⟨fun _ _ _ _ _ _ _ _ _ _ => by simp [ValueEq],
+    exact ⟨fun _ _ _ _ _ _ _ _ _ _ _ => by simp [ValueEq],
            fun _ _ _ => by simp [ValueEq],
            fun _ _ h => listRelV_to_listEq_zero h⟩
   | succ k ihk =>
     obtain ⟨ihA, _, ihC⟩ := ihk
     have relV_to_eq := relV_implies_valueEq_succ k ihA ihC
-    exact ⟨closed_eval_valueEq_succ k ihA relV_to_eq,
+    exact ⟨fun d t e1 e2 v1 v2 hcl σ hrel h1 h2 => closed_eval_valueEq_succ k ihA relV_to_eq σ d t e1 e2 v1 v2 hcl hrel h1 h2,
            relV_to_eq,
            fun _ _ h => listRelV_to_listEq_succ relV_to_eq h⟩
 
@@ -357,13 +405,13 @@ private theorem env_rel_bundle_aux (k : Nat) :
     environments, if both computations halt, the results are `ValueEq k`
     for any `k`. This is the theorem that `dead_let_sound_closed` invokes
     to conclude value equivalence. -/
-theorem closedAt_envRelV_valueEq (k d : Nat) (t : Term) (env₁ env₂ : CekEnv)
-    (hclosed : closedAt d t = true) (hrel : EnvRelV d env₁ env₂)
+theorem closedAt_envRelV_valueEq (k d : Nat) (σ : Nat → Nat) (t : Term) (env₁ env₂ : CekEnv)
+    (hclosed : closedAt d t = true) (hrel : EnvRelV σ d env₁ env₂)
     (v₁ v₂ : CekValue)
     (h₁ : Reaches (.compute [] env₁ t) (.halt v₁))
-    (h₂ : Reaches (.compute [] env₂ t) (.halt v₂)) :
+    (h₂ : Reaches (.compute [] env₂ (renameTerm σ t)) (.halt v₂)) :
     ValueEq k v₁ v₂ :=
-  (env_rel_bundle_aux k).1 d t env₁ env₂ v₁ v₂ hclosed hrel h₁ h₂
+  (env_rel_bundle_aux k).1 d t env₁ env₂ v₁ v₂ hclosed σ hrel h₁ h₂
 
 /-- Corollary: `ValueRelV` (structural relation) implies `ValueEq`
     (observational relation) at every step index. -/
@@ -385,9 +433,12 @@ and never error, regardless of the environment. -/
 
 /-- An atomic-pure expression halts in 2 steps in any environment.
     The proof case-splits on the four `isAtomicPure` forms and verifies
-    `steps 2 (compute [] env t) = halt v` by `rfl`. -/
+    `steps 2 (compute [] env t) = halt v` by `rfl`.
+    The MIR-level environment `mir_env` is used only during lowering;
+    the CEK-level environment `env` is the runtime environment. -/
 private theorem atomicPure_halts (e : Expr) (t : Term) (env : CekEnv)
-    (hpure : isAtomicPure e = true) (hlower : lowerTotal [] e = some t) :
+    (hpure : isAtomicPure e = true) (mir_env : List VarId)
+    (hlower : lowerTotal mir_env e = some t) :
     ∃ ve, Reaches (.compute [] env t) (.halt ve) := by
   match e with
   | .Lit (c, ty) =>
@@ -409,10 +460,11 @@ private theorem atomicPure_halts (e : Expr) (t : Term) (env : CekEnv)
 /-- Contrapositive of `atomicPure_halts` + `reaches_halt_not_error`:
     an atomic-pure expression can never reach `error`. -/
 private theorem atomicPure_never_error (e : Expr) (t : Term) (env : CekEnv)
-    (hpure : isAtomicPure e = true) (hlower : lowerTotal [] e = some t) :
+    (hpure : isAtomicPure e = true) (mir_env : List VarId)
+    (hlower : lowerTotal mir_env e = some t) :
     ¬ Reaches (.compute [] env t) .error := by
   intro herr
-  have ⟨ve, hve⟩ := atomicPure_halts e t env hpure hlower
+  have ⟨ve, hve⟩ := atomicPure_halts e t env hpure mir_env hlower
   exact reaches_halt_not_error hve herr
 
 /-- For `closedAt 0` terms, error reachability is environment-independent.
@@ -422,16 +474,40 @@ private theorem closedAt_zero_error_env_irrel (t : Term) (env₁ env₂ : CekEnv
     (hclosed : closedAt 0 t = true) :
     Reaches (.compute [] env₁ t) .error → Reaches (.compute [] env₂ t) .error := by
   intro herr
-  have hrel : EnvRelV 0 env₁ env₂ :=
-    .mk fun n hn hle => absurd (Nat.lt_of_lt_of_le hn hle) (Nat.lt_irrefl 0)
-  exact Bisim.bisim_reaches_error (.compute .nil 0 hrel hclosed) herr
+  have hrel : EnvRelV id 0 env₁ env₂ :=
+    .mk (fun n hn hle => absurd (Nat.lt_of_lt_of_le hn hle) (Nat.lt_irrefl 0))
+        (fun n hn hle => absurd (Nat.lt_of_lt_of_le hn hle) (Nat.lt_irrefl 0))
+        rfl
+  have h := Bisim.bisim_reaches_error (.compute .nil id 0 hrel hclosed) herr
+  simp [renameTerm_id] at h; exact h
+
+/-- Reverse direction of `bisim_reaches_error`: if the *second* state
+    reaches `error`, so does the *first*.
+
+    The proof mirrors `bisim_reaches_error` — after `n` steps,
+    `StateRel` is preserved, and the only `StateRel` constructor with
+    `.error` on the right-hand side is `.error` itself, so the left-hand
+    side must also be `.error`. -/
+private theorem bisim_reaches_error_rev {s₁ s₂ : State}
+    (hrel : StateRel s₁ s₂)
+    (h₂ : Reaches s₂ .error) : Reaches s₁ .error := by
+  obtain ⟨n, hn⟩ := h₂
+  have hr := Bisim.steps_preserves n hrel
+  rw [hn] at hr
+  -- hr : StateRel (steps n s₁) .error — the only matching constructor is .error
+  generalize h_eq : steps n s₁ = s1f at hr
+  cases s1f with
+  | error => exact ⟨n, h_eq⟩
+  | halt _ => cases hr
+  | compute _ _ _ => cases hr
+  | ret _ _ => cases hr
 
 /-! ## Main theorem -/
 
 /-- **Dead let elimination is semantics-preserving.**
 
     Given `MIRDeadLetCond x e body` (i.e. `x ∉ FV(body)` and `e` is pure),
-    we have `Let [(x, e, false)] body ≃⁰ body`.
+    we have `Let [(x, e, false)] body ≋ᶜ body`.
 
     **Proof outline:**
     1. Lower both sides. The LHS becomes `Apply (Lam 0 body') e'`;
@@ -448,7 +524,7 @@ private theorem closedAt_zero_error_env_irrel (t : Term) (env₁ env₂ : CekEnv
        (vacuously true) gives `ValueEq k` for all `k`. -/
 theorem dead_let_sound_closed (x : VarId) (e body : Expr)
     (hsc : MIRDeadLetCond x e body) :
-    .Let [(x, e, false)] body ≃⁰ body := by
+    .Let [(x, e, false)] body ≋ᶜ body := by
   unfold BehEqClosed
   have hlower_let : lowerTotal [] (.Let [(x, e, false)] body) =
       (do let e' ← lowerTotal [] e
@@ -471,18 +547,112 @@ theorem dead_let_sound_closed (x : VarId) (e body : Expr)
         · intro herr
           -- LHS errors → by beta_reaches_error: either e' errors or body in ext env errors
           rcases beta_reaches_error .nil body' e' 0 herr with he_err | ⟨ve, _, hbody_err⟩
-          · exact absurd he_err (atomicPure_never_error e e' .nil hsc.safe he)
+          · exact absurd he_err (atomicPure_never_error e e' .nil hsc.safe (mir_env := []) he)
           · exact closedAt_zero_error_env_irrel body' (.cons ve .nil) .nil hclosed hbody_err
         · intro herr
           -- RHS errors → propagate to extended env, compose with e' halting
-          obtain ⟨ve, hve⟩ := atomicPure_halts e e' .nil hsc.safe he
+          obtain ⟨ve, hve⟩ := atomicPure_halts e e' .nil hsc.safe (mir_env := []) he
           have hbody_err := closedAt_zero_error_env_irrel body' .nil (.cons ve .nil) hclosed herr
           exact beta_apply_from_inner .nil body' e' 0 ve .error hve hbody_err
       -- Value equivalence
       · intro k v₁ v₂ hv₁ hv₂
         obtain ⟨ve, _, hbody_reach⟩ := beta_reaches .nil body' e' 0 v₁ hv₁
-        have hrel : EnvRelV 0 (.cons ve .nil) .nil :=
-          .mk fun n hn hle => absurd (Nat.lt_of_lt_of_le hn hle) (Nat.lt_irrefl 0)
-        exact closedAt_envRelV_valueEq k 0 body' (.cons ve .nil) .nil hclosed hrel v₁ v₂ hbody_reach hv₂
+        have hrel : EnvRelV id 0 (.cons ve .nil) .nil :=
+          .mk (fun n hn hle => absurd (Nat.lt_of_lt_of_le hn hle) (Nat.lt_irrefl 0))
+              (fun n hn hle => absurd (Nat.lt_of_lt_of_le hn hle) (Nat.lt_irrefl 0))
+              rfl
+        have hv₂' : Reaches (.compute [] .nil (renameTerm id body')) (.halt v₂) := by
+          rw [renameTerm_id]; exact hv₂
+        exact closedAt_envRelV_valueEq k 0 id body' (.cons ve .nil) .nil hclosed hrel v₁ v₂ hbody_reach hv₂'
+
+/-! ## Generalized dead let elimination for open terms -/
+
+open Moist.Verified (shiftRename closedAt_rename)
+open Moist.MIR (lowerTotal_prepend_unused)
+
+/-- `EnvRelV (shiftRename 1) d ρ (ρ.extend ve)`:
+    `ρ.lookup n` relates to `(ρ.extend ve).lookup (n+1) = ρ.lookup n`.
+    This is the correct orientation for the dead-let proof:
+    env1=ρ evaluates the original body, env2=ρ.extend ve evaluates the
+    shifted body (renameTerm (shiftRename 1) body). -/
+private theorem envRelV_shift_into_extend (d : Nat) (ρ : CekEnv) (ve : CekValue) :
+    EnvRelV (shiftRename 1) d ρ (ρ.extend ve) := by
+  constructor
+  · intro n hn hle
+    have hsr : shiftRename 1 n = n + 1 := by simp [shiftRename]; omega
+    rw [hsr]
+    -- (ρ.extend ve).lookup (n+1) = ρ.lookup n  (since n+1 ≥ 2, skips ve)
+    show LookupRelV (ρ.lookup n) ((CekEnv.cons ve ρ).lookup (n + 1))
+    -- .cons _ rest .lookup (n+1) = rest.lookup n when n ≥ 1
+    cases n with
+    | zero => omega
+    | succ m =>
+      show LookupRelV (ρ.lookup (m + 1)) (ρ.lookup (m + 1))
+      match h : ρ.lookup (m + 1) with
+      | none => exact h ▸ .bothNone
+      | some v => exact h ▸ .bothSome .refl
+  · intro n hn _; show 0 < shiftRename 1 n
+    have : shiftRename 1 n = n + 1 := by simp [shiftRename]; omega
+    omega
+  · simp [shiftRename]
+
+/-- **Dead let elimination for open terms.**
+
+    Given `MIRDeadLetCond x e body`, we have `BehEq (Let [(x,e,false)] body) body`
+    for all MIR environments. -/
+theorem dead_let_sound (x : VarId) (e body : Expr)
+    (hsc : MIRDeadLetCond x e body) :
+    Moist.Verified.Semantics.BehEq (.Let [(x, e, false)] body) body := by
+  unfold BehEq; intro env
+  -- Lower the let: lowerTotal env (Let [(x,e,false)] body) = Apply (Lam 0 body_x) e'
+  -- where body_x = lowerTotal (x :: env) body
+  have hlower_let : lowerTotal env (.Let [(x, e, false)] body) =
+      (do let e' ← lowerTotal env e
+          let b' ← lowerTotal (x :: env) body
+          some (Term.Apply (Term.Lam 0 b') e')) := by
+    rw [lowerTotal.eq_11, lowerTotalLet.eq_2, lowerTotalLet.eq_1]
+  cases hb : lowerTotal env body with
+  | none =>
+    -- body doesn't lower → second component of `match` is `none` → BehEq is True
+    simp [hb, hlower_let]
+  | some body' =>
+    -- body_x = renameTerm (shiftRename 1) body'
+    have hbx := lowerTotal_prepend_unused env x body hsc.unused body' hb
+    cases he : lowerTotal env e with
+    | none => simp [hlower_let, he, hb]
+    | some e' =>
+      simp [hlower_let, he, hbx, hb]
+      have hclosed : closedAt env.length body' = true := by
+        have := lowerTotal_closedAt env body body' hb; simp at this; exact this
+      constructor
+      -- Error equivalence
+      · intro ρ; constructor
+        · intro herr
+          -- LHS errors: Apply (Lam 0 (shift body')) e' in ρ errors
+          rcases beta_reaches_error ρ (renameTerm (shiftRename 1) body') e' 0 herr with
+            he_err | ⟨ve, _, hbody_err⟩
+          · exact absurd he_err (atomicPure_never_error e e' ρ hsc.safe (mir_env := env) he)
+          · -- shifted body' errors in ρ.extend ve
+            -- Use reverse bisim to transfer: body' in ρ also errors
+            have hrel := envRelV_shift_into_extend env.length ρ ve
+            exact bisim_reaches_error_rev
+              (.compute .nil (shiftRename 1) env.length hrel hclosed) hbody_err
+        · intro herr
+          -- RHS errors: body' in ρ errors
+          -- Transfer to shifted body' in ρ.extend ve via forward bisim
+          obtain ⟨ve, hve⟩ := atomicPure_halts e e' ρ hsc.safe (mir_env := env) he
+          have hrel := envRelV_shift_into_extend env.length ρ ve
+          have hbody_err := Bisim.bisim_reaches_error
+            (.compute .nil (shiftRename 1) env.length hrel hclosed) herr
+          exact beta_apply_from_inner ρ (renameTerm (shiftRename 1) body') e' 0 ve .error hve hbody_err
+      -- Value equivalence
+      · intro k ρ v₁ v₂ hv₁ hv₂
+        obtain ⟨ve, _, hbody_reach⟩ := beta_reaches ρ (renameTerm (shiftRename 1) body') e' 0 v₁ hv₁
+        -- hbody_reach: shifted body' halts with v₁ in ρ.extend ve
+        -- hv₂: body' halts with v₂ in ρ
+        -- Use closedAt_envRelV_valueEq with σ = shiftRename 1, env1 = ρ, env2 = ρ.extend ve
+        have hrel := envRelV_shift_into_extend env.length ρ ve
+        exact valueEq_symm k _ _ (closedAt_envRelV_valueEq k env.length (shiftRename 1) body'
+          ρ (ρ.extend ve) hclosed hrel v₂ v₁ hv₂ hbody_reach)
 
 end Moist.Verified.DeadLet

@@ -118,7 +118,7 @@ private theorem eval_lam_rhs :
     unfolds `ValueEq` at depths 0, 1, and 2+.
 
     Stated as `BehEqClosed mirLhs mirRhs`. No sorry. -/
-theorem dead_let_example : mirLhs ≃⁰ mirRhs := by
+theorem dead_let_example : mirLhs ≋ᶜ mirRhs := by
   unfold BehEqClosed
   rw [lower_lhs, lower_rhs]
   constructor
@@ -158,7 +158,7 @@ private def w : VarId := ⟨5, "w"⟩
 /-- `let foo = 42 in 10` ≡ `10` — unused literal binding. -/
 theorem dead_let_lit :
     (.Let [(foo, intLit 42, false)] (intLit 10))
-  ≃⁰ (intLit 10) :=
+  ≋ᶜ (intLit 10) :=
   dead_let_sound_closed foo (intLit 42) (intLit 10)
     ⟨by native_decide, by native_decide⟩
 
@@ -169,7 +169,7 @@ theorem dead_let_nested :
     (.Let [(z, intLit 99, false)]
       (.Let [(y, .Builtin .AddInteger, false)]
         (.App (.App (.Var y) (intLit 1)) (intLit 2))))
-  ≃⁰ (.Let [(y, .Builtin .AddInteger, false)]
+  ≋ᶜ (.Let [(y, .Builtin .AddInteger, false)]
       (.App (.App (.Var y) (intLit 1)) (intLit 2))) :=
   dead_let_sound_closed z (intLit 99)
     (.Let [(y, .Builtin .AddInteger, false)]
@@ -179,14 +179,14 @@ theorem dead_let_nested :
 /-- `let w = \x -> x in 7` ≡ `7` — unused lambda binding. -/
 theorem dead_let_lam :
     (.Let [(w, .Lam x (.Var x), false)] (intLit 7))
-  ≃⁰ (intLit 7) :=
+  ≋ᶜ (intLit 7) :=
   dead_let_sound_closed w (.Lam x (.Var x)) (intLit 7)
     ⟨by native_decide, by native_decide⟩
 
 /-- `let z = delay(42) in 5` ≡ `5` — unused delay binding. -/
 theorem dead_let_delay :
     (.Let [(z, .Delay (intLit 42), false)] (intLit 5))
-  ≃⁰ (intLit 5) :=
+  ≋ᶜ (intLit 5) :=
   dead_let_sound_closed z (.Delay (intLit 42)) (intLit 5)
     ⟨by native_decide, by native_decide⟩
 
@@ -194,7 +194,7 @@ theorem dead_let_delay :
 theorem dead_let_builtin :
     (.Let [(foo, .Builtin .AddInteger, false)]
       (.App (.App (.Builtin .AddInteger) (intLit 1)) (intLit 2)))
-  ≃⁰ (.App (.App (.Builtin .AddInteger) (intLit 1)) (intLit 2)) :=
+  ≋ᶜ (.App (.App (.Builtin .AddInteger) (intLit 1)) (intLit 2)) :=
   dead_let_sound_closed foo (.Builtin .AddInteger)
     (.App (.App (.Builtin .AddInteger) (intLit 1)) (intLit 2))
     ⟨by native_decide, by native_decide⟩
@@ -212,21 +212,21 @@ private def b : VarId := ⟨7, "b"⟩
 /-- `let foo = 42 in \a -> a` ≡ `\a -> a` — identity function, unused literal. -/
 theorem dead_let_lam_body_id :
     (.Let [(foo, intLit 42, false)] (.Lam a (.Var a)))
-  ≃⁰ (.Lam a (.Var a)) :=
+  ≋ᶜ (.Lam a (.Var a)) :=
   dead_let_sound_closed foo (intLit 42) (.Lam a (.Var a))
     ⟨by native_decide, by native_decide⟩
 
 /-- `let z = 99 in \a -> 5` ≡ `\a -> 5` — constant function, unused literal. -/
 theorem dead_let_lam_body_const :
     (.Let [(z, intLit 99, false)] (.Lam a (intLit 5)))
-  ≃⁰ (.Lam a (intLit 5)) :=
+  ≋ᶜ (.Lam a (intLit 5)) :=
   dead_let_sound_closed z (intLit 99) (.Lam a (intLit 5))
     ⟨by native_decide, by native_decide⟩
 
 /-- `let w = \b -> b in \a -> a` ≡ `\a -> a` — unused lambda binding around lambda body. -/
 theorem dead_let_lam_around_lam :
     (.Let [(w, .Lam b (.Var b), false)] (.Lam a (.Var a)))
-  ≃⁰ (.Lam a (.Var a)) :=
+  ≋ᶜ (.Lam a (.Var a)) :=
   dead_let_sound_closed w (.Lam b (.Var b)) (.Lam a (.Var a))
     ⟨by native_decide, by native_decide⟩
 
@@ -234,7 +234,7 @@ theorem dead_let_lam_around_lam :
     — unused builtin binding around a multi-arg lambda (const combinator). -/
 theorem dead_let_lam_body_multi :
     (.Let [(foo, .Builtin .AddInteger, false)] (.Lam a (.Lam b (.Var a))))
-  ≃⁰ (.Lam a (.Lam b (.Var a))) :=
+  ≋ᶜ (.Lam a (.Lam b (.Var a))) :=
   dead_let_sound_closed foo (.Builtin .AddInteger) (.Lam a (.Lam b (.Var a)))
     ⟨by native_decide, by native_decide⟩
 
@@ -243,7 +243,7 @@ theorem dead_let_lam_body_multi :
 theorem dead_let_lam_body_app :
     (.Let [(z, .Delay (intLit 1), false)]
       (.Lam a (.App (.App (.Builtin .AddInteger) (.Var a)) (.Var a))))
-  ≃⁰ (.Lam a (.App (.App (.Builtin .AddInteger) (.Var a)) (.Var a))) :=
+  ≋ᶜ (.Lam a (.App (.App (.Builtin .AddInteger) (.Var a)) (.Var a))) :=
   dead_let_sound_closed z (.Delay (intLit 1))
     (.Lam a (.App (.App (.Builtin .AddInteger) (.Var a)) (.Var a)))
     ⟨by native_decide, by native_decide⟩
@@ -265,7 +265,7 @@ private def q : VarId := ⟨13, "q"⟩
     — constructor in body, binding completely unused. -/
 theorem dead_let_constr :
     (.Let [(z, intLit 1, false)] (.Constr 0 [intLit 2, intLit 3]))
-  ≃⁰ (.Constr 0 [intLit 2, intLit 3]) :=
+  ≋ᶜ (.Constr 0 [intLit 2, intLit 3]) :=
   dead_let_sound_closed z (intLit 1) (.Constr 0 [intLit 2, intLit 3])
     ⟨by native_decide, by native_decide⟩
 
@@ -274,7 +274,7 @@ theorem dead_let_constr :
 theorem dead_let_case :
     (.Let [(foo, intLit 7, false)]
       (.Case (.Constr 0 []) [intLit 10, intLit 20]))
-  ≃⁰ (.Case (.Constr 0 []) [intLit 10, intLit 20]) :=
+  ≋ᶜ (.Case (.Constr 0 []) [intLit 10, intLit 20]) :=
   dead_let_sound_closed foo (intLit 7)
     (.Case (.Constr 0 []) [intLit 10, intLit 20])
     ⟨by native_decide, by native_decide⟩
@@ -283,7 +283,7 @@ theorem dead_let_case :
     — force/delay in body. -/
 theorem dead_let_force_delay :
     (.Let [(w, .Lam a (.Var a), false)] (.Force (.Delay (intLit 42))))
-  ≃⁰ (.Force (.Delay (intLit 42))) :=
+  ≋ᶜ (.Force (.Delay (intLit 42))) :=
   dead_let_sound_closed w (.Lam a (.Var a)) (.Force (.Delay (intLit 42)))
     ⟨by native_decide, by native_decide⟩
 
@@ -293,7 +293,7 @@ theorem dead_let_outer_dead_inner_live :
     (.Let [(z, intLit 0, false)]
       (.Let [(y, intLit 1, false)]
         (.App (.App (.Builtin .AddInteger) (.Var y)) (.Var y))))
-  ≃⁰ (.Let [(y, intLit 1, false)]
+  ≋ᶜ (.Let [(y, intLit 1, false)]
       (.App (.App (.Builtin .AddInteger) (.Var y)) (.Var y))) :=
   dead_let_sound_closed z (intLit 0)
     (.Let [(y, intLit 1, false)]
@@ -305,7 +305,7 @@ theorem dead_let_outer_dead_inner_live :
 theorem dead_let_apply_combinator :
     (.Let [(foo, intLit 5, false)]
       (.Lam f (.Lam a (.App (.Var f) (.Var a)))))
-  ≃⁰ (.Lam f (.Lam a (.App (.Var f) (.Var a)))) :=
+  ≋ᶜ (.Lam f (.Lam a (.App (.Var f) (.Var a)))) :=
   dead_let_sound_closed foo (intLit 5)
     (.Lam f (.Lam a (.App (.Var f) (.Var a))))
     ⟨by native_decide, by native_decide⟩
@@ -315,7 +315,7 @@ theorem dead_let_apply_combinator :
 theorem dead_let_compose_combinator :
     (.Let [(p, .Delay (intLit 99), false)]
       (.Lam f (.Lam g (.Lam a (.App (.Var f) (.App (.Var g) (.Var a)))))))
-  ≃⁰ (.Lam f (.Lam g (.Lam a (.App (.Var f) (.App (.Var g) (.Var a)))))) :=
+  ≋ᶜ (.Lam f (.Lam g (.Lam a (.App (.Var f) (.App (.Var g) (.Var a)))))) :=
   dead_let_sound_closed p (.Delay (intLit 99))
     (.Lam f (.Lam g (.Lam a (.App (.Var f) (.App (.Var g) (.Var a))))))
     ⟨by native_decide, by native_decide⟩
@@ -326,7 +326,7 @@ theorem dead_let_compose_combinator :
 theorem dead_let_case_in_lam :
     (.Let [(q, .Lam a (.Var a), false)]
       (.Lam a (.Case (.Constr 1 [.Var a]) [.Lam p (.Var p), .Lam p (.Var p)])))
-  ≃⁰ (.Lam a (.Case (.Constr 1 [.Var a]) [.Lam p (.Var p), .Lam p (.Var p)])) :=
+  ≋ᶜ (.Lam a (.Case (.Constr 1 [.Var a]) [.Lam p (.Var p), .Lam p (.Var p)])) :=
   dead_let_sound_closed q (.Lam a (.Var a))
     (.Lam a (.Case (.Constr 1 [.Var a]) [.Lam p (.Var p), .Lam p (.Var p)]))
     ⟨by native_decide, by native_decide⟩
@@ -338,7 +338,7 @@ theorem dead_let_constr_in_lam :
     (.Let [(d, intLit 0, false)]
       (.Lam a (.Lam b (.Constr 0
         [.Var a, .Var b, .App (.App (.Builtin .AddInteger) (.Var a)) (.Var b)]))))
-  ≃⁰ (.Lam a (.Lam b (.Constr 0
+  ≋ᶜ (.Lam a (.Lam b (.Constr 0
       [.Var a, .Var b, .App (.App (.Builtin .AddInteger) (.Var a)) (.Var b)]))) :=
   dead_let_sound_closed d (intLit 0)
     (.Lam a (.Lam b (.Constr 0
@@ -352,7 +352,7 @@ theorem dead_let_chain_outer :
       (.Let [(w, intLit 2, false)]
         (.Let [(foo, intLit 3, false)]
           (.Lam a (.Var a)))))
-  ≃⁰ (.Let [(w, intLit 2, false)]
+  ≋ᶜ (.Let [(w, intLit 2, false)]
       (.Let [(foo, intLit 3, false)]
         (.Lam a (.Var a)))) :=
   dead_let_sound_closed z (intLit 1)
@@ -365,7 +365,7 @@ theorem dead_let_chain_middle :
     (.Let [(w, intLit 2, false)]
       (.Let [(foo, intLit 3, false)]
         (.Lam a (.Var a))))
-  ≃⁰ (.Let [(foo, intLit 3, false)]
+  ≋ᶜ (.Let [(foo, intLit 3, false)]
       (.Lam a (.Var a))) :=
   dead_let_sound_closed w (intLit 2)
     (.Let [(foo, intLit 3, false)]
@@ -375,7 +375,7 @@ theorem dead_let_chain_middle :
 theorem dead_let_chain_inner :
     (.Let [(foo, intLit 3, false)]
       (.Lam a (.Var a)))
-  ≃⁰ (.Lam a (.Var a)) :=
+  ≋ᶜ (.Lam a (.Var a)) :=
   dead_let_sound_closed foo (intLit 3)
     (.Lam a (.Var a))
     ⟨by native_decide, by native_decide⟩
@@ -385,7 +385,7 @@ theorem dead_let_chain_inner :
 theorem dead_let_force_delay_in_lam :
     (.Let [(c, .Delay (intLit 0), false)]
       (.Lam a (.Force (.Delay (.Var a)))))
-  ≃⁰ (.Lam a (.Force (.Delay (.Var a)))) :=
+  ≋ᶜ (.Lam a (.Force (.Delay (.Var a)))) :=
   dead_let_sound_closed c (.Delay (intLit 0))
     (.Lam a (.Force (.Delay (.Var a))))
     ⟨by native_decide, by native_decide⟩
@@ -402,7 +402,7 @@ non-trivial part here — `dead_let_sound_closed` must show:
     RHS hits error directly. Both error. -/
 theorem dead_let_error_body :
     (.Let [(foo, intLit 42, false)] .Error)
-  ≃⁰ .Error :=
+  ≋ᶜ .Error :=
   dead_let_sound_closed foo (intLit 42) .Error
     ⟨by native_decide, by native_decide⟩
 
@@ -410,7 +410,7 @@ theorem dead_let_error_body :
     — lambda binding, error body. The lambda is evaluated and discarded. -/
 theorem dead_let_lam_then_error :
     (.Let [(w, .Lam a (.Var a), false)] .Error)
-  ≃⁰ .Error :=
+  ≋ᶜ .Error :=
   dead_let_sound_closed w (.Lam a (.Var a)) .Error
     ⟨by native_decide, by native_decide⟩
 
@@ -418,7 +418,7 @@ theorem dead_let_lam_then_error :
     — forcing a non-delay (a constant) errors in the CEK machine. -/
 theorem dead_let_force_non_delay :
     (.Let [(z, .Delay (intLit 0), false)] (.Force (intLit 42)))
-  ≃⁰ (.Force (intLit 42)) :=
+  ≋ᶜ (.Force (intLit 42)) :=
   dead_let_sound_closed z (.Delay (intLit 0)) (.Force (intLit 42))
     ⟨by native_decide, by native_decide⟩
 
@@ -426,7 +426,7 @@ theorem dead_let_force_non_delay :
     — applying a constant to an argument errors (42 is not a function). -/
 theorem dead_let_app_non_function :
     (.Let [(foo, intLit 7, false)] (.App (intLit 42) (intLit 99)))
-  ≃⁰ (.App (intLit 42) (intLit 99)) :=
+  ≋ᶜ (.App (intLit 42) (intLit 99)) :=
   dead_let_sound_closed foo (intLit 7) (.App (intLit 42) (intLit 99))
     ⟨by native_decide, by native_decide⟩
 
@@ -435,7 +435,7 @@ theorem dead_let_app_non_function :
     but applying that lambda to any argument errors on both sides. -/
 theorem dead_let_error_in_lam :
     (.Let [(d, intLit 1, false)] (.Lam a .Error))
-  ≃⁰ (.Lam a .Error) :=
+  ≋ᶜ (.Lam a .Error) :=
   dead_let_sound_closed d (intLit 1) (.Lam a .Error)
     ⟨by native_decide, by native_decide⟩
 
@@ -444,7 +444,7 @@ theorem dead_let_error_in_lam :
     Both sides produce the same closure; the error surfaces only on application. -/
 theorem dead_let_deep_error_in_lam :
     (.Let [(foo, intLit 99, false)] (.Lam a (.Lam b (.Force (.Var a)))))
-  ≃⁰ (.Lam a (.Lam b (.Force (.Var a)))) :=
+  ≋ᶜ (.Lam a (.Lam b (.Force (.Var a)))) :=
   dead_let_sound_closed foo (intLit 99) (.Lam a (.Lam b (.Force (.Var a))))
     ⟨by native_decide, by native_decide⟩
 
@@ -454,9 +454,68 @@ theorem dead_let_deep_error_in_lam :
 theorem dead_let_nested_then_error :
     (.Let [(z, intLit 0, false)]
       (.Let [(y, intLit 1, false)] .Error))
-  ≃⁰ (.Let [(y, intLit 1, false)] .Error) :=
+  ≋ᶜ (.Let [(y, intLit 1, false)] .Error) :=
   dead_let_sound_closed z (intLit 0)
     (.Let [(y, intLit 1, false)] .Error)
+    ⟨by native_decide, by native_decide⟩
+
+/-! ## Open-term examples using `dead_let_sound`
+
+These use the generalized `dead_let_sound` which proves `BehEq` — behavioral
+equivalence for ALL MIR environments, not just the empty one. The body may
+contain free variables; the theorem holds regardless of how those variables
+are bound in the surrounding context.
+
+This is the key compositionality result: dead-let elimination can be applied
+inside lambda bodies, nested lets, or case branches — anywhere in the AST. -/
+
+/-- `let z = 99 in Constr 0 [y, a]` ≡ `Constr 0 [y, a]`
+    — constructor with free variables in fields. -/
+theorem dead_let_open_constr :
+    (.Let [(z, intLit 99, false)] (.Constr 0 [.Var y, .Var a]))
+    ≋ (.Constr 0 [.Var y, .Var a]) :=
+  dead_let_sound z (intLit 99) (.Constr 0 [.Var y, .Var a])
+    ⟨by native_decide, by native_decide⟩
+
+/-- `let foo = 7 in case y of [\a -> a, \a -> z]`
+    ≡ `case y of [\a -> a, \a -> z]`
+    — case on a free variable with free vars in alternatives. -/
+theorem dead_let_open_case :
+    (.Let [(foo, intLit 7, false)]
+      (.Case (.Var y) [.Lam a (.Var a), .Lam a (.Var z)]))
+    ≋ (.Case (.Var y) [.Lam a (.Var a), .Lam a (.Var z)]) :=
+  dead_let_sound foo (intLit 7)
+    (.Case (.Var y) [.Lam a (.Var a), .Lam a (.Var z)])
+    ⟨by native_decide, by native_decide⟩
+
+/-- `let d = delay(0) in force y` ≡ `force y`
+    — force of a free variable, dead delay binding. -/
+theorem dead_let_open_force :
+    (.Let [(d, .Delay (intLit 0), false)] (.Force (.Var y)))
+    ≋ (.Force (.Var y)) :=
+  dead_let_sound d (.Delay (intLit 0)) (.Force (.Var y))
+    ⟨by native_decide, by native_decide⟩
+
+/-- `let foo = 1 in \a -> let z = 2 in addInteger a y`
+    ≡ `\a -> let z = 2 in addInteger a y`
+    — nested let with free variable `y`, outer binding dead. -/
+theorem dead_let_open_nested_let :
+    (.Let [(foo, intLit 1, false)]
+      (.Lam a (.Let [(z, intLit 2, false)]
+        (.App (.App (.Builtin .AddInteger) (.Var a)) (.Var y)))))
+    ≋ (.Lam a (.Let [(z, intLit 2, false)]
+      (.App (.App (.Builtin .AddInteger) (.Var a)) (.Var y)))) :=
+  dead_let_sound foo (intLit 1)
+    (.Lam a (.Let [(z, intLit 2, false)]
+      (.App (.App (.Builtin .AddInteger) (.Var a)) (.Var y))))
+    ⟨by native_decide, by native_decide⟩
+
+/-- `let w = \b -> b in error` ≡ `error`
+    — open error body (error has no free vars, but BehEq still quantifies
+    over all envs, exercising the error path of the generalized proof). -/
+theorem dead_let_open_error :
+    (.Let [(w, .Lam a (.Var a), false)] .Error) ≋ .Error :=
+  dead_let_sound w (.Lam a (.Var a)) .Error
     ⟨by native_decide, by native_decide⟩
 
 end Moist.Verified.Example

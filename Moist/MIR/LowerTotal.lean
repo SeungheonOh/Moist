@@ -1,5 +1,6 @@
 import Moist.MIR.Expr
 import Moist.MIR.Analysis
+import Moist.Verified.RenameBase
 
 namespace Moist.MIR
 
@@ -353,6 +354,419 @@ theorem lowerTotal_closed_env_irrel (x : VarId) (body : Expr)
     lowerTotal [x] body = lowerTotal [] body := by
   have : [x] = ([] : List VarId) ++ [x] := by simp
   rw [this]; exact lowerTotal_append_unused [] x body hunused
+
+/-! ## lowerTotal prepend unused: shift renaming -/
+
+open Moist.Verified in
+private theorem envLookupT_go_insert_shift_neq (v x : VarId) (pre post : List VarId) (n : Nat)
+    (hne : (x == v) = false) :
+    envLookupT.go v (pre ++ x :: post) n =
+      (envLookupT.go v (pre ++ post) n).map
+        (fun idx => if idx ≥ n + pre.length then idx + 1 else idx) := by
+  induction pre generalizing n with
+  | nil =>
+    simp only [List.nil_append, List.length_nil, Nat.add_zero]
+    simp only [envLookupT.go, hne]
+    -- LHS: envLookupT.go v post (n + 1)
+    -- RHS: (envLookupT.go v post n).map (fun idx => if idx ≥ n then idx + 1 else idx)
+    rw [envLookupT.go_shift v post n 1]
+    -- LHS now: (envLookupT.go v post n).map (· + 1)
+    cases h : envLookupT.go v post n with
+    | none => simp [Option.map]
+    | some idx =>
+      simp only [Option.map]
+      have hbound := envLookupT.go_bound v post n idx h
+      have : idx ≥ n := hbound.1
+      simp [this]
+  | cons w pre' ih =>
+    simp only [List.cons_append, envLookupT.go]
+    split
+    · -- w == v: found at position n in both
+      simp only [Option.map]
+      have : ¬ (n ≥ n + (pre'.length + 1)) := by omega
+      simp [this]
+    · -- w ≠ v: recurse
+      rw [ih (n + 1)]
+      cases envLookupT.go v (pre' ++ post) (n + 1) with
+      | none => simp [Option.map]
+      | some idx =>
+        simp only [Option.map, List.length_cons]
+        congr 1
+        have : (n + 1 + pre'.length) = (n + (pre'.length + 1)) := by omega
+        rw [this]
+
+open Moist.Verified in
+private theorem envLookupT_go_insert_shift_shadow (v x : VarId) (pre post : List VarId) (n : Nat)
+    (hshadow : ∃ y ∈ pre, (y == x) = true) :
+    envLookupT.go v (pre ++ x :: post) n =
+      (envLookupT.go v (pre ++ post) n).map
+        (fun idx => if idx ≥ n + pre.length then idx + 1 else idx) := by
+  induction pre generalizing n with
+  | nil => obtain ⟨_, hm, _⟩ := hshadow; exact absurd hm List.not_mem_nil
+  | cons w pre' ih =>
+    simp only [List.cons_append, envLookupT.go]
+    split
+    · -- w == v: found at position n in both
+      simp only [Option.map]
+      have : ¬ (n ≥ n + (pre'.length + 1)) := by omega
+      simp [this]
+    · -- w ≠ v: recurse
+      rename_i hwv
+      obtain ⟨y, hy, hyx⟩ := hshadow
+      cases hy with
+      | head =>
+        -- y = w, so w == x. Combined with w ≠ v, we get x ≠ v
+        have hxv : (x == v) = false := by
+          cases h : (x == v)
+          · rfl
+          · exfalso
+            rw [VarId.beq_true_iff] at hyx h
+            exact hwv (by rw [VarId.beq_true_iff]; omega)
+        rw [envLookupT_go_insert_shift_neq v x pre' post (n + 1) hxv]
+        cases envLookupT.go v (pre' ++ post) (n + 1) with
+        | none => simp [Option.map]
+        | some idx =>
+          simp only [Option.map, List.length_cons]
+          simp only [show n + 1 + pre'.length = n + (pre'.length + 1) from by omega]
+      | tail _ hrest =>
+        rw [ih (n + 1) ⟨y, hrest, hyx⟩]
+        cases envLookupT.go v (pre' ++ post) (n + 1) with
+        | none => simp [Option.map]
+        | some idx =>
+          simp only [Option.map, List.length_cons]
+          simp only [show n + 1 + pre'.length = n + (pre'.length + 1) from by omega]
+
+open Moist.Verified in
+private theorem envLookupT_go_insert_shift (v x : VarId) (pre post : List VarId) (n : Nat)
+    (h : (x == v) = false ∨ (∃ y ∈ pre, (y == x) = true)) :
+    envLookupT.go v (pre ++ x :: post) n =
+      (envLookupT.go v (pre ++ post) n).map
+        (fun idx => if idx ≥ n + pre.length then idx + 1 else idx) := by
+  cases h with
+  | inl hne => exact envLookupT_go_insert_shift_neq v x pre post n hne
+  | inr hshadow => exact envLookupT_go_insert_shift_shadow v x pre post n hshadow
+
+-- The `freeVars` condition on `Var v` with unused `x` implies `x ≠ v`
+private theorem freeVars_var_unused_neq (v x : VarId)
+    (h : (freeVars (.Var v)).contains x = false) : (x == v) = false := by
+  rw [freeVars.eq_1, VarSet.singleton_contains'] at h
+  cases hxv : (x == v)
+  · rfl
+  · exfalso; rw [VarId.beq_true_iff] at hxv
+    have : (v == x) = true := by rw [VarId.beq_true_iff]; omega
+    rw [this] at h; exact Bool.noConfusion h
+
+-- freeVars condition on list implies condition on each element
+private theorem freeVarsList_union_left (e : Expr) (rest : List Expr) (x : VarId)
+    (h : (freeVarsList (e :: rest)).contains x = false) :
+    (freeVars e).contains x = false := by
+  rw [freeVarsList.eq_2] at h; exact (VarSet.union_not_contains' _ _ _ h).1
+
+private theorem freeVarsList_union_right (e : Expr) (rest : List Expr) (x : VarId)
+    (h : (freeVarsList (e :: rest)).contains x = false) :
+    (freeVarsList rest).contains x = false := by
+  rw [freeVarsList.eq_2] at h; exact (VarSet.union_not_contains' _ _ _ h).2
+
+private theorem option_bind_some_eq {α β : Type} {f : α → Option β} {a : α} {oa : Option α}
+    {b : β} (hoa : oa = some a) (hf : f a = some b) :
+    oa.bind f = some b := by subst hoa; exact hf
+
+mutual
+  /-- Generalized prepend-unused: inserting `x` after `prefix_env` in the environment
+      shifts all lowered de Bruijn indices past the prefix by 1. -/
+  theorem lowerTotal_prepend_unused_gen (prefix_env env : List VarId) (x : VarId) (e : Expr)
+      (hunused : (freeVars e).contains x = false ∨ (∃ y ∈ prefix_env, (y == x) = true)) :
+      ∀ t, lowerTotal (prefix_env ++ env) e = some t →
+        lowerTotal (prefix_env ++ x :: env) e =
+          some (Moist.Verified.renameTerm (Moist.Verified.shiftRename (prefix_env.length + 1)) t) := by
+    intro t hlower
+    match e with
+    | .Var v =>
+      simp only [lowerTotal.eq_1] at hlower ⊢
+      cases hlu : envLookupT (prefix_env ++ env) v with
+      | none => simp [hlu] at hlower
+      | some idx =>
+        simp [hlu] at hlower; subst hlower
+        have hv : (x == v) = false ∨ (∃ y ∈ prefix_env, (y == x) = true) := by
+          cases hunused with
+          | inl hfv => exact .inl (freeVars_var_unused_neq v x hfv)
+          | inr hshadow => exact .inr hshadow
+        unfold envLookupT at hlu ⊢
+        rw [envLookupT_go_insert_shift v x prefix_env env 0 hv, hlu]
+        simp only [Option.map, Moist.Verified.renameTerm, Moist.Verified.shiftRename]
+        -- Goal: Var ((if idx ≥ prefix_env.length then idx + 1 else idx) + 1) =
+        --       Var (if idx + 1 ≥ prefix_env.length + 1 then idx + 1 + 1 else idx + 1)
+        congr 1; congr 1
+        -- Need: (if idx ≥ 0 + prefix_env.length then idx + 1 else idx) + 1 =
+        --       if idx + 1 ≥ prefix_env.length + 1 then idx + 1 + 1 else idx + 1
+        split
+        · rename_i h; simp only [show idx + 1 ≥ prefix_env.length + 1 from by omega, ite_true]
+        · rename_i h; simp only [show ¬(idx + 1 ≥ prefix_env.length + 1) from by omega, ite_false]
+    | .Lit (c, ty) =>
+      simp only [lowerTotal.eq_2] at hlower ⊢
+      injection hlower with hlower; subst hlower
+      simp [Moist.Verified.renameTerm]
+    | .Builtin b =>
+      simp only [lowerTotal.eq_3] at hlower ⊢
+      injection hlower with hlower; subst hlower
+      simp [Moist.Verified.renameTerm]
+    | .Error =>
+      simp only [lowerTotal.eq_4] at hlower ⊢
+      injection hlower with hlower; subst hlower
+      simp [Moist.Verified.renameTerm]
+    | .Lam y body =>
+      simp only [lowerTotal.eq_5] at hlower ⊢
+      -- Extract body' from hlower by case-splitting the option
+      match hbody : lowerTotal (y :: (prefix_env ++ env)) body with
+      | none => rw [hbody] at hlower; simp at hlower
+      | some body' =>
+        rw [hbody] at hlower; simp at hlower; subst hlower
+        -- Build the IH condition
+        have hcond : (freeVars body).contains x = false ∨ (∃ z ∈ y :: prefix_env, (z == x) = true) := by
+          cases hunused with
+          | inl hfv =>
+            rw [freeVars.eq_5] at hfv
+            cases VarSet.erase_not_contains_imp' (freeVars body) y x hfv with
+            | inl hfvb => exact .inl hfvb
+            | inr heq => exact .inr ⟨y, List.Mem.head _, heq⟩
+          | inr hshadow =>
+            obtain ⟨z, hz, hzx⟩ := hshadow
+            exact .inr ⟨z, List.Mem.tail _ hz, hzx⟩
+        -- Apply IH: (y :: prefix_env) ++ env = y :: (prefix_env ++ env) definitionally
+        have ih := lowerTotal_prepend_unused_gen (y :: prefix_env) env x body hcond body' hbody
+        -- ih : lowerTotal ((y :: prefix_env) ++ x :: env) body = some (renameTerm (shiftRename ...) body')
+        -- The goal has (do let body' ← lowerTotal (y :: (prefix_env ++ x :: env)) body; some (.Lam 0 body'))
+        -- = some (renameTerm (shiftRename (prefix_env.length + 1)) (.Lam 0 body'))
+        -- ih says lowerTotal (y :: prefix_env ++ x :: env) body = some (renameTerm ... body')
+        -- The goal has the .bind form with lowerTotal (y :: (prefix_env ++ x :: env)) body
+        -- These are definitionally equal, so we can rewrite
+        show (lowerTotal (y :: prefix_env ++ x :: env) body).bind (fun body' => some (.Lam 0 body')) =
+          some (Moist.Verified.renameTerm (Moist.Verified.shiftRename (prefix_env.length + 1))
+            (.Lam 0 body'))
+        rw [ih]
+        simp only [Option.bind_some, Moist.Verified.renameTerm,
+          Moist.Verified.liftRename_shiftRename (by omega : prefix_env.length + 1 ≥ 1),
+          List.length_cons]
+    | .App f a =>
+      simp only [lowerTotal.eq_6] at hlower ⊢
+      match hf : lowerTotal (prefix_env ++ env) f with
+      | none => rw [hf] at hlower; simp at hlower
+      | some f' =>
+        match ha : lowerTotal (prefix_env ++ env) a with
+        | none => rw [hf, ha] at hlower; simp at hlower
+        | some a' =>
+          rw [hf, ha] at hlower; simp at hlower; subst hlower
+          have hcf : (freeVars f).contains x = false ∨ (∃ y ∈ prefix_env, (y == x) = true) := by
+            cases hunused with
+            | inl hfv =>
+              rw [freeVars.eq_7] at hfv; exact .inl (VarSet.union_not_contains' _ _ _ hfv).1
+            | inr h => exact .inr h
+          have hca : (freeVars a).contains x = false ∨ (∃ y ∈ prefix_env, (y == x) = true) := by
+            cases hunused with
+            | inl hfv =>
+              rw [freeVars.eq_7] at hfv; exact .inl (VarSet.union_not_contains' _ _ _ hfv).2
+            | inr h => exact .inr h
+          simp only [lowerTotal_prepend_unused_gen prefix_env env x f hcf f' hf,
+              lowerTotal_prepend_unused_gen prefix_env env x a hca a' ha,
+              Option.bind_eq_bind, Option.bind_some]
+          simp [Moist.Verified.renameTerm]
+    | .Force inner =>
+      simp only [lowerTotal.eq_7] at hlower ⊢
+      match hi : lowerTotal (prefix_env ++ env) inner with
+      | none => rw [hi] at hlower; simp at hlower
+      | some inner' =>
+        rw [hi] at hlower; simp at hlower; subst hlower
+        have hc : (freeVars inner).contains x = false ∨ (∃ y ∈ prefix_env, (y == x) = true) := by
+          cases hunused with
+          | inl hfv => rw [freeVars.eq_8] at hfv; exact .inl hfv
+          | inr h => exact .inr h
+        simp only [lowerTotal_prepend_unused_gen prefix_env env x inner hc inner' hi,
+            Option.bind_eq_bind, Option.bind_some]
+        simp [Moist.Verified.renameTerm]
+    | .Delay inner =>
+      simp only [lowerTotal.eq_8] at hlower ⊢
+      match hi : lowerTotal (prefix_env ++ env) inner with
+      | none => rw [hi] at hlower; simp at hlower
+      | some inner' =>
+        rw [hi] at hlower; simp at hlower; subst hlower
+        have hc : (freeVars inner).contains x = false ∨ (∃ y ∈ prefix_env, (y == x) = true) := by
+          cases hunused with
+          | inl hfv => rw [freeVars.eq_9] at hfv; exact .inl hfv
+          | inr h => exact .inr h
+        simp only [lowerTotal_prepend_unused_gen prefix_env env x inner hc inner' hi,
+            Option.bind_eq_bind, Option.bind_some]
+        simp [Moist.Verified.renameTerm]
+    | .Constr tag args =>
+      simp only [lowerTotal.eq_9] at hlower ⊢
+      match hargs : lowerTotalList (prefix_env ++ env) args with
+      | none => rw [hargs] at hlower; simp at hlower
+      | some args' =>
+        rw [hargs] at hlower; simp at hlower; subst hlower
+        have hc : (freeVarsList args).contains x = false ∨ (∃ y ∈ prefix_env, (y == x) = true) := by
+          cases hunused with
+          | inl hfv => rw [freeVars.eq_10] at hfv; exact .inl hfv
+          | inr h => exact .inr h
+        simp only [lowerTotalList_prepend_unused_gen prefix_env env x args hc args' hargs,
+            Option.bind_eq_bind, Option.bind_some]
+        simp [Moist.Verified.renameTerm]
+    | .Case scrut alts =>
+      simp only [lowerTotal.eq_10] at hlower ⊢
+      match hs : lowerTotal (prefix_env ++ env) scrut with
+      | none => rw [hs] at hlower; simp at hlower
+      | some scrut' =>
+        match ha : lowerTotalList (prefix_env ++ env) alts with
+        | none => rw [hs, ha] at hlower; simp at hlower
+        | some alts' =>
+          rw [hs, ha] at hlower; simp at hlower; subst hlower
+          have hcs : (freeVars scrut).contains x = false ∨ (∃ y ∈ prefix_env, (y == x) = true) := by
+            cases hunused with
+            | inl hfv =>
+              rw [freeVars.eq_11] at hfv; exact .inl (VarSet.union_not_contains' _ _ _ hfv).1
+            | inr h => exact .inr h
+          have hca : (freeVarsList alts).contains x = false ∨ (∃ y ∈ prefix_env, (y == x) = true) := by
+            cases hunused with
+            | inl hfv =>
+              rw [freeVars.eq_11] at hfv; exact .inl (VarSet.union_not_contains' _ _ _ hfv).2
+            | inr h => exact .inr h
+          simp only [lowerTotal_prepend_unused_gen prefix_env env x scrut hcs scrut' hs,
+              lowerTotalList_prepend_unused_gen prefix_env env x alts hca alts' ha,
+              Option.bind_eq_bind, Option.bind_some]
+          simp [Moist.Verified.renameTerm]
+    | .Let binds body =>
+      simp only [lowerTotal.eq_11] at hlower ⊢
+      have hunused' : (freeVarsLet binds body).contains x = false ∨ (∃ y ∈ prefix_env, (y == x) = true) :=
+        hunused.imp (fun h => by rw [freeVars.eq_12] at h; exact h) id
+      exact lowerTotalLet_prepend_unused_gen prefix_env env x binds body hunused' t hlower
+    | .Fix _ _ =>
+      simp only [lowerTotal.eq_12] at hlower; exact absurd hlower (by simp)
+  termination_by sizeOf e
+
+  theorem lowerTotalList_prepend_unused_gen (prefix_env env : List VarId) (x : VarId)
+      (es : List Expr)
+      (hunused : (freeVarsList es).contains x = false ∨ (∃ y ∈ prefix_env, (y == x) = true)) :
+      ∀ ts, lowerTotalList (prefix_env ++ env) es = some ts →
+        lowerTotalList (prefix_env ++ x :: env) es =
+          some (Moist.Verified.renameTermList (Moist.Verified.shiftRename (prefix_env.length + 1)) ts) := by
+    intro ts hlower
+    match es with
+    | [] =>
+      simp only [lowerTotalList.eq_1] at hlower ⊢
+      injection hlower with hlower; subst hlower
+      rfl
+    | e :: rest =>
+      simp only [lowerTotalList.eq_2] at hlower ⊢
+      match ht : lowerTotal (prefix_env ++ env) e with
+      | none => rw [ht] at hlower; simp at hlower
+      | some t =>
+        match hts : lowerTotalList (prefix_env ++ env) rest with
+        | none => rw [ht, hts] at hlower; simp at hlower
+        | some ts' =>
+          rw [ht, hts] at hlower; simp at hlower; subst hlower
+          have hce : (freeVars e).contains x = false ∨ (∃ y ∈ prefix_env, (y == x) = true) := by
+            cases hunused with
+            | inl hfv =>
+              rw [freeVarsList.eq_2] at hfv; exact .inl (VarSet.union_not_contains' _ _ _ hfv).1
+            | inr h => exact .inr h
+          have hcr : (freeVarsList rest).contains x = false ∨ (∃ y ∈ prefix_env, (y == x) = true) := by
+            cases hunused with
+            | inl hfv =>
+              rw [freeVarsList.eq_2] at hfv; exact .inl (VarSet.union_not_contains' _ _ _ hfv).2
+            | inr h => exact .inr h
+          simp only [lowerTotal_prepend_unused_gen prefix_env env x e hce t ht,
+              lowerTotalList_prepend_unused_gen prefix_env env x rest hcr ts' hts,
+              Option.bind_eq_bind, Option.bind_some]
+          simp [Moist.Verified.renameTermList]
+  termination_by sizeOf es
+
+  theorem lowerTotalLet_prepend_unused_gen (prefix_env env : List VarId) (x : VarId)
+      (binds : List (VarId × Expr × Bool)) (body : Expr)
+      (hunused : (freeVarsLet binds body).contains x = false ∨ (∃ y ∈ prefix_env, (y == x) = true)) :
+      ∀ t, lowerTotalLet (prefix_env ++ env) binds body = some t →
+        lowerTotalLet (prefix_env ++ x :: env) binds body =
+          some (Moist.Verified.renameTerm (Moist.Verified.shiftRename (prefix_env.length + 1)) t) := by
+    intro t hlower
+    match binds with
+    | [] =>
+      simp only [lowerTotalLet.eq_1] at hlower ⊢
+      have hc : (freeVars body).contains x = false ∨ (∃ y ∈ prefix_env, (y == x) = true) := by
+        cases hunused with
+        | inl hfv => rw [freeVarsLet.eq_1] at hfv; exact .inl hfv
+        | inr h => exact .inr h
+      exact lowerTotal_prepend_unused_gen prefix_env env x body hc t hlower
+    | (y, rhs, er) :: rest =>
+      simp only [lowerTotalLet.eq_2] at hlower ⊢
+      match hrhs : lowerTotal (prefix_env ++ env) rhs with
+      | none => rw [hrhs] at hlower; simp at hlower
+      | some rhs' =>
+        match hrest : lowerTotalLet (y :: (prefix_env ++ env)) rest body with
+        | none => rw [hrhs, hrest] at hlower; simp at hlower
+        | some rest' =>
+          rw [hrhs, hrest] at hlower; simp at hlower; subst hlower
+          have hcrhs : (freeVars rhs).contains x = false ∨ (∃ z ∈ prefix_env, (z == x) = true) := by
+            cases hunused with
+            | inl hfv =>
+              rw [freeVarsLet.eq_2] at hfv
+              exact .inl (VarSet.union_not_contains' _ _ _ hfv).1
+            | inr h => exact .inr h
+          have hcrest : (freeVarsLet rest body).contains x = false ∨
+              (∃ z ∈ y :: prefix_env, (z == x) = true) := by
+            cases hunused with
+            | inl hfv =>
+              rw [freeVarsLet.eq_2] at hfv
+              have hre := (VarSet.union_not_contains' _ _ _ hfv).2
+              cases VarSet.erase_not_contains_imp' _ y x hre with
+              | inl hfvl => exact .inl hfvl
+              | inr heq => exact .inr ⟨y, List.Mem.head _, heq⟩
+            | inr hshadow =>
+              obtain ⟨z, hz, hzx⟩ := hshadow
+              exact .inr ⟨z, List.Mem.tail _ hz, hzx⟩
+          -- (y :: prefix_env) ++ env = y :: (prefix_env ++ env) definitionally
+          have ih := lowerTotalLet_prepend_unused_gen (y :: prefix_env) env x rest body hcrest rest' hrest
+          -- ih : lowerTotalLet ((y :: prefix_env) ++ x :: env) rest body =
+          --        some (renameTerm (shiftRename ((y :: prefix_env).length + 1)) rest')
+          -- (y :: prefix_env) ++ x :: env = y :: (prefix_env ++ x :: env) definitionally
+          -- Use show to normalize the env representation
+          show (do let rhs' ← lowerTotal (prefix_env ++ x :: env) rhs
+                   let rest' ← lowerTotalLet (y :: prefix_env ++ x :: env) rest body
+                   some (.Apply (.Lam 0 rest') rhs')) =
+            some (Moist.Verified.renameTerm (Moist.Verified.shiftRename (prefix_env.length + 1))
+              (.Apply (.Lam 0 rest') rhs'))
+          -- Instead of rw which leaves a do block, use show + exact
+          have ihrhs := lowerTotal_prepend_unused_gen prefix_env env x rhs hcrhs rhs' hrhs
+          have ihrest := ih
+          show (do let rhs' ← lowerTotal (prefix_env ++ x :: env) rhs
+                   let rest' ← lowerTotalLet (y :: prefix_env ++ x :: env) rest body
+                   some (.Apply (.Lam 0 rest') rhs')) =
+            some (Moist.Verified.renameTerm (Moist.Verified.shiftRename (prefix_env.length + 1))
+              (.Apply (.Lam 0 rest') rhs'))
+          rw [ihrhs, ihrest]
+          -- Now the do block has some values; reduce the bind
+          simp only [bind, Option.bind, List.length_cons]
+          -- Goal: some (...) = some (renameTerm ... (.Apply (.Lam 0 rest') rhs'))
+          -- renameTerm for Apply is definitional
+          -- renameTerm for Lam introduces liftRename
+          -- Use congr to peel off some, Apply, and get to the Lam body
+          congr 1  -- strip some
+          congr 1  -- strip Apply's second arg (rhs)
+          -- Goal should be about the Lam part
+          -- Lam 0 (renameTerm (shiftRename (p+1+1)) rest') = renameTerm (shiftRename (p+1)) (Lam 0 rest')
+          -- The RHS reduces definitionally to Lam 0 (renameTerm (liftRename (shiftRename (p+1))) rest')
+          -- Use show to make the RHS explicit
+          change Term.Lam 0 (Moist.Verified.renameTerm (Moist.Verified.shiftRename (prefix_env.length + 1 + 1)) rest') = Term.Lam 0 (Moist.Verified.renameTerm (Moist.Verified.liftRename (Moist.Verified.shiftRename (prefix_env.length + 1))) rest')
+          congr 1; congr 1
+          exact (Moist.Verified.liftRename_shiftRename (by omega : prefix_env.length + 1 ≥ 1)).symm
+  termination_by sizeOf binds + sizeOf body
+end
+
+/-- Prepending an unused variable `x` to the MIR env shifts all de Bruijn
+    indices in the lowered UPLC term by `shiftRename 1`. -/
+theorem lowerTotal_prepend_unused (env : List VarId) (x : VarId) (e : Expr)
+    (hunused : (freeVars e).contains x = false) :
+    ∀ t, lowerTotal env e = some t →
+      lowerTotal (x :: env) e =
+        some (Moist.Verified.renameTerm (Moist.Verified.shiftRename 1) t) := by
+  have h := lowerTotal_prepend_unused_gen [] env x e (.inl hunused)
+  simpa using h
 
 /-! ## Fix expansion -/
 

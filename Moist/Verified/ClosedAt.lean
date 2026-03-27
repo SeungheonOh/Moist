@@ -1,11 +1,13 @@
 import Moist.CEK.Machine
 import Moist.Verified.Semantics
+import Moist.Verified.RenameBase
 
 namespace Moist.Verified
 
 open Moist.CEK
 open Moist.Plutus.Term
 open Moist.Verified.Semantics
+open Moist.Verified (renameTerm renameTermList liftRename liftRename_id renameTerm_id renameTermList_id)
 
 /-! # closedAt, ValueRelV, EnvRelV — shared definitions for bisimulation proofs
 
@@ -217,36 +219,31 @@ theorem closedAtList_getElem {d : Nat} {ts : List Term} {i : Nat}
 These four mutually inductive types form the "structural simulation relation"
 that the bisimulation proof maintains as an invariant across CEK steps.
 
-The key design choice is that `ValueRelV` relates values that share the
-**same term** but may have different environments — as long as those
-environments agree on the positions the term actually uses (`closedAt`
-witnesses). This is strictly weaker than equality and is exactly what
-dead-let elimination needs: the optimized program evaluates the same body
-in a smaller environment.
+The key design choice is that `ValueRelV` relates values whose terms may
+differ by a renaming `σ : Nat → Nat`. The right-hand term is
+`renameTerm σ (left-hand term)`, with environments related via
+`EnvRelV σ d`. When `σ = id` the renaming is a no-op and we recover the
+original same-term bisimulation.
 
-`EnvRelV d env1 env2` says that for positions `1..d`, either both lookups
-fail or both succeed with `ValueRelV`-related values. This is weaker than
-literal equality and is preserved when extending envs with
-`ValueRelV`-related argument values during lambda application
-(see `envRelV_extend`). -/
+`EnvRelV σ d env1 env2` says that for positions `1..d`, the lookup at `n`
+in `env1` is `LookupRelV`-related to the lookup at `σ n` in `env2`. -/
 
 mutual
   /-- Structural value relation. Two CEK values are related when:
       - `vcon`: both are the same constant.
-      - `vlam`: both are lambdas over the same body, with environments
-        related up to the body's free-variable depth.
-      - `vdelay`: same as `vlam` but for delayed computations.
+      - `vlam`: right body is `renameTerm (liftRename σ) body`, envs related.
+      - `vdelay`: right body is `renameTerm σ body`, envs related.
       - `vconstr`: same tag, pointwise-related fields.
       - `vbuiltin`: same builtin, pointwise-related partial args, same arity.
       - `refl`: any value is related to itself (reflexivity). -/
   inductive ValueRelV : CekValue → CekValue → Prop where
     | vcon : ValueRelV (.VCon c) (.VCon c)
-    | vlam (d : Nat) (hclosed : closedAt (d + 1) body = true)
-        (henv : EnvRelV d env1 env2) :
-        ValueRelV (.VLam body env1) (.VLam body env2)
-    | vdelay (d : Nat) (hclosed : closedAt d body = true)
-        (henv : EnvRelV d env1 env2) :
-        ValueRelV (.VDelay body env1) (.VDelay body env2)
+    | vlam (σ : Nat → Nat) (d : Nat) (hclosed : closedAt (d + 1) body = true)
+        (henv : EnvRelV σ d env1 env2) :
+        ValueRelV (.VLam body env1) (.VLam (renameTerm (liftRename σ) body) env2)
+    | vdelay (σ : Nat → Nat) (d : Nat) (hclosed : closedAt d body = true)
+        (henv : EnvRelV σ d env1 env2) :
+        ValueRelV (.VDelay body env1) (.VDelay (renameTerm σ body) env2)
     | vconstr (htag : tag1 = tag2) (hfs : ListValueRelV fs1 fs2) :
         ValueRelV (.VConstr tag1 fs1) (.VConstr tag2 fs2)
     | vbuiltin (hb : b1 = b2) (hargs : ListValueRelV args1 args2) (hea : ea1 = ea2) :
@@ -262,86 +259,126 @@ mutual
   inductive LookupRelV : Option CekValue → Option CekValue → Prop where
     | bothNone : LookupRelV none none
     | bothSome (hv : ValueRelV v1 v2) : LookupRelV (some v1) (some v2)
-  /-- Environment relation up to depth `d`. For every position `n` with
-      `0 < n ≤ d`, the lookups in `env1` and `env2` are `LookupRelV`-related.
-      Position 0 is excluded because the CEK environment uses 1-based indexing
-      (lookup 0 always returns `none`). -/
-  inductive EnvRelV : Nat → CekEnv → CekEnv → Prop where
+  /-- Environment relation at depth `d` under renaming `σ`. For every
+      position `n` with `0 < n ≤ d`, the lookup at `n` in `env1` is
+      `LookupRelV`-related to the lookup at `σ n` in `env2`. Additionally,
+      `σ` fixes position 0 (the "error" / unbound position) and maps
+      positive positions in range to positive positions. -/
+  inductive EnvRelV : (Nat → Nat) → Nat → CekEnv → CekEnv → Prop where
     | mk : (∀ n, 0 < n → n ≤ d →
-              LookupRelV (env1.lookup n) (env2.lookup n)) →
-            EnvRelV d env1 env2
+              LookupRelV (env1.lookup n) (env2.lookup (σ n))) →
+            (∀ n, 0 < n → n ≤ d → 0 < σ n) →
+            (σ 0 = 0) →
+            EnvRelV σ d env1 env2
 end
 
 /-! ## EnvRelV lemmas -/
 
 /-- Elimination form for `EnvRelV`: extract the lookup relation at a
     specific position `n` with `0 < n ≤ d`. -/
-theorem envRelV_elim {d : Nat} {env1 env2 : CekEnv} (h : EnvRelV d env1 env2)
+theorem envRelV_elim {σ : Nat → Nat} {d : Nat} {env1 env2 : CekEnv} (h : EnvRelV σ d env1 env2)
     {n : Nat} (hn : 0 < n) (hle : n ≤ d) :
-    LookupRelV (env1.lookup n) (env2.lookup n) :=
-  match h with | .mk f => f n hn hle
+    LookupRelV (env1.lookup n) (env2.lookup (σ n)) :=
+  match h with | .mk f _ _ => f n hn hle
 
-/-- Any environment is related to itself at any depth. -/
-theorem envRelV_refl (d : Nat) (env : CekEnv) : EnvRelV d env env := by
-  exact .mk fun n _ _ =>
+/-- Extract the positivity condition from `EnvRelV`: `σ` maps positive
+    positions in `1..d` to positive positions. -/
+theorem envRelV_pos {σ : Nat → Nat} {d : Nat} {env1 env2 : CekEnv} (h : EnvRelV σ d env1 env2)
+    {n : Nat} (hn : 0 < n) (hle : n ≤ d) : 0 < σ n :=
+  match h with | .mk _ g _ => g n hn hle
+
+/-- Extract the zero-fixing condition from `EnvRelV`: `σ 0 = 0`. -/
+theorem envRelV_zero {σ : Nat → Nat} {d : Nat} {env1 env2 : CekEnv} (h : EnvRelV σ d env1 env2) :
+    σ 0 = 0 :=
+  match h with | .mk _ _ hz => hz
+
+/-- Any environment is related to itself at any depth under `id`. -/
+theorem envRelV_refl (d : Nat) (env : CekEnv) : EnvRelV id d env env :=
+  .mk (fun n _ _ => by
+    simp only [id]
     match h : env.lookup n with
-    | none => h ▸ .bothNone
-    | some v => h ▸ .bothSome .refl
+    | none => exact h ▸ .bothNone
+    | some v => exact h ▸ .bothSome .refl)
+  (fun n hn _ => by simp only [id]; exact hn)
+  rfl
 
-/-- **Extension lemma**: if `EnvRelV d env1 env2` and `ValueRelV v1 v2`,
-    then `EnvRelV (d+1) (env1.extend v1) (env2.extend v2)`. The new
-    position (`d+1`, which maps to index 1 after extending) gets the
-    new value pair, and all previous positions shift by 1 and inherit
-    the old relation. This is the crucial lemma for lambda application
-    in the bisimulation: when the CEK machine extends the environment
-    with the argument, the relation is preserved at the incremented depth. -/
-theorem envRelV_extend (d : Nat) (env1 env2 : CekEnv) (v1 v2 : CekValue)
-    (henv : EnvRelV d env1 env2) (hv : ValueRelV v1 v2) :
-    EnvRelV (d + 1) (env1.extend v1) (env2.extend v2) := by
-  constructor; intro n hn hle
-  cases n with
-  | zero => omega
-  | succ m =>
-    cases m with
-    | zero =>
-      show LookupRelV (some v1) (some v2)
-      exact .bothSome hv
-    | succ m' =>
-      show LookupRelV (env1.lookup (m' + 1)) (env2.lookup (m' + 1))
-      exact envRelV_elim henv (by omega) (by omega)
+private theorem lookup_cons_succ_succ (v : CekValue) (env : CekEnv) (n : Nat) :
+    CekEnv.lookup (.cons v env) (n + 2) = env.lookup (n + 1) := rfl
+
+/-- **Extension lemma**: if `EnvRelV σ d env1 env2` and `ValueRelV v1 v2`,
+    then `EnvRelV (liftRename σ) (d+1) (env1.extend v1) (env2.extend v2)`.
+    The positivity condition on `σ` is extracted from the `EnvRelV` witness.
+    The new binder occupies position 1 on both sides (`liftRename σ 1 = 1`),
+    and outer positions are shifted through `σ` via `liftRename`. -/
+theorem envRelV_extend (σ : Nat → Nat) (d : Nat) (env1 env2 : CekEnv) (v1 v2 : CekValue)
+    (henv : EnvRelV σ d env1 env2) (hv : ValueRelV v1 v2) :
+    EnvRelV (liftRename σ) (d + 1) (env1.extend v1) (env2.extend v2) := by
+  refine .mk ?_ ?_ ?_
+  · intro n hn hle
+    cases n with
+    | zero => omega
+    | succ m =>
+      cases m with
+      | zero =>
+        simp only [liftRename, CekEnv.extend, CekEnv.lookup]
+        exact .bothSome hv
+      | succ m' =>
+        simp only [liftRename, CekEnv.extend]
+        -- LHS: (cons v1 env1).lookup (m'+2) = env1.lookup (m'+1)
+        rw [lookup_cons_succ_succ v1 env1 m']
+        -- RHS: (cons v2 env2).lookup (σ(m'+1) + 1)
+        -- Since σ(m'+1) ≥ 1, we have σ(m'+1) + 1 ≥ 2
+        have hge := envRelV_pos henv (show 0 < m' + 1 by omega) (show m' + 1 ≤ d by omega)
+        have hsub : σ (m' + 1) + 1 = (σ (m' + 1) - 1) + 2 := by omega
+        rw [hsub, lookup_cons_succ_succ v2 env2 (σ (m' + 1) - 1)]
+        have hrestore : σ (m' + 1) - 1 + 1 = σ (m' + 1) := by omega
+        rw [hrestore]
+        exact envRelV_elim henv (by omega) (by omega)
+  · intro n hn hle
+    cases n with
+    | zero => omega
+    | succ m =>
+      cases m with
+      | zero => simp only [liftRename]; omega
+      | succ m' =>
+        simp only [liftRename]
+        have := envRelV_pos henv (show 0 < m' + 1 by omega) (show m' + 1 ≤ d by omega)
+        omega
+  · simp only [liftRename]
 
 /-! ## Frame, Stack, State relations
 
-These lift the value/environment relations to the full CEK machine state.
+These lift the value/environment relations to the full CEK machine state,
+generalized with a renaming `σ : Nat → Nat` so that right-hand terms may
+be `renameTerm σ` of left-hand terms.
 
 `FrameRel` and `StackRel` are **depth-independent**: each frame that
-carries an environment bundles its own depth witness `d`. This is essential
-because a single continuation stack can contain closures captured at
-different depths (e.g. a `funV` from an outer scope and an `arg` from an
-inner scope).
+carries an environment bundles its own `σ` and depth witness `d`. This is
+essential because a single continuation stack can contain closures captured
+at different depths and renamings.
 
 `StateRel` combines stack, environment, and term/value relations into a
 single invariant on machine states. The bisimulation theorem
 (`Bisim.step_preserves`) shows that `StateRel` is preserved by `step`. -/
 
-/-- Structural relation on continuation frames. Each frame variant that
-    carries an environment (`arg`, `constrField`, `caseScrutinee`) bundles
-    its own depth `d` and `EnvRelV d` witness. Frames without environments
-    (`force`) or carrying only values (`funV`, `applyArg`) use `ValueRelV`
-    directly. -/
+/-- Structural relation on continuation frames, generalized with a
+    renaming `σ`. Each frame variant that carries an environment bundles
+    its own `σ`, `d`, and `EnvRelV σ d` witness. The right-hand term is
+    `renameTerm σ` (or `renameTermList σ`) of the left-hand term. -/
 inductive FrameRel : Frame → Frame → Prop where
   | force : FrameRel .force .force
-  | arg (d : Nat) (t : Term) (henv : EnvRelV d env1 env2) (hclosed : closedAt d t = true) :
-      FrameRel (.arg t env1) (.arg t env2)
+  | arg (σ : Nat → Nat) (d : Nat) (henv : EnvRelV σ d env1 env2)
+      (hclosed : closedAt d t = true) :
+      FrameRel (.arg t env1) (.arg (renameTerm σ t) env2)
   | funV (hv : ValueRelV v1 v2) : FrameRel (.funV v1) (.funV v2)
   | applyArg (hv : ValueRelV v1 v2) : FrameRel (.applyArg v1) (.applyArg v2)
-  | constrField (d : Nat) (tag : Nat) (hdone : ListValueRelV done1 done2)
-      (todo : List Term) (htodo : closedAtList d todo = true)
-      (henv : EnvRelV d env1 env2) :
-      FrameRel (.constrField tag done1 todo env1) (.constrField tag done2 todo env2)
-  | caseScrutinee (d : Nat) (alts : List Term) (halts : closedAtList d alts = true)
-      (henv : EnvRelV d env1 env2) :
-      FrameRel (.caseScrutinee alts env1) (.caseScrutinee alts env2)
+  | constrField (σ : Nat → Nat) (d : Nat) (tag : Nat) (hdone : ListValueRelV done1 done2)
+      (htodo : closedAtList d todo = true)
+      (henv : EnvRelV σ d env1 env2) :
+      FrameRel (.constrField tag done1 todo env1) (.constrField tag done2 (renameTermList σ todo) env2)
+  | caseScrutinee (σ : Nat → Nat) (d : Nat) (halts : closedAtList d alts = true)
+      (henv : EnvRelV σ d env1 env2) :
+      FrameRel (.caseScrutinee alts env1) (.caseScrutinee (renameTermList σ alts) env2)
 
 /-- Pointwise `FrameRel` on stacks: nil-nil or cons with matching frames. -/
 inductive StackRel : Stack → Stack → Prop where
@@ -349,15 +386,14 @@ inductive StackRel : Stack → Stack → Prop where
   | cons (hf : FrameRel f1 f2) (hrs : StackRel s1 s2) :
       StackRel (f1 :: s1) (f2 :: s2)
 
-/-- Full machine-state relation. A `compute` state carries a stack relation,
-    an environment relation at some depth `d`, and a `closedAt d t` witness
-    for the current term. A `ret` state carries a stack relation and a value
-    relation. `error` relates only to `error`, and `halt` relates values
-    via `ValueRelV`. -/
+/-- Full machine-state relation, generalized with a renaming `σ` on the
+    `compute` constructor. The right-hand term is `renameTerm σ t`. A `ret`
+    state uses `ValueRelV` directly, `error` relates only to `error`, and
+    `halt` relates values via `ValueRelV`. -/
 inductive StateRel : State → State → Prop where
-  | compute (hs : StackRel s1 s2) (d : Nat) (henv : EnvRelV d env1 env2)
+  | compute (hs : StackRel s1 s2) (σ : Nat → Nat) (d : Nat) (henv : EnvRelV σ d env1 env2)
       (ht : closedAt d t = true) :
-      StateRel (.compute s1 env1 t) (.compute s2 env2 t)
+      StateRel (.compute s1 env1 t) (.compute s2 env2 (renameTerm σ t))
   | ret (hs : StackRel s1 s2) (hv : ValueRelV v1 v2) :
       StateRel (.ret s1 v1) (.ret s2 v2)
   | error : StateRel .error .error

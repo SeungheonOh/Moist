@@ -193,7 +193,30 @@ def BehEqClosed (m1 m2 : Expr) : Prop :=
       ValueEq k v1 v2
   | _, _ => True
 
-scoped infixl:50 " ≃⁰ " => BehEqClosed
+scoped infix:50 " ≋ᶜ " => BehEqClosed
+
+/-- **Behavioral equivalence of MIR expressions under all environments.**
+
+    Two MIR expressions `m1` and `m2` are behaviorally equivalent when,
+    for every MIR lowering environment `env` and every CEK runtime
+    environment `ρ`, the lowered terms agree on error reachability and
+    produce `ValueEq k`-related results for every step index `k`.
+
+    Quantifying over all `env` makes `BehEq` composable: an optimization
+    proved correct at any nesting depth can be applied inside lambdas,
+    let-bindings, or case branches. -/
+def BehEq (m1 m2 : Expr) : Prop :=
+  ∀ (env : List MIR.VarId),
+  match lowerTotal env m1, lowerTotal env m2 with
+  | some t1, some t2 =>
+    (∀ ρ : CekEnv, Reaches (.compute [] ρ t1) .error ↔ Reaches (.compute [] ρ t2) .error) ∧
+    ∀ (k : Nat) (ρ : CekEnv) (v1 v2 : CekValue),
+      Reaches (.compute [] ρ t1) (.halt v1) →
+      Reaches (.compute [] ρ t2) (.halt v2) →
+      ValueEq k v1 v2
+  | _, _ => True
+
+scoped infix:50 " ≋ " => BehEq
 
 /-! ## Executable observation (for conformance testing only)
 
