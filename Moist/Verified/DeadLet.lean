@@ -431,7 +431,7 @@ private theorem closedAt_zero_error_env_irrel (t : Term) (env₁ env₂ : CekEnv
 /-- **Dead let elimination is semantics-preserving.**
 
     Given `MIRDeadLetCond x e body` (i.e. `x ∉ FV(body)` and `e` is pure),
-    we have `BehEqClosed (Let [(x, e, false)] body) body`.
+    we have `Let [(x, e, false)] body ≃⁰ body`.
 
     **Proof outline:**
     1. Lower both sides. The LHS becomes `Apply (Lam 0 body') e'`;
@@ -448,7 +448,7 @@ private theorem closedAt_zero_error_env_irrel (t : Term) (env₁ env₂ : CekEnv
        (vacuously true) gives `ValueEq k` for all `k`. -/
 theorem dead_let_sound_closed (x : VarId) (e body : Expr)
     (hsc : MIRDeadLetCond x e body) :
-    BehEqClosed (.Let [(x, e, false)] body) body := by
+    .Let [(x, e, false)] body ≃⁰ body := by
   unfold BehEqClosed
   have hlower_let : lowerTotal [] (.Let [(x, e, false)] body) =
       (do let e' ← lowerTotal [] e

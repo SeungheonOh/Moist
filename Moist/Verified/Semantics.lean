@@ -193,6 +193,8 @@ def BehEqClosed (m1 m2 : Expr) : Prop :=
       ValueEq k v1 v2
   | _, _ => True
 
+scoped infixl:50 " ≃⁰ " => BehEqClosed
+
 /-! ## Executable observation (for conformance testing only)
 
 `Obs` and `obsOf` provide a decidable observation type used in executable
