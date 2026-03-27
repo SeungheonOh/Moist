@@ -7,7 +7,7 @@ import Moist.MIR.Pretty
 import Moist.MIR.ANF
 import Moist.MIR.Lower
 import Moist.MIR.Optimize
-import Moist.MIR.Semantics
+import Moist.Verified.Semantics
 import Moist.CEK.Machine
 import Moist.Plutus.Pretty
 import Moist.Plutus.PrettyHuman

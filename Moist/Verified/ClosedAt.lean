@@ -1,16 +1,45 @@
 import Moist.CEK.Machine
-import Moist.MIR.Semantics
+import Moist.Verified.Semantics
 
-namespace Moist.CEK
+namespace Moist.Verified
 
+open Moist.CEK
 open Moist.Plutus.Term
-open Moist.MIR.Semantics
+open Moist.Verified.Semantics
 
-/-! # closedAt, ValueRelV, EnvRelV — shared definitions for bisimulation proofs -/
+/-! # closedAt, ValueRelV, EnvRelV — shared definitions for bisimulation proofs
 
-/-! ## closedAt: de Bruijn depth-bounded closed term predicate -/
+This module provides the structural vocabulary for the bisimulation and
+dead-let-elimination proofs. The three main concepts are:
+
+1. **`closedAt d t`** — a decidable predicate asserting that every de Bruijn
+   variable in term `t` is bound within depth `d`. This is the UPLC analogue
+   of "all free variables have indices ≤ d".
+
+2. **`ValueRelV` / `ListValueRelV`** — an inductive structural relation on
+   CEK values. Two values are related when they share the same term but may
+   live in different (but `EnvRelV`-related) environments. This captures the
+   idea that "same code, similar environments ⇒ similar values".
+
+3. **`EnvRelV d env1 env2`** — a per-position relation on CEK environments.
+   For each index in `1..d`, either both lookups fail or both succeed with
+   `ValueRelV`-related values.
+
+Together these let us state and prove that stepping two `StateRel`-related
+states produces `StateRel`-related successors (the bisimulation invariant
+in `Bisim.lean`).
+-/
+
+/-! ## closedAt: de Bruijn depth-bounded closed term predicate
+
+`closedAt d t` checks that every `Var n` node in `t` satisfies `n ≤ d`.
+In a CEK machine, a term that is `closedAt d` can be evaluated in any
+environment that binds at least positions `1..d`. -/
 
 mutual
+  /-- Returns `true` when every variable in `t` has index at most `d`.
+      Recurses structurally on the term; `Lam` increments the depth by 1.
+      Constants, builtins, and `Error` are trivially closed. -/
   def closedAt (d : Nat) (t : Term) : Bool := match t with
     | .Var n => decide (n ≤ d)
     | .Lam _ body => closedAt (d + 1) body
@@ -20,44 +49,63 @@ mutual
     | .Case scrut alts => closedAt d scrut && closedAtList d alts
     | .Constant _ | .Builtin _ | .Error => true
   termination_by sizeOf t
+  /-- Pointwise `closedAt` for a list of terms (constructor args, case alts). -/
   def closedAtList (d : Nat) (ts : List Term) : Bool := match ts with
     | [] => true
     | t :: rest => closedAt d t && closedAtList d rest
   termination_by sizeOf ts
 end
 
-/-! ## closedAt equation helpers -/
+/-! ## closedAt equation helpers
 
+These theorems invert `closedAt` for each term constructor, extracting the
+sub-obligations. They are the primary interface for case-splitting on
+`closedAt` hypotheses in the bisimulation proof. -/
+
+/-- If `Var n` is closed at depth `d`, then `n ≤ d`. -/
 theorem closedAt_var {d n} (h : closedAt d (.Var n) = true) : n ≤ d := by
   rw [closedAt.eq_1] at h; exact of_decide_eq_true h
 
+/-- Application: both the function and argument must be closed at `d`. -/
 theorem closedAt_apply {d f x} (h : closedAt d (.Apply f x) = true) :
     closedAt d f = true ∧ closedAt d x = true := by
   rw [closedAt.eq_3] at h; exact Bool.and_eq_true_iff.mp h
 
+/-- Force: the inner expression must be closed at `d`. -/
 theorem closedAt_force {d e} (h : closedAt d (.Force e) = true) :
     closedAt d e = true := by rw [closedAt.eq_4] at h; exact h
 
+/-- Delay: the inner expression must be closed at `d`. -/
 theorem closedAt_delay {d e} (h : closedAt d (.Delay e) = true) :
     closedAt d e = true := by rw [closedAt.eq_5] at h; exact h
 
+/-- Lambda: the body is closed at `d + 1` (the binder adds one level). -/
 theorem closedAt_lam {d n body} (h : closedAt d (.Lam n body) = true) :
     closedAt (d + 1) body = true := by rw [closedAt.eq_2] at h; exact h
 
+/-- Constructor: all arguments must be closed at `d`. -/
 theorem closedAt_constr {d tag args} (h : closedAt d (.Constr tag args) = true) :
     closedAtList d args = true := by rw [closedAt.eq_6] at h; exact h
 
+/-- Cons case for `closedAtList`: head and tail both closed. -/
 theorem closedAt_constr_cons {d m ms} (h : closedAtList d (m :: ms) = true) :
     closedAt d m = true ∧ closedAtList d ms = true := by
   rw [closedAtList.eq_2] at h; exact Bool.and_eq_true_iff.mp h
 
+/-- Case: both the scrutinee and all alternatives must be closed at `d`. -/
 theorem closedAt_case {d scrut alts} (h : closedAt d (.Case scrut alts) = true) :
     closedAt d scrut = true ∧ closedAtList d alts = true := by
   rw [closedAt.eq_7] at h; exact Bool.and_eq_true_iff.mp h
 
-/-! ## closedAt monotonicity -/
+/-! ## closedAt monotonicity
+
+If a term is closed at depth `d`, it is also closed at any greater depth `d'`.
+This is used pervasively: when a lambda body is closed at `d+1`, we can
+also use it at any `d' ≥ d+1` that arises from environment extension. -/
 
 mutual
+  /-- Monotonicity of `closedAt`: increasing the depth bound preserves closure.
+      Structural induction on the term; the `Lam` case shifts both bounds. -/
   theorem closedAt_mono {d d' : Nat} {t : Term} (h : closedAt d t = true) (hle : d ≤ d') :
       closedAt d' t = true := by
     cases t with
@@ -92,9 +140,17 @@ mutual
   termination_by sizeOf ts
 end
 
-/-! ## closedAt existence: every term is closed at some depth -/
+/-! ## closedAt existence: every term is closed at some depth
+
+Every UPLC term is closed at some finite depth (the maximum variable index
+it contains). This is used in the bisimulation proof's `refl` cases: when
+`ValueRelV.refl` gives us an identical value on both sides, we need to
+produce a depth witness for the contained term, even though no environment
+relation was given to us. -/
 
 mutual
+  /-- Every term has a finite closure depth. For variables it is `n` itself;
+      for compound terms it is the max of the sub-term depths. -/
   theorem closedAt_exists (t : Term) : ∃ d, closedAt d t = true := by
     cases t with
     | Var n => exact ⟨n, by rw [closedAt.eq_1]; exact decide_eq_true (Nat.le_refl n)⟩
@@ -140,6 +196,9 @@ end
 
 /-! ## closedAtList element access -/
 
+/-- If a list of terms is closed at depth `d`, then each individual element
+    at index `i` is also closed at `d`. Used when the CEK machine selects
+    a case alternative by index. -/
 theorem closedAtList_getElem {d : Nat} {ts : List Term} {i : Nat}
     (h : closedAtList d ts = true) (hi : i < ts.length) :
     closedAt d (ts[i]) = true := by
@@ -155,12 +214,31 @@ theorem closedAtList_getElem {d : Nat} {ts : List Term} {i : Nat}
 
 /-! ## ValueRelV, ListValueRelV, EnvRelV: mutual structural relations
 
-`EnvRelV d env1 env2` says that for positions 1..d, either both lookups
+These four mutually inductive types form the "structural simulation relation"
+that the bisimulation proof maintains as an invariant across CEK steps.
+
+The key design choice is that `ValueRelV` relates values that share the
+**same term** but may have different environments — as long as those
+environments agree on the positions the term actually uses (`closedAt`
+witnesses). This is strictly weaker than equality and is exactly what
+dead-let elimination needs: the optimized program evaluates the same body
+in a smaller environment.
+
+`EnvRelV d env1 env2` says that for positions `1..d`, either both lookups
 fail or both succeed with `ValueRelV`-related values. This is weaker than
-literal equality (`EnvEq`) and is preserved when extending envs with
-`ValueRelV`-related argument values during lambda application. -/
+literal equality and is preserved when extending envs with
+`ValueRelV`-related argument values during lambda application
+(see `envRelV_extend`). -/
 
 mutual
+  /-- Structural value relation. Two CEK values are related when:
+      - `vcon`: both are the same constant.
+      - `vlam`: both are lambdas over the same body, with environments
+        related up to the body's free-variable depth.
+      - `vdelay`: same as `vlam` but for delayed computations.
+      - `vconstr`: same tag, pointwise-related fields.
+      - `vbuiltin`: same builtin, pointwise-related partial args, same arity.
+      - `refl`: any value is related to itself (reflexivity). -/
   inductive ValueRelV : CekValue → CekValue → Prop where
     | vcon : ValueRelV (.VCon c) (.VCon c)
     | vlam (d : Nat) (hclosed : closedAt (d + 1) body = true)
@@ -174,15 +252,20 @@ mutual
     | vbuiltin (hb : b1 = b2) (hargs : ListValueRelV args1 args2) (hea : ea1 = ea2) :
         ValueRelV (.VBuiltin b1 args1 ea1) (.VBuiltin b2 args2 ea2)
     | refl : ValueRelV v v
+  /-- Pointwise `ValueRelV` on lists: nil-nil or cons with matching heads. -/
   inductive ListValueRelV : List CekValue → List CekValue → Prop where
     | nil : ListValueRelV [] []
     | cons (hv : ValueRelV v1 v2) (hrs : ListValueRelV rest1 rest2) :
         ListValueRelV (v1 :: rest1) (v2 :: rest2)
-  /-- Per-position lookup relation: both none, or both some with ValueRelV. -/
+  /-- Per-position lookup relation on optional values: either both fail
+      (`none`/`none`) or both succeed with `ValueRelV`-related values. -/
   inductive LookupRelV : Option CekValue → Option CekValue → Prop where
     | bothNone : LookupRelV none none
     | bothSome (hv : ValueRelV v1 v2) : LookupRelV (some v1) (some v2)
-  /-- Environment relation: positions 1..d have matching lookups. -/
+  /-- Environment relation up to depth `d`. For every position `n` with
+      `0 < n ≤ d`, the lookups in `env1` and `env2` are `LookupRelV`-related.
+      Position 0 is excluded because the CEK environment uses 1-based indexing
+      (lookup 0 always returns `none`). -/
   inductive EnvRelV : Nat → CekEnv → CekEnv → Prop where
     | mk : (∀ n, 0 < n → n ≤ d →
               LookupRelV (env1.lookup n) (env2.lookup n)) →
@@ -191,17 +274,27 @@ end
 
 /-! ## EnvRelV lemmas -/
 
+/-- Elimination form for `EnvRelV`: extract the lookup relation at a
+    specific position `n` with `0 < n ≤ d`. -/
 theorem envRelV_elim {d : Nat} {env1 env2 : CekEnv} (h : EnvRelV d env1 env2)
     {n : Nat} (hn : 0 < n) (hle : n ≤ d) :
     LookupRelV (env1.lookup n) (env2.lookup n) :=
   match h with | .mk f => f n hn hle
 
+/-- Any environment is related to itself at any depth. -/
 theorem envRelV_refl (d : Nat) (env : CekEnv) : EnvRelV d env env := by
   exact .mk fun n _ _ =>
     match h : env.lookup n with
     | none => h ▸ .bothNone
     | some v => h ▸ .bothSome .refl
 
+/-- **Extension lemma**: if `EnvRelV d env1 env2` and `ValueRelV v1 v2`,
+    then `EnvRelV (d+1) (env1.extend v1) (env2.extend v2)`. The new
+    position (`d+1`, which maps to index 1 after extending) gets the
+    new value pair, and all previous positions shift by 1 and inherit
+    the old relation. This is the crucial lemma for lambda application
+    in the bisimulation: when the CEK machine extends the environment
+    with the argument, the relation is preserved at the incremented depth. -/
 theorem envRelV_extend (d : Nat) (env1 env2 : CekEnv) (v1 v2 : CekValue)
     (henv : EnvRelV d env1 env2) (hv : ValueRelV v1 v2) :
     EnvRelV (d + 1) (env1.extend v1) (env2.extend v2) := by
@@ -219,10 +312,23 @@ theorem envRelV_extend (d : Nat) (env1 env2 : CekEnv) (v1 v2 : CekValue)
 
 /-! ## Frame, Stack, State relations
 
-`FrameRel` and `StackRel` are depth-independent: each frame that carries
-an environment bundles its own depth witness. This lets closures at
-different depths coexist on a single stack. -/
+These lift the value/environment relations to the full CEK machine state.
 
+`FrameRel` and `StackRel` are **depth-independent**: each frame that
+carries an environment bundles its own depth witness `d`. This is essential
+because a single continuation stack can contain closures captured at
+different depths (e.g. a `funV` from an outer scope and an `arg` from an
+inner scope).
+
+`StateRel` combines stack, environment, and term/value relations into a
+single invariant on machine states. The bisimulation theorem
+(`Bisim.step_preserves`) shows that `StateRel` is preserved by `step`. -/
+
+/-- Structural relation on continuation frames. Each frame variant that
+    carries an environment (`arg`, `constrField`, `caseScrutinee`) bundles
+    its own depth `d` and `EnvRelV d` witness. Frames without environments
+    (`force`) or carrying only values (`funV`, `applyArg`) use `ValueRelV`
+    directly. -/
 inductive FrameRel : Frame → Frame → Prop where
   | force : FrameRel .force .force
   | arg (d : Nat) (t : Term) (henv : EnvRelV d env1 env2) (hclosed : closedAt d t = true) :
@@ -237,11 +343,17 @@ inductive FrameRel : Frame → Frame → Prop where
       (henv : EnvRelV d env1 env2) :
       FrameRel (.caseScrutinee alts env1) (.caseScrutinee alts env2)
 
+/-- Pointwise `FrameRel` on stacks: nil-nil or cons with matching frames. -/
 inductive StackRel : Stack → Stack → Prop where
   | nil : StackRel [] []
   | cons (hf : FrameRel f1 f2) (hrs : StackRel s1 s2) :
       StackRel (f1 :: s1) (f2 :: s2)
 
+/-- Full machine-state relation. A `compute` state carries a stack relation,
+    an environment relation at some depth `d`, and a `closedAt d t` witness
+    for the current term. A `ret` state carries a stack relation and a value
+    relation. `error` relates only to `error`, and `halt` relates values
+    via `ValueRelV`. -/
 inductive StateRel : State → State → Prop where
   | compute (hs : StackRel s1 s2) (d : Nat) (henv : EnvRelV d env1 env2)
       (ht : closedAt d t = true) :
@@ -252,4 +364,4 @@ inductive StateRel : State → State → Prop where
   | halt (hv : ValueRelV v1 v2) :
       StateRel (.halt v1) (.halt v2)
 
-end Moist.CEK
+end Moist.Verified

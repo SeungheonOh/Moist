@@ -1,5 +1,5 @@
 import Moist.CEK.Machine
-import Moist.MIR.Semantics
+import Moist.Verified.Semantics
 
 open Moist.CEK
 open Moist.Plutus.Term
@@ -55,7 +55,7 @@ private def g_term : Term := .Lam 0 (intT 10)
 #eval (eval (.Apply g_term (intT 99))).result
 
 -- Same observation
-open Moist.MIR.Semantics in
+open Moist.Verified.Semantics in
 #eval (obsOf (eval (.Apply f_term (intT 99))).result,
        obsOf (eval (.Apply g_term (intT 99))).result)
 

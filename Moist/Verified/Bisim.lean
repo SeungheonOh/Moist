@@ -1,49 +1,77 @@
-import Moist.CEK.ClosedAt
+import Moist.Verified.ClosedAt
 import Moist.CEK.Builtins
 
 set_option linter.unusedSimpArgs false
 
-namespace Moist.CEK.Bisim
+namespace Moist.Verified.Bisim
 
 open Moist.CEK
 open Moist.Plutus.Term
-open Moist.MIR.Semantics
+open Moist.Verified.Semantics
+open Moist.Verified
 
-/-! # CEK State Bisimulation -/
+/-! # CEK State Bisimulation
+
+This module proves the central invariant: **`StateRel` is preserved by `step`**.
+
+`step_preserves` is a single-step simulation theorem. Given
+`StateRel s₁ s₂`, it shows `StateRel (step s₁) (step s₂)`. By iterating
+this (`steps_preserves`), we get that `StateRel`-related states remain
+related after any number of steps.
+
+The main extraction theorems are:
+
+- `bisim_reaches`: if `StateRel s₁ s₂` and both reach `halt`, the halted
+  values are `ValueRelV`-related.
+- `bisim_reaches_error`: if `StateRel s₁ s₂` and `s₁` reaches `error`,
+  then `s₂` also reaches `error`.
+
+The proof of `step_preserves` is a large case analysis — every combination
+of `StateRel` constructor × term/frame variant must be handled. The most
+intricate cases are builtins, where `evalBuiltin_relV` shows that
+`ListValueRelV`-related argument lists produce `ValueRelV`-related results
+(or both fail). This relies on the two-stage decomposition of `evalBuiltin`
+into pass-through builtins and constant-extracting builtins.
+-/
 
 /-! ## Helper lemmas -/
 
 private theorem lookup_zero (env : CekEnv) : env.lookup 0 = none := by
   cases env <;> simp [CekEnv.lookup]
 
-theorem listValueRelV_append (ha : ListValueRelV a1 a2) (hb : ListValueRelV b1 b2) :
-    ListValueRelV (a1 ++ b1) (a2 ++ b2) := by
+/-- `ListValueRelV` is compatible with list append. -/
+theorem listValueRelV_append (ha : ListValueRelV a₁ a₂) (hb : ListValueRelV b₁ b₂) :
+    ListValueRelV (a₁ ++ b₁) (a₂ ++ b₂) := by
   cases ha with
   | nil => exact hb
   | cons hv hr => exact .cons hv (listValueRelV_append hr hb)
 
-theorem listValueRelV_reverse (h : ListValueRelV a1 a2) :
-    ListValueRelV a1.reverse a2.reverse := by
+/-- `ListValueRelV` is compatible with list reverse. Used in the
+    `constrField` frame case, where fields are accumulated in reverse. -/
+theorem listValueRelV_reverse (h : ListValueRelV a₁ a₂) :
+    ListValueRelV a₁.reverse a₂.reverse := by
   cases h with
   | nil => exact .nil
   | cons hv hr =>
     simp [List.reverse_cons]
     exact listValueRelV_append (listValueRelV_reverse hr) (.cons hv .nil)
 
-theorem listValueRelV_cons_rev (hv : ValueRelV v1 v2)
-    (hdone : ListValueRelV done1 done2) :
-    ListValueRelV ((v1 :: done1).reverse) ((v2 :: done2).reverse) := by
+theorem listValueRelV_cons_rev (hv : ValueRelV v₁ v₂)
+    (hdone : ListValueRelV done₁ done₂) :
+    ListValueRelV ((v₁ :: done₁).reverse) ((v₂ :: done₂).reverse) := by
   simp [List.reverse_cons]
   exact listValueRelV_append (listValueRelV_reverse hdone) (.cons hv .nil)
 
-theorem stackRel_append (hs : StackRel s1 s2) (ht : StackRel t1 t2) :
-    StackRel (s1 ++ t1) (s2 ++ t2) := by
+/-- `StackRel` is compatible with stack append. Used for `Case` and `Constr`
+    frames that push multiple `applyArg` frames onto the stack at once. -/
+theorem stackRel_append (hs : StackRel s₁ s₂) (ht : StackRel t1 t2) :
+    StackRel (s₁ ++ t1) (s₂ ++ t2) := by
   cases hs with
   | nil => exact ht
   | cons hf hr => exact .cons hf (stackRel_append hr ht)
 
-theorem listValueRelV_map_applyArg_stackRel (hfs : ListValueRelV fs1 fs2) :
-    StackRel (fs1.map Frame.applyArg) (fs2.map Frame.applyArg) := by
+theorem listValueRelV_map_applyArg_stackRel (hfs : ListValueRelV fs₁ fs₂) :
+    StackRel (fs₁.map Frame.applyArg) (fs₂.map Frame.applyArg) := by
   cases hfs with
   | nil => exact .nil
   | cons hv hr => exact .cons (.applyArg hv) (listValueRelV_map_applyArg_stackRel hr)
@@ -53,16 +81,33 @@ theorem listValueRelV_refl (vs : List CekValue) : ListValueRelV vs vs := by
   | nil => exact .nil
   | cons v rest ih => exact .cons .refl ih
 
-/-! ## evalBuiltin preservation -/
+/-! ## evalBuiltin preservation
 
-theorem valueRelV_vcon_eq (h : ValueRelV v1 v2) (heq : v1 = .VCon c) : v2 = .VCon c := by
+Builtins are the hardest part of the bisimulation because `evalBuiltin`
+inspects values structurally. The approach is two-stage:
+
+1. **Pass-through builtins** (`IfThenElse`, `ChooseUnit`, `Trace`,
+   `ChooseData`, `ChooseList`, `MkCons`) select one of their arguments
+   based on a condition value. If the condition is a `VCon` (which
+   `ValueRelV` guarantees is identical on both sides), the same argument
+   is selected. Since arguments are `ValueRelV`-related, the result is too.
+
+2. **Constant builtins** (everything else) first extract all `VCon`
+   payloads via `extractConsts`. `ListValueRelV` ensures the extracted
+   constant lists are identical (since `ValueRelV` preserves `VCon`
+   projection). Then `evalBuiltinConst` is a pure function on constants,
+   so identical inputs produce identical outputs.
+
+`evalBuiltin_relV` combines both stages. -/
+
+theorem valueRelV_vcon_eq (h : ValueRelV v₁ v₂) (heq : v₁ = .VCon c) : v₂ = .VCon c := by
   subst heq; cases h with | vcon => rfl | refl => rfl
 
-/-- If ValueRelV v1 v2 and v1 = VCon c, then v2 = VCon c. -/
-private theorem valueRelV_vcon (h : ValueRelV v1 v2) (hv : v1 = .VCon c) : v2 = .VCon c := by
+/-- If ValueRelV v₁ v₂ and v₁ = VCon c, then v₂ = VCon c. -/
+private theorem valueRelV_vcon (h : ValueRelV v₁ v₂) (hv : v₁ = .VCon c) : v₂ = .VCon c := by
   subst hv; cases h with | vcon => rfl | refl => rfl
 
-private theorem valueRelV_vcon_right (h : ValueRelV v1 v2) (hv : v2 = .VCon c) : v1 = .VCon c := by
+private theorem valueRelV_vcon_right (h : ValueRelV v₁ v₂) (hv : v₂ = .VCon c) : v₁ = .VCon c := by
   subst hv; cases h with | vcon => rfl | refl => rfl
 
 /-- VCon projection: extracts the Const if VCon, otherwise none. -/
@@ -71,7 +116,7 @@ private def vconProj : CekValue → Option Const
   | _ => none
 
 /-- ValueRelV preserves VCon projection. -/
-private theorem valueRelV_vconProj (h : ValueRelV v1 v2) : vconProj v1 = vconProj v2 := by
+private theorem valueRelV_vconProj (h : ValueRelV v₁ v₂) : vconProj v₁ = vconProj v₂ := by
   cases h with
   | vcon => rfl
   | refl => rfl
@@ -81,8 +126,8 @@ private theorem valueRelV_vconProj (h : ValueRelV v1 v2) : vconProj v1 = vconPro
   | vbuiltin => rfl
 
 /-- ListValueRelV preserves the VCon skeleton (map of vconProj). -/
-private theorem listValueRelV_vconSkel (h : ListValueRelV args1 args2) :
-    args1.map vconProj = args2.map vconProj := by
+private theorem listValueRelV_vconSkel (h : ListValueRelV args₁ args₂) :
+    args₁.map vconProj = args₂.map vconProj := by
   cases h with
   | nil => rfl
   | cons hv hr =>
@@ -91,8 +136,8 @@ private theorem listValueRelV_vconSkel (h : ListValueRelV args1 args2) :
 
 
 /-- ListValueRelV where all elements are VCon implies the lists are equal. -/
-private theorem listValueRelV_vcon_eq (h : ListValueRelV args1 args2)
-    (hall : ∀ v ∈ args1, ∃ c, v = .VCon c) : args1 = args2 := by
+private theorem listValueRelV_vcon_eq (h : ListValueRelV args₁ args₂)
+    (hall : ∀ v ∈ args₁, ∃ c, v = .VCon c) : args₁ = args₂ := by
   cases h with
   | nil => rfl
   | cons hv hr =>
@@ -107,34 +152,38 @@ private theorem listValueRelV_vcon_eq (h : ListValueRelV args1 args2)
 theorem evalBuiltinConst_eq (b : BuiltinFun) (cs : List Const) :
     evalBuiltinConst b cs = evalBuiltinConst b cs := rfl
 
-private theorem listValueRelV_length (h : ListValueRelV args1 args2) :
-    args1.length = args2.length := by
+private theorem listValueRelV_length (h : ListValueRelV args₁ args₂) :
+    args₁.length = args₂.length := by
   cases h with
   | nil => rfl
   | cons _ hr => simp [List.length_cons, listValueRelV_length hr]
 
-private theorem evalBPT_MkCons_some {v1 v2 w : CekValue}
-    (h : evalBuiltinPassThrough .MkCons [v1, v2] = some w) :
-    (∃ c, v1 = .VCon c) ∧ (∃ c, v2 = .VCon c) := by
-  cases v1 with
+private theorem evalBPT_MkCons_some {v₁ v₂ w : CekValue}
+    (h : evalBuiltinPassThrough .MkCons [v₁, v₂] = some w) :
+    (∃ c, v₁ = .VCon c) ∧ (∃ c, v₂ = .VCon c) := by
+  cases v₁ with
   | VCon c1 =>
     refine ⟨⟨c1, rfl⟩, ?_⟩
-    cases v2 with
+    cases v₂ with
     | VCon c2 => exact ⟨c2, rfl⟩
     | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
       cases c1 <;> simp [evalBuiltinPassThrough] at h
   | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
     simp [evalBuiltinPassThrough] at h
 
-theorem evalBuiltin_passThrough_relV (b : BuiltinFun) (args1 args2 : List CekValue)
-    (hargs : ListValueRelV args1 args2) :
-    match evalBuiltinPassThrough b args1, evalBuiltinPassThrough b args2 with
-    | some v1, some v2 => ValueRelV v1 v2
+/-- Pass-through builtins preserve `ValueRelV`. If both sides return
+    `some`, the results are `ValueRelV`-related. If one returns `none`,
+    both do. The proof exhaustively matches on argument list length and
+    builtin identity (6 pass-through builtins × up to 6 args). -/
+theorem evalBuiltin_passThrough_relV (b : BuiltinFun) (args₁ args₂ : List CekValue)
+    (hargs : ListValueRelV args₁ args₂) :
+    match evalBuiltinPassThrough b args₁, evalBuiltinPassThrough b args₂ with
+    | some v₁, some v₂ => ValueRelV v₁ v₂
     | none, none => True
     | _, _ => False := by
-  by_cases h_eq : args1 = args2
+  by_cases h_eq : args₁ = args₂
   · subst h_eq
-    cases evalBuiltinPassThrough b args1 with
+    cases evalBuiltinPassThrough b args₁ with
     | some v => exact .refl
     | none => trivial
   · -- args1 ≠ args2 but ListValueRelV args1 args2.
@@ -318,13 +367,13 @@ theorem evalBuiltin_passThrough_relV (b : BuiltinFun) (args1 args2 : List CekVal
          fun h => hb (h ▸ .inr (.inr (.inr (.inl rfl)))),
          fun h => hb (h ▸ .inr (.inr (.inr (.inr (.inl rfl))))),
          fun h => hb (h ▸ .inr (.inr (.inr (.inr (.inr rfl)))))⟩
-      rw [evalBuiltinPassThrough_none_of_not_passthrough b args1 hb_not,
-          evalBuiltinPassThrough_none_of_not_passthrough b args2 hb_not]; trivial
+      rw [evalBuiltinPassThrough_none_of_not_passthrough b args₁ hb_not,
+          evalBuiltinPassThrough_none_of_not_passthrough b args₂ hb_not]; trivial
 
 /-- ListValueRelV implies extractConsts agrees on both sides.
 If both succeed, the constant lists are identical. If one fails, both fail. -/
-private theorem extractConsts_relV (h : ListValueRelV args1 args2) :
-    match Moist.CEK.extractConsts args1, Moist.CEK.extractConsts args2 with
+private theorem extractConsts_relV (h : ListValueRelV args₁ args₂) :
+    match Moist.CEK.extractConsts args₁, Moist.CEK.extractConsts args₂ with
     | some cs1, some cs2 => cs1 = cs2
     | none, none => True
     | _, _ => False := by
@@ -366,31 +415,31 @@ private theorem extractConsts_relV (h : ListValueRelV args1 args2) :
     | vconstr _ _ => simp [extractConsts]
     | vbuiltin _ _ _ => simp [extractConsts]
 
-/-- Core builtin lemma. Uses the two-stage decomposition:
-evalBuiltinPassThrough preserves ValueRelV, and extractConsts + evalBuiltinConst
-is deterministic on identical constant lists. -/
-theorem evalBuiltin_relV (b : BuiltinFun) (args1 args2 : List CekValue)
-    (hargs : ListValueRelV args1 args2) :
-    match evalBuiltin b args1, evalBuiltin b args2 with
-    | some v1, some v2 => ValueRelV v1 v2
+/-- **Core builtin preservation lemma.** If `ListValueRelV args₁ args₂`, then
+    `evalBuiltin b` either succeeds on both with `ValueRelV`-related results,
+    or fails on both. Combines the pass-through and constant-extraction stages. -/
+theorem evalBuiltin_relV (b : BuiltinFun) (args₁ args₂ : List CekValue)
+    (hargs : ListValueRelV args₁ args₂) :
+    match evalBuiltin b args₁, evalBuiltin b args₂ with
+    | some v₁, some v₂ => ValueRelV v₁ v₂
     | none, none => True
     | _, _ => False := by
-  by_cases h_eq : args1 = args2
+  by_cases h_eq : args₁ = args₂
   · subst h_eq
-    cases evalBuiltin b args1 with
+    cases evalBuiltin b args₁ with
     | some v => exact .refl
     | none => trivial
   · -- args differ but ListValueRelV.
     -- evalBuiltin = try passThrough, then extractConsts + evalBuiltinConst
-    have hpt := evalBuiltin_passThrough_relV b args1 args2 hargs
+    have hpt := evalBuiltin_passThrough_relV b args₁ args₂ hargs
     have hec := extractConsts_relV hargs
     -- Unfold evalBuiltin using its definition
-    show match evalBuiltin b args1, evalBuiltin b args2 with
-         | some v1, some v2 => ValueRelV v1 v2 | none, none => True | _, _ => False
+    show match evalBuiltin b args₁, evalBuiltin b args₂ with
+         | some v₁, some v₂ => ValueRelV v₁ v₂ | none, none => True | _, _ => False
     -- Rewrite evalBuiltin in terms of passThrough + extractConsts
     simp only [evalBuiltin]
-    generalize hp1 : evalBuiltinPassThrough b args1 = r1
-    generalize hp2 : evalBuiltinPassThrough b args2 = r2
+    generalize hp1 : evalBuiltinPassThrough b args₁ = r1
+    generalize hp2 : evalBuiltinPassThrough b args₂ = r2
     rw [hp1, hp2] at hpt
     cases r1 with
     | some v1 => cases r2 with
@@ -400,8 +449,8 @@ theorem evalBuiltin_relV (b : BuiltinFun) (args1 args2 : List CekValue)
       | some _ => simp at hpt
       | none =>
         simp only
-        generalize he1 : extractConsts args1 = e1
-        generalize he2 : extractConsts args2 = e2
+        generalize he1 : extractConsts args₁ = e1
+        generalize he2 : extractConsts args₂ = e2
         rw [he1, he2] at hec
         cases e1 with
         | some cs1 => cases e2 with
@@ -416,16 +465,16 @@ theorem evalBuiltin_relV (b : BuiltinFun) (args1 args2 : List CekValue)
           | none => trivial
 
 private theorem ret_evalBuiltin_relV
-    {b : BuiltinFun} {args1 args2 : List CekValue}
-    {s1 s2 : Stack}
-    (hargs : ListValueRelV args1 args2)
-    (hrest : StackRel s1 s2) :
+    {b : BuiltinFun} {args₁ args₂ : List CekValue}
+    {s₁ s₂ : Stack}
+    (hargs : ListValueRelV args₁ args₂)
+    (hrest : StackRel s₁ s₂) :
     StateRel
-      (match evalBuiltin b args1 with | some v => .ret s1 v | none => .error)
-      (match evalBuiltin b args2 with | some v => .ret s2 v | none => .error) := by
-  have h := evalBuiltin_relV b args1 args2 hargs
-  generalize evalBuiltin b args1 = r1 at h
-  generalize evalBuiltin b args2 = r2 at h
+      (match evalBuiltin b args₁ with | some v => .ret s₁ v | none => .error)
+      (match evalBuiltin b args₂ with | some v => .ret s₂ v | none => .error) := by
+  have h := evalBuiltin_relV b args₁ args₂ hargs
+  generalize evalBuiltin b args₁ = r1 at h
+  generalize evalBuiltin b args₂ = r2 at h
   cases r1 with
   | some v1 => cases r2 with
     | some v2 => exact .ret hrest h
@@ -440,8 +489,8 @@ When ValueRelV.refl, both sides have the same value v. The step function
 produces identical results on both sides (modulo the stack tail). -/
 
 /-- Handle force + refl: step (ret (.force :: s) v) for a given v -/
-private theorem step_force_refl {s1 s2 : Stack} (hrest : StackRel s1 s2) (v : CekValue) :
-    StateRel (step (.ret (.force :: s1) v)) (step (.ret (.force :: s2) v)) := by
+private theorem step_force_refl {s₁ s₂ : Stack} (hrest : StackRel s₁ s₂) (v : CekValue) :
+    StateRel (step (.ret (.force :: s₁) v)) (step (.ret (.force :: s₂) v)) := by
   simp only [step]
   cases v with
   | VDelay body env =>
@@ -464,9 +513,9 @@ private theorem step_force_refl {s1 s2 : Stack} (hrest : StackRel s1 s2) (v : Ce
   | VConstr _ _ => exact .error
 
 /-- Handle funV + refl: step (ret (.funV v :: s) vx) for a given v -/
-private theorem step_funV_refl {s1 s2 : Stack} (hrest : StackRel s1 s2)
+private theorem step_funV_refl {s₁ s₂ : Stack} (hrest : StackRel s₁ s₂)
     (v : CekValue) {vx1 vx2 : CekValue} (hvx : ValueRelV vx1 vx2) :
-    StateRel (step (.ret (.funV v :: s1) vx1)) (step (.ret (.funV v :: s2) vx2)) := by
+    StateRel (step (.ret (.funV v :: s₁) vx1)) (step (.ret (.funV v :: s₂) vx2)) := by
   simp only [step]
   cases v with
   | VLam body env =>
@@ -491,9 +540,9 @@ private theorem step_funV_refl {s1 s2 : Stack} (hrest : StackRel s1 s2)
   | VConstr _ _ => exact .error
 
 /-- Handle applyArg + refl: step (ret (.applyArg vx :: s) v) for a given v -/
-private theorem step_applyArg_refl {s1 s2 : Stack} (hrest : StackRel s1 s2)
+private theorem step_applyArg_refl {s₁ s₂ : Stack} (hrest : StackRel s₁ s₂)
     (v : CekValue) {vx1 vx2 : CekValue} (hvx : ValueRelV vx1 vx2) :
-    StateRel (step (.ret (.applyArg vx1 :: s1) v)) (step (.ret (.applyArg vx2 :: s2) v)) := by
+    StateRel (step (.ret (.applyArg vx1 :: s₁) v)) (step (.ret (.applyArg vx2 :: s₂) v)) := by
   simp only [step]
   cases v with
   | VLam body env =>
@@ -518,21 +567,21 @@ private theorem step_applyArg_refl {s1 s2 : Stack} (hrest : StackRel s1 s2)
   | VConstr _ _ => exact .error
 
 /-- Handle caseScrutinee + refl -/
-private theorem step_case_refl {s1 s2 : Stack} (hrest : StackRel s1 s2)
+private theorem step_case_refl {s₁ s₂ : Stack} (hrest : StackRel s₁ s₂)
     (v : CekValue) {d' : Nat} {alts : List Term}
     (halts : closedAtList d' alts = true)
-    {env1 env2 : CekEnv} (henv' : EnvRelV d' env1 env2) :
-    StateRel (step (.ret (.caseScrutinee alts env1 :: s1) v))
-             (step (.ret (.caseScrutinee alts env2 :: s2) v)) := by
+    {env₁ env₂ : CekEnv} (henv' : EnvRelV d' env₁ env₂) :
+    StateRel (step (.ret (.caseScrutinee alts env₁ :: s₁) v))
+             (step (.ret (.caseScrutinee alts env₂ :: s₂) v)) := by
   cases v with
   | VConstr tag fields =>
     -- step produces: match alts[tag]? with | some alt => compute (fields.map applyArg ++ s) env alt | none => error
     show StateRel
       (match alts[tag]? with
-       | some alt => .compute (fields.map Frame.applyArg ++ s1) env1 alt
+       | some alt => .compute (fields.map Frame.applyArg ++ s₁) env₁ alt
        | none => .error)
       (match alts[tag]? with
-       | some alt => .compute (fields.map Frame.applyArg ++ s2) env2 alt
+       | some alt => .compute (fields.map Frame.applyArg ++ s₂) env₂ alt
        | none => .error)
     cases h_idx : alts[tag]? with
     | none => exact .error
@@ -548,14 +597,14 @@ private theorem step_case_refl {s1 s2 : Stack} (hrest : StackRel s1 s2)
        | some (tag, numCtors, fields) =>
          if numCtors > 0 && alts.length > numCtors then .error
          else match alts[tag]? with
-           | some alt => .compute (fields.map Frame.applyArg ++ s1) env1 alt
+           | some alt => .compute (fields.map Frame.applyArg ++ s₁) env₁ alt
            | none => .error
        | none => .error)
       (match constToTagAndFields c with
        | some (tag, numCtors, fields) =>
          if numCtors > 0 && alts.length > numCtors then .error
          else match alts[tag]? with
-           | some alt => .compute (fields.map Frame.applyArg ++ s2) env2 alt
+           | some alt => .compute (fields.map Frame.applyArg ++ s₂) env₂ alt
            | none => .error
        | none => .error)
     cases h_ctf : constToTagAndFields c with
@@ -582,8 +631,24 @@ private theorem step_case_refl {s1 s2 : Stack} (hrest : StackRel s1 s2)
 
 /-! ## Step preservation theorem -/
 
-theorem step_preserves {s1 s2 : State} (h : StateRel s1 s2) :
-    StateRel (step s1) (step s2) := by
+/-- **The bisimulation invariant is preserved by `step`.**
+    Given `StateRel s₁ s₂`, we have `StateRel (step s₁) (step s₂)`.
+
+    This is the core of the entire verification: every possible CEK
+    transition preserves the structural relation. The proof proceeds by
+    cases on the `StateRel` constructor, then on the current term or
+    frame. Key sub-cases:
+    - `Var n`: use `envRelV_elim` to get matching lookups.
+    - `Lam`/`Delay`: produce `ValueRelV.vlam`/`.vdelay` with the
+      `closedAt` and `EnvRelV` witnesses from the hypothesis.
+    - `Apply`/`Force`: push a related frame via `FrameRel`.
+    - `ret` with `funV`/`applyArg` of a `VLam`: extend the environment
+      using `envRelV_extend`.
+    - `ret` with `funV`/`applyArg` of a `VBuiltin`: use `evalBuiltin_relV`.
+    - `ret` with `caseScrutinee` of `VConstr`: index into alternatives
+      using `closedAtList_getElem` and push `applyArg` frames. -/
+theorem step_preserves {s₁ s₂ : State} (h : StateRel s₁ s₂) :
+    StateRel (step s₁) (step s₂) := by
   cases h with
   | error => exact .error
   | halt hv => exact .halt hv
@@ -768,26 +833,36 @@ theorem step_preserves {s1 s2 : State} (h : StateRel s1 s2) :
 
 /-! ## Main bisimulation extraction -/
 
-theorem steps_preserves (n : Nat) {s1 s2 : State} (h : StateRel s1 s2) :
-    StateRel (steps n s1) (steps n s2) := by
-  induction n generalizing s1 s2 with
+/-- Iterated step preservation: `StateRel` is maintained after `n` steps.
+    Immediate by induction from `step_preserves`. -/
+theorem steps_preserves (n : Nat) {s₁ s₂ : State} (h : StateRel s₁ s₂) :
+    StateRel (steps n s₁) (steps n s₂) := by
+  induction n generalizing s₁ s₂ with
   | zero => exact h
   | succ n ih => simp only [steps]; exact ih (step_preserves h)
 
-theorem stateRel_halt_valueRelV {v1 v2 : CekValue}
-    (h : StateRel (.halt v1) (.halt v2)) : ValueRelV v1 v2 := by
+/-- Extract the `ValueRelV` witness from a `StateRel` between two `halt` states. -/
+theorem stateRel_halt_valueRelV {v₁ v₂ : CekValue}
+    (h : StateRel (.halt v₁) (.halt v₂)) : ValueRelV v₁ v₂ := by
   cases h with | halt hv => exact hv
 
-theorem bisim_reaches {s1 s2 : State}
-    (hrel : StateRel s1 s2)
-    {v1 v2 : CekValue}
-    (h1 : Reaches s1 v1) (h2 : Reaches s2 v2) :
-    ValueRelV v1 v2 := by
-  obtain ⟨n1, hn1⟩ := h1
-  obtain ⟨n2, hn2⟩ := h2
+/-- **Value extraction from bisimulation**: if `StateRel s₁ s₂` and both
+    sides reach `halt`, the halted values are `ValueRelV`-related.
+
+    Proof: run `steps_preserves n1` on `s₁`'s witness. After `n1` steps,
+    `s₁` is at `halt v₁` and `s₂` is at some state that is `StateRel`
+    with `halt v₁` — which can only be `halt v₂'`. Then use `reaches_unique`
+    to show `v₂' = v₂`. -/
+theorem bisim_reaches {s₁ s₂ : State}
+    (hrel : StateRel s₁ s₂)
+    {v₁ v₂ : CekValue}
+    (h₁ : Reaches s₁ (.halt v₁)) (h₂ : Reaches s₂ (.halt v₂)) :
+    ValueRelV v₁ v₂ := by
+  obtain ⟨n1, hn1⟩ := h₁
+  obtain ⟨n2, hn2⟩ := h₂
   have hr1 := steps_preserves n1 hrel
   rw [hn1] at hr1
-  generalize h_eq : steps n1 s2 = s2_final at hr1
+  generalize h_eq : steps n1 s₂ = s2_final at hr1
   cases s2_final with
   | halt v2' =>
     cases hr1 with | halt hv =>
@@ -796,4 +871,21 @@ theorem bisim_reaches {s1 s2 : State}
   | compute _ _ _ => cases hr1
   | ret _ _ => cases hr1
 
-end Moist.CEK.Bisim
+/-- **Error propagation from bisimulation**: if `StateRel s₁ s₂` and `s₁`
+    reaches `error`, then `s₂` also reaches `error`. Same technique as
+    `bisim_reaches` but matching on `error` instead of `halt`. -/
+theorem bisim_reaches_error {s₁ s₂ : State}
+    (hrel : StateRel s₁ s₂)
+    (h₁ : Reaches s₁ .error) : Reaches s₂ .error := by
+  obtain ⟨n, hn⟩ := h₁
+  have hr := steps_preserves n hrel
+  rw [hn] at hr
+  -- StateRel .error (steps n s₂) — only .error matches
+  generalize h_eq : steps n s₂ = s2f at hr
+  cases s2f with
+  | error => exact ⟨n, h_eq⟩
+  | halt _ => cases hr
+  | compute _ _ _ => cases hr
+  | ret _ _ => cases hr
+
+end Moist.Verified.Bisim
