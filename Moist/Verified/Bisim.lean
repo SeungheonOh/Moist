@@ -1,4 +1,5 @@
 import Moist.Verified.ClosedAt
+import Moist.Verified.Builtin
 import Moist.CEK.Builtins
 
 set_option linter.unusedSimpArgs false
@@ -9,6 +10,7 @@ open Moist.CEK
 open Moist.Plutus.Term
 open Moist.Verified.Semantics
 open Moist.Verified
+open Moist.Verified.Builtin (evalBuiltin_passThrough_relV)
 open Moist.Verified (renameTerm renameTermList liftRename liftRename_id renameTerm_id renameTermList_id renameTermList_length renameTermList_getElem)
 
 /-! # CEK State Bisimulation
@@ -158,218 +160,6 @@ private theorem listValueRelV_length (h : ListValueRelV args₁ args₂) :
   cases h with
   | nil => rfl
   | cons _ hr => simp [List.length_cons, listValueRelV_length hr]
-
-private theorem evalBPT_MkCons_some {v₁ v₂ w : CekValue}
-    (h : evalBuiltinPassThrough .MkCons [v₁, v₂] = some w) :
-    (∃ c, v₁ = .VCon c) ∧ (∃ c, v₂ = .VCon c) := by
-  cases v₁ with
-  | VCon c1 =>
-    refine ⟨⟨c1, rfl⟩, ?_⟩
-    cases v₂ with
-    | VCon c2 => exact ⟨c2, rfl⟩
-    | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
-      cases c1 <;> simp [evalBuiltinPassThrough] at h
-  | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
-    simp [evalBuiltinPassThrough] at h
-
-/-- Pass-through builtins preserve `ValueRelV`. If both sides return
-    `some`, the results are `ValueRelV`-related. If one returns `none`,
-    both do. The proof exhaustively matches on argument list length and
-    builtin identity (6 pass-through builtins × up to 6 args). -/
-theorem evalBuiltin_passThrough_relV (b : BuiltinFun) (args₁ args₂ : List CekValue)
-    (hargs : ListValueRelV args₁ args₂) :
-    match evalBuiltinPassThrough b args₁, evalBuiltinPassThrough b args₂ with
-    | some v₁, some v₂ => ValueRelV v₁ v₂
-    | none, none => True
-    | _, _ => False := by
-  by_cases h_eq : args₁ = args₂
-  · subst h_eq
-    cases evalBuiltinPassThrough b args₁ with
-    | some v => exact .refl
-    | none => trivial
-  · -- args1 ≠ args2 but ListValueRelV args1 args2.
-    -- Split on whether b is one of the 6 pass-through builtins.
-    by_cases hb : b = .IfThenElse ∨ b = .ChooseUnit ∨ b = .Trace ∨
-                   b = .ChooseData ∨ b = .ChooseList ∨ b = .MkCons
-    · -- Destructure list to determine length, then handle each pass-through builtin.
-      cases hargs with
-      | nil => exact absurd rfl h_eq
-      | cons hv1 hr1 => cases hr1 with
-        | nil => -- length 1: no pass-through pattern matches length 1
-          rcases hb with rfl | rfl | rfl | rfl | rfl | rfl <;> simp [evalBuiltinPassThrough]
-        | cons hv2 hr2 => cases hr2 with
-          | nil => -- length 2: ChooseUnit [result, VCon Unit],
-                   --           Trace [result, VCon (String _)],
-                   --           MkCons [VCon (ConstList tail), elem]
-            rcases hb with rfl | rfl | rfl | rfl | rfl | rfl
-            -- IfThenElse (length 3): no match
-            · simp [evalBuiltinPassThrough]
-            -- ChooseUnit [result, VCon Unit]: condition at pos 1
-            · cases hv2 with
-              | vcon =>
-                cases ‹Const› <;> simp [evalBuiltinPassThrough]
-                exact hv1
-              | refl =>
-                rename_i v_cond
-                cases v_cond with
-                | VCon c => cases c <;> simp [evalBuiltinPassThrough]; exact hv1
-                | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
-                  simp [evalBuiltinPassThrough]
-              | vlam _ _ _ | vdelay _ _ _ | vconstr _ _ | vbuiltin _ _ _ =>
-                simp [evalBuiltinPassThrough]
-            -- Trace [result, VCon (String _)]: condition at pos 1
-            · cases hv2 with
-              | vcon =>
-                cases ‹Const› <;> simp [evalBuiltinPassThrough]
-                exact hv1
-              | refl =>
-                rename_i v_cond
-                cases v_cond with
-                | VCon c => cases c <;> simp [evalBuiltinPassThrough]; exact hv1
-                | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
-                  simp [evalBuiltinPassThrough]
-              | vlam _ _ _ | vdelay _ _ _ | vconstr _ _ | vbuiltin _ _ _ =>
-                simp [evalBuiltinPassThrough]
-            -- ChooseData (length 6): no match
-            · simp [evalBuiltinPassThrough]
-            -- ChooseList (length 3): no match
-            · simp [evalBuiltinPassThrough]
-            -- MkCons: if either side returns some, all args are VCon → args equal → contradiction.
-            · generalize h1 : evalBuiltinPassThrough .MkCons _ = r1
-              generalize h2 : evalBuiltinPassThrough .MkCons _ = r2
-              cases r1 with
-              | some w1 =>
-                have ⟨⟨c0, hc0⟩, ⟨c1, hc1⟩⟩ := evalBPT_MkCons_some h1
-                subst hc0; subst hc1
-                exact absurd (listValueRelV_vcon_eq (.cons hv1 (.cons hv2 .nil))
-                  (fun v hm => by
-                    simp [List.mem_cons] at hm
-                    rcases hm with rfl | rfl
-                    · exact ⟨c0, rfl⟩
-                    · exact ⟨c1, rfl⟩)) h_eq
-              | none => cases r2 with
-                | some w2 =>
-                  have ⟨⟨c0, hc0⟩, ⟨c1, hc1⟩⟩ := evalBPT_MkCons_some h2
-                  subst hc0; subst hc1
-                  -- args2 all VCon; show args1 also all VCon via ValueRelV
-                  have h1vcon := valueRelV_vcon_right hv1 rfl
-                  have h2vcon := valueRelV_vcon_right hv2 rfl
-                  subst h1vcon; subst h2vcon
-                  exact absurd rfl h_eq
-                | none => trivial
-          | cons hv3 hr3 => cases hr3 with
-            | nil => -- length 3: IfThenElse [elseV, thenV, VCon (Bool cond)],
-                     --           ChooseList [consCase, nilCase, VCon (ConstDataList/ConstList l)]
-              rcases hb with rfl | rfl | rfl | rfl | rfl | rfl
-              -- IfThenElse: condition at pos 2
-              · cases hv3 with
-                | vcon =>
-                  cases ‹Const› <;> simp [evalBuiltinPassThrough]
-                  rename_i cond; cases cond <;> simp [evalBuiltinPassThrough]
-                  · exact hv1
-                  · exact hv2
-                | refl =>
-                  rename_i v_cond
-                  cases v_cond with
-                  | VCon c =>
-                    cases c <;> simp [evalBuiltinPassThrough]
-                    rename_i cond; cases cond <;> simp [evalBuiltinPassThrough]
-                    · exact hv1
-                    · exact hv2
-                  | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
-                    simp [evalBuiltinPassThrough]
-                | vlam _ _ _ | vdelay _ _ _ | vconstr _ _ | vbuiltin _ _ _ =>
-                  simp [evalBuiltinPassThrough]
-              -- ChooseUnit (length 2): no match
-              · simp [evalBuiltinPassThrough]
-              -- Trace (length 2): no match
-              · simp [evalBuiltinPassThrough]
-              -- ChooseData (length 6): no match
-              · simp [evalBuiltinPassThrough]
-              -- ChooseList: condition at pos 2
-              · cases hv3 with
-                | vcon =>
-                  cases ‹Const› <;> simp [evalBuiltinPassThrough]
-                  · rename_i l; cases h : l.isEmpty <;> simp [evalBuiltinPassThrough, h]
-                    · exact hv1
-                    · exact hv2
-                  · rename_i l; cases h : l.isEmpty <;> simp [evalBuiltinPassThrough, h]
-                    · exact hv1
-                    · exact hv2
-                | refl =>
-                  rename_i v_cond
-                  cases v_cond with
-                  | VCon c =>
-                    cases c <;> simp [evalBuiltinPassThrough]
-                    · rename_i l; cases h : l.isEmpty <;> simp [evalBuiltinPassThrough, h]
-                      · exact hv1
-                      · exact hv2
-                    · rename_i l; cases h : l.isEmpty <;> simp [evalBuiltinPassThrough, h]
-                      · exact hv1
-                      · exact hv2
-                  | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
-                    simp [evalBuiltinPassThrough]
-                | vlam _ _ _ | vdelay _ _ _ | vconstr _ _ | vbuiltin _ _ _ =>
-                  simp [evalBuiltinPassThrough]
-              -- MkCons (length 2): no match
-              · simp [evalBuiltinPassThrough]
-            | cons hv4 hr4 => cases hr4 with
-              | nil => -- length 4: no pass-through pattern
-                rcases hb with rfl | rfl | rfl | rfl | rfl | rfl <;> simp [evalBuiltinPassThrough]
-              | cons hv5 hr5 => cases hr5 with
-                | nil => -- length 5: no pass-through pattern
-                  rcases hb with rfl | rfl | rfl | rfl | rfl | rfl <;> simp [evalBuiltinPassThrough]
-                | cons hv6 hr6 => cases hr6 with
-                  | nil => -- length 6: ChooseData
-                    rcases hb with rfl | rfl | rfl | rfl | rfl | rfl
-                    -- IfThenElse (length 3): no match
-                    · simp [evalBuiltinPassThrough]
-                    -- ChooseUnit (length 2): no match
-                    · simp [evalBuiltinPassThrough]
-                    -- Trace (length 2): no match
-                    · simp [evalBuiltinPassThrough]
-                    -- ChooseData: condition at pos 5
-                    · cases hv6 with
-                      | vcon =>
-                        cases ‹Const› <;> simp [evalBuiltinPassThrough]
-                        -- Data case: returns based on Data variant
-                        rename_i d; cases d <;> simp [evalBuiltinPassThrough]
-                        · exact hv5
-                        · exact hv4
-                        · exact hv3
-                        · exact hv2
-                        · exact hv1
-                      | refl =>
-                        rename_i v_cond
-                        cases v_cond with
-                        | VCon c =>
-                          cases c <;> simp [evalBuiltinPassThrough]
-                          rename_i d; cases d <;> simp [evalBuiltinPassThrough]
-                          · exact hv5
-                          · exact hv4
-                          · exact hv3
-                          · exact hv2
-                          · exact hv1
-                        | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
-                          simp [evalBuiltinPassThrough]
-                      | vlam _ _ _ | vdelay _ _ _ | vconstr _ _ | vbuiltin _ _ _ =>
-                        simp [evalBuiltinPassThrough]
-                    -- ChooseList (length 3): no match
-                    · simp [evalBuiltinPassThrough]
-                    -- MkCons (length 2): no match
-                    · simp [evalBuiltinPassThrough]
-                  | cons _ _ => -- length 7+: no pass-through pattern
-                    rcases hb with rfl | rfl | rfl | rfl | rfl | rfl <;> simp [evalBuiltinPassThrough]
-    · -- b is not a pass-through builtin: both sides return none
-      have hb_not : b ≠ .IfThenElse ∧ b ≠ .ChooseUnit ∧ b ≠ .Trace ∧
-                     b ≠ .ChooseData ∧ b ≠ .ChooseList ∧ b ≠ .MkCons :=
-        ⟨fun h => hb (h ▸ .inl rfl), fun h => hb (h ▸ .inr (.inl rfl)),
-         fun h => hb (h ▸ .inr (.inr (.inl rfl))),
-         fun h => hb (h ▸ .inr (.inr (.inr (.inl rfl)))),
-         fun h => hb (h ▸ .inr (.inr (.inr (.inr (.inl rfl))))),
-         fun h => hb (h ▸ .inr (.inr (.inr (.inr (.inr rfl)))))⟩
-      rw [evalBuiltinPassThrough_none_of_not_passthrough b args₁ hb_not,
-          evalBuiltinPassThrough_none_of_not_passthrough b args₂ hb_not]; trivial
 
 /-- ListValueRelV implies extractConsts agrees on both sides.
 If both succeed, the constant lists are identical. If one fails, both fail. -/
@@ -858,6 +648,36 @@ theorem bisim_reaches_error {s₁ s₂ : State}
   cases s2f with
   | error => exact ⟨n, h_eq⟩
   | halt _ => cases hr
+  | compute _ _ _ => cases hr
+  | ret _ _ => cases hr
+
+/-- **Halting propagation (forward)**: if `StateRel s₁ s₂` and `s₁` halts,
+    then `s₂` halts. Same technique as `bisim_reaches_error`. -/
+theorem bisim_halts {s₁ s₂ : State}
+    (hrel : StateRel s₁ s₂)
+    (h₁ : Halts s₁) : Halts s₂ := by
+  obtain ⟨v₁, n, hn⟩ := h₁
+  have hr := steps_preserves n hrel
+  rw [hn] at hr
+  generalize h_eq : steps n s₂ = s2f at hr
+  cases s2f with
+  | halt v₂ => exact ⟨v₂, n, h_eq⟩
+  | error => cases hr
+  | compute _ _ _ => cases hr
+  | ret _ _ => cases hr
+
+/-- **Halting propagation (reverse)**: if `StateRel s₁ s₂` and `s₂` halts,
+    then `s₁` halts. -/
+theorem bisim_halts_rev {s₁ s₂ : State}
+    (hrel : StateRel s₁ s₂)
+    (h₂ : Halts s₂) : Halts s₁ := by
+  obtain ⟨v₂, n, hn⟩ := h₂
+  have hr := steps_preserves n hrel
+  rw [hn] at hr
+  generalize h_eq : steps n s₁ = s1f at hr
+  cases s1f with
+  | halt v₁ => exact ⟨v₁, n, h_eq⟩
+  | error => cases hr
   | compute _ _ _ => cases hr
   | ret _ _ => cases hr
 
