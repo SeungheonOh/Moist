@@ -39,6 +39,9 @@ def steps : Nat → State → State
 def Reaches (s s' : State) : Prop :=
   ∃ n : Nat, steps n s = s'
 
+/-- A state halts when it reaches some `halt v`. -/
+def Halts (s : State) : Prop := ∃ v : CekValue, Reaches s (.halt v)
+
 /-! ## Determinism
 
 The CEK machine is deterministic: `step` is a pure function, terminal
@@ -138,13 +141,17 @@ mutual
     | 0, _, _ => True
     | _ + 1, .VCon c1, .VCon c2 => c1 = c2
     | k + 1, .VLam body1 env1, .VLam body2 env2 =>
-      ∀ (arg : CekValue) (v1 v2 : CekValue),
-        Reaches (.compute [] (env1.extend arg) body1) (.halt v1) →
-        Reaches (.compute [] (env2.extend arg) body2) (.halt v2) →
-        ValueEq k v1 v2
+      ∀ (arg : CekValue),
+        (Halts (.compute [] (env1.extend arg) body1) ↔
+         Halts (.compute [] (env2.extend arg) body2)) ∧
+        ∀ (v1 v2 : CekValue),
+          Reaches (.compute [] (env1.extend arg) body1) (.halt v1) →
+          Reaches (.compute [] (env2.extend arg) body2) (.halt v2) →
+          ValueEq k v1 v2
     | k + 1, .VConstr tag1 fields1, .VConstr tag2 fields2 =>
       tag1 = tag2 ∧ ListValueEq k fields1 fields2
     | k + 1, .VDelay body1 env1, .VDelay body2 env2 =>
+      (Halts (.compute [] env1 body1) ↔ Halts (.compute [] env2 body2)) ∧
       ∀ (v1 v2 : CekValue),
         Reaches (.compute [] env1 body1) (.halt v1) →
         Reaches (.compute [] env2 body2) (.halt v2) →
@@ -187,6 +194,7 @@ def BehEqClosed (m1 m2 : Expr) : Prop :=
   match lowerTotal [] m1, lowerTotal [] m2 with
   | some t1, some t2 =>
     (Reaches (.compute [] .nil t1) .error ↔ Reaches (.compute [] .nil t2) .error) ∧
+    (Halts (.compute [] .nil t1) ↔ Halts (.compute [] .nil t2)) ∧
     ∀ (k : Nat) (v1 v2 : CekValue),
       Reaches (.compute [] .nil t1) (.halt v1) →
       Reaches (.compute [] .nil t2) (.halt v2) →
@@ -210,6 +218,7 @@ def BehEq (m1 m2 : Expr) : Prop :=
   match lowerTotal env m1, lowerTotal env m2 with
   | some t1, some t2 =>
     (∀ ρ : CekEnv, Reaches (.compute [] ρ t1) .error ↔ Reaches (.compute [] ρ t2) .error) ∧
+    (∀ ρ : CekEnv, Halts (.compute [] ρ t1) ↔ Halts (.compute [] ρ t2)) ∧
     ∀ (k : Nat) (ρ : CekEnv) (v1 v2 : CekValue),
       Reaches (.compute [] ρ t1) (.halt v1) →
       Reaches (.compute [] ρ t2) (.halt v2) →
@@ -217,6 +226,13 @@ def BehEq (m1 m2 : Expr) : Prop :=
   | _, _ => True
 
 scoped infix:50 " ≋ " => BehEq
+
+/-- **Refinement**: `m2` refines `m1` when `m2` compiles wherever `m1` does,
+    and they are behaviorally equivalent. This is the appropriate notion for
+    optimizations that may remove free variables (like dead-let elimination). -/
+def Refines (m1 m2 : Expr) : Prop :=
+  (∀ env, (lowerTotal env m1).isSome → (lowerTotal env m2).isSome) ∧
+  BehEq m1 m2
 
 /-! ## Executable observation (for conformance testing only)
 

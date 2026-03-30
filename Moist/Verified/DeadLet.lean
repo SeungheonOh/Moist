@@ -15,7 +15,7 @@ open Moist.MIR
 open Moist.Verified.Semantics
 open Moist.Verified
 open Moist.Verified.StepLift (beta_reaches beta_reaches_error beta_apply_from_inner)
-open Moist.Verified.Bisim (bisim_reaches_error steps_preserves)
+open Moist.Verified.Bisim (bisim_reaches_error bisim_halts bisim_halts_rev steps_preserves)
 open Moist.Verified (renameTerm liftRename renameTerm_id)
 
 /-! # Dead Let Elimination -- Semantic Correctness
@@ -142,11 +142,11 @@ mutual
     | 0, _ => by simp [ValueEq]
     | _ + 1, .VCon _ => by simp [ValueEq]
     | k + 1, .VLam _ _ => by
-      simp only [ValueEq]; intro arg v₁ v₂ h₁ h₂
-      exact reaches_unique h₁ h₂ ▸ valueEq_refl k v₁
+      unfold ValueEq; intro arg; exact ⟨Iff.rfl, fun v₁ v₂ h₁ h₂ =>
+        reaches_unique h₁ h₂ ▸ valueEq_refl k v₁⟩
     | k + 1, .VDelay _ _ => by
-      simp only [ValueEq]; intro v₁ v₂ h₁ h₂
-      exact reaches_unique h₁ h₂ ▸ valueEq_refl k v₁
+      unfold ValueEq; exact ⟨Iff.rfl, fun v₁ v₂ h₁ h₂ =>
+        reaches_unique h₁ h₂ ▸ valueEq_refl k v₁⟩
     | _ + 1, .VConstr _ fields => by
       unfold ValueEq; exact ⟨rfl, listValueEq_refl _ fields⟩
     | k + 1, .VBuiltin b args ea => by
@@ -158,11 +158,12 @@ mutual
     | 0, _, _, _ => by simp [ValueEq]
     | _ + 1, .VCon _, .VCon _, h => by simp only [ValueEq] at h ⊢; exact h.symm
     | k + 1, .VLam _ _, .VLam _ _, h => by
-      simp only [ValueEq] at h ⊢; intro arg v₁ v₂ h₁ h₂
-      exact valueEq_symm k _ _ (h arg v₂ v₁ h₂ h₁)
+      unfold ValueEq at h ⊢; intro arg
+      have ⟨hh, hv⟩ := h arg
+      exact ⟨hh.symm, fun v₁ v₂ h₁ h₂ => valueEq_symm k _ _ (hv v₂ v₁ h₂ h₁)⟩
     | k + 1, .VDelay _ _, .VDelay _ _, h => by
-      simp only [ValueEq] at h ⊢; intro v₁ v₂ h₁ h₂
-      exact valueEq_symm k _ _ (h v₂ v₁ h₂ h₁)
+      unfold ValueEq at h ⊢
+      exact ⟨h.1.symm, fun v₁ v₂ h₁ h₂ => valueEq_symm k _ _ (h.2 v₂ v₁ h₂ h₁)⟩
     | _ + 1, .VConstr _ _, .VConstr _ _, h => by
       unfold ValueEq at h ⊢; exact ⟨h.1.symm, listValueEq_symm _ _ _ h.2⟩
     | k + 1, .VBuiltin _ _ _, .VBuiltin _ _ _, h => by
@@ -195,6 +196,67 @@ mutual
       exact ⟨valueEq_symm k _ _ h.1, listValueEq_symm k _ _ h.2⟩
     | _, [], _ :: _, h => by exact absurd h (by simp [ListValueEq])
     | _, _ :: _, [], h => by exact absurd h (by simp [ListValueEq])
+  theorem valueEq_trans : ∀ (k : Nat) (v₁ v₂ v₃ : CekValue),
+      ValueEq k v₁ v₂ → ValueEq k v₂ v₃ → ValueEq k v₁ v₃
+    | 0, _, _, _, _, _ => by simp [ValueEq]
+    -- Matching constructors
+    | _ + 1, .VCon _, .VCon _, .VCon _, h12, h23 => by
+      simp only [ValueEq] at h12 h23 ⊢; exact h12.trans h23
+    | k + 1, .VLam _ _, .VLam _ _, .VLam _ _, h12, h23 => by
+      unfold ValueEq at h12 h23 ⊢; intro arg
+      have ⟨hh12, hv12⟩ := h12 arg; have ⟨hh23, hv23⟩ := h23 arg
+      refine ⟨hh12.trans hh23, fun w₁ w₃ hw₁ hw₃ => ?_⟩
+      obtain ⟨_, hw₂⟩ := hh12.mp ⟨_, hw₁⟩
+      exact valueEq_trans k _ _ _ (hv12 _ _ hw₁ hw₂) (hv23 _ _ hw₂ hw₃)
+    | k + 1, .VDelay _ _, .VDelay _ _, .VDelay _ _, h12, h23 => by
+      unfold ValueEq at h12 h23 ⊢
+      refine ⟨h12.1.trans h23.1, fun w₁ w₃ hw₁ hw₃ => ?_⟩
+      obtain ⟨_, hw₂⟩ := h12.1.mp ⟨_, hw₁⟩
+      exact valueEq_trans k _ _ _ (h12.2 _ _ hw₁ hw₂) (h23.2 _ _ hw₂ hw₃)
+    | _ + 1, .VConstr _ _, .VConstr _ _, .VConstr _ _, h12, h23 => by
+      unfold ValueEq at h12 h23 ⊢
+      exact ⟨h12.1.trans h23.1, listValueEq_trans _ _ _ _ h12.2 h23.2⟩
+    | k + 1, .VBuiltin _ _ _, .VBuiltin _ _ _, .VBuiltin _ _ _, h12, h23 => by
+      unfold ValueEq at h12 h23 ⊢
+      exact ⟨h12.1.trans h23.1, listValueEq_trans k _ _ _ h12.2.1 h23.2.1, h12.2.2.trans h23.2.2⟩
+    -- h12 is False (v₁ and v₂ have different constructors)
+    | _ + 1, .VCon _, .VLam _ _, _, h, _ | _ + 1, .VCon _, .VDelay _ _, _, h, _
+    | _ + 1, .VCon _, .VConstr _ _, _, h, _ | _ + 1, .VCon _, .VBuiltin _ _ _, _, h, _
+    | _ + 1, .VLam _ _, .VCon _, _, h, _ | _ + 1, .VLam _ _, .VDelay _ _, _, h, _
+    | _ + 1, .VLam _ _, .VConstr _ _, _, h, _ | _ + 1, .VLam _ _, .VBuiltin _ _ _, _, h, _
+    | _ + 1, .VDelay _ _, .VCon _, _, h, _ | _ + 1, .VDelay _ _, .VLam _ _, _, h, _
+    | _ + 1, .VDelay _ _, .VConstr _ _, _, h, _ | _ + 1, .VDelay _ _, .VBuiltin _ _ _, _, h, _
+    | _ + 1, .VConstr _ _, .VCon _, _, h, _ | _ + 1, .VConstr _ _, .VLam _ _, _, h, _
+    | _ + 1, .VConstr _ _, .VDelay _ _, _, h, _ | _ + 1, .VConstr _ _, .VBuiltin _ _ _, _, h, _
+    | _ + 1, .VBuiltin _ _ _, .VCon _, _, h, _ | _ + 1, .VBuiltin _ _ _, .VLam _ _, _, h, _
+    | _ + 1, .VBuiltin _ _ _, .VDelay _ _, _, h, _
+    | _ + 1, .VBuiltin _ _ _, .VConstr _ _, _, h, _ => by simp [ValueEq] at h
+    -- h23 is False (v₂ and v₃ have different constructors, v₁ matches v₂)
+    | _ + 1, .VCon _, .VCon _, .VLam _ _, _, h | _ + 1, .VCon _, .VCon _, .VDelay _ _, _, h
+    | _ + 1, .VCon _, .VCon _, .VConstr _ _, _, h | _ + 1, .VCon _, .VCon _, .VBuiltin _ _ _, _, h
+    | _ + 1, .VLam _ _, .VLam _ _, .VCon _, _, h | _ + 1, .VLam _ _, .VLam _ _, .VDelay _ _, _, h
+    | _ + 1, .VLam _ _, .VLam _ _, .VConstr _ _, _, h
+    | _ + 1, .VLam _ _, .VLam _ _, .VBuiltin _ _ _, _, h
+    | _ + 1, .VDelay _ _, .VDelay _ _, .VCon _, _, h | _ + 1, .VDelay _ _, .VDelay _ _, .VLam _ _, _, h
+    | _ + 1, .VDelay _ _, .VDelay _ _, .VConstr _ _, _, h
+    | _ + 1, .VDelay _ _, .VDelay _ _, .VBuiltin _ _ _, _, h
+    | _ + 1, .VConstr _ _, .VConstr _ _, .VCon _, _, h
+    | _ + 1, .VConstr _ _, .VConstr _ _, .VLam _ _, _, h
+    | _ + 1, .VConstr _ _, .VConstr _ _, .VDelay _ _, _, h
+    | _ + 1, .VConstr _ _, .VConstr _ _, .VBuiltin _ _ _, _, h
+    | _ + 1, .VBuiltin _ _ _, .VBuiltin _ _ _, .VCon _, _, h
+    | _ + 1, .VBuiltin _ _ _, .VBuiltin _ _ _, .VLam _ _, _, h
+    | _ + 1, .VBuiltin _ _ _, .VBuiltin _ _ _, .VDelay _ _, _, h
+    | _ + 1, .VBuiltin _ _ _, .VBuiltin _ _ _, .VConstr _ _, _, h => by simp [ValueEq] at h
+  theorem listValueEq_trans : ∀ (k : Nat) (vs₁ vs₂ vs₃ : List CekValue),
+      ListValueEq k vs₁ vs₂ → ListValueEq k vs₂ vs₃ → ListValueEq k vs₁ vs₃
+    | _, [], [], [], _, _ => by simp [ListValueEq]
+    | k, _ :: _, _ :: _, _ :: _, h12, h23 => by
+      simp only [ListValueEq] at h12 h23 ⊢
+      exact ⟨valueEq_trans k _ _ _ h12.1 h23.1, listValueEq_trans k _ _ _ h12.2 h23.2⟩
+    | _, [], _ :: _, _, h, _ | _, _ :: _, [], _, h, _ => by simp [ListValueEq] at h
+    | _, [], [], _ :: _, _, h => by simp [ListValueEq] at h
+    | _, _ :: _, _ :: _, [], _, h => by simp [ListValueEq] at h
 end
 
 /-! ## MIRDeadLetCond -/
@@ -291,11 +353,16 @@ private theorem relV_implies_valueEq_succ (k : Nat)
   cases hr with
   | vcon => simp [ValueEq]
   | vlam σ d hcl henv =>
-    simp only [ValueEq]; intro arg w₁ w₂ hw₁ hw₂
-    exact ihA (d + 1) _ _ _ w₁ w₂ hcl (liftRename σ) (envRelV_extend σ d _ _ arg arg henv .refl) hw₁ hw₂
+    unfold ValueEq; intro arg
+    have hext := envRelV_extend σ d _ _ arg arg henv .refl
+    have hsr := StateRel.compute .nil (liftRename σ) (d + 1) hext hcl
+    exact ⟨⟨bisim_halts hsr, bisim_halts_rev hsr⟩,
+           fun w₁ w₂ hw₁ hw₂ => ihA (d + 1) _ _ _ w₁ w₂ hcl (liftRename σ) hext hw₁ hw₂⟩
   | vdelay σ d hcl henv =>
-    simp only [ValueEq]; intro w₁ w₂ hw₁ hw₂
-    exact ihA d _ _ _ w₁ w₂ hcl σ henv hw₁ hw₂
+    unfold ValueEq
+    have hsr := StateRel.compute .nil σ d henv hcl
+    exact ⟨⟨bisim_halts hsr, bisim_halts_rev hsr⟩,
+           fun w₁ w₂ hw₁ hw₂ => ihA d _ _ _ w₁ w₂ hcl σ henv hw₁ hw₂⟩
   | vconstr htag hfs => subst htag; unfold ValueEq; exact ⟨rfl, ihC _ _ hfs⟩
   | vbuiltin hb hargs hea => subst hb; subst hea; unfold ValueEq; exact ⟨rfl, ihC _ _ hargs, rfl⟩
   | refl => exact valueEq_refl _ _
@@ -362,18 +429,22 @@ private theorem closed_eval_valueEq_succ (k : Nat)
       cases N with | zero => simp [steps] at hN | succ => simp [steps, step, steps_error] at hN
   | .Lam m body =>
     have := reaches_unique h₁ (⟨2, rfl⟩ : Reaches _ (.halt _)); subst this
-    -- renameTerm σ (.Lam m body) = .Lam m (renameTerm (liftRename σ) body)
     simp only [renameTerm] at h₂
     have := reaches_unique h₂ (⟨2, rfl⟩ : Reaches _ (.halt _)); subst this
-    simp only [ValueEq]; intro arg w₁ w₂ hw₁ hw₂
-    exact ihA (d + 1) body _ _ w₁ w₂
-      (closedAt_lam hcl) (liftRename σ) (envRelV_extend σ d env₁ env₂ arg arg hrel .refl) hw₁ hw₂
+    unfold ValueEq; intro arg
+    have hext := envRelV_extend σ d env₁ env₂ arg arg hrel .refl
+    have hsr := StateRel.compute .nil (liftRename σ) (d + 1) hext (closedAt_lam hcl)
+    exact ⟨⟨bisim_halts hsr, bisim_halts_rev hsr⟩,
+           fun w₁ w₂ hw₁ hw₂ => ihA (d + 1) body _ _ w₁ w₂
+             (closedAt_lam hcl) (liftRename σ) hext hw₁ hw₂⟩
   | .Delay body =>
     have := reaches_unique h₁ (⟨2, rfl⟩ : Reaches _ (.halt _)); subst this
     simp only [renameTerm] at h₂
     have := reaches_unique h₂ (⟨2, rfl⟩ : Reaches _ (.halt _)); subst this
-    simp only [ValueEq]; intro w₁ w₂ hw₁ hw₂
-    exact ihA d body env₁ env₂ w₁ w₂ (closedAt_delay hcl) σ hrel hw₁ hw₂
+    unfold ValueEq
+    have hsr := StateRel.compute .nil σ d hrel (closedAt_delay hcl)
+    exact ⟨⟨bisim_halts hsr, bisim_halts_rev hsr⟩,
+           fun w₁ w₂ hw₁ hw₂ => ihA d body env₁ env₂ w₁ w₂ (closedAt_delay hcl) σ hrel hw₁ hw₂⟩
   | .Apply _ _ | .Force _ | .Constr _ _ | .Case _ _ =>
     exact relV_to_eq v₁ v₂ (Bisim.bisim_reaches (.compute .nil σ d hrel hcl) h₁ h₂)
 
@@ -481,6 +552,17 @@ private theorem closedAt_zero_error_env_irrel (t : Term) (env₁ env₂ : CekEnv
   have h := Bisim.bisim_reaches_error (.compute .nil id 0 hrel hclosed) herr
   simp [renameTerm_id] at h; exact h
 
+/-- For `closedAt 0` terms, halting is environment-independent. -/
+private theorem closedAt_zero_halts_env_irrel (t : Term) (env₁ env₂ : CekEnv)
+    (hclosed : closedAt 0 t = true)
+    (h : Halts (.compute [] env₁ t)) : Halts (.compute [] env₂ t) := by
+  have hrel : EnvRelV id 0 env₁ env₂ :=
+    .mk (fun n hn hle => absurd (Nat.lt_of_lt_of_le hn hle) (Nat.lt_irrefl 0))
+        (fun n hn hle => absurd (Nat.lt_of_lt_of_le hn hle) (Nat.lt_irrefl 0))
+        rfl
+  have h' := bisim_halts (.compute .nil id 0 hrel hclosed) h
+  simp [renameTerm_id] at h'; exact h'
+
 /-- Reverse direction of `bisim_reaches_error`: if the *second* state
     reaches `error`, so does the *first*.
 
@@ -533,27 +615,39 @@ theorem dead_let_sound_closed (x : VarId) (e body : Expr)
     rw [lowerTotal.eq_11, lowerTotalLet.eq_2, lowerTotalLet.eq_1,
         lowerTotal_closed_env_irrel x body hsc.unused]
   cases hb : lowerTotal [] body with
-  | none => simp [hb, hlower_let]
+  | none =>
+    -- body doesn't lower → second component is none → `| _, _ => True`
+    split <;> trivial
   | some body' =>
     cases he : lowerTotal [] e with
-    | none => simp [hlower_let, he, hb]
+    | none =>
+      have hlhs : lowerTotal [] (.Let [(x, e, false)] body) = none := by
+        rw [hlower_let]; simp [he]
+      rw [hlhs]; split <;> trivial
     | some e' =>
       simp [hlower_let, he, hb]
       have hclosed : closedAt 0 body' = true := by
         have := lowerTotal_closedAt [] body body' hb; simp at this; exact this
-      constructor
+      refine ⟨?_, ?_, ?_⟩
       -- Error equivalence: Apply (Lam 0 body') e' errors ↔ body' errors
       · constructor
         · intro herr
-          -- LHS errors → by beta_reaches_error: either e' errors or body in ext env errors
           rcases beta_reaches_error .nil body' e' 0 herr with he_err | ⟨ve, _, hbody_err⟩
           · exact absurd he_err (atomicPure_never_error e e' .nil hsc.safe (mir_env := []) he)
           · exact closedAt_zero_error_env_irrel body' (.cons ve .nil) .nil hclosed hbody_err
         · intro herr
-          -- RHS errors → propagate to extended env, compose with e' halting
           obtain ⟨ve, hve⟩ := atomicPure_halts e e' .nil hsc.safe (mir_env := []) he
           have hbody_err := closedAt_zero_error_env_irrel body' .nil (.cons ve .nil) hclosed herr
           exact beta_apply_from_inner .nil body' e' 0 ve .error hve hbody_err
+      -- Halts equivalence
+      · constructor
+        · intro ⟨v, hv⟩
+          obtain ⟨ve, _, hbody_reach⟩ := beta_reaches .nil body' e' 0 v hv
+          exact closedAt_zero_halts_env_irrel body' (.cons ve .nil) .nil hclosed ⟨v, hbody_reach⟩
+        · intro ⟨v, hv⟩
+          obtain ⟨ve, hve⟩ := atomicPure_halts e e' .nil hsc.safe (mir_env := []) he
+          obtain ⟨v', hv'⟩ := closedAt_zero_halts_env_irrel body' .nil (.cons ve .nil) hclosed ⟨v, hv⟩
+          exact ⟨v', beta_apply_from_inner .nil body' e' 0 ve (.halt v') hve hv'⟩
       -- Value equivalence
       · intro k v₁ v₂ hv₁ hv₂
         obtain ⟨ve, _, hbody_reach⟩ := beta_reaches .nil body' e' 0 v₁ hv₁
@@ -602,7 +696,7 @@ private theorem envRelV_shift_into_extend (d : Nat) (ρ : CekEnv) (ve : CekValue
     for all MIR environments. -/
 theorem dead_let_sound (x : VarId) (e body : Expr)
     (hsc : MIRDeadLetCond x e body) :
-    Moist.Verified.Semantics.BehEq (.Let [(x, e, false)] body) body := by
+    .Let [(x, e, false)] body ≋ body := by
   unfold BehEq; intro env
   -- Lower the let: lowerTotal env (Let [(x,e,false)] body) = Apply (Lam 0 body_x) e'
   -- where body_x = lowerTotal (x :: env) body
@@ -613,38 +707,48 @@ theorem dead_let_sound (x : VarId) (e body : Expr)
     rw [lowerTotal.eq_11, lowerTotalLet.eq_2, lowerTotalLet.eq_1]
   cases hb : lowerTotal env body with
   | none =>
-    -- body doesn't lower → second component of `match` is `none` → BehEq is True
-    simp [hb, hlower_let]
+    -- body doesn't lower → second component is none → `| _, _ => True`
+    split <;> trivial
   | some body' =>
     -- body_x = renameTerm (shiftRename 1) body'
     have hbx := lowerTotal_prepend_unused env x body hsc.unused body' hb
     cases he : lowerTotal env e with
-    | none => simp [hlower_let, he, hb]
+    | none =>
+      -- e doesn't lower → let doesn't lower → `| _, _ => True`
+      have hlhs : lowerTotal env (.Let [(x, e, false)] body) = none := by
+        rw [hlower_let]; simp [he]
+      rw [hlhs]; split <;> trivial
     | some e' =>
       simp [hlower_let, he, hbx, hb]
       have hclosed : closedAt env.length body' = true := by
         have := lowerTotal_closedAt env body body' hb; simp at this; exact this
-      constructor
+      refine ⟨?_, ?_, ?_⟩
       -- Error equivalence
       · intro ρ; constructor
         · intro herr
-          -- LHS errors: Apply (Lam 0 (shift body')) e' in ρ errors
           rcases beta_reaches_error ρ (renameTerm (shiftRename 1) body') e' 0 herr with
             he_err | ⟨ve, _, hbody_err⟩
           · exact absurd he_err (atomicPure_never_error e e' ρ hsc.safe (mir_env := env) he)
-          · -- shifted body' errors in ρ.extend ve
-            -- Use reverse bisim to transfer: body' in ρ also errors
-            have hrel := envRelV_shift_into_extend env.length ρ ve
+          · have hrel := envRelV_shift_into_extend env.length ρ ve
             exact bisim_reaches_error_rev
               (.compute .nil (shiftRename 1) env.length hrel hclosed) hbody_err
         · intro herr
-          -- RHS errors: body' in ρ errors
-          -- Transfer to shifted body' in ρ.extend ve via forward bisim
           obtain ⟨ve, hve⟩ := atomicPure_halts e e' ρ hsc.safe (mir_env := env) he
           have hrel := envRelV_shift_into_extend env.length ρ ve
           have hbody_err := Bisim.bisim_reaches_error
             (.compute .nil (shiftRename 1) env.length hrel hclosed) herr
           exact beta_apply_from_inner ρ (renameTerm (shiftRename 1) body') e' 0 ve .error hve hbody_err
+      -- Halts equivalence
+      · intro ρ; constructor
+        · intro ⟨v, hv⟩
+          obtain ⟨ve, _, hbody_reach⟩ := beta_reaches ρ (renameTerm (shiftRename 1) body') e' 0 v hv
+          have hrel := envRelV_shift_into_extend env.length ρ ve
+          exact bisim_halts_rev (.compute .nil (shiftRename 1) env.length hrel hclosed) ⟨v, hbody_reach⟩
+        · intro ⟨v, hv⟩
+          obtain ⟨ve, hve⟩ := atomicPure_halts e e' ρ hsc.safe (mir_env := env) he
+          have hrel := envRelV_shift_into_extend env.length ρ ve
+          obtain ⟨v', hv'⟩ := bisim_halts (.compute .nil (shiftRename 1) env.length hrel hclosed) ⟨v, hv⟩
+          exact ⟨v', beta_apply_from_inner ρ (renameTerm (shiftRename 1) body') e' 0 ve (.halt v') hve hv'⟩
       -- Value equivalence
       · intro k ρ v₁ v₂ hv₁ hv₂
         obtain ⟨ve, _, hbody_reach⟩ := beta_reaches ρ (renameTerm (shiftRename 1) body') e' 0 v₁ hv₁
@@ -654,5 +758,80 @@ theorem dead_let_sound (x : VarId) (e body : Expr)
         have hrel := envRelV_shift_into_extend env.length ρ ve
         exact valueEq_symm k _ _ (closedAt_envRelV_valueEq k env.length (shiftRename 1) body'
           ρ (ρ.extend ve) hclosed hrel v₂ v₁ hv₂ hbody_reach)
+
+/-! ## Transitivity of behavioral equivalence -/
+
+/-- Extract the content of `BehEqClosed` when both sides lower successfully. -/
+private theorem behEqClosed_extract {m1 m2 : Expr} {t1 t2 : Term}
+    (h1 : lowerTotal [] m1 = some t1) (h2 : lowerTotal [] m2 = some t2)
+    (h : BehEqClosed m1 m2) :
+    (Reaches (.compute [] .nil t1) .error ↔ Reaches (.compute [] .nil t2) .error) ∧
+    (Halts (.compute [] .nil t1) ↔ Halts (.compute [] .nil t2)) ∧
+    ∀ (k : Nat) (v1 v2 : CekValue),
+      Reaches (.compute [] .nil t1) (.halt v1) →
+      Reaches (.compute [] .nil t2) (.halt v2) →
+      ValueEq k v1 v2 := by
+  unfold BehEqClosed at h; rw [h1, h2] at h; exact h
+
+/-- **Transitivity of closed behavioral equivalence.** -/
+theorem behEqClosed_trans {a b c : Expr}
+    {tb : Term} (hb : lowerTotal [] b = some tb)
+    (h12 : a ≋ᶜ b) (h23 : b ≋ᶜ c) : a ≋ᶜ c := by
+  unfold BehEqClosed
+  cases ha : lowerTotal [] a with
+  | none => split <;> trivial
+  | some ta =>
+    cases hc : lowerTotal [] c with
+    | none => split <;> trivial
+    | some tc =>
+      simp only [ha, hc]
+      have ⟨herr12, hh12, hv12⟩ := behEqClosed_extract ha hb h12
+      have ⟨herr23, hh23, hv23⟩ := behEqClosed_extract hb (show lowerTotal [] c = some tc from hc) h23
+      refine ⟨herr12.trans herr23, hh12.trans hh23, ?_⟩
+      intro k v₁ v₃ hv₁ hv₃
+      obtain ⟨v₂, hv₂⟩ := hh12.mp ⟨v₁, hv₁⟩
+      exact valueEq_trans k v₁ v₂ v₃ (hv12 k v₁ v₂ hv₁ hv₂) (hv23 k v₂ v₃ hv₂ hv₃)
+
+/-- Extract the content of `BehEq` at a specific environment when both sides lower. -/
+private theorem behEq_extract {m1 m2 : Expr} {env : List MIR.VarId} {t1 t2 : Term}
+    (h1 : lowerTotal env m1 = some t1) (h2 : lowerTotal env m2 = some t2)
+    (h : BehEq m1 m2) :
+    (∀ ρ : CekEnv, Reaches (.compute [] ρ t1) .error ↔ Reaches (.compute [] ρ t2) .error) ∧
+    (∀ ρ : CekEnv, Halts (.compute [] ρ t1) ↔ Halts (.compute [] ρ t2)) ∧
+    ∀ (k : Nat) (ρ : CekEnv) (v1 v2 : CekValue),
+      Reaches (.compute [] ρ t1) (.halt v1) →
+      Reaches (.compute [] ρ t2) (.halt v2) →
+      ValueEq k v1 v2 := by
+  have := h env; rw [h1, h2] at this; exact this
+
+/-- **Transitivity of behavioral equivalence for open terms.**
+    Requires `b` to lower wherever `a` does, so the chain is informative. -/
+theorem behEq_trans {a b c : Expr}
+    (hlb : ∀ env, (lowerTotal env a).isSome → (lowerTotal env b).isSome)
+    (h12 : a ≋ b) (h23 : b ≋ c) : a ≋ c := by
+  unfold BehEq; intro env
+  cases ha : lowerTotal env a with
+  | none => split <;> trivial
+  | some ta =>
+    obtain ⟨tb, hb⟩ := Option.isSome_iff_exists.mp (hlb env (by simp [ha]))
+    cases hc : lowerTotal env c with
+    | none => split <;> trivial
+    | some tc =>
+      simp only [ha, hc]
+      have ⟨herr12, hh12, hv12⟩ := behEq_extract ha hb h12
+      have ⟨herr23, hh23, hv23⟩ := behEq_extract hb hc h23
+      refine ⟨fun ρ => (herr12 ρ).trans (herr23 ρ),
+             fun ρ => (hh12 ρ).trans (hh23 ρ), ?_⟩
+      intro k ρ v₁ v₃ hv₁ hv₃
+      obtain ⟨v₂, hv₂⟩ := (hh12 ρ).mp ⟨v₁, hv₁⟩
+      exact valueEq_trans k v₁ v₂ v₃ (hv12 k ρ v₁ v₂ hv₁ hv₂) (hv23 k ρ v₂ v₃ hv₂ hv₃)
+
+/-- **Unconditional transitivity of refinement.**
+    The compilation clause of `Refines a b` provides the lowering guarantee
+    that `behEq_trans` needs, so no extra hypothesis is required. -/
+theorem refines_trans {a b c : Expr}
+    (h12 : Refines a b) (h23 : Refines b c) : Refines a c :=
+  ⟨fun env ha => h23.1 env (h12.1 env ha),
+   behEq_trans h12.1 h12.2 h23.2⟩
 
 end Moist.Verified.DeadLet

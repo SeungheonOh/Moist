@@ -121,11 +121,15 @@ private theorem eval_lam_rhs :
 theorem dead_let_example : mirLhs ≋ᶜ mirRhs := by
   unfold BehEqClosed
   rw [lower_lhs, lower_rhs]
-  constructor
+  refine ⟨?_, ?_, ?_⟩
   · -- error ↔ error: both sides halt, so neither can error
     constructor
     · intro he; exact (reaches_halt_not_error eval_lam_lhs he).elim
     · intro he; exact (reaches_halt_not_error eval_lam_rhs he).elim
+  · -- halts ↔ halts
+    constructor
+    · intro _; exact ⟨_, eval_lam_rhs⟩
+    · intro _; exact ⟨_, eval_lam_lhs⟩
   · -- value equivalence
     intro k v1 v2 hv1 hv2
     have := reaches_unique hv1 eval_lam_lhs; subst this
@@ -133,13 +137,18 @@ theorem dead_let_example : mirLhs ≋ᶜ mirRhs := by
     cases k with
     | zero => unfold ValueEq; trivial
     | succ k =>
-      unfold ValueEq
-      intro arg w1 w2 hw1 hw2
-      have := reaches_unique hw1 ⟨15, lhsBody_halts arg⟩; subst this
-      have := reaches_unique hw2 ⟨2, rhsBody_halts arg⟩; subst this
-      cases k with
-      | zero => unfold ValueEq; trivial
-      | succ _ => unfold ValueEq; rfl
+      unfold ValueEq; intro arg; constructor
+      · -- Halts iff for the closure bodies
+        constructor
+        · intro _; exact ⟨_, 2, rhsBody_halts arg⟩
+        · intro _; exact ⟨_, 15, lhsBody_halts arg⟩
+      · -- value part
+        intro w1 w2 hw1 hw2
+        have := reaches_unique hw1 ⟨15, lhsBody_halts arg⟩; subst this
+        have := reaches_unique hw2 ⟨2, rhsBody_halts arg⟩; subst this
+        cases k with
+        | zero => unfold ValueEq; trivial
+        | succ _ => unfold ValueEq; rfl
 
 /-! ## Examples using `dead_let_sound_closed`
 
@@ -517,5 +526,59 @@ theorem dead_let_open_error :
     (.Let [(w, .Lam a (.Var a), false)] .Error) ≋ .Error :=
   dead_let_sound w (.Lam a (.Var a)) .Error
     ⟨by native_decide, by native_decide⟩
+
+/-! ## Transitivity examples
+
+Demonstrate `behEqClosed_trans` by chaining multiple dead-let eliminations.
+Each step removes one dead binding; the chain composes them into a single
+equivalence via transitivity. -/
+
+/-- Chained elimination:
+    `let foo = 1 in let z = 2 in \x -> 10` ≡ `\x -> 10`.
+
+    Step 1: remove `foo` (unused in `let z = 2 in \x -> 10`).
+    Step 2: remove `z` (unused in `\x -> 10`).
+    Composed via `behEqClosed_trans`. -/
+theorem dead_let_chain_two :
+    (.Let [(foo, intLit 1, false)]
+      (.Let [(z, intLit 2, false)] (.Lam x (intLit 10))))
+  ≋ᶜ (.Lam x (intLit 10)) := by
+  have step1 := dead_let_sound_closed foo (intLit 1)
+    (.Let [(z, intLit 2, false)] (.Lam x (intLit 10)))
+    ⟨by native_decide, by native_decide⟩
+  have step2 := dead_let_sound_closed z (intLit 2) (.Lam x (intLit 10))
+    ⟨by native_decide, by native_decide⟩
+  have hb : (lowerTotal [] (.Let [(z, intLit 2, false)] (.Lam x (intLit 10)))).isSome := by
+    native_decide
+  obtain ⟨tb, htb⟩ := Option.isSome_iff_exists.mp hb
+  exact behEqClosed_trans htb step1 step2
+
+/-- Three-step chain:
+    `let foo = 1 in let z = 2 in let w = \a -> a in addInteger 3 4` ≡ `addInteger 3 4`.
+
+    Removes three dead bindings one at a time, composed via two applications
+    of `behEqClosed_trans`. -/
+private def addBody : Expr := Expr.App (Expr.App (Expr.Builtin .AddInteger) (intLit 3)) (intLit 4)
+
+theorem dead_let_chain_three :
+    (Expr.Let [(foo, intLit 1, false)]
+      (Expr.Let [(z, intLit 2, false)]
+        (Expr.Let [(w, Expr.Lam a (Expr.Var a), false)] addBody)))
+  ≋ᶜ addBody := by
+  have step1 := dead_let_sound_closed foo (intLit 1)
+    (Expr.Let [(z, intLit 2, false)] (Expr.Let [(w, Expr.Lam a (Expr.Var a), false)] addBody))
+    ⟨by native_decide, by native_decide⟩
+  have step2 := dead_let_sound_closed z (intLit 2)
+    (Expr.Let [(w, Expr.Lam a (Expr.Var a), false)] addBody)
+    ⟨by native_decide, by native_decide⟩
+  have step3 := dead_let_sound_closed w (Expr.Lam a (Expr.Var a)) addBody
+    ⟨by native_decide, by native_decide⟩
+  have hb1 : (lowerTotal [] (Expr.Let [(z, intLit 2, false)]
+    (Expr.Let [(w, Expr.Lam a (Expr.Var a), false)] addBody))).isSome := by native_decide
+  obtain ⟨tb1, htb1⟩ := Option.isSome_iff_exists.mp hb1
+  have hb2 : (lowerTotal [] (Expr.Let [(w, Expr.Lam a (Expr.Var a), false)] addBody)).isSome := by
+    native_decide
+  obtain ⟨tb2, htb2⟩ := Option.isSome_iff_exists.mp hb2
+  exact behEqClosed_trans htb1 step1 (behEqClosed_trans htb2 step2 step3)
 
 end Moist.Verified.Example
