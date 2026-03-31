@@ -41,6 +41,10 @@ extern_lib liblean_shim (pkg : NPackage _) := do
   }
   return pure (pkg.staticLibDir / name)
 
+require PlutusCore from git "https://github.com/input-output-hk/sc-fvt" @ "staging" / "PlutusCore"
+require «Blaster» from git
+  "https://github.com/input-output-hk/Lean-blaster" @ "staging"
+
 @[default_target]
 lean_lib Moist where
   precompileModules := true
