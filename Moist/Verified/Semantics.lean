@@ -203,12 +203,46 @@ def BehEqClosed (m1 m2 : Expr) : Prop :=
 
 scoped infix:50 " ≋ᶜ " => BehEqClosed
 
+/-! ## Well-Sized Environments -/
+
+/-- A CEK environment is well-sized at depth `d` when every variable index
+    in `1..d` resolves to a value. This is the runtime counterpart of
+    `closedAt d t`: a `closedAt d` term evaluated in a `WellSizedEnv d`
+    environment will never fail a variable lookup. -/
+def WellSizedEnv (d : Nat) (ρ : CekEnv) : Prop :=
+  ∀ n, 0 < n → n ≤ d → ∃ v, ρ.lookup n = some v
+
+/-- The nil environment is well-sized at depth 0 (vacuously). -/
+theorem wellSizedEnv_nil : WellSizedEnv 0 .nil :=
+  fun _ hn hle => absurd (Nat.lt_of_lt_of_le hn hle) (Nat.lt_irrefl 0)
+
+/-- Extending a well-sized environment increases the depth by 1. -/
+theorem wellSizedEnv_extend {d : Nat} {ρ : CekEnv} (h : WellSizedEnv d ρ) (v : CekValue) :
+    WellSizedEnv (d + 1) (ρ.extend v) := by
+  intro n hn hle
+  match n with
+  | 1 => exact ⟨v, rfl⟩
+  | n + 2 =>
+    have ⟨w, hw⟩ := h (n + 1) (by omega) (by omega)
+    exact ⟨w, by simp [CekEnv.extend, CekEnv.lookup, hw]⟩
+
+/-- Well-sizedness is monotone: a larger environment is also well-sized
+    at any smaller depth. -/
+theorem wellSizedEnv_mono {d d' : Nat} {ρ : CekEnv} (h : WellSizedEnv d ρ) (hle : d' ≤ d) :
+    WellSizedEnv d' ρ :=
+  fun n hn hn' => h n hn (Nat.le_trans hn' hle)
+
 /-- **Behavioral equivalence of MIR expressions under all environments.**
 
     Two MIR expressions `m1` and `m2` are behaviorally equivalent when,
-    for every MIR lowering environment `env` and every CEK runtime
-    environment `ρ`, the lowered terms agree on error reachability and
-    produce `ValueEq k`-related results for every step index `k`.
+    for every MIR lowering environment `env` and every well-sized CEK
+    runtime environment `ρ`, the lowered terms agree on error reachability
+    and produce `ValueEq k`-related results for every step index `k`.
+
+    The `WellSizedEnv` guard restricts `ρ` to environments where every
+    in-scope variable resolves — matching the invariant maintained by
+    actual CEK execution. This enables proving correctness of
+    optimizations that eliminate value-form bindings (including `Var`).
 
     Quantifying over all `env` makes `BehEq` composable: an optimization
     proved correct at any nesting depth can be applied inside lambdas,
@@ -217,12 +251,13 @@ def BehEq (m1 m2 : Expr) : Prop :=
   ∀ (env : List MIR.VarId),
   match lowerTotal env m1, lowerTotal env m2 with
   | some t1, some t2 =>
-    (∀ ρ : CekEnv, Reaches (.compute [] ρ t1) .error ↔ Reaches (.compute [] ρ t2) .error) ∧
-    (∀ ρ : CekEnv, Halts (.compute [] ρ t1) ↔ Halts (.compute [] ρ t2)) ∧
-    ∀ (k : Nat) (ρ : CekEnv) (v1 v2 : CekValue),
-      Reaches (.compute [] ρ t1) (.halt v1) →
-      Reaches (.compute [] ρ t2) (.halt v2) →
-      ValueEq k v1 v2
+    ∀ ρ : CekEnv, WellSizedEnv env.length ρ →
+      (Reaches (.compute [] ρ t1) .error ↔ Reaches (.compute [] ρ t2) .error) ∧
+      (Halts (.compute [] ρ t1) ↔ Halts (.compute [] ρ t2)) ∧
+      ∀ (k : Nat) (v1 v2 : CekValue),
+        Reaches (.compute [] ρ t1) (.halt v1) →
+        Reaches (.compute [] ρ t2) (.halt v2) →
+        ValueEq k v1 v2
   | _, _ => True
 
 scoped infix:50 " ≋ " => BehEq
@@ -400,12 +435,13 @@ theorem behEqClosed_trans {a b c : Expr}
 private theorem behEq_extract {m1 m2 : Expr} {env : List MIR.VarId} {t1 t2 : Term}
     (h1 : lowerTotal env m1 = some t1) (h2 : lowerTotal env m2 = some t2)
     (h : BehEq m1 m2) :
-    (∀ ρ : CekEnv, Reaches (.compute [] ρ t1) .error ↔ Reaches (.compute [] ρ t2) .error) ∧
-    (∀ ρ : CekEnv, Halts (.compute [] ρ t1) ↔ Halts (.compute [] ρ t2)) ∧
-    ∀ (k : Nat) (ρ : CekEnv) (v1 v2 : CekValue),
-      Reaches (.compute [] ρ t1) (.halt v1) →
-      Reaches (.compute [] ρ t2) (.halt v2) →
-      ValueEq k v1 v2 := by
+    ∀ ρ : CekEnv, WellSizedEnv env.length ρ →
+      (Reaches (.compute [] ρ t1) .error ↔ Reaches (.compute [] ρ t2) .error) ∧
+      (Halts (.compute [] ρ t1) ↔ Halts (.compute [] ρ t2)) ∧
+      ∀ (k : Nat) (v1 v2 : CekValue),
+        Reaches (.compute [] ρ t1) (.halt v1) →
+        Reaches (.compute [] ρ t2) (.halt v2) →
+        ValueEq k v1 v2 := by
   have := h env; rw [h1, h2] at this; exact this
 
 /-- **Transitivity of behavioral equivalence for open terms.**
@@ -422,13 +458,15 @@ theorem behEq_trans {a b c : Expr}
     | none => split <;> trivial
     | some tc =>
       simp only []
-      have ⟨herr12, hh12, hv12⟩ := behEq_extract ha hb h12
-      have ⟨herr23, hh23, hv23⟩ := behEq_extract hb hc h23
-      refine ⟨fun ρ => (herr12 ρ).trans (herr23 ρ),
-             fun ρ => (hh12 ρ).trans (hh23 ρ), ?_⟩
-      intro k ρ v₁ v₃ hv₁ hv₃
-      obtain ⟨v₂, hv₂⟩ := (hh12 ρ).mp ⟨v₁, hv₁⟩
-      exact valueEq_trans k v₁ v₂ v₃ (hv12 k ρ v₁ v₂ hv₁ hv₂) (hv23 k ρ v₂ v₃ hv₂ hv₃)
+      have h12' := behEq_extract ha hb h12
+      have h23' := behEq_extract hb hc h23
+      intro ρ hwf
+      have ⟨herr12, hh12, hv12⟩ := h12' ρ hwf
+      have ⟨herr23, hh23, hv23⟩ := h23' ρ hwf
+      refine ⟨herr12.trans herr23, hh12.trans hh23, ?_⟩
+      intro k v₁ v₃ hv₁ hv₃
+      obtain ⟨v₂, hv₂⟩ := hh12.mp ⟨v₁, hv₁⟩
+      exact valueEq_trans k v₁ v₂ v₃ (hv12 k v₁ v₂ hv₁ hv₂) (hv23 k v₂ v₃ hv₂ hv₃)
 
 /-- **Unconditional transitivity of refinement.**
     The compilation clause of `Refines a b` provides the lowering guarantee

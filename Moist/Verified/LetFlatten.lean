@@ -66,8 +66,9 @@ theorem behEq_of_lowerTotal_eq (m₁ m₂ : Expr)
   cases lowerTotal env m₂ with
   | none => trivial
   | some t =>
-    refine ⟨fun _ => Iff.rfl, fun _ => Iff.rfl, ?_⟩
-    intro k _ v₁ v₂ h₁ h₂
+    intro _ _
+    refine ⟨Iff.rfl, Iff.rfl, ?_⟩
+    intro k v₁ v₂ h₁ h₂
     exact reaches_unique h₁ h₂ ▸ valueEq_refl k v₁
 
 /-! ## Main theorems -/

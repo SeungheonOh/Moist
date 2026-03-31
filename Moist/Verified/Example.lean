@@ -1,5 +1,6 @@
 import Moist.Verified.Semantics
 import Moist.Verified.DeadLet
+import Moist.Verified.Trans
 import Moist.Plutus.DecidableEq
 
 namespace Moist.Verified.Example
@@ -20,8 +21,12 @@ semantic definitions compute correctly.
 
 **General theorem applications** (`dead_let_lit`, `dead_let_nested`, etc.):
 invoke `dead_let_sound_closed` directly. The two preconditions of
-`MIRDeadLetCond` (unused variable and atomic purity) are discharged by
+`MIRDeadLetCond` (unused variable and purity) are discharged by
 `native_decide`, so no manual CEK stepping is needed.
+
+**Refinement examples** (`refines_var_rhs`, `refines_constr_rhs`, etc.):
+demonstrate `Refines (⊑)` using `dead_let_sound` directly, including cases
+with `Var` RHS — enabled by `isPure` + `WellSizedEnv`.
 
 All proofs are `sorry`-free.
 -/
@@ -582,5 +587,76 @@ theorem dead_let_chain_three :
     native_decide
   obtain ⟨tb2, htb2⟩ := Option.isSome_iff_exists.mp hb2
   exact behEqClosed_trans htb1 step1 (behEqClosed_trans htb2 step2 step3)
+
+/-! ## Refinement examples
+
+These demonstrate the full `Refines (⊑)` relation, which includes both the
+compilation monotonicity clause and behavioral equivalence. `dead_let_sound`
+returns `Refines` directly — no `.2` projection needed.
+
+The key advance over `BehEqClosed`: these work for **open terms** (with free
+variables), and the `isPure` predicate now covers `Var` RHS — the most
+common dead binding after ANF normalization. This was impossible with the
+old `isAtomicPure` predicate. -/
+
+/-- `let z = y in addInteger y 1  ⊑  addInteger y 1`
+    — **Var RHS**: the binding `z = y` is a variable copy, unused in the body.
+    Previously impossible with `isAtomicPure` (Var was excluded); now
+    provable because `isPure (Var y) = true` and `WellSizedEnv` guarantees
+    variable lookup succeeds at runtime. -/
+theorem refines_var_rhs :
+    Refines (.Let [(z, .Var y, false)] (.App (.App (.Builtin .AddInteger) (.Var y)) (intLit 1)))
+            (.App (.App (.Builtin .AddInteger) (.Var y)) (intLit 1)) :=
+  dead_let_sound z (.Var y)
+    (.App (.App (.Builtin .AddInteger) (.Var y)) (intLit 1))
+    ⟨by native_decide, by native_decide⟩
+
+/-- `let foo = Constr 0 [y, z] in addInteger y z  ⊑  addInteger y z`
+    — **Constr RHS with free variable args**: a constructor with free-variable
+    fields is pure. Dead binding eliminated. -/
+theorem refines_constr_rhs :
+    Refines (.Let [(foo, .Constr 0 [.Var y, .Var z], false)]
+              (.App (.App (.Builtin .AddInteger) (.Var y)) (.Var z)))
+            (.App (.App (.Builtin .AddInteger) (.Var y)) (.Var z)) :=
+  dead_let_sound foo (.Constr 0 [.Var y, .Var z])
+    (.App (.App (.Builtin .AddInteger) (.Var y)) (.Var z))
+    ⟨by native_decide, by native_decide⟩
+
+/-- `let w = force (delay y) in z  ⊑  z`
+    — **Force (Delay body) RHS**: forcing a delay is pure when the body is
+    pure (here, body is `Var y`). -/
+theorem refines_force_delay_rhs :
+    Refines (.Let [(w, .Force (.Delay (.Var y)), false)] (.Var z))
+            (.Var z) :=
+  dead_let_sound w (.Force (.Delay (.Var y))) (.Var z)
+    ⟨by native_decide, by native_decide⟩
+
+/-- `let a = y in let b = z in addInteger y z  ⊑  addInteger y z`
+    — **Chained Var copies**: two dead variable-copy bindings removed
+    by composing `Refines` via `refines_trans`. Both `a = y` and `b = z`
+    have Var RHS, exercising the `isPure (Var _) = true` path twice. -/
+theorem refines_chained_var_copies :
+    Refines (.Let [(a, .Var y, false)]
+              (.Let [(b, .Var z, false)]
+                (.App (.App (.Builtin .AddInteger) (.Var y)) (.Var z))))
+            (.App (.App (.Builtin .AddInteger) (.Var y)) (.Var z)) := by
+  have step1 := dead_let_sound a (.Var y)
+    (.Let [(b, .Var z, false)]
+      (.App (.App (.Builtin .AddInteger) (.Var y)) (.Var z)))
+    ⟨by native_decide, by native_decide⟩
+  have step2 := dead_let_sound b (.Var z)
+    (.App (.App (.Builtin .AddInteger) (.Var y)) (.Var z))
+    ⟨by native_decide, by native_decide⟩
+  exact refines_trans step1 step2
+
+/-- `let foo = let a = 1 in a in z  ⊑  z`
+    — **Let RHS**: the binding RHS is itself a let expression.
+    `isPure (Let [(a, Lit 1, false)] (Var a))` = `isPureBinds [(a, Lit 1, false)] && isPure (Var a)`
+    = `isPure (Lit 1) && true && true` = `true`. -/
+theorem refines_let_rhs :
+    Refines (.Let [(foo, .Let [(.mk 100 "a", intLit 1, false)] (.Var (.mk 100 "a")), false)] (.Var z))
+            (.Var z) :=
+  dead_let_sound foo (.Let [(.mk 100 "a", intLit 1, false)] (.Var (.mk 100 "a"))) (.Var z)
+    ⟨by native_decide, by native_decide⟩
 
 end Moist.Verified.Example

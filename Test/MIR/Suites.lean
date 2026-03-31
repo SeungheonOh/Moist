@@ -18,6 +18,7 @@ import Test.MIR.Opt.CaseMerge
 import Test.MIR.Opt.EtaReduce
 import Test.MIR.Opt.BetaReduce
 import Test.MIR.Lower.Golden
+import Test.MIR.Lower.FixTotal
 import Test.MIR.Eval.Golden
 import Test.MIR.Eval.Compile
 import Test.MIR.Eval.Policy
@@ -51,6 +52,7 @@ def testTree : TestTree := suite "mir" do
       Test.MIR.Opt.BetaReduce.tests
   group "lower" do
     Test.MIR.Lower.Golden.goldenTree
+    Test.MIR.Lower.FixTotal.fixTotalTree
   group "eval" do
     Test.MIR.Eval.Golden.goldenTree
     Test.MIR.Eval.Compile.compileTree

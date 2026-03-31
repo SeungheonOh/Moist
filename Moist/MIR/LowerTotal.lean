@@ -15,6 +15,35 @@ def envLookupT.go (v : VarId) : List VarId → Nat → Option Nat
 def envLookupT (env : List VarId) (v : VarId) : Option Nat :=
   envLookupT.go v env 0
 
+/-! ## Max VarId helpers (for deterministic fresh variable generation) -/
+
+mutual
+  def maxUidExpr (e : Expr) : Nat :=
+    match e with
+    | .Var x => x.uid
+    | .Lit _ | .Builtin _ | .Error => 0
+    | .Lam x body => max x.uid (maxUidExpr body)
+    | .Fix f body => max f.uid (maxUidExpr body)
+    | .App f a => max (maxUidExpr f) (maxUidExpr a)
+    | .Force e | .Delay e => maxUidExpr e
+    | .Constr _ args => maxUidExprList args
+    | .Case s alts => max (maxUidExpr s) (maxUidExprList alts)
+    | .Let binds body => max (maxUidExprBinds binds) (maxUidExpr body)
+  termination_by sizeOf e
+
+  def maxUidExprList (es : List Expr) : Nat :=
+    match es with
+    | [] => 0
+    | e :: rest => max (maxUidExpr e) (maxUidExprList rest)
+  termination_by sizeOf es
+
+  def maxUidExprBinds (binds : List (VarId × Expr × Bool)) : Nat :=
+    match binds with
+    | [] => 0
+    | (v, rhs, _) :: rest => max v.uid (max (maxUidExpr rhs) (maxUidExprBinds rest))
+  termination_by sizeOf binds
+end
+
 mutual
   def lowerTotal (env : List VarId) (e : Expr) : Option Term :=
     match e with
@@ -318,7 +347,7 @@ mutual
     | .Let binds body =>
       rw [freeVars.eq_12] at hunused
       simp only [lowerTotal.eq_11, lowerTotalLet_append_unused env x binds body hunused]
-    | .Fix _ _ => simp [lowerTotal.eq_12]
+    | .Fix _ _ => simp only [lowerTotal.eq_12]
   termination_by sizeOf e
 
   theorem lowerTotalList_append_unused (env : List VarId) (x : VarId) (es : List Expr)
@@ -1081,57 +1110,75 @@ theorem lowerTotal_prepend_unused (env : List VarId) (x : VarId) (e : Expr)
   have h := lowerTotal_prepend_unused_gen [] env x e (.inl hunused)
   simpa using h
 
-/-! ## Fix expansion -/
+/-! ## Fix expansion (total, single bottom-up pass)
 
-partial def fixCount : Expr → Nat
-  | .Fix _ body => 1 + fixCount body
-  | .Lam _ body => fixCount body
-  | .App f x => fixCount f + fixCount x
-  | .Force e | .Delay e => fixCount e
-  | .Constr _ args => args.foldl (fun acc e => acc + fixCount e) 0
-  | .Case scrut alts =>
-    fixCount scrut + alts.foldl (fun acc e => acc + fixCount e) 0
-  | .Let binds body =>
-    binds.foldl (fun acc (_, rhs, _) => acc + fixCount rhs) 0 + fixCount body
-  | _ => 0
+Expands every `Fix f (Lam x e)` to its Z combinator encoding at the MIR
+level. The pass is bottom-up: children are expanded first, so by the time
+we reach a Fix node its body is already Fix-free. Since `subst` with a
+Fix-free replacement (`λv. s s v`) cannot introduce Fix nodes, the output
+of a single pass is guaranteed Fix-free. No fuel required.
+-/
 
-partial def expandFixOnce (fresh : Nat) : Expr → Expr × Nat
-  | .Fix f (.Lam x e) =>
-    let s : VarId := ⟨fresh, "s"⟩; let v : VarId := ⟨fresh + 1, "v"⟩
-    let selfApp := Expr.Lam v (.App (.App (.Var s) (.Var s)) (.Var v))
-    let z : VarId := ⟨fresh + 2, "z"⟩
-    let e' := (subst f selfApp e).run ⟨fresh + 3⟩ |>.1
-    (.App (.Lam z (.App (.Var z) (.Var z))) (.Lam s (.Lam x e')), fresh + 100)
-  | .Fix f body => let (b, f') := expandFixOnce fresh body; (.Fix f b, f')
-  | .Lam x body => let (b, f') := expandFixOnce fresh body; (.Lam x b, f')
-  | .App f x =>
-    let (f', fr1) := expandFixOnce fresh f; let (x', fr2) := expandFixOnce fr1 x; (.App f' x', fr2)
-  | .Let binds body =>
-    let (bs, fr1) := binds.foldl (fun (acc, fr) (v, rhs, er) =>
-      let (r, f') := expandFixOnce fr rhs; (acc ++ [(v, r, er)], f')) ([], fresh)
-    let (b, fr2) := expandFixOnce fr1 body; (.Let bs b, fr2)
-  | .Force e => let (e', f) := expandFixOnce fresh e; (.Force e', f)
-  | .Delay e => let (e', f) := expandFixOnce fresh e; (.Delay e', f)
-  | .Constr tag args =>
-    let (as, fr) := args.foldl (fun (acc, fr) e =>
-      let (e', f') := expandFixOnce fr e; (acc ++ [e'], f')) ([], fresh)
-    (.Constr tag as, fr)
-  | .Case scrut alts =>
-    let (s, fr1) := expandFixOnce fresh scrut
-    let (as, fr2) := alts.foldl (fun (acc, fr) e =>
-      let (e', f') := expandFixOnce fr e; (acc ++ [e'], f')) ([], fr1)
-    (.Case s as, fr2)
-  | e => (e, fresh)
+mutual
+  /-- Expand all Fix nodes bottom-up. Returns the expanded expression and
+      the next available fresh id. -/
+  def expandFix (fresh : Nat) (e : Expr) : Expr × Nat :=
+    match e with
+    | .Fix f (.Lam x body) =>
+      -- Bottom-up: expand children first so body' is Fix-free
+      let (body', fr0) := expandFix fresh body
+      -- Z combinator: (λz. z z) (λs. λx. body'[f := λv. s s v])
+      let s : VarId := ⟨fr0, "s"⟩
+      let v : VarId := ⟨fr0 + 1, "v"⟩
+      let selfApp := Expr.Lam v (.App (.App (.Var s) (.Var s)) (.Var v))
+      let z : VarId := ⟨fr0 + 2, "z"⟩
+      let e' := (subst f selfApp body').run ⟨fr0 + 3⟩ |>.1
+      (.App (.Lam z (.App (.Var z) (.Var z))) (.Lam s (.Lam x e')), fr0 + 100)
+    | .Fix f body =>
+      let (body', fr) := expandFix fresh body; (.Fix f body', fr)
+    | .Lam x body =>
+      let (body', fr) := expandFix fresh body; (.Lam x body', fr)
+    | .App f x =>
+      let (f', fr1) := expandFix fresh f
+      let (x', fr2) := expandFix fr1 x; (.App f' x', fr2)
+    | .Let binds body =>
+      let (binds', fr1) := expandFixBinds fresh binds
+      let (body', fr2) := expandFix fr1 body; (.Let binds' body', fr2)
+    | .Force e => let (e', fr) := expandFix fresh e; (.Force e', fr)
+    | .Delay e => let (e', fr) := expandFix fresh e; (.Delay e', fr)
+    | .Constr tag args =>
+      let (args', fr) := expandFixList fresh args; (.Constr tag args', fr)
+    | .Case scrut alts =>
+      let (scrut', fr1) := expandFix fresh scrut
+      let (alts', fr2) := expandFixList fr1 alts; (.Case scrut' alts', fr2)
+    | e => (e, fresh)
+  termination_by sizeOf e
 
-def expandAllFix (fuel : Nat) (fresh : Nat) (e : Expr) : Expr :=
-  match fuel with
-  | 0 => e
-  | n + 1 =>
-    let (e', fresh') := expandFixOnce fresh e
-    if fixCount e' == 0 then e' else expandAllFix n fresh' e'
+  def expandFixList (fresh : Nat) (es : List Expr) : List Expr × Nat :=
+    match es with
+    | [] => ([], fresh)
+    | e :: rest =>
+      let (e', fr1) := expandFix fresh e
+      let (rest', fr2) := expandFixList fr1 rest
+      (e' :: rest', fr2)
+  termination_by sizeOf es
 
-def lowerTotalExpr (e : Expr) : Option Term :=
-  let expanded := expandAllFix 100 10000 e
-  lowerTotal [] expanded
+  def expandFixBinds (fresh : Nat) (binds : List (VarId × Expr × Bool))
+      : List (VarId × Expr × Bool) × Nat :=
+    match binds with
+    | [] => ([], fresh)
+    | (v, rhs, er) :: rest =>
+      let (rhs', fr1) := expandFix fresh rhs
+      let (rest', fr2) := expandFixBinds fr1 rest
+      ((v, rhs', er) :: rest', fr2)
+  termination_by sizeOf binds
+end
+
+/-- Lower an MIR expression to UPLC, handling Fix nodes by expanding them
+    to Z combinator encodings before lowering. Drop-in replacement for
+    `lowerTotal` that also handles `Fix`. -/
+def lowerTotalExpr (env : List VarId) (e : Expr) (freshStart : Nat := 10000) : Option Term :=
+  let (expanded, _) := expandFix freshStart e
+  lowerTotal env expanded
 
 end Moist.MIR

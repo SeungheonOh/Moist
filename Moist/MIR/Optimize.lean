@@ -40,11 +40,11 @@ Float Out (2nd)      ← hoist ANF-created lets out of Case alternatives
 │  1. ANF         │  makes progress
 │  2. Case Merge  │
 │  3. CSE         │
-│  4. Inlining    │
-│  5. Beta Reduce │
-│  6. Eta Reduce  │
-│  7. Force-Delay │
-│  8. DCE         │
+│  4. DCE         │
+│  5. Inlining    │
+│  6. Beta Reduce │
+│  7. Eta Reduce  │
+│  8. Force-Delay │
 └─────────────────┘
   │
   ▼
@@ -78,20 +78,23 @@ guaranteeing convergence of the useful work.
 2. **ANF before CSE**: Re-lifts non-atomic sub-expressions into let
    bindings so CSE can compare them as RHS values.
 
-3. **CSE before inlining**: Deduplicate first so there are fewer
-   bindings to analyze during inlining.
+3. **CSE before DCE**: Deduplicate first, then DCE removes the dead
+   originals that CSE replaced with shared references.
 
-4. **Inlining before beta**: Inlining may expose fresh
+4. **DCE before inlining**: DCE runs on ANF input where every
+   sub-computation is a named let binding, making pure dead code
+   easy to identify and remove. Fewer bindings means less work for
+   the inliner.
+
+5. **Inlining before beta**: Inlining may expose fresh
    immediately-applied lambdas.
 
-5. **Beta before eta**: Beta reduction removes those fresh redexes so
+6. **Beta before eta**: Beta reduction removes those fresh redexes so
    subsequent iterations can inline and CSE across the simplified body.
 
-6. **Eta before force-delay**: Eta reduction simplifies lambda structure
-   before force-delay cancellation.
-
-7. **Force-delay before DCE**: Cancellation makes `Delay` bindings
-   dead; DCE sweeps them away.
+7. **Eta before force-delay**: Eta reduction simplifies lambda structure
+   before force-delay cancellation. Dead `Delay` bindings created by
+   cancellation are cleaned up by DCE in the next iteration.
 
 ## Fixed-Point Iteration
 
@@ -161,20 +164,22 @@ In practice the pipeline converges in 2--4 iterations. -/
 def maxOptIterations : Nat := 20
 
 /-- Run one iteration of the simplify loop:
-ANF → CaseMerge → CSE → Inline → Beta Reduce → Eta Reduce → ForceDelay → DCE.
+ANF → CaseMerge → CSE → DCE → Inline → Beta Reduce → Eta Reduce → ForceDelay.
 ANF re-normalization at the start re-lifts sub-expressions that inlining
-collapsed, exposing them as let-binding RHS values for CSE.
+collapsed, exposing them as let-binding RHS values for CSE and DCE.
 CaseMerge runs before CSE to merge duplicate cases on the same scrutinee,
-exposing field references as simple variable bindings for CSE and inlining. -/
+exposing field references as simple variable bindings for CSE and inlining.
+DCE runs on ANF input so every sub-computation is a named let binding,
+making pure dead code easy to identify. -/
 partial def simplifyOnce (e : Expr) : FreshM Expr := do
   let e0 ← anfNormalize e
   let (e0b, _) := caseMergePass e0
   let (e1, _) := cse [] e0b
-  let (e2, _) ← inlinePass e1
-  let (e3, _) ← betaReducePass e2
-  let (e4, _) := etaReduce e3
-  let (e5, _) := forceDelay e4
-  let (e6, _) := dce e5
+  let (e2, _) := dce e1
+  let (e3, _) ← inlinePass e2
+  let (e4, _) ← betaReducePass e3
+  let (e5, _) := etaReduce e4
+  let (e6, _) := forceDelay e5
   pure e6
 
 /-- Run the simplify loop to fixed point (up to `maxOptIterations`).
@@ -258,29 +263,22 @@ partial def optimizeTrace (e : Expr) : FreshM (Array OptStep) := do
     let e0 ← anfNormalize current
     let (e0b, c0b) := caseMergePass e0
     let (e1, c1) := cse [] e0b
-    let (e2, c2) ← inlinePass e1
+    let (e1b, c1b) := dce e1
+    let (e2, c2) ← inlinePass e1b
     let (e3, c3) ← betaReducePass e2
     let (e4, c4) := etaReduce e3
     let (e5, c5) := forceDelay e4
-    let (e6, c6) := dce e5
     steps := steps.push ⟨s!"Simplify {iter}: ANF", e0, true⟩
-    if c0b then
-      steps := steps.push ⟨s!"Simplify {iter}: CaseMerge", e0b, c0b⟩
-    if c1 then
-      steps := steps.push ⟨s!"Simplify {iter}: CSE", e1, c1⟩
-    if c2 then
-      steps := steps.push ⟨s!"Simplify {iter}: Inline", e2, c2⟩
-    if c3 then
-      steps := steps.push ⟨s!"Simplify {iter}: BetaReduce", e3, c3⟩
-    if c4 then
-      steps := steps.push ⟨s!"Simplify {iter}: EtaReduce", e4, c4⟩
-    if c5 then
-      steps := steps.push ⟨s!"Simplify {iter}: ForceDelay", e5, c5⟩
-    if c6 then
-      steps := steps.push ⟨s!"Simplify {iter}: DCE", e6, c6⟩
-    if e6.alphaEq current then
+    steps := steps.push ⟨s!"Simplify {iter}: CaseMerge", e0b, c0b⟩
+    steps := steps.push ⟨s!"Simplify {iter}: CSE", e1, c1⟩
+    steps := steps.push ⟨s!"Simplify {iter}: DCE", e1b, c1b⟩
+    steps := steps.push ⟨s!"Simplify {iter}: Inline", e2, c2⟩
+    steps := steps.push ⟨s!"Simplify {iter}: BetaReduce", e3, c3⟩
+    steps := steps.push ⟨s!"Simplify {iter}: EtaReduce", e4, c4⟩
+    steps := steps.push ⟨s!"Simplify {iter}: ForceDelay", e5, c5⟩
+    if e5.alphaEq current then
       break
-    current := e6
+    current := e5
     fuel := fuel - 1
     iter := iter + 1
   return steps

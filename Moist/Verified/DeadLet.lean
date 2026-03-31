@@ -1,5 +1,6 @@
 import Moist.Verified.Semantics
 import Moist.Verified.StepLift
+import Moist.Verified.Purity
 import Moist.MIR.LowerTotal
 import Moist.Plutus.DecidableEq
 import Moist.Verified.Bisim
@@ -17,6 +18,7 @@ open Moist.Verified
 open Moist.Verified.StepLift (beta_reaches beta_reaches_error beta_apply_from_inner)
 open Moist.Verified.Bisim (bisim_reaches_error bisim_halts bisim_halts_rev steps_preserves)
 open Moist.Verified (renameTerm liftRename renameTerm_id)
+open Moist.Verified.Purity
 
 /-! # Dead Let Elimination -- Semantic Correctness
 
@@ -34,11 +36,10 @@ extra binding is unobservable: `EnvRelV 0 (cons ve nil) nil` holds vacuously
 gives `ValueRelV`-related results, which `closedAt_envRelV_valueEq` bridges
 to `ValueEq` at every step index.
 
-The purity side-condition (`isAtomicPure e`) is essential: a binding like
+The purity side-condition (`isPure e`) is essential: a binding like
 `let x = error in body` evaluates `error` before `body`, but dropping it
-changes observable behavior. `isAtomicPure` restricts the RHS to literals,
-builtins, lambdas, and delays — forms that always halt in exactly 2 CEK
-steps and never error.
+changes observable behavior. `isPure` guarantees the RHS always halts and
+never errors in well-sized environments (see `Verified.Purity`).
 -/
 
 /-! ## lowerTotal produces closed terms
@@ -134,19 +135,11 @@ end
 
 /-! ## MIRDeadLetCond -/
 
-/-- An expression is "atomic pure" — a value form that the CEK machine can
-    evaluate in exactly 2 steps (compute → ret → halt) without ever
-    reaching `error`. Covers literals, builtins, lambdas, and delays.
-    Application, force, variables, and error are excluded. -/
-def isAtomicPure : Expr → Bool
-  | .Lit _ | .Builtin _ | .Lam _ _ | .Delay _ => true
-  | _ => false
-
 /-- **Precondition for dead let elimination.**
 
     `MIRDeadLetCond x e body` asserts two things:
     1. `unused`: variable `x` does not appear free in `body`.
-    2. `safe`: the RHS `e` is atomic-pure (cannot error or diverge).
+    2. `safe`: the RHS `e` is pure (cannot error or diverge in well-sized envs).
 
     Both conditions are decidable and are discharged by `native_decide`
     in concrete applications (see `Example.lean`).
@@ -156,7 +149,7 @@ def isAtomicPure : Expr → Bool
     Without `safe`, the optimization changes observable error behavior. -/
 structure MIRDeadLetCond (x : VarId) (e body : Expr) : Prop where
   unused : (freeVars body).contains x = false
-  safe : isAtomicPure e = true
+  safe : isPure e = true
 
 /-! ## Core semantic lemma: closedAt + EnvRelV → ValueEq
 
@@ -369,48 +362,6 @@ theorem ListValueRelV.toListValueEq (k : Nat) {vs₁ vs₂ : List CekValue}
   (env_rel_bundle_aux k).2.2 vs₁ vs₂ h
 
 
-/-! ## Atomic purity helpers
-
-These lemmas establish that atomic-pure expressions (literals, builtins,
-lambdas, delays) are harmless: they always halt in exactly 2 CEK steps
-and never error, regardless of the environment. -/
-
-/-- An atomic-pure expression halts in 2 steps in any environment.
-    The proof case-splits on the four `isAtomicPure` forms and verifies
-    `steps 2 (compute [] env t) = halt v` by `rfl`.
-    The MIR-level environment `mir_env` is used only during lowering;
-    the CEK-level environment `env` is the runtime environment. -/
-private theorem atomicPure_halts (e : Expr) (t : Term) (env : CekEnv)
-    (hpure : isAtomicPure e = true) (mir_env : List VarId)
-    (hlower : lowerTotal mir_env e = some t) :
-    ∃ ve, Reaches (.compute [] env t) (.halt ve) := by
-  match e with
-  | .Lit (c, ty) =>
-    simp [lowerTotal] at hlower; subst hlower; exact ⟨.VCon c, 2, rfl⟩
-  | .Builtin b =>
-    simp [lowerTotal] at hlower; subst hlower
-    exact ⟨.VBuiltin b [] (expectedArgs b), 2, rfl⟩
-  | .Lam x body_e =>
-    simp [lowerTotal, Option.bind_eq_bind, Option.bind_eq_some_iff] at hlower
-    obtain ⟨body', _, heq⟩ := hlower; subst heq
-    exact ⟨.VLam body' env, 2, rfl⟩
-  | .Delay inner =>
-    simp [lowerTotal, Option.bind_eq_bind, Option.bind_eq_some_iff] at hlower
-    obtain ⟨inner', _, heq⟩ := hlower; subst heq
-    exact ⟨.VDelay inner' env, 2, rfl⟩
-  | .Var _ | .Error | .App _ _ | .Force _ | .Constr _ _ | .Case _ _ | .Let _ _ | .Fix _ _ =>
-    simp [isAtomicPure] at hpure
-
-/-- Contrapositive of `atomicPure_halts` + `reaches_halt_not_error`:
-    an atomic-pure expression can never reach `error`. -/
-private theorem atomicPure_never_error (e : Expr) (t : Term) (env : CekEnv)
-    (hpure : isAtomicPure e = true) (mir_env : List VarId)
-    (hlower : lowerTotal mir_env e = some t) :
-    ¬ Reaches (.compute [] env t) .error := by
-  intro herr
-  have ⟨ve, hve⟩ := atomicPure_halts e t env hpure mir_env hlower
-  exact reaches_halt_not_error hve herr
-
 /-- For `closedAt 0` terms, error reachability is environment-independent.
     Since `EnvRelV 0` holds vacuously between any two environments (there are
     no positions to check), `bisim_reaches_error` transfers the error. -/
@@ -469,9 +420,9 @@ private theorem bisim_reaches_error_rev {s₁ s₂ : State}
        the RHS becomes `body'` directly.
     2. **Error ↔ error**:
        - LHS errors → `beta_reaches_error` splits into `e'` erroring
-         (impossible by `atomicPure_never_error`) or `body'` erroring
+         (impossible by `isPure_no_error`) or `body'` erroring
          in extended env → `closedAt_zero_error_env_irrel` transfers to nil env.
-       - RHS errors → `atomicPure_halts` gives `ve`, transfer error to
+       - RHS errors → `isPure_halts` gives `ve`, transfer error to
          extended env, compose via `beta_apply_from_inner`.
     3. **Value equivalence**: `beta_reaches` decomposes the LHS halt into
        `e'` halting and `body'` halting in extended env. Then
@@ -506,10 +457,10 @@ theorem dead_let_sound_closed (x : VarId) (e body : Expr)
       · constructor
         · intro herr
           rcases beta_reaches_error .nil body' e' 0 herr with he_err | ⟨ve, _, hbody_err⟩
-          · exact absurd he_err (atomicPure_never_error e e' .nil hsc.safe (mir_env := []) he)
+          · exact absurd he_err (Purity.isPure_no_error e e' [] .nil hsc.safe he wellSizedEnv_nil)
           · exact closedAt_zero_error_env_irrel body' (.cons ve .nil) .nil hclosed hbody_err
         · intro herr
-          obtain ⟨ve, hve⟩ := atomicPure_halts e e' .nil hsc.safe (mir_env := []) he
+          obtain ⟨ve, hve⟩ := Purity.isPure_halts e e' [] .nil hsc.safe he wellSizedEnv_nil
           have hbody_err := closedAt_zero_error_env_irrel body' .nil (.cons ve .nil) hclosed herr
           exact beta_apply_from_inner .nil body' e' 0 ve .error hve hbody_err
       -- Halts equivalence
@@ -518,7 +469,7 @@ theorem dead_let_sound_closed (x : VarId) (e body : Expr)
           obtain ⟨ve, _, hbody_reach⟩ := beta_reaches .nil body' e' 0 v hv
           exact closedAt_zero_halts_env_irrel body' (.cons ve .nil) .nil hclosed ⟨v, hbody_reach⟩
         · intro ⟨v, hv⟩
-          obtain ⟨ve, hve⟩ := atomicPure_halts e e' .nil hsc.safe (mir_env := []) he
+          obtain ⟨ve, hve⟩ := Purity.isPure_halts e e' [] .nil hsc.safe he wellSizedEnv_nil
           obtain ⟨v', hv'⟩ := closedAt_zero_halts_env_irrel body' .nil (.cons ve .nil) hclosed ⟨v, hv⟩
           exact ⟨v', beta_apply_from_inner .nil body' e' 0 ve (.halt v') hve hv'⟩
       -- Value equivalence
@@ -619,35 +570,36 @@ theorem dead_let_sound (x : VarId) (e body : Expr)
         simp [hlower_let, he, hbx, hb]
         have hclosed : closedAt env.length body' = true := by
           have := lowerTotal_closedAt env body body' hb; simp at this; exact this
+        intro ρ hwf
         refine ⟨?_, ?_, ?_⟩
         -- Error equivalence
-        · intro ρ; constructor
+        · constructor
           · intro herr
             rcases beta_reaches_error ρ (renameTerm (shiftRename 1) body') e' 0 herr with
               he_err | ⟨ve, _, hbody_err⟩
-            · exact absurd he_err (atomicPure_never_error e e' ρ hsc.safe (mir_env := env) he)
+            · exact absurd he_err (Purity.isPure_no_error e e' env ρ hsc.safe he hwf)
             · have hrel := envRelV_shift_into_extend env.length ρ ve
               exact bisim_reaches_error_rev
                 (.compute .nil (shiftRename 1) env.length hrel hclosed) hbody_err
           · intro herr
-            obtain ⟨ve, hve⟩ := atomicPure_halts e e' ρ hsc.safe (mir_env := env) he
+            obtain ⟨ve, hve⟩ := Purity.isPure_halts e e' env ρ hsc.safe he hwf
             have hrel := envRelV_shift_into_extend env.length ρ ve
             have hbody_err := Bisim.bisim_reaches_error
               (.compute .nil (shiftRename 1) env.length hrel hclosed) herr
             exact beta_apply_from_inner ρ (renameTerm (shiftRename 1) body') e' 0 ve .error hve hbody_err
         -- Halts equivalence
-        · intro ρ; constructor
+        · constructor
           · intro ⟨v, hv⟩
             obtain ⟨ve, _, hbody_reach⟩ := beta_reaches ρ (renameTerm (shiftRename 1) body') e' 0 v hv
             have hrel := envRelV_shift_into_extend env.length ρ ve
             exact bisim_halts_rev (.compute .nil (shiftRename 1) env.length hrel hclosed) ⟨v, hbody_reach⟩
           · intro ⟨v, hv⟩
-            obtain ⟨ve, hve⟩ := atomicPure_halts e e' ρ hsc.safe (mir_env := env) he
+            obtain ⟨ve, hve⟩ := Purity.isPure_halts e e' env ρ hsc.safe he hwf
             have hrel := envRelV_shift_into_extend env.length ρ ve
             obtain ⟨v', hv'⟩ := bisim_halts (.compute .nil (shiftRename 1) env.length hrel hclosed) ⟨v, hv⟩
             exact ⟨v', beta_apply_from_inner ρ (renameTerm (shiftRename 1) body') e' 0 ve (.halt v') hve hv'⟩
         -- Value equivalence
-        · intro k ρ v₁ v₂ hv₁ hv₂
+        · intro k v₁ v₂ hv₁ hv₂
           obtain ⟨ve, _, hbody_reach⟩ := beta_reaches ρ (renameTerm (shiftRename 1) body') e' 0 v₁ hv₁
           have hrel := envRelV_shift_into_extend env.length ρ ve
           exact valueEq_symm k _ _ (closedAt_envRelV_valueEq k env.length (shiftRename 1) body'

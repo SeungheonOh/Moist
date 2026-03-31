@@ -1,10 +1,13 @@
 import Moist.MIR.Expr
 import Moist.Onchain.Builtins
+import Moist.CEK.Builtins
 
 namespace Moist.MIR
 
 open Moist.Plutus.Term
-open Moist.Onchain (builtinArity builtinIsTotal)
+open Moist.Onchain (builtinArity)
+open Moist.CEK (expectedArgs ExpectedArgs ArgKind)
+open Moist.Plutus.Term (BuiltinFun)
 
 /-! # Purity Analysis
 
@@ -28,8 +31,9 @@ regardless of runtime values. The sources of impurity are:
 
 - **Partial application** of any builtin (fewer args than arity) always
   succeeds — it just builds a partially-applied closure.
-- **Saturated application of a total builtin** always succeeds — e.g.
-  `addInteger 3 5`, `equalsInteger x y`.
+- **Saturated applications** are always impure — even "total" builtins
+  like `addInteger` can error on wrong-type arguments, and we cannot
+  statically verify argument types.
 
 ### Value forms (body not evaluated at construction time)
 
@@ -53,33 +57,58 @@ private def countArgs : Expr → Expr × Nat
 
 /-! ## Core Purity Check -/
 
-/-- Return `true` when evaluating the expression is guaranteed to succeed.
+mutual
+  /-- Check whether `Force e` is safe by verifying `e` produces a forceable
+      value. Returns `true` when:
+      - `e` is `Delay _` (force-delay always succeeds, body purity checked separately)
+      - `e` is a builtin (possibly under more Forces) whose next expected
+        arg is `argQ` at the right depth -/
+  def isForceable : Expr → Bool
+    | .Delay _ => true
+    | .Builtin b => (expectedArgs b).head == .argQ
+    | .Force e =>
+      -- nested Force: inner must be forceable AND after consuming
+      -- the inner force, the result must also be forceable
+      match e with
+      | .Builtin b => match expectedArgs b with
+        | .more .argQ rest => rest.head == .argQ
+        | _ => false
+      | _ => false
+    | _ => false
 
-- Value forms (Var, Lit, Builtin, Lam, Delay, Fix) are always pure.
-- `Force e` is pure when `e` is pure.
-- `App f x`: only pure when the head is a **known builtin** (possibly
-  Force-wrapped) AND either partially applied or saturated on a total
-  builtin. All other applications are impure — a `Var`-headed
-  application could alias any function, including a fallible builtin
-  like `headList` or `divideInteger`.
-- `Case`, `Let`, `Constr`: pure when all sub-expressions are pure.
-- `Error`: always impure. -/
-partial def isPure : Expr → Bool
-  | .Error => false
-  | .Var _ | .Lit _ | .Builtin _ => true
-  | .Lam _ _ | .Delay _ | .Fix _ _ => true
-  | .Constr _ args => args.all isPure
-  | .Force e => isPure e
-  | .Case scrut alts => isPure scrut && alts.all isPure
-  | .Let binds body => binds.all (fun (_, rhs, _) => isPure rhs) && isPure body
-  | .App f x =>
-    let (head, nArgs) := countArgs (.App f x)
-    match extractBuiltin head with
-    | some b =>
-      if nArgs < builtinArity b || builtinIsTotal b then
-        isPure f && isPure x
-      else
-        false
-    | none => false
+  /-- Return `true` when evaluating the expression is guaranteed to succeed.
+
+  - Value forms (Var, Lit, Builtin, Lam, Delay, Fix) are always pure.
+  - `Force e` is pure when `e` is pure AND produces a forceable value
+    (a `Delay` or a builtin expecting a type-force argument).
+  - `App f x`: only pure when the head is a **known builtin** (possibly
+    Force-wrapped) AND partially applied (fewer args than arity).
+    All other applications are impure — saturated builtins may error
+    on wrong-type arguments, and `Var`-headed applications could alias
+    any function.
+  - `Case`, `Let`, `Constr`: pure when all sub-expressions are pure.
+  - `Error`: always impure. -/
+  def isPure : Expr → Bool
+    | .Error => false
+    | .Var _ | .Lit _ | .Builtin _ => true
+    | .Lam _ _ | .Delay _ | .Fix _ _ => true
+    | .Constr _ args => isPureList args
+    | .Force (.Delay body) => isPure body
+    | .Force e => isForceable e && isPure e
+    | .Case _ _ => false  -- Case can fail at runtime (bad tag, non-constructor scrutinee)
+    | .Let binds body => isPureBinds binds && isPure body
+    | .App _ _ => false  -- Application can fail (non-function, wrong arity, etc.)
+  termination_by e => sizeOf e
+
+  def isPureList : List Expr → Bool
+    | [] => true
+    | e :: rest => isPure e && isPureList rest
+  termination_by es => sizeOf es
+
+  def isPureBinds : List (VarId × Expr × Bool) → Bool
+    | [] => true
+    | (_, rhs, _) :: rest => isPure rhs && isPureBinds rest
+  termination_by bs => sizeOf bs
+end
 
 end Moist.MIR

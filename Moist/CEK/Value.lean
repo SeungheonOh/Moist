@@ -27,14 +27,14 @@ needed before a builtin is fully saturated. Mirrors sc-fvt's
 inductive ArgKind where
   | argV : ArgKind  -- expects a value via Apply
   | argQ : ArgKind  -- expects a type instantiation via Force
-deriving Repr, BEq
+deriving Repr, BEq, DecidableEq
 
 /-- The remaining argument signature of a partially applied builtin.
 `one` = final argument, `more` = at least one more after this. -/
 inductive ExpectedArgs where
   | one  : ArgKind → ExpectedArgs
   | more : ArgKind → ExpectedArgs → ExpectedArgs
-deriving Repr
+deriving Repr, DecidableEq
 
 namespace ExpectedArgs
 

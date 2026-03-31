@@ -64,6 +64,21 @@ def app (t : Term) (args : List Term) : Term := args.foldl .Apply t
 
 
 
+@[plutus_data]
+structure Eras where
+  Byron : Int
+  Shelley : Int
+  Allegra : Int
+  Mary : Int
+  Alonzo : Int
+  Babbage : Int
+  Conway : Int
+
+@[onchain]
+def foo (e : Eras) (f : Eras) : Int := e.Byron + e.Shelley + f.Mary + f.Conway
+
+#show_optimized_mir foo
+
 @[plutus_sop]
 inductive Maybe (α : Type) where
   | none : Maybe α
@@ -97,7 +112,7 @@ def findUPLC := compile_fvt! findInputByOutRef
 
 -- ∀ ref₁ ≠ ref₂, find [input₂] ref₁ = None
 -- NOTE: Expected to fail — current impl ignores ref, always returns Some for singleton
-#blaster (unfold-depth: 300) (timeout: 60) (solve-result: 1)
+#blaster (unfold-depth: 300) (timeout: 60)
   [∀ (id1 : ByteString) (i1 : Int) (id2 : ByteString) (i2 : Int),
     mkRef id1 i1 ≠ mkRef id2 i2 →
     exec (app findUPLC [.Const (.ConstDataList [mkInput id2 i2]), .Const (.Data (mkRef id1 i1))]) 500 =
