@@ -118,6 +118,11 @@ theorem envLookupT_bound (env : List VarId) (v : VarId) (idx : Nat)
     (h : envLookupT env v = some idx) : idx < env.length := by
   unfold envLookupT at h; have ⟨_, hr⟩ := envLookupT.go_bound v env 0 idx h; omega
 
+theorem envLookupT_cons_neq (x v : VarId) (env : List VarId) (hne : (x == v) = false) :
+    envLookupT (x :: env) v = (envLookupT env v).map (· + 1) := by
+  unfold envLookupT; simp only [envLookupT.go, hne]
+  exact envLookupT.go_shift v env 0 1
+
 /-! ## lowerTotal env agreement -/
 
 mutual
@@ -354,6 +359,314 @@ theorem lowerTotal_closed_env_irrel (x : VarId) (body : Expr)
     lowerTotal [x] body = lowerTotal [] body := by
   have : [x] = ([] : List VarId) ++ [x] := by simp
   rw [this]; exact lowerTotal_append_unused [] x body hunused
+
+/-! ## lowerTotal prepend unused: isSome reverse direction
+
+If `x` is unused in `e` and `lowerTotal (prefix_env ++ x :: env) e` succeeds,
+then `lowerTotal (prefix_env ++ env) e` also succeeds. This is the reverse
+of what `lowerTotal_prepend_unused_gen` provides (which only goes from
+success in `prefix_env ++ env` to success in `prefix_env ++ x :: env`). -/
+
+private theorem envLookupT_go_insert_isSome (v x : VarId) (pre post : List VarId) (n : Nat)
+    (h : (x == v) = false ∨ (∃ y ∈ pre, (y == x) = true)) :
+    (envLookupT.go v (pre ++ x :: post) n).isSome →
+    (envLookupT.go v (pre ++ post) n).isSome := by
+  induction pre generalizing n with
+  | nil =>
+    simp only [List.nil_append]
+    simp only [envLookupT.go]
+    cases h with
+    | inl hne =>
+      rw [hne]
+      rw [envLookupT.go_shift v post n 1]
+      cases envLookupT.go v post n with
+      | none => simp [Option.map]
+      | some _ => simp [Option.map]
+    | inr hshadow => obtain ⟨_, hm, _⟩ := hshadow; exact absurd hm List.not_mem_nil
+  | cons w pre' ih =>
+    simp only [List.cons_append, envLookupT.go]
+    split
+    · -- w == v: found at position n in both
+      simp
+    · -- w ≠ v: recurse
+      have hcond' : (x == v) = false ∨ (∃ y ∈ pre', (y == x) = true) := by
+        cases h with
+        | inl hne => exact .inl hne
+        | inr hshadow =>
+          obtain ⟨y, hy, hyx⟩ := hshadow
+          cases hy with
+          | head =>
+            -- y = w, w == x = true. Need x == v = false.
+            rename_i hwv
+            cases hxv : (x == v)
+            · exact .inl rfl
+            · exfalso
+              rw [VarId.beq_true_iff] at hyx hxv
+              exact hwv (by rw [VarId.beq_true_iff]; omega)
+          | tail _ hrest => exact .inr ⟨y, hrest, hyx⟩
+      exact ih (n + 1) hcond'
+
+private theorem envLookupT_insert_isSome (prefix_env env : List VarId) (x v : VarId)
+    (h : (x == v) = false ∨ (∃ y ∈ prefix_env, (y == x) = true)) :
+    (envLookupT (prefix_env ++ x :: env) v).isSome →
+    (envLookupT (prefix_env ++ env) v).isSome := by
+  unfold envLookupT
+  exact envLookupT_go_insert_isSome v x prefix_env env 0 h
+
+-- Helper: freeVars (Var v) not containing x implies x ≠ v (as beq)
+private theorem freeVars_var_unused_neq' (v x : VarId)
+    (h : (freeVars (.Var v)).contains x = false) : (x == v) = false := by
+  rw [freeVars.eq_1, VarSet.singleton_contains'] at h
+  cases hxv : (x == v)
+  · rfl
+  · exfalso; rw [VarId.beq_true_iff] at hxv
+    have : (v == x) = true := by rw [VarId.beq_true_iff]; omega
+    rw [this] at h; exact Bool.noConfusion h
+
+-- Helper: convert option isSome to exists
+private theorem Option.bind_none_right {α β : Type} (f : α → Option β) :
+    (none : Option α).bind f = none := rfl
+
+private theorem Option.bind_eq_none_of_inner {α β : Type} {oa : Option α} {f : α → Option β}
+    (h : oa = none) : oa.bind f = none := by rw [h]; rfl
+
+mutual
+  /-- If `lowerTotal (prefix_env ++ env) e = none` and `x` is unused in `e`
+      (or shadowed by a prefix variable), then `lowerTotal (prefix_env ++ x :: env) e = none`. -/
+  theorem lowerTotal_prepend_unused_none_gen (prefix_env env : List VarId) (x : VarId) (e : Expr)
+      (hunused : (freeVars e).contains x = false ∨ (∃ y ∈ prefix_env, (y == x) = true))
+      (hnone : lowerTotal (prefix_env ++ env) e = none) :
+      lowerTotal (prefix_env ++ x :: env) e = none := by
+    match e with
+    | .Var v =>
+      have hv : (x == v) = false ∨ (∃ y ∈ prefix_env, (y == x) = true) := by
+        cases hunused with
+        | inl hfv => exact .inl (freeVars_var_unused_neq' v x hfv)
+        | inr hshadow => exact .inr hshadow
+      simp only [lowerTotal.eq_1] at hnone ⊢
+      -- hnone tells us envLookupT (prefix_env ++ env) v = none (otherwise lowerTotal would return some)
+      cases hlu : envLookupT (prefix_env ++ env) v with
+      | none =>
+        -- Need: envLookupT (prefix_env ++ x :: env) v either gives none, or if some, we get rfl
+        cases hlu2 : envLookupT (prefix_env ++ x :: env) v with
+        | none => rfl
+        | some idx =>
+          exfalso; have := envLookupT_insert_isSome prefix_env env x v hv (by simp [hlu2])
+          simp [hlu] at this
+      | some _ => simp [hlu] at hnone
+    | .Lit (c, ty) => exact absurd hnone (by simp [lowerTotal])
+    | .Builtin b => exact absurd hnone (by simp [lowerTotal])
+    | .Error => exact absurd hnone (by simp [lowerTotal])
+    | .Lam y body =>
+      have hcond : (freeVars body).contains x = false ∨ (∃ z ∈ y :: prefix_env, (z == x) = true) := by
+        cases hunused with
+        | inl hfv =>
+          rw [freeVars.eq_5] at hfv
+          cases VarSet.erase_not_contains_imp' (freeVars body) y x hfv with
+          | inl hfvb => exact .inl hfvb
+          | inr heq => exact .inr ⟨y, List.Mem.head _, heq⟩
+        | inr hshadow =>
+          obtain ⟨z, hz, hzx⟩ := hshadow
+          exact .inr ⟨z, List.Mem.tail _ hz, hzx⟩
+      simp only [lowerTotal.eq_5, Option.bind_eq_bind] at hnone ⊢
+      cases hb : lowerTotal (y :: prefix_env ++ env) body with
+      | none =>
+        have ih := lowerTotal_prepend_unused_none_gen (y :: prefix_env) env x body hcond hb
+        exact Option.bind_eq_none_of_inner ih
+      | some bv =>
+        have : (lowerTotal (y :: prefix_env ++ env) body).bind (fun body' => some (Term.Lam 0 body')) = none := hnone
+        rw [hb] at this; simp at this
+    | .App f a =>
+      have hcf : (freeVars f).contains x = false ∨ (∃ y ∈ prefix_env, (y == x) = true) := by
+        cases hunused with
+        | inl hfv =>
+          rw [freeVars.eq_7] at hfv; exact .inl (VarSet.union_not_contains' _ _ _ hfv).1
+        | inr h => exact .inr h
+      have hca : (freeVars a).contains x = false ∨ (∃ y ∈ prefix_env, (y == x) = true) := by
+        cases hunused with
+        | inl hfv =>
+          rw [freeVars.eq_7] at hfv; exact .inl (VarSet.union_not_contains' _ _ _ hfv).2
+        | inr h => exact .inr h
+      simp only [lowerTotal.eq_6, Option.bind_eq_bind] at hnone ⊢
+      cases hf : lowerTotal (prefix_env ++ env) f with
+      | none =>
+        exact Option.bind_eq_none_of_inner (lowerTotal_prepend_unused_none_gen prefix_env env x f hcf hf)
+      | some fv =>
+        rw [hf, Option.some_bind] at hnone
+        -- hnone : (lowerTotal ... a).bind ... = none
+        have ha_none : lowerTotal (prefix_env ++ env) a = none := by
+          cases ha : lowerTotal (prefix_env ++ env) a with
+          | none => rfl
+          | some _ => rw [ha, Option.some_bind] at hnone; exact absurd hnone (by simp)
+        have iha := lowerTotal_prepend_unused_none_gen prefix_env env x a hca ha_none
+        cases hf2 : lowerTotal (prefix_env ++ x :: env) f with
+        | none => rfl
+        | some _ =>
+          show (some _).bind (fun _ => (lowerTotal (prefix_env ++ x :: env) a).bind _) = none
+          rw [Option.bind_some, iha]; rfl
+    | .Force inner =>
+      have hc : (freeVars inner).contains x = false ∨ (∃ y ∈ prefix_env, (y == x) = true) := by
+        cases hunused with
+        | inl hfv => rw [freeVars.eq_8] at hfv; exact .inl hfv
+        | inr h => exact .inr h
+      simp only [lowerTotal.eq_7, Option.bind_eq_bind] at hnone ⊢
+      cases hi : lowerTotal (prefix_env ++ env) inner with
+      | none =>
+        exact Option.bind_eq_none_of_inner (lowerTotal_prepend_unused_none_gen prefix_env env x inner hc hi)
+      | some _ => rw [hi, Option.bind_some] at hnone; exact absurd hnone (by simp)
+    | .Delay inner =>
+      have hc : (freeVars inner).contains x = false ∨ (∃ y ∈ prefix_env, (y == x) = true) := by
+        cases hunused with
+        | inl hfv => rw [freeVars.eq_9] at hfv; exact .inl hfv
+        | inr h => exact .inr h
+      simp only [lowerTotal.eq_8, Option.bind_eq_bind] at hnone ⊢
+      cases hi : lowerTotal (prefix_env ++ env) inner with
+      | none =>
+        exact Option.bind_eq_none_of_inner (lowerTotal_prepend_unused_none_gen prefix_env env x inner hc hi)
+      | some _ => rw [hi, Option.bind_some] at hnone; exact absurd hnone (by simp)
+    | .Constr tag args =>
+      have hc : (freeVarsList args).contains x = false ∨ (∃ y ∈ prefix_env, (y == x) = true) := by
+        cases hunused with
+        | inl hfv => rw [freeVars.eq_10] at hfv; exact .inl hfv
+        | inr h => exact .inr h
+      simp only [lowerTotal.eq_9, Option.bind_eq_bind] at hnone ⊢
+      cases ha : lowerTotalList (prefix_env ++ env) args with
+      | none =>
+        exact Option.bind_eq_none_of_inner (lowerTotalList_prepend_unused_none_gen prefix_env env x args hc ha)
+      | some _ => rw [ha, Option.bind_some] at hnone; exact absurd hnone (by simp)
+    | .Case scrut alts =>
+      have hcs : (freeVars scrut).contains x = false ∨ (∃ y ∈ prefix_env, (y == x) = true) := by
+        cases hunused with
+        | inl hfv =>
+          rw [freeVars.eq_11] at hfv; exact .inl (VarSet.union_not_contains' _ _ _ hfv).1
+        | inr h => exact .inr h
+      have hca : (freeVarsList alts).contains x = false ∨ (∃ y ∈ prefix_env, (y == x) = true) := by
+        cases hunused with
+        | inl hfv =>
+          rw [freeVars.eq_11] at hfv; exact .inl (VarSet.union_not_contains' _ _ _ hfv).2
+        | inr h => exact .inr h
+      simp only [lowerTotal.eq_10, Option.bind_eq_bind] at hnone ⊢
+      cases hs : lowerTotal (prefix_env ++ env) scrut with
+      | none =>
+        exact Option.bind_eq_none_of_inner (lowerTotal_prepend_unused_none_gen prefix_env env x scrut hcs hs)
+      | some sv =>
+        rw [hs, Option.bind_some] at hnone
+        have ha_none : lowerTotalList (prefix_env ++ env) alts = none := by
+          cases ha : lowerTotalList (prefix_env ++ env) alts with
+          | none => rfl
+          | some _ => rw [ha, Option.bind_some] at hnone; exact absurd hnone (by simp)
+        have iha := lowerTotalList_prepend_unused_none_gen prefix_env env x alts hca ha_none
+        cases hs2 : lowerTotal (prefix_env ++ x :: env) scrut with
+        | none => rfl
+        | some _ =>
+          show (some _).bind (fun _ => (lowerTotalList (prefix_env ++ x :: env) alts).bind _) = none
+          rw [Option.bind_some, iha]; rfl
+    | .Let binds body =>
+      simp only [lowerTotal.eq_11] at hnone ⊢
+      have hunused' : (freeVarsLet binds body).contains x = false ∨ (∃ y ∈ prefix_env, (y == x) = true) :=
+        hunused.imp (fun h => by rw [freeVars.eq_12] at h; exact h) id
+      exact lowerTotalLet_prepend_unused_none_gen prefix_env env x binds body hunused' hnone
+    | .Fix _ _ => simp only [lowerTotal.eq_12]
+  termination_by sizeOf e
+
+  theorem lowerTotalList_prepend_unused_none_gen (prefix_env env : List VarId) (x : VarId)
+      (es : List Expr)
+      (hunused : (freeVarsList es).contains x = false ∨ (∃ y ∈ prefix_env, (y == x) = true))
+      (hnone : lowerTotalList (prefix_env ++ env) es = none) :
+      lowerTotalList (prefix_env ++ x :: env) es = none := by
+    match es with
+    | [] => exact absurd hnone (by simp [lowerTotalList])
+    | e :: rest =>
+      have hce : (freeVars e).contains x = false ∨ (∃ y ∈ prefix_env, (y == x) = true) := by
+        cases hunused with
+        | inl hfv =>
+          rw [freeVarsList.eq_2] at hfv; exact .inl (VarSet.union_not_contains' _ _ _ hfv).1
+        | inr h => exact .inr h
+      have hcr : (freeVarsList rest).contains x = false ∨ (∃ y ∈ prefix_env, (y == x) = true) := by
+        cases hunused with
+        | inl hfv =>
+          rw [freeVarsList.eq_2] at hfv; exact .inl (VarSet.union_not_contains' _ _ _ hfv).2
+        | inr h => exact .inr h
+      simp only [lowerTotalList.eq_2, Option.bind_eq_bind] at hnone ⊢
+      cases ht : lowerTotal (prefix_env ++ env) e with
+      | none =>
+        exact Option.bind_eq_none_of_inner (lowerTotal_prepend_unused_none_gen prefix_env env x e hce ht)
+      | some tv =>
+        rw [ht, Option.bind_some] at hnone
+        have hts_none : lowerTotalList (prefix_env ++ env) rest = none := by
+          cases hts : lowerTotalList (prefix_env ++ env) rest with
+          | none => rfl
+          | some _ => rw [hts, Option.bind_some] at hnone; exact absurd hnone (by simp)
+        have ihts := lowerTotalList_prepend_unused_none_gen prefix_env env x rest hcr hts_none
+        cases ht2 : lowerTotal (prefix_env ++ x :: env) e with
+        | none => rfl
+        | some _ =>
+          show (some _).bind (fun _ => (lowerTotalList (prefix_env ++ x :: env) rest).bind _) = none
+          rw [Option.bind_some, ihts]; rfl
+  termination_by sizeOf es
+
+  theorem lowerTotalLet_prepend_unused_none_gen (prefix_env env : List VarId) (x : VarId)
+      (binds : List (VarId × Expr × Bool)) (body : Expr)
+      (hunused : (freeVarsLet binds body).contains x = false ∨
+          (∃ y ∈ prefix_env, (y == x) = true))
+      (hnone : lowerTotalLet (prefix_env ++ env) binds body = none) :
+      lowerTotalLet (prefix_env ++ x :: env) binds body = none := by
+    match binds with
+    | [] =>
+      simp only [lowerTotalLet.eq_1] at hnone ⊢
+      have hc : (freeVars body).contains x = false ∨ (∃ y ∈ prefix_env, (y == x) = true) := by
+        cases hunused with
+        | inl hfv => rw [freeVarsLet.eq_1] at hfv; exact .inl hfv
+        | inr h => exact .inr h
+      exact lowerTotal_prepend_unused_none_gen prefix_env env x body hc hnone
+    | (y, rhs, _) :: rest =>
+      have hcrhs : (freeVars rhs).contains x = false ∨ (∃ z ∈ prefix_env, (z == x) = true) := by
+        cases hunused with
+        | inl hfv =>
+          rw [freeVarsLet.eq_2] at hfv
+          exact .inl (VarSet.union_not_contains' _ _ _ hfv).1
+        | inr h => exact .inr h
+      have hcrest : (freeVarsLet rest body).contains x = false ∨
+          (∃ z ∈ y :: prefix_env, (z == x) = true) := by
+        cases hunused with
+        | inl hfv =>
+          rw [freeVarsLet.eq_2] at hfv
+          have hre := (VarSet.union_not_contains' _ _ _ hfv).2
+          cases VarSet.erase_not_contains_imp' _ y x hre with
+          | inl hfvl => exact .inl hfvl
+          | inr heq => exact .inr ⟨y, List.Mem.head _, heq⟩
+        | inr hshadow =>
+          obtain ⟨z, hz, hzx⟩ := hshadow
+          exact .inr ⟨z, List.Mem.tail _ hz, hzx⟩
+      simp only [lowerTotalLet.eq_2, Option.bind_eq_bind] at hnone ⊢
+      cases hr : lowerTotal (prefix_env ++ env) rhs with
+      | none =>
+        exact Option.bind_eq_none_of_inner (lowerTotal_prepend_unused_none_gen prefix_env env x rhs hcrhs hr)
+      | some rv =>
+        rw [hr, Option.bind_some] at hnone
+        have hrest_none : lowerTotalLet (y :: prefix_env ++ env) rest body = none := by
+          have hnone' : (lowerTotalLet (y :: prefix_env ++ env) rest body).bind
+            (fun rest' => some (Term.Apply (Term.Lam 0 rest') rv)) = none := hnone
+          cases hrest : lowerTotalLet (y :: prefix_env ++ env) rest body with
+          | none => rfl
+          | some _ => rw [hrest, Option.bind_some] at hnone'; exact absurd hnone' (by simp)
+        have ihrest := lowerTotalLet_prepend_unused_none_gen (y :: prefix_env) env x rest body hcrest hrest_none
+        cases hr2 : lowerTotal (prefix_env ++ x :: env) rhs with
+        | none => rfl
+        | some _ =>
+          show (some _).bind (fun _ => (lowerTotalLet (y :: prefix_env ++ x :: env) rest body).bind _) = none
+          rw [Option.bind_some, ihrest]; rfl
+  termination_by sizeOf binds + sizeOf body
+end
+
+/-- If `lowerTotal env e = none` and `x` is unused in `e`, then
+    `lowerTotal (x :: env) e = none`. -/
+theorem lowerTotal_prepend_unused_none (env : List VarId) (x : VarId) (e : Expr)
+    (hunused : (freeVars e).contains x = false)
+    (hnone : lowerTotal env e = none) :
+    lowerTotal (x :: env) e = none := by
+  have h := lowerTotal_prepend_unused_none_gen [] env x e (.inl hunused) hnone
+  simpa using h
 
 /-! ## lowerTotal prepend unused: shift renaming -/
 

@@ -159,6 +159,7 @@ These demonstrate the general theorem: each example instantiates
 workflow for verifying individual dead-let-elimination instances. -/
 
 open Moist.Verified.DeadLet
+open Moist.Verified.Semantics
 
 private def y : VarId := ⟨3, "y"⟩
 private def z : VarId := ⟨4, "z"⟩
@@ -470,10 +471,11 @@ theorem dead_let_nested_then_error :
 
 /-! ## Open-term examples using `dead_let_sound`
 
-These use the generalized `dead_let_sound` which proves `BehEq` — behavioral
-equivalence for ALL MIR environments, not just the empty one. The body may
-contain free variables; the theorem holds regardless of how those variables
-are bound in the surrounding context.
+These use the generalized `dead_let_sound` which proves `Refines` — the body
+refines the let-expression. The `.2` projection extracts `BehEq`, the behavioral
+equivalence for ALL MIR environments. The body may contain free variables;
+the theorem holds regardless of how those variables are bound in the
+surrounding context.
 
 This is the key compositionality result: dead-let elimination can be applied
 inside lambda bodies, nested lets, or case branches — anywhere in the AST. -/
@@ -483,8 +485,8 @@ inside lambda bodies, nested lets, or case branches — anywhere in the AST. -/
 theorem dead_let_open_constr :
     (.Let [(z, intLit 99, false)] (.Constr 0 [.Var y, .Var a]))
     ≋ (.Constr 0 [.Var y, .Var a]) :=
-  dead_let_sound z (intLit 99) (.Constr 0 [.Var y, .Var a])
-    ⟨by native_decide, by native_decide⟩
+  (dead_let_sound z (intLit 99) (.Constr 0 [.Var y, .Var a])
+    ⟨by native_decide, by native_decide⟩).2
 
 /-- `let foo = 7 in case y of [\a -> a, \a -> z]`
     ≡ `case y of [\a -> a, \a -> z]`
@@ -493,17 +495,17 @@ theorem dead_let_open_case :
     (.Let [(foo, intLit 7, false)]
       (.Case (.Var y) [.Lam a (.Var a), .Lam a (.Var z)]))
     ≋ (.Case (.Var y) [.Lam a (.Var a), .Lam a (.Var z)]) :=
-  dead_let_sound foo (intLit 7)
+  (dead_let_sound foo (intLit 7)
     (.Case (.Var y) [.Lam a (.Var a), .Lam a (.Var z)])
-    ⟨by native_decide, by native_decide⟩
+    ⟨by native_decide, by native_decide⟩).2
 
 /-- `let d = delay(0) in force y` ≡ `force y`
     — force of a free variable, dead delay binding. -/
 theorem dead_let_open_force :
     (.Let [(d, .Delay (intLit 0), false)] (.Force (.Var y)))
     ≋ (.Force (.Var y)) :=
-  dead_let_sound d (.Delay (intLit 0)) (.Force (.Var y))
-    ⟨by native_decide, by native_decide⟩
+  (dead_let_sound d (.Delay (intLit 0)) (.Force (.Var y))
+    ⟨by native_decide, by native_decide⟩).2
 
 /-- `let foo = 1 in \a -> let z = 2 in addInteger a y`
     ≡ `\a -> let z = 2 in addInteger a y`
@@ -514,18 +516,18 @@ theorem dead_let_open_nested_let :
         (.App (.App (.Builtin .AddInteger) (.Var a)) (.Var y)))))
     ≋ (.Lam a (.Let [(z, intLit 2, false)]
       (.App (.App (.Builtin .AddInteger) (.Var a)) (.Var y)))) :=
-  dead_let_sound foo (intLit 1)
+  (dead_let_sound foo (intLit 1)
     (.Lam a (.Let [(z, intLit 2, false)]
       (.App (.App (.Builtin .AddInteger) (.Var a)) (.Var y))))
-    ⟨by native_decide, by native_decide⟩
+    ⟨by native_decide, by native_decide⟩).2
 
 /-- `let w = \b -> b in error` ≡ `error`
     — open error body (error has no free vars, but BehEq still quantifies
     over all envs, exercising the error path of the generalized proof). -/
 theorem dead_let_open_error :
     (.Let [(w, .Lam a (.Var a), false)] .Error) ≋ .Error :=
-  dead_let_sound w (.Lam a (.Var a)) .Error
-    ⟨by native_decide, by native_decide⟩
+  (dead_let_sound w (.Lam a (.Var a)) .Error
+    ⟨by native_decide, by native_decide⟩).2
 
 /-! ## Transitivity examples
 
