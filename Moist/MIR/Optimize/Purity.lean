@@ -91,7 +91,8 @@ mutual
   def isPure : Expr → Bool
     | .Error => false
     | .Var _ | .Lit _ | .Builtin _ => true
-    | .Lam _ _ | .Delay _ | .Fix _ _ => true
+    | .Lam _ _ | .Delay _ => true
+    | .Fix _ _ => false
     | .Constr _ args => isPureList args
     | .Force (.Delay body) => isPure body
     | .Force e => isForceable e && isPure e

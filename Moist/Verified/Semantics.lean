@@ -7,7 +7,7 @@ namespace Moist.Verified.Semantics
 
 open Moist.CEK
 open Moist.Plutus.Term (Term Const)
-open Moist.MIR (Expr lowerTotal)
+open Moist.MIR (Expr lowerTotal lowerTotalExpr lowerTotalExpr_eq_lowerTotal fixCount)
 
 /-! # Behavioral Equivalence via CEK Machine
 
@@ -173,7 +173,7 @@ end
 /-- Lower a closed MIR expression to UPLC via `lowerTotal` with an empty
     variable environment. Returns `none` if the expression contains
     constructs that `lowerTotal` does not support (e.g. `Fix`). -/
-def lowerMIR (m : Expr) : Option Term := lowerTotal [] m
+def lowerMIR (m : Expr) : Option Term := lowerTotalExpr ([] : List MIR.VarId) m
 
 /-- **Behavioral equivalence of closed MIR expressions.**
 
@@ -191,7 +191,7 @@ def lowerMIR (m : Expr) : Option Term := lowerTotal [] m
     The entire definition is built from total functions (`steps`, `lowerTotal`),
     so it lives in `Prop` and can be used in Lean proofs without `sorry`. -/
 def BehEqClosed (m1 m2 : Expr) : Prop :=
-  match lowerTotal [] m1, lowerTotal [] m2 with
+  match lowerTotalExpr ([] : List MIR.VarId) m1, lowerTotalExpr ([] : List MIR.VarId) m2 with
   | some t1, some t2 =>
     (Reaches (.compute [] .nil t1) .error ↔ Reaches (.compute [] .nil t2) .error) ∧
     (Halts (.compute [] .nil t1) ↔ Halts (.compute [] .nil t2)) ∧
@@ -249,7 +249,7 @@ theorem wellSizedEnv_mono {d d' : Nat} {ρ : CekEnv} (h : WellSizedEnv d ρ) (hl
     let-bindings, or case branches. -/
 def BehEq (m1 m2 : Expr) : Prop :=
   ∀ (env : List MIR.VarId),
-  match lowerTotal env m1, lowerTotal env m2 with
+  match lowerTotalExpr env m1, lowerTotalExpr env m2 with
   | some t1, some t2 =>
     ∀ ρ : CekEnv, WellSizedEnv env.length ρ →
       (Reaches (.compute [] ρ t1) .error ↔ Reaches (.compute [] ρ t2) .error) ∧
@@ -266,7 +266,7 @@ scoped infix:50 " ≋ " => BehEq
     and they are behaviorally equivalent. This is the appropriate notion for
     optimizations that may remove free variables (like dead-let elimination). -/
 def Refines (m1 m2 : Expr) : Prop :=
-  (∀ env, (lowerTotal env m1).isSome → (lowerTotal env m2).isSome) ∧
+  (∀ env, (lowerTotalExpr env m1).isSome → (lowerTotalExpr env m2).isSome) ∧
   BehEq m1 m2
 
 scoped infix:50 " ⊑ " => Refines
@@ -401,8 +401,11 @@ end
 /-! ## Transitivity of behavioral equivalence -/
 
 /-- Extract the content of `BehEqClosed` when both sides lower successfully. -/
+private abbrev emptyEnv : List MIR.VarId := []
+
 private theorem behEqClosed_extract {m1 m2 : Expr} {t1 t2 : Term}
-    (h1 : lowerTotal [] m1 = some t1) (h2 : lowerTotal [] m2 = some t2)
+    (h1 : lowerTotalExpr emptyEnv m1 = some t1)
+    (h2 : lowerTotalExpr emptyEnv m2 = some t2)
     (h : BehEqClosed m1 m2) :
     (Reaches (.compute [] .nil t1) .error ↔ Reaches (.compute [] .nil t2) .error) ∧
     (Halts (.compute [] .nil t1) ↔ Halts (.compute [] .nil t2)) ∧
@@ -414,18 +417,18 @@ private theorem behEqClosed_extract {m1 m2 : Expr} {t1 t2 : Term}
 
 /-- **Transitivity of closed behavioral equivalence.** -/
 theorem behEqClosed_trans {a b c : Expr}
-    {tb : Term} (hb : lowerTotal [] b = some tb)
+    {tb : Term} (hb : lowerTotalExpr emptyEnv b = some tb)
     (h12 : a ≋ᶜ b) (h23 : b ≋ᶜ c) : a ≋ᶜ c := by
   unfold BehEqClosed
-  cases ha : lowerTotal [] a with
+  cases ha : lowerTotalExpr emptyEnv a with
   | none => split <;> trivial
   | some ta =>
-    cases hc : lowerTotal [] c with
+    cases hc : lowerTotalExpr emptyEnv c with
     | none => split <;> trivial
     | some tc =>
       simp only []
       have ⟨herr12, hh12, hv12⟩ := behEqClosed_extract ha hb h12
-      have ⟨herr23, hh23, hv23⟩ := behEqClosed_extract hb (show lowerTotal [] c = some tc from hc) h23
+      have ⟨herr23, hh23, hv23⟩ := behEqClosed_extract hb hc h23
       refine ⟨herr12.trans herr23, hh12.trans hh23, ?_⟩
       intro k v₁ v₃ hv₁ hv₃
       obtain ⟨v₂, hv₂⟩ := hh12.mp ⟨v₁, hv₁⟩
@@ -433,7 +436,7 @@ theorem behEqClosed_trans {a b c : Expr}
 
 /-- Extract the content of `BehEq` at a specific environment when both sides lower. -/
 private theorem behEq_extract {m1 m2 : Expr} {env : List MIR.VarId} {t1 t2 : Term}
-    (h1 : lowerTotal env m1 = some t1) (h2 : lowerTotal env m2 = some t2)
+    (h1 : lowerTotalExpr env m1 = some t1) (h2 : lowerTotalExpr env m2 = some t2)
     (h : BehEq m1 m2) :
     ∀ ρ : CekEnv, WellSizedEnv env.length ρ →
       (Reaches (.compute [] ρ t1) .error ↔ Reaches (.compute [] ρ t2) .error) ∧
@@ -447,14 +450,14 @@ private theorem behEq_extract {m1 m2 : Expr} {env : List MIR.VarId} {t1 t2 : Ter
 /-- **Transitivity of behavioral equivalence for open terms.**
     Requires `b` to lower wherever `a` does, so the chain is informative. -/
 theorem behEq_trans {a b c : Expr}
-    (hlb : ∀ env, (lowerTotal env a).isSome → (lowerTotal env b).isSome)
+    (hlb : ∀ env, (lowerTotalExpr env a).isSome → (lowerTotalExpr env b).isSome)
     (h12 : a ≋ b) (h23 : b ≋ c) : a ≋ c := by
   unfold BehEq; intro env
-  cases ha : lowerTotal env a with
+  cases ha : lowerTotalExpr env a with
   | none => split <;> trivial
   | some ta =>
     obtain ⟨tb, hb⟩ := Option.isSome_iff_exists.mp (hlb env (by simp [ha]))
-    cases hc : lowerTotal env c with
+    cases hc : lowerTotalExpr env c with
     | none => split <;> trivial
     | some tc =>
       simp only []

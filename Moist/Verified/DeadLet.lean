@@ -13,6 +13,7 @@ namespace Moist.Verified.DeadLet
 open Moist.CEK
 open Moist.Plutus.Term
 open Moist.MIR
+open Moist.MIR (lowerTotalExpr lowerTotalExpr_eq_lowerTotal fixCount fixCountBinds)
 open Moist.Verified.Semantics
 open Moist.Verified
 open Moist.Verified.StepLift (beta_reaches beta_reaches_error beta_apply_from_inner)
@@ -137,19 +138,28 @@ end
 
 /-- **Precondition for dead let elimination.**
 
-    `MIRDeadLetCond x e body` asserts two things:
+    `MIRDeadLetCond x e body` asserts three things:
     1. `unused`: variable `x` does not appear free in `body`.
     2. `safe`: the RHS `e` is pure (cannot error or diverge in well-sized envs).
+    3. `fixFree`: the let-expression is Fix-free, ensuring `lowerTotalExpr`
+       agrees with `lowerTotal` so that the lowering decomposition is valid.
 
-    Both conditions are decidable and are discharged by `native_decide`
+    All conditions are decidable and are discharged by `native_decide`
     in concrete applications (see `Example.lean`).
 
     The purity condition is essential: `let x = error in foo` errors
     before reaching `foo`, but dropping the binding makes `foo` succeed.
-    Without `safe`, the optimization changes observable error behavior. -/
+    Without `safe`, the optimization changes observable error behavior.
+
+    The `fixFree` condition is a technical requirement: the proof
+    decomposes the UPLC lowering of the let-expression into its
+    sub-components, which requires `lowerTotalExpr = lowerTotal`.
+    In practice this always holds since dead-let elimination runs
+    after Fix expansion in the optimizer pipeline. -/
 structure MIRDeadLetCond (x : VarId) (e body : Expr) : Prop where
   unused : (freeVars body).contains x = false
   safe : isPure e = true
+  fixFree : fixCount e + fixCount body = 0
 
 /-! ## Core semantic lemma: closedAt + EnvRelV → ValueEq
 
@@ -432,6 +442,14 @@ theorem dead_let_sound_closed (x : VarId) (e body : Expr)
     (hsc : MIRDeadLetCond x e body) :
     .Let [(x, e, false)] body ≋ᶜ body := by
   unfold BehEqClosed
+  -- From fixFree: fixCount e = 0 ∧ fixCount body = 0
+  have hfc_e : fixCount e = 0 := by have := hsc.fixFree; omega
+  have hfc_b : fixCount body = 0 := by have := hsc.fixFree; omega
+  have hfc_let : fixCount (.Let [(x, e, false)] body) = 0 := by
+    simp only [fixCount, fixCountBinds]; omega
+  -- Since fixCount = 0, lowerTotalExpr = lowerTotal for all relevant expressions
+  rw [lowerTotalExpr_eq_lowerTotal ([] : List VarId) body hfc_b,
+      lowerTotalExpr_eq_lowerTotal ([] : List VarId) (.Let [(x, e, false)] body) hfc_let]
   have hlower_let : lowerTotal [] (.Let [(x, e, false)] body) =
       (do let e' ← lowerTotal [] e
           let b' ← lowerTotal [] body
@@ -522,9 +540,15 @@ private theorem envRelV_shift_into_extend (d : Nat) (ρ : CekEnv) (ve : CekValue
 theorem dead_let_sound (x : VarId) (e body : Expr)
     (hsc : MIRDeadLetCond x e body) :
     .Let [(x, e, false)] body ⊑ body := by
+  -- From fixFree: fixCount e = 0 ∧ fixCount body = 0
+  have hfc_e : fixCount e = 0 := by have := hsc.fixFree; omega
+  have hfc_b : fixCount body = 0 := by have := hsc.fixFree; omega
+  have hfc_let : fixCount (.Let [(x, e, false)] body) = 0 := by
+    simp only [fixCount, fixCountBinds]; omega
   constructor
   · -- Compilation: if the let lowers, body also lowers
     intro env h_let
+    rw [lowerTotalExpr_eq_lowerTotal env body hfc_b]
     -- Case split on body lowering
     cases hb : lowerTotal env body with
     | some _ => simp [hb]
@@ -543,9 +567,14 @@ theorem dead_let_sound (x : VarId) (e body : Expr)
         lowerTotal_prepend_unused_none env x body hsc.unused hb
       have : lowerTotal env (.Let [(x, e, false)] body) = none := by
         rw [hlower_let]; simp [hxb]
-      rw [this] at h_let; simp at h_let
+      rw [lowerTotalExpr_eq_lowerTotal env (.Let [(x, e, false)] body) hfc_let,
+          this] at h_let
+      simp at h_let
   · -- BehEq: behavioral equivalence
     unfold BehEq; intro env
+    -- Since fixCount = 0, lowerTotalExpr = lowerTotal
+    rw [lowerTotalExpr_eq_lowerTotal env body hfc_b,
+        lowerTotalExpr_eq_lowerTotal env (.Let [(x, e, false)] body) hfc_let]
     -- Lower the let: lowerTotal env (Let [(x,e,false)] body) = Apply (Lam 0 body_x) e'
     -- where body_x = lowerTotal (x :: env) body
     have hlower_let : lowerTotal env (.Let [(x, e, false)] body) =

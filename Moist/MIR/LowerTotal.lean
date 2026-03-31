@@ -1110,75 +1110,164 @@ theorem lowerTotal_prepend_unused (env : List VarId) (x : VarId) (e : Expr)
   have h := lowerTotal_prepend_unused_gen [] env x e (.inl hunused)
   simpa using h
 
-/-! ## Fix expansion (total, single bottom-up pass)
+/-! ## Fix counting (total) -/
+
+mutual
+  def fixCount (e : Expr) : Nat :=
+    match e with
+    | .Fix _ body => 1 + fixCount body
+    | .Lam _ body => fixCount body
+    | .App f x => fixCount f + fixCount x
+    | .Force e | .Delay e => fixCount e
+    | .Constr _ args => fixCountList args
+    | .Case scrut alts => fixCount scrut + fixCountList alts
+    | .Let binds body => fixCountBinds binds + fixCount body
+    | _ => 0
+  termination_by sizeOf e
+
+  def fixCountList (es : List Expr) : Nat :=
+    match es with
+    | [] => 0
+    | e :: rest => fixCount e + fixCountList rest
+  termination_by sizeOf es
+
+  def fixCountBinds (binds : List (VarId × Expr × Bool)) : Nat :=
+    match binds with
+    | [] => 0
+    | (_, rhs, _) :: rest => fixCount rhs + fixCountBinds rest
+  termination_by sizeOf binds
+end
+
+/-! ## Fix expansion (total, single bottom-up pass, compositional)
 
 Expands every `Fix f (Lam x e)` to its Z combinator encoding at the MIR
 level. The pass is bottom-up: children are expanded first, so by the time
 we reach a Fix node its body is already Fix-free. Since `subst` with a
 Fix-free replacement (`λv. s s v`) cannot introduce Fix nodes, the output
 of a single pass is guaranteed Fix-free. No fuel required.
+
+Fresh variables are generated from `maxUidExpr` of the already-expanded
+body, so no counter is threaded between sibling sub-expressions. This
+makes `expandFix` fully compositional.
 -/
 
 mutual
-  /-- Expand all Fix nodes bottom-up. Returns the expanded expression and
-      the next available fresh id. -/
-  def expandFix (fresh : Nat) (e : Expr) : Expr × Nat :=
+  /-- Expand all Fix nodes bottom-up. Compositional: no counter threaded. -/
+  def expandFix (e : Expr) : Expr :=
     match e with
     | .Fix f (.Lam x body) =>
       -- Bottom-up: expand children first so body' is Fix-free
-      let (body', fr0) := expandFix fresh body
+      let body' := expandFix body
+      let base := maxUidExpr body' + 1
       -- Z combinator: (λz. z z) (λs. λx. body'[f := λv. s s v])
-      let s : VarId := ⟨fr0, "s"⟩
-      let v : VarId := ⟨fr0 + 1, "v"⟩
+      let s : VarId := ⟨base, "s"⟩
+      let v : VarId := ⟨base + 1, "v"⟩
       let selfApp := Expr.Lam v (.App (.App (.Var s) (.Var s)) (.Var v))
-      let z : VarId := ⟨fr0 + 2, "z"⟩
-      let e' := (subst f selfApp body').run ⟨fr0 + 3⟩ |>.1
-      (.App (.Lam z (.App (.Var z) (.Var z))) (.Lam s (.Lam x e')), fr0 + 100)
+      let z : VarId := ⟨base + 2, "z"⟩
+      let e' := (subst f selfApp body').run ⟨base + 3⟩ |>.1
+      .App (.Lam z (.App (.Var z) (.Var z))) (.Lam s (.Lam x e'))
     | .Fix f body =>
-      let (body', fr) := expandFix fresh body; (.Fix f body', fr)
+      let body' := expandFix body; .Fix f body'
     | .Lam x body =>
-      let (body', fr) := expandFix fresh body; (.Lam x body', fr)
+      let body' := expandFix body; .Lam x body'
     | .App f x =>
-      let (f', fr1) := expandFix fresh f
-      let (x', fr2) := expandFix fr1 x; (.App f' x', fr2)
+      let f' := expandFix f
+      let x' := expandFix x; .App f' x'
     | .Let binds body =>
-      let (binds', fr1) := expandFixBinds fresh binds
-      let (body', fr2) := expandFix fr1 body; (.Let binds' body', fr2)
-    | .Force e => let (e', fr) := expandFix fresh e; (.Force e', fr)
-    | .Delay e => let (e', fr) := expandFix fresh e; (.Delay e', fr)
+      let binds' := expandFixBinds binds
+      let body' := expandFix body; .Let binds' body'
+    | .Force e => .Force (expandFix e)
+    | .Delay e => .Delay (expandFix e)
     | .Constr tag args =>
-      let (args', fr) := expandFixList fresh args; (.Constr tag args', fr)
+      .Constr tag (expandFixList args)
     | .Case scrut alts =>
-      let (scrut', fr1) := expandFix fresh scrut
-      let (alts', fr2) := expandFixList fr1 alts; (.Case scrut' alts', fr2)
-    | e => (e, fresh)
+      .Case (expandFix scrut) (expandFixList alts)
+    | e => e
   termination_by sizeOf e
 
-  def expandFixList (fresh : Nat) (es : List Expr) : List Expr × Nat :=
+  def expandFixList (es : List Expr) : List Expr :=
     match es with
-    | [] => ([], fresh)
+    | [] => []
     | e :: rest =>
-      let (e', fr1) := expandFix fresh e
-      let (rest', fr2) := expandFixList fr1 rest
-      (e' :: rest', fr2)
+      expandFix e :: expandFixList rest
   termination_by sizeOf es
 
-  def expandFixBinds (fresh : Nat) (binds : List (VarId × Expr × Bool))
-      : List (VarId × Expr × Bool) × Nat :=
+  def expandFixBinds (binds : List (VarId × Expr × Bool))
+      : List (VarId × Expr × Bool) :=
     match binds with
-    | [] => ([], fresh)
+    | [] => []
     | (v, rhs, er) :: rest =>
-      let (rhs', fr1) := expandFix fresh rhs
-      let (rest', fr2) := expandFixBinds fr1 rest
-      ((v, rhs', er) :: rest', fr2)
+      (v, expandFix rhs, er) :: expandFixBinds rest
   termination_by sizeOf binds
 end
 
+/-! ## expandFix is identity on Fix-free expressions -/
+
+mutual
+  theorem expandFix_id (e : Expr) (h : fixCount e = 0) :
+      expandFix e = e := by
+    match e with
+    | .Var _ | .Lit _ | .Builtin _ | .Error => simp [expandFix]
+    | .Fix _ (.Lam _ _) => simp only [fixCount] at h; omega
+    | .Fix _ _ => simp only [fixCount] at h; omega
+    | .Lam _ body =>
+      simp only [fixCount] at h; simp only [expandFix]
+      rw [expandFix_id body h]
+    | .App f x =>
+      simp only [fixCount] at h; simp only [expandFix]
+      have hf : fixCount f = 0 := by omega
+      have hx : fixCount x = 0 := by omega
+      rw [expandFix_id f hf, expandFix_id x hx]
+    | .Force e' => simp only [fixCount] at h; simp only [expandFix]; rw [expandFix_id e' h]
+    | .Delay e' => simp only [fixCount] at h; simp only [expandFix]; rw [expandFix_id e' h]
+    | .Constr _ args =>
+      simp only [fixCount] at h; simp only [expandFix]; rw [expandFixList_id args h]
+    | .Case scrut alts =>
+      simp only [fixCount] at h; simp only [expandFix]
+      have hs : fixCount scrut = 0 := by omega
+      have ha : fixCountList alts = 0 := by omega
+      rw [expandFix_id scrut hs, expandFixList_id alts ha]
+    | .Let binds body =>
+      simp only [fixCount] at h; simp only [expandFix]
+      have hb : fixCountBinds binds = 0 := by omega
+      have hd : fixCount body = 0 := by omega
+      rw [expandFixBinds_id binds hb, expandFix_id body hd]
+  termination_by sizeOf e
+
+  theorem expandFixList_id (es : List Expr) (h : fixCountList es = 0) :
+      expandFixList es = es := by
+    match es with
+    | [] => simp [expandFixList]
+    | e :: rest =>
+      simp only [fixCountList] at h; simp only [expandFixList]
+      have he : fixCount e = 0 := by omega
+      have hr : fixCountList rest = 0 := by omega
+      rw [expandFix_id e he, expandFixList_id rest hr]
+  termination_by sizeOf es
+
+  theorem expandFixBinds_id (binds : List (VarId × Expr × Bool))
+      (h : fixCountBinds binds = 0) : expandFixBinds binds = binds := by
+    match binds with
+    | [] => simp [expandFixBinds]
+    | (_, rhs, _) :: rest =>
+      simp only [fixCountBinds] at h; simp only [expandFixBinds]
+      have hr : fixCount rhs = 0 := by omega
+      have hrest : fixCountBinds rest = 0 := by omega
+      rw [expandFix_id rhs hr, expandFixBinds_id rest hrest]
+  termination_by sizeOf binds
+end
+
+/-! ## lowerTotalExpr: lowerTotal + Fix expansion -/
+
 /-- Lower an MIR expression to UPLC, handling Fix nodes by expanding them
-    to Z combinator encodings before lowering. Drop-in replacement for
-    `lowerTotal` that also handles `Fix`. -/
-def lowerTotalExpr (env : List VarId) (e : Expr) (freshStart : Nat := 10000) : Option Term :=
-  let (expanded, _) := expandFix freshStart e
-  lowerTotal env expanded
+    to Z combinator encodings before lowering. Fully compositional: no
+    fresh counter threaded between sibling sub-expressions. -/
+def lowerTotalExpr (env : List VarId) (e : Expr) : Option Term :=
+  lowerTotal env (expandFix e)
+
+/-- For Fix-free expressions, `lowerTotalExpr` equals `lowerTotal`. -/
+theorem lowerTotalExpr_eq_lowerTotal (env : List VarId) (e : Expr)
+    (h : fixCount e = 0) : lowerTotalExpr env e = lowerTotal env e := by
+  simp only [lowerTotalExpr, expandFix_id e h]
 
 end Moist.MIR

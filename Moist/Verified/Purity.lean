@@ -10,11 +10,96 @@ namespace Moist.Verified.Purity
 
 open Moist.CEK
 open Moist.Plutus.Term (Term Const BuiltinFun BuiltinType)
-open Moist.MIR (Expr VarId lowerTotal lowerTotalList lowerTotalLet
-                 isPure isPureList isPureBinds isForceable envLookupT)
+open Moist.MIR (Expr VarId lowerTotal lowerTotalList lowerTotalLet lowerTotalExpr
+                 isPure isPureList isPureBinds isForceable envLookupT
+                 fixCount fixCountList fixCountBinds)
 open Moist.Verified.Semantics
 open Moist.Verified.StepLift (liftState isActive liftState_ne_halt
   step_liftState_active steps_liftState beta_apply_from_inner)
+
+/-! # lowerTotal success → fixCount = 0
+
+If `lowerTotal env e = some t`, then `fixCount e = 0`. This is because
+`lowerTotal` returns `none` on any `Fix` node. Used to bridge from
+`lowerTotalExpr` to `lowerTotal`: when both refer to the same expression
+and lowerTotal succeeds, they produce the same result.
+-/
+
+mutual
+  theorem lowerTotal_fixCount_zero (env : List VarId) (e : Expr) (t : Moist.Plutus.Term.Term)
+      (h : lowerTotal env e = some t) : fixCount e = 0 := by
+    match e with
+    | .Fix _ _ => simp [lowerTotal] at h
+    | .Var _ | .Lit _ | .Builtin _ | .Error => simp [fixCount]
+    | .Lam x body =>
+      simp only [lowerTotal.eq_5, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+      obtain ⟨body', hbody, _⟩ := h
+      simp only [fixCount]; exact lowerTotal_fixCount_zero (x :: env) body body' hbody
+    | .Delay inner =>
+      simp only [lowerTotal.eq_8, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+      obtain ⟨inner', hinner, _⟩ := h
+      simp only [fixCount]; exact lowerTotal_fixCount_zero env inner inner' hinner
+    | .Force inner =>
+      simp only [lowerTotal.eq_7, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+      obtain ⟨inner', hinner, _⟩ := h
+      simp only [fixCount]; exact lowerTotal_fixCount_zero env inner inner' hinner
+    | .App f x =>
+      simp only [lowerTotal.eq_6, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+      obtain ⟨f', hf, x', hx, _⟩ := h
+      simp only [fixCount]
+      have := lowerTotal_fixCount_zero env f f' hf
+      have := lowerTotal_fixCount_zero env x x' hx
+      omega
+    | .Constr _ args =>
+      simp only [lowerTotal.eq_9, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+      obtain ⟨args', hargs, _⟩ := h
+      simp only [fixCount]; exact lowerTotalList_fixCountList_zero env args args' hargs
+    | .Case scrut alts =>
+      simp only [lowerTotal.eq_10, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+      obtain ⟨scrut', hscrut, alts', halts, _⟩ := h
+      simp only [fixCount]
+      have := lowerTotal_fixCount_zero env scrut scrut' hscrut
+      have := lowerTotalList_fixCountList_zero env alts alts' halts
+      omega
+    | .Let binds body =>
+      simp only [lowerTotal.eq_11] at h
+      simp only [fixCount]
+      exact lowerTotalLet_fixCount_zero env binds body t h
+  termination_by sizeOf e
+
+  theorem lowerTotalList_fixCountList_zero (env : List VarId) (es : List Expr)
+      (ts : List Moist.Plutus.Term.Term)
+      (h : lowerTotalList env es = some ts) : fixCountList es = 0 := by
+    match es with
+    | [] => simp [fixCountList]
+    | e :: rest =>
+      simp only [lowerTotalList.eq_2, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+      obtain ⟨te, hte, ts', hts, _⟩ := h
+      simp only [fixCountList]
+      have := lowerTotal_fixCount_zero env e te hte
+      have := lowerTotalList_fixCountList_zero env rest ts' hts
+      omega
+  termination_by sizeOf es
+
+  theorem lowerTotalLet_fixCount_zero (env : List VarId)
+      (binds : List (VarId × Expr × Bool)) (body : Expr)
+      (t : Moist.Plutus.Term.Term)
+      (h : lowerTotalLet env binds body = some t) :
+      fixCountBinds binds + fixCount body = 0 := by
+    match binds with
+    | [] =>
+      simp only [lowerTotalLet.eq_1] at h
+      simp only [fixCountBinds]; simp
+      exact lowerTotal_fixCount_zero env body t h
+    | (x, rhs, _) :: rest =>
+      simp only [lowerTotalLet.eq_2, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+      obtain ⟨rhs', hrhs, rest', hrest, _⟩ := h
+      simp only [fixCountBinds]
+      have := lowerTotal_fixCount_zero env rhs rhs' hrhs
+      have := lowerTotalLet_fixCount_zero (x :: env) rest body rest' hrest
+      omega
+  termination_by sizeOf binds + sizeOf body
+end
 
 /-! # isPure implies halting
 
