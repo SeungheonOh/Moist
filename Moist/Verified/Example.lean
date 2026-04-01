@@ -147,7 +147,11 @@ theorem dead_let_example : mirLhs ≋ᶜ mirRhs := by
     cases k with
     | zero => unfold ValueEq; trivial
     | succ k =>
-      unfold ValueEq; intro arg; constructor
+      unfold ValueEq; intro arg; refine ⟨?_, ?_, ?_⟩
+      · -- Error iff for the closure bodies
+        constructor
+        · intro he; exact (reaches_halt_not_error ⟨15, lhsBody_halts arg⟩ he).elim
+        · intro he; exact (reaches_halt_not_error ⟨2, rhsBody_halts arg⟩ he).elim
       · -- Halts iff for the closure bodies
         constructor
         · intro _; exact ⟨_, 2, rhsBody_halts arg⟩

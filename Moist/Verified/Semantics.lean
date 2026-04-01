@@ -142,6 +142,8 @@ mutual
     | _ + 1, .VCon c1, .VCon c2 => c1 = c2
     | k + 1, .VLam body1 env1, .VLam body2 env2 =>
       ∀ (arg : CekValue),
+        (Reaches (.compute [] (env1.extend arg) body1) .error ↔
+         Reaches (.compute [] (env2.extend arg) body2) .error) ∧
         (Halts (.compute [] (env1.extend arg) body1) ↔
          Halts (.compute [] (env2.extend arg) body2)) ∧
         ∀ (v1 v2 : CekValue),
@@ -151,13 +153,21 @@ mutual
     | k + 1, .VConstr tag1 fields1, .VConstr tag2 fields2 =>
       tag1 = tag2 ∧ ListValueEq k fields1 fields2
     | k + 1, .VDelay body1 env1, .VDelay body2 env2 =>
+      (Reaches (.compute [] env1 body1) .error ↔
+       Reaches (.compute [] env2 body2) .error) ∧
       (Halts (.compute [] env1 body1) ↔ Halts (.compute [] env2 body2)) ∧
       ∀ (v1 v2 : CekValue),
         Reaches (.compute [] env1 body1) (.halt v1) →
         Reaches (.compute [] env2 body2) (.halt v2) →
         ValueEq k v1 v2
     | k + 1, .VBuiltin b1 args1 ea1, .VBuiltin b2 args2 ea2 =>
-      b1 = b2 ∧ ListValueEq k args1 args2 ∧ ea1 = ea2
+      b1 = b2 ∧ ListValueEq k args1 args2 ∧ ea1 = ea2 ∧
+      (Moist.CEK.evalBuiltin b1 args1 = none ↔
+       Moist.CEK.evalBuiltin b2 args2 = none) ∧
+      (∀ (r1 r2 : CekValue),
+        Moist.CEK.evalBuiltin b1 args1 = some r1 →
+        Moist.CEK.evalBuiltin b2 args2 = some r2 →
+        ValueEq k r1 r2)
     | _, _, _ => False
 
   /-- Pointwise `ValueEq` lifted to lists. Both lists must have the same
@@ -281,15 +291,16 @@ mutual
     | 0, _ => by simp [ValueEq]
     | _ + 1, .VCon _ => by simp [ValueEq]
     | k + 1, .VLam _ _ => by
-      unfold ValueEq; intro arg; exact ⟨Iff.rfl, fun v₁ v₂ h₁ h₂ =>
+      unfold ValueEq; intro arg; exact ⟨Iff.rfl, Iff.rfl, fun v₁ v₂ h₁ h₂ =>
         reaches_unique h₁ h₂ ▸ valueEq_refl k v₁⟩
     | k + 1, .VDelay _ _ => by
-      unfold ValueEq; exact ⟨Iff.rfl, fun v₁ v₂ h₁ h₂ =>
+      unfold ValueEq; exact ⟨Iff.rfl, Iff.rfl, fun v₁ v₂ h₁ h₂ =>
         reaches_unique h₁ h₂ ▸ valueEq_refl k v₁⟩
     | _ + 1, .VConstr _ fields => by
       unfold ValueEq; exact ⟨rfl, listValueEq_refl _ fields⟩
     | k + 1, .VBuiltin b args ea => by
-      unfold ValueEq; exact ⟨rfl, listValueEq_refl k args, rfl⟩
+      unfold ValueEq; exact ⟨rfl, listValueEq_refl k args, rfl, Iff.rfl,
+        fun r1 r2 h1 h2 => by rw [h1] at h2; injection h2 with h2; subst h2; exact valueEq_refl k r1⟩
   theorem listValueEq_refl : ∀ (k : Nat) (vs : List CekValue), ListValueEq k vs vs
     | _, [] => by simp [ListValueEq]
     | k, v :: vs => by simp only [ListValueEq]; exact ⟨valueEq_refl k v, listValueEq_refl k vs⟩
@@ -298,15 +309,17 @@ mutual
     | _ + 1, .VCon _, .VCon _, h => by simp only [ValueEq] at h ⊢; exact h.symm
     | k + 1, .VLam _ _, .VLam _ _, h => by
       unfold ValueEq at h ⊢; intro arg
-      have ⟨hh, hv⟩ := h arg
-      exact ⟨hh.symm, fun v₁ v₂ h₁ h₂ => valueEq_symm k _ _ (hv v₂ v₁ h₂ h₁)⟩
+      have ⟨he, hh, hv⟩ := h arg
+      exact ⟨he.symm, hh.symm, fun v₁ v₂ h₁ h₂ => valueEq_symm k _ _ (hv v₂ v₁ h₂ h₁)⟩
     | k + 1, .VDelay _ _, .VDelay _ _, h => by
       unfold ValueEq at h ⊢
-      exact ⟨h.1.symm, fun v₁ v₂ h₁ h₂ => valueEq_symm k _ _ (h.2 v₂ v₁ h₂ h₁)⟩
+      exact ⟨h.1.symm, h.2.1.symm, fun v₁ v₂ h₁ h₂ => valueEq_symm k _ _ (h.2.2 v₂ v₁ h₂ h₁)⟩
     | _ + 1, .VConstr _ _, .VConstr _ _, h => by
       unfold ValueEq at h ⊢; exact ⟨h.1.symm, listValueEq_symm _ _ _ h.2⟩
     | k + 1, .VBuiltin _ _ _, .VBuiltin _ _ _, h => by
-      unfold ValueEq at h ⊢; exact ⟨h.1.symm, listValueEq_symm k _ _ h.2.1, h.2.2.symm⟩
+      unfold ValueEq at h ⊢
+      exact ⟨h.1.symm, listValueEq_symm k _ _ h.2.1, h.2.2.1.symm, h.2.2.2.1.symm,
+             fun r1 r2 h1 h2 => valueEq_symm k _ _ (h.2.2.2.2 r2 r1 h2 h1)⟩
     | _ + 1, .VCon _, .VLam _ _, h => by simp [ValueEq] at h
     | _ + 1, .VCon _, .VDelay _ _, h => by simp [ValueEq] at h
     | _ + 1, .VCon _, .VConstr _ _, h => by simp [ValueEq] at h
@@ -343,21 +356,38 @@ mutual
       simp only [ValueEq] at h12 h23 ⊢; exact h12.trans h23
     | k + 1, .VLam _ _, .VLam _ _, .VLam _ _, h12, h23 => by
       unfold ValueEq at h12 h23 ⊢; intro arg
-      have ⟨hh12, hv12⟩ := h12 arg; have ⟨hh23, hv23⟩ := h23 arg
-      refine ⟨hh12.trans hh23, fun w₁ w₃ hw₁ hw₃ => ?_⟩
+      have ⟨he12, hh12, hv12⟩ := h12 arg; have ⟨he23, hh23, hv23⟩ := h23 arg
+      refine ⟨he12.trans he23, hh12.trans hh23, fun w₁ w₃ hw₁ hw₃ => ?_⟩
       obtain ⟨_, hw₂⟩ := hh12.mp ⟨_, hw₁⟩
       exact valueEq_trans k _ _ _ (hv12 _ _ hw₁ hw₂) (hv23 _ _ hw₂ hw₃)
     | k + 1, .VDelay _ _, .VDelay _ _, .VDelay _ _, h12, h23 => by
       unfold ValueEq at h12 h23 ⊢
-      refine ⟨h12.1.trans h23.1, fun w₁ w₃ hw₁ hw₃ => ?_⟩
-      obtain ⟨_, hw₂⟩ := h12.1.mp ⟨_, hw₁⟩
-      exact valueEq_trans k _ _ _ (h12.2 _ _ hw₁ hw₂) (h23.2 _ _ hw₂ hw₃)
+      refine ⟨h12.1.trans h23.1, h12.2.1.trans h23.2.1, fun w₁ w₃ hw₁ hw₃ => ?_⟩
+      obtain ⟨_, hw₂⟩ := h12.2.1.mp ⟨_, hw₁⟩
+      exact valueEq_trans k _ _ _ (h12.2.2 _ _ hw₁ hw₂) (h23.2.2 _ _ hw₂ hw₃)
     | _ + 1, .VConstr _ _, .VConstr _ _, .VConstr _ _, h12, h23 => by
       unfold ValueEq at h12 h23 ⊢
       exact ⟨h12.1.trans h23.1, listValueEq_trans _ _ _ _ h12.2 h23.2⟩
     | k + 1, .VBuiltin _ _ _, .VBuiltin _ _ _, .VBuiltin _ _ _, h12, h23 => by
       unfold ValueEq at h12 h23 ⊢
-      exact ⟨h12.1.trans h23.1, listValueEq_trans k _ _ _ h12.2.1 h23.2.1, h12.2.2.trans h23.2.2⟩
+      exact ⟨h12.1.trans h23.1, listValueEq_trans k _ _ _ h12.2.1 h23.2.1,
+             h12.2.2.1.trans h23.2.2.1, h12.2.2.2.1.trans h23.2.2.2.1,
+             fun r1 r3 hr1 hr3 => by
+               -- h12.2.2.2.1 : ... args1 = none ↔ ... args2 = none
+               -- h23.2.2.2.1 : ... args2 = none ↔ ... args3 = none
+               -- Need: evalBuiltin args2 = some r2
+               -- hr1 : evalBuiltin args1 = some r1, so args1 ≠ none
+               -- By contrapositive of h12.2.2.2.1.mpr: args2 ≠ none → args1 ≠ none
+               -- Equivalently: args1 = none → args2 = none, contrapositive: args2 ≠ none ← args1 ≠ none
+               -- Actually need: args1 ≠ none → args2 ≠ none (contrapositive of .mpr)
+               -- Case-split on evalBuiltin for the middle (args2)
+               -- h12.2.2.2.1 tells us args1=none ↔ args2=none
+               -- hr1 tells us args1 = some r1, so args1 ≠ none, so args2 ≠ none
+               rcases h_mid : Moist.CEK.evalBuiltin _ _ with _ | r2
+               · -- evalBuiltin b2 args2 = none. But args1 ≠ none, contradiction.
+                 exact absurd (h12.2.2.2.1.mpr h_mid ▸ hr1) (by simp)
+               · -- evalBuiltin b2 args2 = some r2
+                 exact valueEq_trans k _ _ _ (h12.2.2.2.2 r1 r2 hr1 h_mid) (h23.2.2.2.2 r2 r3 h_mid hr3)⟩
     -- h12 is False (v₁ and v₂ have different constructors)
     | _ + 1, .VCon _, .VLam _ _, _, h, _ | _ + 1, .VCon _, .VDelay _ _, _, h, _
     | _ + 1, .VCon _, .VConstr _ _, _, h, _ | _ + 1, .VCon _, .VBuiltin _ _ _, _, h, _

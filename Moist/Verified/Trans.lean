@@ -30,21 +30,26 @@ mutual
       simp only [ValueEq] at h12 h23 ⊢; exact h12.trans h23
     | k + 1, .VLam _ _, .VLam _ _, .VLam _ _, h12, h23 => by
       unfold ValueEq at h12 h23 ⊢; intro arg
-      have ⟨hh12, hv12⟩ := h12 arg; have ⟨hh23, hv23⟩ := h23 arg
-      refine ⟨hh12.trans hh23, fun w₁ w₃ hw₁ hw₃ => ?_⟩
+      have ⟨he12, hh12, hv12⟩ := h12 arg; have ⟨he23, hh23, hv23⟩ := h23 arg
+      refine ⟨he12.trans he23, hh12.trans hh23, fun w₁ w₃ hw₁ hw₃ => ?_⟩
       obtain ⟨_, hw₂⟩ := hh12.mp ⟨_, hw₁⟩
       exact valueEq_trans k _ _ _ (hv12 _ _ hw₁ hw₂) (hv23 _ _ hw₂ hw₃)
     | k + 1, .VDelay _ _, .VDelay _ _, .VDelay _ _, h12, h23 => by
       unfold ValueEq at h12 h23 ⊢
-      refine ⟨h12.1.trans h23.1, fun w₁ w₃ hw₁ hw₃ => ?_⟩
-      obtain ⟨_, hw₂⟩ := h12.1.mp ⟨_, hw₁⟩
-      exact valueEq_trans k _ _ _ (h12.2 _ _ hw₁ hw₂) (h23.2 _ _ hw₂ hw₃)
+      refine ⟨h12.1.trans h23.1, h12.2.1.trans h23.2.1, fun w₁ w₃ hw₁ hw₃ => ?_⟩
+      obtain ⟨_, hw₂⟩ := h12.2.1.mp ⟨_, hw₁⟩
+      exact valueEq_trans k _ _ _ (h12.2.2 _ _ hw₁ hw₂) (h23.2.2 _ _ hw₂ hw₃)
     | _ + 1, .VConstr _ _, .VConstr _ _, .VConstr _ _, h12, h23 => by
       unfold ValueEq at h12 h23 ⊢
       exact ⟨h12.1.trans h23.1, listValueEq_trans _ _ _ _ h12.2 h23.2⟩
     | k + 1, .VBuiltin _ _ _, .VBuiltin _ _ _, .VBuiltin _ _ _, h12, h23 => by
       unfold ValueEq at h12 h23 ⊢
-      exact ⟨h12.1.trans h23.1, listValueEq_trans k _ _ _ h12.2.1 h23.2.1, h12.2.2.trans h23.2.2⟩
+      exact ⟨h12.1.trans h23.1, listValueEq_trans k _ _ _ h12.2.1 h23.2.1,
+             h12.2.2.1.trans h23.2.2.1, h12.2.2.2.1.trans h23.2.2.2.1,
+             fun r1 r3 hr1 hr3 => by
+               rcases h_mid : Moist.CEK.evalBuiltin _ _ with _ | r2
+               · exact absurd (h12.2.2.2.1.mpr h_mid ▸ hr1) (by simp)
+               · exact valueEq_trans k _ _ _ (h12.2.2.2.2 r1 r2 hr1 h_mid) (h23.2.2.2.2 r2 r3 h_mid hr3)⟩
     -- h12 is False (v₁ and v₂ have different constructors)
     | _ + 1, .VCon _, .VLam _ _, _, h, _ | _ + 1, .VCon _, .VDelay _ _, _, h, _
     | _ + 1, .VCon _, .VConstr _ _, _, h, _ | _ + 1, .VCon _, .VBuiltin _ _ _, _, h, _

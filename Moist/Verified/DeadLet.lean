@@ -17,7 +17,7 @@ open Moist.MIR (lowerTotalExpr lowerTotalExpr_eq_lowerTotal fixCount fixCountBin
 open Moist.Verified.Semantics
 open Moist.Verified
 open Moist.Verified.StepLift (beta_reaches beta_reaches_error beta_apply_from_inner)
-open Moist.Verified.Bisim (bisim_reaches_error bisim_halts bisim_halts_rev steps_preserves)
+open Moist.Verified.Bisim (bisim_reaches_error bisim_halts bisim_halts_rev steps_preserves evalBuiltin_relV)
 open Moist.Verified (renameTerm liftRename renameTerm_id)
 open Moist.Verified.Purity
 
@@ -210,6 +210,23 @@ private theorem compute_error_cant_halt {env : CekEnv} {t : Term} {v : CekValue}
   | zero => simp [steps] at hN
   | succ N' => rw [herr N'] at hN; simp at hN
 
+/-! ### Reverse direction of bisim_reaches_error
+
+Needed for the error↔ component of ValueEq for VLam/VDelay closures. -/
+
+private theorem bisim_reaches_error_rev' {s₁ s₂ : State}
+    (hrel : StateRel s₁ s₂)
+    (h₂ : Reaches s₂ .error) : Reaches s₁ .error := by
+  obtain ⟨n, hn⟩ := h₂
+  have hr := Bisim.steps_preserves n hrel
+  rw [hn] at hr
+  generalize h_eq : steps n s₁ = s1f at hr
+  cases s1f with
+  | error => exact ⟨n, h_eq⟩
+  | halt _ => cases hr
+  | compute _ _ _ => cases hr
+  | ret _ _ => cases hr
+
 /-! ### Step 1: ValueRelV → ValueEq at successor index
 
 Given that (A) and (C) hold at index `k`, derive (B) at index `k+1`.
@@ -224,6 +241,7 @@ private theorem relV_implies_valueEq_succ (k : Nat)
       Reaches (.compute [] env₁ t) (.halt v₁) →
       Reaches (.compute [] env₂ (renameTerm σ t)) (.halt v₂) →
       ValueEq k v₁ v₂)
+    (ihB : ∀ v₁ v₂, ValueRelV v₁ v₂ → ValueEq k v₁ v₂)
     (ihC : ∀ vs₁ vs₂, ListValueRelV vs₁ vs₂ → ListValueEq k vs₁ vs₂)
     (v₁ v₂ : CekValue) (hr : ValueRelV v₁ v₂) : ValueEq (k + 1) v₁ v₂ := by
   cases hr with
@@ -232,15 +250,28 @@ private theorem relV_implies_valueEq_succ (k : Nat)
     unfold ValueEq; intro arg
     have hext := envRelV_extend σ d _ _ arg arg henv .refl
     have hsr := StateRel.compute .nil (liftRename σ) (d + 1) hext hcl
-    exact ⟨⟨bisim_halts hsr, bisim_halts_rev hsr⟩,
+    exact ⟨⟨bisim_reaches_error hsr, bisim_reaches_error_rev' hsr⟩,
+           ⟨bisim_halts hsr, bisim_halts_rev hsr⟩,
            fun w₁ w₂ hw₁ hw₂ => ihA (d + 1) _ _ _ w₁ w₂ hcl (liftRename σ) hext hw₁ hw₂⟩
   | vdelay σ d hcl henv =>
     unfold ValueEq
     have hsr := StateRel.compute .nil σ d henv hcl
-    exact ⟨⟨bisim_halts hsr, bisim_halts_rev hsr⟩,
+    exact ⟨⟨bisim_reaches_error hsr, bisim_reaches_error_rev' hsr⟩,
+           ⟨bisim_halts hsr, bisim_halts_rev hsr⟩,
            fun w₁ w₂ hw₁ hw₂ => ihA d _ _ _ w₁ w₂ hcl σ henv hw₁ hw₂⟩
   | vconstr htag hfs => subst htag; unfold ValueEq; exact ⟨rfl, ihC _ _ hfs⟩
-  | vbuiltin hb hargs hea => subst hb; subst hea; unfold ValueEq; exact ⟨rfl, ihC _ _ hargs, rfl⟩
+  | vbuiltin hb hargs hea =>
+    subst hb; subst hea; unfold ValueEq
+    rename_i b as1 as2 ea
+    have heval := evalBuiltin_relV b as1 as2 hargs
+    refine ⟨rfl, ihC _ _ hargs, rfl, ?_, ?_⟩
+    · -- evalBuiltin none↔
+      revert heval
+      cases Moist.CEK.evalBuiltin b as1 <;> cases Moist.CEK.evalBuiltin b as2 <;> simp_all
+    · -- evalBuiltin result ValueEq
+      intro r1 r2 hr1 hr2
+      revert heval; rw [hr1, hr2]; intro hrel
+      exact ihB r1 r2 hrel
   | refl => exact valueEq_refl _ _
 
 /-! ### Step 2: closedAt + EnvRelV + both halt → ValueEq at successor index
@@ -298,7 +329,8 @@ private theorem closed_eval_valueEq_succ (k : Nat)
   | .Builtin b =>
     have := reaches_unique h₁ (⟨2, rfl⟩ : Reaches _ (.halt _)); subst this
     have := reaches_unique h₂ (by show Reaches (.compute [] env₂ (renameTerm σ (.Builtin b))) (.halt _); simp [renameTerm]; exact ⟨2, rfl⟩); subst this
-    simp [ValueEq, ListValueEq]
+    unfold ValueEq; exact ⟨rfl, by simp [ListValueEq], rfl, Iff.rfl,
+      fun r1 r2 h1 h2 => by rw [h1] at h2; injection h2 with h2; subst h2; exact valueEq_refl k r1⟩
   | .Error =>
     simp only [renameTerm] at h₂
     exact absurd h₁ fun ⟨N, hN⟩ => by
@@ -310,7 +342,8 @@ private theorem closed_eval_valueEq_succ (k : Nat)
     unfold ValueEq; intro arg
     have hext := envRelV_extend σ d env₁ env₂ arg arg hrel .refl
     have hsr := StateRel.compute .nil (liftRename σ) (d + 1) hext (closedAt_lam hcl)
-    exact ⟨⟨bisim_halts hsr, bisim_halts_rev hsr⟩,
+    exact ⟨⟨bisim_reaches_error hsr, bisim_reaches_error_rev' hsr⟩,
+           ⟨bisim_halts hsr, bisim_halts_rev hsr⟩,
            fun w₁ w₂ hw₁ hw₂ => ihA (d + 1) body _ _ w₁ w₂
              (closedAt_lam hcl) (liftRename σ) hext hw₁ hw₂⟩
   | .Delay body =>
@@ -319,7 +352,8 @@ private theorem closed_eval_valueEq_succ (k : Nat)
     have := reaches_unique h₂ (⟨2, rfl⟩ : Reaches _ (.halt _)); subst this
     unfold ValueEq
     have hsr := StateRel.compute .nil σ d hrel (closedAt_delay hcl)
-    exact ⟨⟨bisim_halts hsr, bisim_halts_rev hsr⟩,
+    exact ⟨⟨bisim_reaches_error hsr, bisim_reaches_error_rev' hsr⟩,
+           ⟨bisim_halts hsr, bisim_halts_rev hsr⟩,
            fun w₁ w₂ hw₁ hw₂ => ihA d body env₁ env₂ w₁ w₂ (closedAt_delay hcl) σ hrel hw₁ hw₂⟩
   | .Apply _ _ | .Force _ | .Constr _ _ | .Case _ _ =>
     exact relV_to_eq v₁ v₂ (Bisim.bisim_reaches (.compute .nil σ d hrel hcl) h₁ h₂)
@@ -340,8 +374,8 @@ private theorem env_rel_bundle_aux (k : Nat) :
            fun _ _ _ => by simp [ValueEq],
            fun _ _ h => listRelV_to_listEq_zero h⟩
   | succ k ihk =>
-    obtain ⟨ihA, _, ihC⟩ := ihk
-    have relV_to_eq := relV_implies_valueEq_succ k ihA ihC
+    obtain ⟨ihA, ihB, ihC⟩ := ihk
+    have relV_to_eq := relV_implies_valueEq_succ k ihA ihB ihC
     exact ⟨fun d t e1 e2 v1 v2 hcl σ hrel h1 h2 => closed_eval_valueEq_succ k ihA relV_to_eq σ d t e1 e2 v1 v2 hcl hrel h1 h2,
            relV_to_eq,
            fun _ _ h => listRelV_to_listEq_succ relV_to_eq h⟩
