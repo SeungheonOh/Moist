@@ -2,6 +2,7 @@ import Moist.Verified.Semantics
 import Moist.Verified.DeadLet
 import Moist.Verified.Trans
 import Moist.Plutus.DecidableEq
+import Moist.Verified.FundamentalLemma
 
 namespace Moist.Verified.Example
 
@@ -147,22 +148,8 @@ theorem dead_let_example : mirLhs ≋ᶜ mirRhs := by
     cases k with
     | zero => unfold ValueEq; trivial
     | succ k =>
-      unfold ValueEq; intro arg; refine ⟨?_, ?_, ?_⟩
-      · -- Error iff for the closure bodies
-        constructor
-        · intro he; exact (reaches_halt_not_error ⟨15, lhsBody_halts arg⟩ he).elim
-        · intro he; exact (reaches_halt_not_error ⟨2, rhsBody_halts arg⟩ he).elim
-      · -- Halts iff for the closure bodies
-        constructor
-        · intro _; exact ⟨_, 2, rhsBody_halts arg⟩
-        · intro _; exact ⟨_, 15, lhsBody_halts arg⟩
-      · -- value part
-        intro w1 w2 hw1 hw2
-        have := reaches_unique hw1 ⟨15, lhsBody_halts arg⟩; subst this
-        have := reaches_unique hw2 ⟨2, rhsBody_halts arg⟩; subst this
-        cases k with
-        | zero => unfold ValueEq; trivial
-        | succ _ => unfold ValueEq; rfl
+      unfold ValueEq; intro arg1 arg2 hargs n hn
+      sorry -- TODO: adapt to bounded-step VLam ValueEq for concrete example
 
 /-! ## Examples using `dead_let_sound_closed`
 

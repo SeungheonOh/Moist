@@ -1,5 +1,6 @@
 import Moist.Verified.Semantics
 import Moist.MIR.LowerTotal
+import Moist.Verified.FundamentalLemma
 
 /-! # Let Flattening ≡ Let Nesting
 
@@ -58,12 +59,11 @@ theorem lowerTotal_let_flatten (env : List VarId)
     they are behaviorally equivalent. Since the lowered term is literally
     identical, error/halt agreement is `Iff.rfl` and value agreement follows
     from `valueEq_refl` + `reaches_unique`. -/
-theorem behEq_of_lowerTotal_eq (m₁ m₂ : Expr)
-    (h : ∀ env, lowerTotal env m₁ = lowerTotal env m₂) : m₁ ≋ m₂ := by
+theorem behEq_of_lowerTotalExpr_eq (m₁ m₂ : Expr)
+    (h : ∀ env, lowerTotalExpr env m₁ = lowerTotalExpr env m₂) : m₁ ≋ m₂ := by
   unfold BehEq; intro env
   rw [h env]
-  -- Now both match arms are the same term
-  cases lowerTotal env m₂ with
+  cases lowerTotalExpr env m₂ with
   | none => trivial
   | some t =>
     intro _ _
@@ -74,20 +74,35 @@ theorem behEq_of_lowerTotal_eq (m₁ m₂ : Expr)
 /-! ## Main theorems -/
 
 /-- Flat multi-binding `Let` is behaviorally equivalent to nested `Let`. -/
+private theorem expandFixBinds_append (b1 b2 : List (VarId × Expr × Bool)) :
+    expandFixBinds (b1 ++ b2) = expandFixBinds b1 ++ expandFixBinds b2 := by
+  induction b1 with
+  | nil => simp [expandFixBinds]
+  | cons h t ih =>
+    obtain ⟨v, rhs, er⟩ := h
+    simp only [List.cons_append, expandFixBinds, ih, List.cons_append]
+
+private theorem lowerTotalExpr_let_flatten (env : List VarId)
+    (binds₁ binds₂ : List (VarId × Expr × Bool)) (body : Expr) :
+    lowerTotalExpr env (.Let (binds₁ ++ binds₂) body) =
+    lowerTotalExpr env (.Let binds₁ (.Let binds₂ body)) := by
+  simp only [lowerTotalExpr, expandFix, expandFixBinds_append]
+  exact lowerTotal_let_flatten env (expandFixBinds binds₁) (expandFixBinds binds₂) (expandFix body)
+
 theorem let_flatten_behEq (binds₁ binds₂ : List (VarId × Expr × Bool)) (body : Expr) :
     .Let (binds₁ ++ binds₂) body ≋ .Let binds₁ (.Let binds₂ body) :=
-  behEq_of_lowerTotal_eq _ _ (fun env => lowerTotal_let_flatten env binds₁ binds₂ body)
+  behEq_of_lowerTotalExpr_eq _ _ (fun env => lowerTotalExpr_let_flatten env binds₁ binds₂ body)
 
 /-- Flat → nested refinement. -/
 theorem let_flatten_refines (binds₁ binds₂ : List (VarId × Expr × Bool)) (body : Expr) :
     Refines (.Let (binds₁ ++ binds₂) body) (.Let binds₁ (.Let binds₂ body)) :=
-  ⟨fun env h => by rw [← lowerTotal_let_flatten]; exact h,
+  ⟨fun env h => by rw [← lowerTotalExpr_let_flatten]; exact h,
    let_flatten_behEq binds₁ binds₂ body⟩
 
 /-- Nested → flat refinement (inverse direction). -/
 theorem let_unflatten_refines (binds₁ binds₂ : List (VarId × Expr × Bool)) (body : Expr) :
     Refines (.Let binds₁ (.Let binds₂ body)) (.Let (binds₁ ++ binds₂) body) :=
-  ⟨fun env h => by rw [lowerTotal_let_flatten]; exact h,
-   behEq_of_lowerTotal_eq _ _ (fun env => (lowerTotal_let_flatten env binds₁ binds₂ body).symm)⟩
+  ⟨fun env h => by rw [lowerTotalExpr_let_flatten]; exact h,
+   behEq_of_lowerTotalExpr_eq _ _ (fun env => (lowerTotalExpr_let_flatten env binds₁ binds₂ body).symm)⟩
 
 end Moist.Verified.LetFlatten

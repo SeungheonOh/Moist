@@ -5,6 +5,7 @@ import Moist.MIR.LowerTotal
 import Moist.Plutus.DecidableEq
 import Moist.Verified.Bisim
 import Moist.Verified.Rename
+import Moist.Verified.FundamentalLemma
 
 set_option linter.unusedSimpArgs false
 
@@ -247,18 +248,16 @@ private theorem relV_implies_valueEq_succ (k : Nat)
   cases hr with
   | vcon => simp [ValueEq]
   | vlam σ d hcl henv =>
-    unfold ValueEq; intro arg
-    have hext := envRelV_extend σ d _ _ arg arg henv .refl
+    unfold ValueEq; intro arg1 arg2 hargs n hn
+    -- Bisimulation gives lockstep agreement for same arg, then compose with arg variation
+    have hext := envRelV_extend σ d _ _ arg1 arg1 henv .refl
     have hsr := StateRel.compute .nil (liftRename σ) (d + 1) hext hcl
-    exact ⟨⟨bisim_reaches_error hsr, bisim_reaches_error_rev' hsr⟩,
-           ⟨bisim_halts hsr, bisim_halts_rev hsr⟩,
-           fun w₁ w₂ hw₁ hw₂ => ihA (d + 1) _ _ _ w₁ w₂ hcl (liftRename σ) hext hw₁ hw₂⟩
+    sorry -- TODO: compose bisim (same arg) + vlam_refl_fundamental (arg variation)
   | vdelay σ d hcl henv =>
-    unfold ValueEq
+    unfold ValueEq; intro n hn
+    -- Bisimulation directly gives bounded-step agreement
     have hsr := StateRel.compute .nil σ d henv hcl
-    exact ⟨⟨bisim_reaches_error hsr, bisim_reaches_error_rev' hsr⟩,
-           ⟨bisim_halts hsr, bisim_halts_rev hsr⟩,
-           fun w₁ w₂ hw₁ hw₂ => ihA d _ _ _ w₁ w₂ hcl σ henv hw₁ hw₂⟩
+    sorry -- TODO: extract bounded-step from bisimulation
   | vconstr htag hfs => subst htag; unfold ValueEq; exact ⟨rfl, ihC _ _ hfs⟩
   | vbuiltin hb hargs hea =>
     subst hb; subst hea; unfold ValueEq
@@ -339,22 +338,14 @@ private theorem closed_eval_valueEq_succ (k : Nat)
     have := reaches_unique h₁ (⟨2, rfl⟩ : Reaches _ (.halt _)); subst this
     simp only [renameTerm] at h₂
     have := reaches_unique h₂ (⟨2, rfl⟩ : Reaches _ (.halt _)); subst this
-    unfold ValueEq; intro arg
-    have hext := envRelV_extend σ d env₁ env₂ arg arg hrel .refl
-    have hsr := StateRel.compute .nil (liftRename σ) (d + 1) hext (closedAt_lam hcl)
-    exact ⟨⟨bisim_reaches_error hsr, bisim_reaches_error_rev' hsr⟩,
-           ⟨bisim_halts hsr, bisim_halts_rev hsr⟩,
-           fun w₁ w₂ hw₁ hw₂ => ihA (d + 1) body _ _ w₁ w₂
-             (closedAt_lam hcl) (liftRename σ) hext hw₁ hw₂⟩
+    unfold ValueEq; intro arg1 arg2 hargs n hn
+    sorry -- TODO: compose bisim (same arg) + arg variation for VLam
   | .Delay body =>
     have := reaches_unique h₁ (⟨2, rfl⟩ : Reaches _ (.halt _)); subst this
     simp only [renameTerm] at h₂
     have := reaches_unique h₂ (⟨2, rfl⟩ : Reaches _ (.halt _)); subst this
-    unfold ValueEq
-    have hsr := StateRel.compute .nil σ d hrel (closedAt_delay hcl)
-    exact ⟨⟨bisim_reaches_error hsr, bisim_reaches_error_rev' hsr⟩,
-           ⟨bisim_halts hsr, bisim_halts_rev hsr⟩,
-           fun w₁ w₂ hw₁ hw₂ => ihA d body env₁ env₂ w₁ w₂ (closedAt_delay hcl) σ hrel hw₁ hw₂⟩
+    unfold ValueEq; intro n hn
+    sorry -- TODO: extract bounded-step from bisimulation for VDelay
   | .Apply _ _ | .Force _ | .Constr _ _ | .Case _ _ =>
     exact relV_to_eq v₁ v₂ (Bisim.bisim_reaches (.compute .nil σ d hrel hcl) h₁ h₂)
 
