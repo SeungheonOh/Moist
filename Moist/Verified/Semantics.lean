@@ -114,6 +114,45 @@ theorem reaches_halt_not_error {s : State} {v : CekValue}
   have h2 : steps (n + m) s = .error := by rw [steps_trans, hn, steps_error]
   rw [show m + n = n + m from Nat.add_comm m n] at h1; rw [h1] at h2; exact absurd h2 (by simp)
 
+/-! ## Parameterized Structural Relations
+
+`StackEqR`, `EnvEqR`, `FrameEqR` are structural relations parameterized by
+an abstract value relation `R`. They are instantiated with `ValueEq k` to get
+the concrete `StackEq k`, `EnvEq k`, `FrameEq k`.
+
+These are defined BEFORE `ValueEq` so they can appear in the VLam/VDelay clauses
+(CIU-style quantification over all stack contexts). -/
+
+/-- Environment relation parameterized by value relation `R`. -/
+def EnvEqR (R : CekValue → CekValue → Prop) : CekEnv → CekEnv → Prop
+  | .nil, .nil => True
+  | .cons v1 e1, .cons v2 e2 => R v1 v2 ∧ EnvEqR R e1 e2
+  | _, _ => False
+
+/-- List relation parameterized by value relation `R`. -/
+def ListR (R : CekValue → CekValue → Prop) : List CekValue → List CekValue → Prop
+  | [], [] => True
+  | a :: as, b :: bs => R a b ∧ ListR R as bs
+  | _, _ => False
+
+/-- Frame relation parameterized by value relation `R`. -/
+def FrameEqR (R : CekValue → CekValue → Prop) : Frame → Frame → Prop
+  | .force, .force => True
+  | .arg t1 env1, .arg t2 env2 => t1 = t2 ∧ EnvEqR R env1 env2
+  | .funV v1, .funV v2 => R v1 v2
+  | .applyArg v1, .applyArg v2 => R v1 v2
+  | .constrField tag1 done1 todo1 env1, .constrField tag2 done2 todo2 env2 =>
+      tag1 = tag2 ∧ todo1 = todo2 ∧ ListR R done1 done2 ∧ EnvEqR R env1 env2
+  | .caseScrutinee alts1 env1, .caseScrutinee alts2 env2 =>
+      alts1 = alts2 ∧ EnvEqR R env1 env2
+  | _, _ => False
+
+/-- Stack relation parameterized by value relation `R`. -/
+def StackEqR (R : CekValue → CekValue → Prop) : Stack → Stack → Prop
+  | [], [] => True
+  | f1 :: s1, f2 :: s2 => FrameEqR R f1 f2 ∧ StackEqR R s1 s2
+  | _, _ => False
+
 /-! ## Step-Indexed Value Equivalence
 
 `ValueEq k v w` is a step-indexed logical relation on CEK values. The index
@@ -121,57 +160,64 @@ theorem reaches_halt_not_error {s : State} {v : CekValue}
 
 - At `k = 0`, all values are considered equal (no observation budget left).
 - At `k + 1`, constants must be literally equal, constructors must match on
-  tag and fields (recursively at depth `k`), and closures (lambdas/delays)
-  must produce `ValueEq k`-related results when applied to (or forced with)
-  any argument — provided both sides halt.
+  tag and fields, and closures must produce equivalent results when run.
 
-This is the standard technique from step-indexed logical relations
-(Appel & McAllester, 2001): the successor index "pays" for one level of
-observation, ensuring the definition is well-founded without needing
-a metric on values.
+Three key design choices:
+
+1. **CIU-style quantification over stacks** for VLam/VDelay: the closure is
+   tested in ALL stack contexts (not just the empty stack). This ensures the
+   bisimulation can instantiate with the actual continuation stack, resolving
+   the empty-stack vs non-empty-stack mismatch.
+
+2. **`∀ j ≤ k` quantification** for VLam: the closure is tested at every
+   observation level up to `k`. This makes anti-monotonicity for VLam
+   trivially true (weaker quantifier ⊆ stronger).
+
+3. **Decaying result level** (`j - n`): after `n` computation steps, the
+   observation budget for result values is `j - n` (natural subtraction).
 
 `ListValueEq` extends this pointwise to lists of values. -/
 
 mutual
   /-- Step-indexed equivalence of CEK values. At depth 0 everything is
       equivalent. At depth `k+1`, values must match structurally: constants
-      must be equal, closures must produce equivalent results when run, and
-      constructors must agree on tag with pointwise-equivalent fields. -/
+      must be equal, closures must produce equivalent results when run in
+      any stack context, and constructors must agree on tag with
+      pointwise-equivalent fields. -/
   def ValueEq : Nat → CekValue → CekValue → Prop
     | 0, _, _ => True
     | _ + 1, .VCon c1, .VCon c2 => c1 = c2
     | k + 1, .VLam body1 env1, .VLam body2 env2 =>
-      ∀ (arg1 arg2 : CekValue), ValueEq k arg1 arg2 →
-        ∀ n, n ≤ k →
-          (steps n (.compute [] (env1.extend arg1) body1) = .error ↔
-           steps n (.compute [] (env2.extend arg2) body2) = .error) ∧
-          (∀ v1, steps n (.compute [] (env1.extend arg1) body1) = .halt v1 →
-            ∃ v2, steps n (.compute [] (env2.extend arg2) body2) = .halt v2 ∧
-              ValueEq k v1 v2) ∧
-          (∀ v2, steps n (.compute [] (env2.extend arg2) body2) = .halt v2 →
-            ∃ v1, steps n (.compute [] (env1.extend arg1) body1) = .halt v1 ∧
-              ValueEq k v1 v2)
+      ∀ j, j ≤ k →
+        ∀ (arg1 arg2 : CekValue), ValueEq j arg1 arg2 →
+          ∀ (stk1 stk2 : Stack), StackEqR (ValueEq j) stk1 stk2 →
+            ∀ n, n ≤ j →
+              (steps n (.compute stk1 (env1.extend arg1) body1) = .error ↔
+               steps n (.compute stk2 (env2.extend arg2) body2) = .error) ∧
+              (∀ v1, steps n (.compute stk1 (env1.extend arg1) body1) = .halt v1 →
+                ∃ v2, steps n (.compute stk2 (env2.extend arg2) body2) = .halt v2 ∧
+                  ValueEq (j - n) v1 v2) ∧
+              (∀ v2, steps n (.compute stk2 (env2.extend arg2) body2) = .halt v2 →
+                ∃ v1, steps n (.compute stk1 (env1.extend arg1) body1) = .halt v1 ∧
+                  ValueEq (j - n) v1 v2)
     | k + 1, .VConstr tag1 fields1, .VConstr tag2 fields2 =>
       tag1 = tag2 ∧ ListValueEq k fields1 fields2
     | k + 1, .VDelay body1 env1, .VDelay body2 env2 =>
-      ∀ n, n ≤ k →
-        (steps n (.compute [] env1 body1) = .error ↔
-         steps n (.compute [] env2 body2) = .error) ∧
-        (∀ v1, steps n (.compute [] env1 body1) = .halt v1 →
-          ∃ v2, steps n (.compute [] env2 body2) = .halt v2 ∧
-            ValueEq k v1 v2) ∧
-        (∀ v2, steps n (.compute [] env2 body2) = .halt v2 →
-          ∃ v1, steps n (.compute [] env1 body1) = .halt v1 ∧
-            ValueEq k v1 v2)
+      ∀ j, j ≤ k →
+        ∀ (stk1 stk2 : Stack), StackEqR (ValueEq j) stk1 stk2 →
+          ∀ n, n ≤ j →
+            (steps n (.compute stk1 env1 body1) = .error ↔
+             steps n (.compute stk2 env2 body2) = .error) ∧
+            (∀ v1, steps n (.compute stk1 env1 body1) = .halt v1 →
+              ∃ v2, steps n (.compute stk2 env2 body2) = .halt v2 ∧
+                ValueEq (j - n) v1 v2) ∧
+            (∀ v2, steps n (.compute stk2 env2 body2) = .halt v2 →
+              ∃ v1, steps n (.compute stk1 env1 body1) = .halt v1 ∧
+                ValueEq (j - n) v1 v2)
     | k + 1, .VBuiltin b1 args1 ea1, .VBuiltin b2 args2 ea2 =>
-      b1 = b2 ∧ ListValueEq k args1 args2 ∧ ea1 = ea2 ∧
-      (Moist.CEK.evalBuiltin b1 args1 = none ↔
-       Moist.CEK.evalBuiltin b2 args2 = none) ∧
-      (∀ (r1 r2 : CekValue),
-        Moist.CEK.evalBuiltin b1 args1 = some r1 →
-        Moist.CEK.evalBuiltin b2 args2 = some r2 →
-        ValueEq k r1 r2)
+      b1 = b2 ∧ ListValueEq (k + 1) args1 args2 ∧ ea1 = ea2
     | _, _, _ => False
+  termination_by k v1 _ => (k, sizeOf v1)
 
   /-- Pointwise `ValueEq` lifted to lists. Both lists must have the same
       length, with corresponding elements equivalent at depth `k`. -/
@@ -179,7 +225,15 @@ mutual
     | _, [], [] => True
     | k, a :: as, b :: bs => ValueEq k a b ∧ ListValueEq k as bs
     | _, _, _ => False
+  termination_by k vs1 _ => (k, sizeOf vs1)
 end
+
+/-- Concrete stack equality at step index `k`. -/
+abbrev StackEq (k : Nat) := StackEqR (ValueEq k)
+/-- Concrete frame equality at step index `k`. -/
+abbrev FrameEq (k : Nat) := FrameEqR (ValueEq k)
+/-- Concrete environment equality at step index `k`. -/
+abbrev EnvEq (k : Nat) := EnvEqR (ValueEq k)
 
 /-! ## Behavioral Equivalence -/
 

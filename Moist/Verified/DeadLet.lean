@@ -248,29 +248,23 @@ private theorem relV_implies_valueEq_succ (k : Nat)
   cases hr with
   | vcon => simp [ValueEq]
   | vlam σ d hcl henv =>
-    unfold ValueEq; intro arg1 arg2 hargs n hn
+    unfold ValueEq; intro j hj arg1 arg2 hargs stk1 stk2 hstk n hn
     -- Bisimulation gives lockstep agreement for same arg, then compose with arg variation
     have hext := envRelV_extend σ d _ _ arg1 arg1 henv .refl
     have hsr := StateRel.compute .nil (liftRename σ) (d + 1) hext hcl
     sorry -- TODO: compose bisim (same arg) + vlam_refl_fundamental (arg variation)
   | vdelay σ d hcl henv =>
-    unfold ValueEq; intro n hn
+    unfold ValueEq; intro j hj stk1 stk2 hstk n hn
     -- Bisimulation directly gives bounded-step agreement
     have hsr := StateRel.compute .nil σ d henv hcl
     sorry -- TODO: extract bounded-step from bisimulation
   | vconstr htag hfs => subst htag; unfold ValueEq; exact ⟨rfl, ihC _ _ hfs⟩
   | vbuiltin hb hargs hea =>
     subst hb; subst hea; unfold ValueEq
-    rename_i b as1 as2 ea
-    have heval := evalBuiltin_relV b as1 as2 hargs
-    refine ⟨rfl, ihC _ _ hargs, rfl, ?_, ?_⟩
-    · -- evalBuiltin none↔
-      revert heval
-      cases Moist.CEK.evalBuiltin b as1 <;> cases Moist.CEK.evalBuiltin b as2 <;> simp_all
-    · -- evalBuiltin result ValueEq
-      intro r1 r2 hr1 hr2
-      revert heval; rw [hr1, hr2]; intro hrel
-      exact ihB r1 r2 hrel
+    -- Need ListValueEq (k+1), but ihC only gives ListValueEq k.
+    -- Use ihB (which gives ValueEq k) to construct ListValueEq (k+1) is not enough.
+    -- This requires the current function applied pointwise. Use sorry for now.
+    exact ⟨rfl, sorry, rfl⟩
   | refl => exact valueEq_refl _ _
 
 /-! ### Step 2: closedAt + EnvRelV + both halt → ValueEq at successor index
@@ -328,8 +322,7 @@ private theorem closed_eval_valueEq_succ (k : Nat)
   | .Builtin b =>
     have := reaches_unique h₁ (⟨2, rfl⟩ : Reaches _ (.halt _)); subst this
     have := reaches_unique h₂ (by show Reaches (.compute [] env₂ (renameTerm σ (.Builtin b))) (.halt _); simp [renameTerm]; exact ⟨2, rfl⟩); subst this
-    unfold ValueEq; exact ⟨rfl, by simp [ListValueEq], rfl, Iff.rfl,
-      fun r1 r2 h1 h2 => by rw [h1] at h2; injection h2 with h2; subst h2; exact valueEq_refl k r1⟩
+    unfold ValueEq; exact ⟨rfl, by simp [ListValueEq], rfl⟩
   | .Error =>
     simp only [renameTerm] at h₂
     exact absurd h₁ fun ⟨N, hN⟩ => by
@@ -338,13 +331,13 @@ private theorem closed_eval_valueEq_succ (k : Nat)
     have := reaches_unique h₁ (⟨2, rfl⟩ : Reaches _ (.halt _)); subst this
     simp only [renameTerm] at h₂
     have := reaches_unique h₂ (⟨2, rfl⟩ : Reaches _ (.halt _)); subst this
-    unfold ValueEq; intro arg1 arg2 hargs n hn
+    unfold ValueEq; intro j hj arg1 arg2 hargs stk1 stk2 hstk n hn
     sorry -- TODO: compose bisim (same arg) + arg variation for VLam
   | .Delay body =>
     have := reaches_unique h₁ (⟨2, rfl⟩ : Reaches _ (.halt _)); subst this
     simp only [renameTerm] at h₂
     have := reaches_unique h₂ (⟨2, rfl⟩ : Reaches _ (.halt _)); subst this
-    unfold ValueEq; intro n hn
+    unfold ValueEq; intro j hj stk1 stk2 hstk n hn
     sorry -- TODO: extract bounded-step from bisimulation for VDelay
   | .Apply _ _ | .Force _ | .Constr _ _ | .Case _ _ =>
     exact relV_to_eq v₁ v₂ (Bisim.bisim_reaches (.compute .nil σ d hrel hcl) h₁ h₂)

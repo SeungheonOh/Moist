@@ -13,6 +13,7 @@ open Moist.Plutus.Term (Term Const BuiltinFun)
 open Moist.Verified.Semantics
 open Moist.Verified.StepLift (liftState isActive step_liftState_active
   steps_liftState liftState_ne_halt liftState_eq_error)
+open Moist.Verified.Congruence (valueEq_mono listValueEq_mono)
 
 /-! # ValueEq Bisimulation for the Fundamental Lemma
 
@@ -121,16 +122,103 @@ inductive StateEq (k : Nat) : State → State → Prop where
   | halt : ValueEq k v1 v2 →
       StateEq k (.halt v1) (.halt v2)
 
+/-! ## Conversions between local inductives and Semantics.lean StackEqR/EnvEqR -/
+
+/-- Convert local inductive `EnvEq k` to parametric `EnvEqR (ValueEq k)`. -/
+private theorem envEq_to_envEqR {k : Nat} {e1 e2 : CekEnv}
+    (h : EnvEq k e1 e2) : EnvEqR (ValueEq k) e1 e2 := by
+  induction h with
+  | nil => exact trivial
+  | cons hv _ ih => exact ⟨hv, ih⟩
+
+/-- Convert parametric `EnvEqR (ValueEq k)` to local inductive `EnvEq k`. -/
+private theorem envEqR_to_envEq : ∀ {k : Nat} {e1 e2 : CekEnv},
+    EnvEqR (ValueEq k) e1 e2 → EnvEq k e1 e2
+  | _, .nil, .nil, _ => .nil
+  | _, .cons _ _, .cons _ _, ⟨hv, he⟩ => .cons hv (envEqR_to_envEq he)
+  | _, .nil, .cons _ _, h => absurd h (by simp [EnvEqR])
+  | _, .cons _ _, .nil, h => absurd h (by simp [EnvEqR])
+
+/-- Convert `ListValueEq k` to `ListR (ValueEq k)`. -/
+private theorem listValueEq_to_listR {k : Nat} {vs1 vs2 : List CekValue}
+    (h : ListValueEq k vs1 vs2) : ListR (ValueEq k) vs1 vs2 := by
+  induction vs1 generalizing vs2 with
+  | nil => cases vs2 with | nil => exact trivial | cons _ _ => simp [ListValueEq] at h
+  | cons a as ih =>
+    cases vs2 with
+    | nil => simp [ListValueEq] at h
+    | cons b bs =>
+      simp only [ListValueEq] at h
+      exact ⟨h.1, ih h.2⟩
+
+/-- Convert `ListR (ValueEq k)` to `ListValueEq k`. -/
+private theorem listR_to_listValueEq {k : Nat} {vs1 vs2 : List CekValue}
+    (h : ListR (ValueEq k) vs1 vs2) : ListValueEq k vs1 vs2 := by
+  induction vs1 generalizing vs2 with
+  | nil => cases vs2 with | nil => simp [ListValueEq] | cons _ _ => simp [ListR] at h
+  | cons a as ih =>
+    cases vs2 with
+    | nil => simp [ListR] at h
+    | cons b bs =>
+      simp only [ListR] at h
+      simp only [ListValueEq]
+      exact ⟨h.1, ih h.2⟩
+
+/-- Convert local inductive `FrameEq k` to parametric `FrameEqR (ValueEq k)`. -/
+private theorem frameEq_to_frameEqR {k : Nat} {f1 f2 : Frame}
+    (h : FrameEq k f1 f2) : FrameEqR (ValueEq k) f1 f2 := by
+  cases h with
+  | force => exact trivial
+  | arg henv => exact ⟨rfl, envEq_to_envEqR henv⟩
+  | funV hv => exact hv
+  | applyArg hv => exact hv
+  | constrField hdone henv =>
+    exact ⟨rfl, rfl, listValueEq_to_listR hdone, envEq_to_envEqR henv⟩
+  | caseScrutinee henv => exact ⟨rfl, envEq_to_envEqR henv⟩
+
+/-- Convert parametric `FrameEqR (ValueEq k)` to local inductive `FrameEq k`. -/
+private theorem frameEqR_to_frameEq {k : Nat} {f1 f2 : Frame}
+    (h : FrameEqR (ValueEq k) f1 f2) : FrameEq k f1 f2 := by
+  cases f1 <;> cases f2 <;> simp [FrameEqR] at h
+  case force.force => exact .force
+  case arg.arg t1 e1 t2 e2 => exact h.1 ▸ .arg (envEqR_to_envEq h.2)
+  case funV.funV => exact .funV h
+  case applyArg.applyArg => exact .applyArg h
+  case constrField.constrField tag1 d1 todo1 env1 tag2 d2 todo2 env2 =>
+    exact h.1 ▸ h.2.1 ▸ .constrField (listR_to_listValueEq h.2.2.1) (envEqR_to_envEq h.2.2.2)
+  case caseScrutinee.caseScrutinee alts1 env1 alts2 env2 =>
+    exact h.1 ▸ .caseScrutinee (envEqR_to_envEq h.2)
+
+/-- Convert local inductive `StackEq k` to parametric `StackEqR (ValueEq k)`. -/
+private theorem stackEq_to_stackEqR {k : Nat} {s1 s2 : Stack}
+    (h : StackEq k s1 s2) : StackEqR (ValueEq k) s1 s2 := by
+  induction h with
+  | nil => exact trivial
+  | cons hf _ ih => exact ⟨frameEq_to_frameEqR hf, ih⟩
+
+/-- Convert parametric `StackEqR (ValueEq k)` to local inductive `StackEq k`. -/
+private theorem stackEqR_to_stackEq : ∀ {k : Nat} {s1 s2 : Stack},
+    StackEqR (ValueEq k) s1 s2 → StackEq k s1 s2
+  | _, [], [], _ => .nil
+  | _, _ :: _, _ :: _, ⟨hf, hs⟩ => .cons (frameEqR_to_frameEq hf) (stackEqR_to_stackEq hs)
+  | _, [], _ :: _, h => absurd h (by simp [StackEqR])
+  | _, _ :: _, [], h => absurd h (by simp [StackEqR])
+
 /-! ## StepCompat: the semantic compatibility predicate -/
 
 /-- Two states are `n`-step `k`-compatible when they agree on error/halt
-    after exactly `n` steps, with `ValueEq k` for halted values. -/
+    after exactly `n` steps, with `ValueEq (k - n)` for halted values.
+
+    The decaying observation level `k - n` accounts for the fact that after
+    `n` steps from budget `k`, only `k - n` observation units remain. Every
+    "consuming" step (force, apply, case) naturally costs one level, and the
+    decay accounts for it. -/
 def StepCompat (k n : Nat) (s1 s2 : State) : Prop :=
   (steps n s1 = .error ↔ steps n s2 = .error) ∧
   (∀ v1, steps n s1 = .halt v1 →
-    ∃ v2, steps n s2 = .halt v2 ∧ ValueEq k v1 v2) ∧
+    ∃ v2, steps n s2 = .halt v2 ∧ ValueEq (k - n) v1 v2) ∧
   (∀ v2, steps n s2 = .halt v2 →
-    ∃ v1, steps n s1 = .halt v1 ∧ ValueEq k v1 v2)
+    ∃ v1, steps n s1 = .halt v1 ∧ ValueEq (k - n) v1 v2)
 
 theorem stepCompat_error (k n : Nat) :
     StepCompat k n .error .error := by
@@ -138,7 +226,7 @@ theorem stepCompat_error (k n : Nat) :
   · rw [steps_error] at h; exact absurd h (by simp)
   · rw [steps_error] at h; exact absurd h (by simp)
 
-theorem stepCompat_halt (k n : Nat) (v1 v2 : CekValue) (hv : ValueEq k v1 v2) :
+theorem stepCompat_halt (k n : Nat) (v1 v2 : CekValue) (hv : ValueEq (k - n) v1 v2) :
     StepCompat k n (.halt v1) (.halt v2) := by
   refine ⟨⟨fun h => ?_, fun h => ?_⟩, fun w1 h => ?_, fun w2 h => ?_⟩
   · rw [steps_halt] at h; simp at h
@@ -147,11 +235,25 @@ theorem stepCompat_halt (k n : Nat) (v1 v2 : CekValue) (hv : ValueEq k v1 v2) :
   · rw [steps_halt] at h; injection h with h; subst h; exact ⟨v1, steps_halt v1 n, hv⟩
 
 /-- If one-step results are compatible for `n`, the original states are
-    compatible for `n+1`. -/
+    compatible for `n+1`. Uses `valueEq_mono` to account for the level
+    decay: results at `k - n` are downgraded to `k - (n + 1)`. -/
 theorem stepCompat_step {k n : Nat} {s1 s2 : State}
     (h : StepCompat k n (step s1) (step s2)) :
     StepCompat k (n + 1) s1 s2 := by
-  simp only [StepCompat, steps] at h ⊢; exact h
+  simp only [StepCompat, steps] at h ⊢
+  exact ⟨h.1,
+    fun v1 hv1 => let ⟨v2, hv2, hve⟩ := h.2.1 v1 hv1; ⟨v2, hv2, valueEq_mono _ _ (by omega) _ _ hve⟩,
+    fun v2 hv2 => let ⟨v1, hv1, hve⟩ := h.2.2 v2 hv2; ⟨v1, hv1, valueEq_mono _ _ (by omega) _ _ hve⟩⟩
+
+/-- Level-dropping step: `StepCompat k n (step s1) (step s2)` implies
+    `StepCompat (k+1) (n+1) s1 s2`. This is exact because
+    `(k+1) - (n+1) = k - n`, so no `valueEq_mono` is needed. -/
+theorem stepCompat_step_lower {k n : Nat} {s1 s2 : State}
+    (h : StepCompat k n (step s1) (step s2)) :
+    StepCompat (k + 1) (n + 1) s1 s2 := by
+  simp only [StepCompat, steps] at h ⊢
+  have : k + 1 - (n + 1) = k - n := by omega
+  rw [this]; exact h
 
 /-- `StepCompat k 0` for two `ret` states (trivially true since
     `steps 0 (.ret s v) = .ret s v` which is neither error nor halt). -/
@@ -168,135 +270,75 @@ theorem stepCompat_zero_compute (k : Nat) (s1 s2 : Stack) (e1 e2 : CekEnv) (t1 t
   exact ⟨⟨fun h => by simp at h, fun h => by simp at h⟩,
          fun _ h => by simp at h, fun _ h => by simp at h⟩
 
-/-! ## Anti-monotonicity of ValueEq -/
+/-! ## Mono helpers for step compatibility -/
 
--- Shared parameter types for the anti-mono family.
-private abbrev AntiMonoIH (k : Nat) :=
-  ∀ j, j < k → ∀ (body : Term) (env1 env2 : CekEnv),
-    EnvEq j env1 env2 → ∀ n, n ≤ j →
-    StepCompat j n (.compute [] env1 body) (.compute [] env2 body)
-
-private abbrev AntiMonoVeqRefl (k : Nat) :=
-  ∀ j, j ≤ k + 1 → ∀ v : CekValue, ValueEq j v v
-
-/-- Helper: downgrade a `StepCompat (m+1) n` to `StepCompat m n` using
-    an anti-monotone function on halt-value witnesses. -/
+/-- Helper: downgrade a `StepCompat (m+1) n` to `StepCompat m n`.
+    With decaying levels, results go from `ValueEq ((m+1) - n)` to
+    `ValueEq (m - n)`, which follows from `valueEq_mono` since `m - n ≤ (m+1) - n`. -/
 private theorem stepCompat_anti_mono {m n : Nat} {s1 s2 : State}
-    (amono : ∀ {v1 v2 : CekValue}, ValueEq (m + 1) v1 v2 → ValueEq m v1 v2)
     (h : StepCompat (m + 1) n s1 s2) : StepCompat m n s1 s2 :=
   ⟨h.1,
-   fun v1 hv1 => let ⟨v2, hv2, hv⟩ := h.2.1 v1 hv1; ⟨v2, hv2, amono hv⟩,
-   fun v2 hv2 => let ⟨v1, hv1, hv⟩ := h.2.2 v2 hv2; ⟨v1, hv1, amono hv⟩⟩
+   fun v1 hv1 => let ⟨v2, hv2, hv⟩ := h.2.1 v1 hv1; ⟨v2, hv2, valueEq_mono _ _ (by omega) _ _ hv⟩,
+   fun v2 hv2 => let ⟨v1, hv1, hv⟩ := h.2.2 v2 hv2; ⟨v1, hv1, valueEq_mono _ _ (by omega) _ _ hv⟩⟩
 
-mutual
+/-! ## Mono helpers for structural relations -/
 
-/-- Anti-monotonicity: `ValueEq` is downward-closed in the step index.
-    At level 0 the target is `True`; for VDelay we restrict the step budget;
-    for VLam we use a chaining argument with `veq_refl` and the IH. -/
-theorem valueEq_anti_mono
-    (IH : AntiMonoIH k) (veq_refl : AntiMonoVeqRefl k)
-    {v1 v2 : CekValue} (h : ValueEq (k + 1) v1 v2) :
-    ValueEq k v1 v2 := by
-  match k, v1, v2 with
-  | 0, _, _ => simp [ValueEq]
-  | m + 1, .VCon c1, .VCon c2 =>
-    simp only [ValueEq] at h ⊢; exact h
-  | m + 1, .VLam b1 e1, .VLam b2 e2 =>
-    -- h : ∀ ValueEq (m+1) args, ∀ n ≤ m+1, StepCompat (m+1) n
-    -- goal : ∀ ValueEq m args, ∀ n ≤ m, StepCompat m n
-    unfold ValueEq at h ⊢
-    intro a1 a2 ha n hn
-    -- Lift a1 to level m+1 via reflexivity
-    have ha1 : ValueEq (m + 1) a1 a1 := veq_refl (m + 1) (by omega) a1
-    -- Apply h with (a1, a1) at level m+1; n ≤ m ≤ m+1
-    obtain ⟨herr1, hhalt1_fwd, hhalt1_bwd⟩ := h a1 a1 ha1 n (by omega)
-    -- Build EnvEq m (e2.extend a1) (e2.extend a2)
-    have henv : EnvEq m (e2.extend a1) (e2.extend a2) :=
-      envEq_extend (envEq_refl (fun j hj v => veq_refl j (by omega) v) e2) ha
-    -- Apply IH at level m (< m+1 = k)
-    obtain ⟨herr2, hhalt2_fwd, hhalt2_bwd⟩ :=
-      IH m (by omega) b2 (e2.extend a1) (e2.extend a2) henv n hn
-    -- Abbreviation for the recursive anti_mono call (level m)
-    have amono : ∀ {u1 u2 : CekValue}, ValueEq (m + 1) u1 u2 → ValueEq m u1 u2 :=
-      fun hu => valueEq_anti_mono (fun j hj => IH j (by omega))
-                                   (fun j hj v => veq_refl j (by omega) v) hu
-    refine ⟨herr1.trans herr2, fun v1 hv1 => ?_, fun v2 hv2 => ?_⟩
-    · -- Forward: state1 halts v1 → state2 halts v2, ValueEq m v1 v2
-      obtain ⟨v_mid, hv_mid, hv1mid⟩ := hhalt1_fwd v1 hv1
-      obtain ⟨v2, hv2', hv_mid2⟩ := hhalt2_fwd v_mid hv_mid
-      exact ⟨v2, hv2', valueEq_trans m _ _ _ (amono hv1mid) hv_mid2⟩
-    · -- Backward: state2 halts v2 → state1 halts v1, ValueEq m v1 v2
-      obtain ⟨v_mid, hv_mid, hv_mid2⟩ := hhalt2_bwd v2 hv2
-      obtain ⟨v1, hv1', hv1mid⟩ := hhalt1_bwd v_mid hv_mid
-      exact ⟨v1, hv1', valueEq_trans m _ _ _ (amono hv1mid) hv_mid2⟩
-  | m + 1, .VDelay b1 e1, .VDelay b2 e2 =>
-    -- h : ∀ n ≤ m+1, StepCompat (m+1) n
-    -- goal : ∀ n ≤ m, StepCompat m n
-    unfold ValueEq at h ⊢
-    have amono : ∀ {u1 u2 : CekValue}, ValueEq (m + 1) u1 u2 → ValueEq m u1 u2 :=
-      fun hu => valueEq_anti_mono (fun j hj => IH j (by omega))
-                                   (fun j hj v => veq_refl j (by omega) v) hu
-    intro n hn
-    exact stepCompat_anti_mono amono (h n (by omega))
-  | m + 1, .VConstr t1 f1, .VConstr t2 f2 =>
-    simp only [ValueEq] at h ⊢
-    exact ⟨h.1, listValueEq_anti_mono (fun j hj => IH j (by omega))
-                                        (fun j hj v => veq_refl j (by omega) v) h.2⟩
-  | m + 1, .VBuiltin b1 a1 ea1, .VBuiltin b2 a2 ea2 =>
-    simp only [ValueEq] at h ⊢
-    have amono : ∀ {u1 u2 : CekValue}, ValueEq (m + 1) u1 u2 → ValueEq m u1 u2 :=
-      fun hu => valueEq_anti_mono (fun j hj => IH j (by omega))
-                                   (fun j hj v => veq_refl j (by omega) v) hu
-    exact ⟨h.1, listValueEq_anti_mono (fun j hj => IH j (by omega))
-                                        (fun j hj v => veq_refl j (by omega) v) h.2.1,
-           h.2.2.1, h.2.2.2.1,
-           fun r1 r2 hr1 hr2 => amono (h.2.2.2.2 r1 r2 hr1 hr2)⟩
-  -- All mismatched constructors yield False
-  | _ + 1, .VCon _, .VLam _ _ | _ + 1, .VCon _, .VDelay _ _
-  | _ + 1, .VCon _, .VConstr _ _ | _ + 1, .VCon _, .VBuiltin _ _ _ => simp [ValueEq] at h
-  | _ + 1, .VLam _ _, .VCon _ | _ + 1, .VLam _ _, .VDelay _ _
-  | _ + 1, .VLam _ _, .VConstr _ _ | _ + 1, .VLam _ _, .VBuiltin _ _ _ => simp [ValueEq] at h
-  | _ + 1, .VDelay _ _, .VCon _ | _ + 1, .VDelay _ _, .VLam _ _
-  | _ + 1, .VDelay _ _, .VConstr _ _ | _ + 1, .VDelay _ _, .VBuiltin _ _ _ => simp [ValueEq] at h
-  | _ + 1, .VConstr _ _, .VCon _ | _ + 1, .VConstr _ _, .VLam _ _
-  | _ + 1, .VConstr _ _, .VDelay _ _ | _ + 1, .VConstr _ _, .VBuiltin _ _ _ => simp [ValueEq] at h
-  | _ + 1, .VBuiltin _ _ _, .VCon _ | _ + 1, .VBuiltin _ _ _, .VLam _ _
-  | _ + 1, .VBuiltin _ _ _, .VDelay _ _ | _ + 1, .VBuiltin _ _ _, .VConstr _ _ => simp [ValueEq] at h
+/-- Downgrade `FrameEq` from level `k` to any `j ≤ k`. -/
+private theorem frameEq_mono {j k : Nat} (hjk : j ≤ k)
+    {f1 f2 : Frame} (h : FrameEq k f1 f2) : FrameEq j f1 f2 := by
+  cases h with
+  | force => exact .force
+  | arg henv =>
+    exact .arg (by induction henv with
+      | nil => exact .nil
+      | cons hv _ ih => exact .cons (valueEq_mono j k hjk _ _ hv) ih)
+  | funV hv => exact .funV (valueEq_mono j k hjk _ _ hv)
+  | applyArg hv => exact .applyArg (valueEq_mono j k hjk _ _ hv)
+  | constrField hdone henv =>
+    exact .constrField (listValueEq_mono j k hjk _ _ hdone)
+      (by induction henv with
+        | nil => exact .nil
+        | cons hv _ ih => exact .cons (valueEq_mono j k hjk _ _ hv) ih)
+  | caseScrutinee henv =>
+    exact .caseScrutinee (by induction henv with
+      | nil => exact .nil
+      | cons hv _ ih => exact .cons (valueEq_mono j k hjk _ _ hv) ih)
 
-theorem listValueEq_anti_mono
-    (IH : AntiMonoIH k) (veq_refl : AntiMonoVeqRefl k)
-    {vs1 vs2 : List CekValue} (h : ListValueEq (k + 1) vs1 vs2) :
-    ListValueEq k vs1 vs2 := by
-  match vs1, vs2 with
-  | [], [] => simp [ListValueEq]
-  | [], _ :: _ => simp [ListValueEq] at h
-  | _ :: _, [] => simp [ListValueEq] at h
-  | a :: as, b :: bs =>
-    simp only [ListValueEq] at h ⊢
-    exact ⟨valueEq_anti_mono IH veq_refl h.1,
-           listValueEq_anti_mono IH veq_refl h.2⟩
-
-end
-
-theorem envEq_anti_mono
-    (IH : ∀ j, j < k → ∀ (body : Term) (env1 env2 : CekEnv),
-      EnvEq j env1 env2 → ∀ n, n ≤ j → StepCompat j n (.compute [] env1 body) (.compute [] env2 body))
-    (veq_refl : ∀ j, j ≤ k + 1 → ∀ v : CekValue, ValueEq j v v)
-    {env1 env2 : CekEnv} (h : EnvEq (k + 1) env1 env2) :
-    EnvEq k env1 env2 := by
+/-- Downgrade `StackEq` from level `k` to any `j ≤ k`. -/
+private theorem stackEq_mono {j k : Nat} (hjk : j ≤ k)
+    {s1 s2 : Stack} (h : StackEq k s1 s2) : StackEq j s1 s2 := by
   induction h with
   | nil => exact .nil
-  | cons hv _ ih => exact .cons (valueEq_anti_mono IH veq_refl hv) ih
+  | cons hf _ ih => exact .cons (frameEq_mono hjk hf) ih
+
+/-- Downgrade `EnvEq` from level `k` to any `j ≤ k`. -/
+private theorem envEq_mono {j k : Nat} (hjk : j ≤ k)
+    {env1 env2 : CekEnv} (h : EnvEq k env1 env2) : EnvEq j env1 env2 := by
+  induction h with
+  | nil => exact .nil
+  | cons hv _ ih => exact .cons (valueEq_mono j k hjk _ _ hv) ih
+
+/-- Downgrade `StateEq` from level `k` to any `j ≤ k`. -/
+private theorem stateEq_mono {j k : Nat} (hjk : j ≤ k)
+    {s1 s2 : State} (h : StateEq k s1 s2) : StateEq j s1 s2 := by
+  cases h with
+  | compute hstk henv => exact .compute (stackEq_mono hjk hstk) (envEq_mono hjk henv)
+  | ret hstk hv => exact .ret (stackEq_mono hjk hstk) (valueEq_mono j k hjk _ _ hv)
+  | error => exact .error
+  | halt hv => exact .halt (valueEq_mono j k hjk _ _ hv)
 
 /-! ## Main theorem: generalized fundamental lemma -/
 
 private theorem stepCompat_ret_nil {k n : Nat} {v1 v2 : CekValue} (hv : ValueEq k v1 v2) :
     StepCompat k n (.ret [] v1) (.ret [] v2) := by
   induction n with
-  | zero => simp [StepCompat, steps]
+  | zero =>
+    simp only [StepCompat, steps]
+    exact ⟨⟨fun h => by simp at h, fun h => by simp at h⟩,
+      fun _ h => by simp at h, fun _ h => by simp at h⟩
   | succ n' _ =>
     apply stepCompat_step; simp only [step]
-    exact stepCompat_halt k n' v1 v2 hv
+    exact stepCompat_halt k n' v1 v2 (valueEq_mono _ _ (by omega) _ _ hv)
 
 /-- Helper: `ListValueEq k` implies the lists have the same length. -/
 private theorem listValueEq_length {k : Nat} {vs1 vs2 : List CekValue}
@@ -1215,10 +1257,10 @@ private theorem stepCompat_lift_body
       (steps j (.compute [] cenv1 body1) = .error ↔
        steps j (.compute [] cenv2 body2) = .error) ∧
       (∀ v1, steps j (.compute [] cenv1 body1) = .halt v1 →
-        ∃ v2, steps j (.compute [] cenv2 body2) = .halt v2 ∧ ValueEq km v1 v2) ∧
+        ∃ v2, steps j (.compute [] cenv2 body2) = .halt v2 ∧ ValueEq (km - j) v1 v2) ∧
       (∀ v2, steps j (.compute [] cenv2 body2) = .halt v2 →
-        ∃ v1, steps j (.compute [] cenv1 body1) = .halt v1 ∧ ValueEq km v1 v2))
-    (hcont : ∀ {v1 v2 : CekValue} (hv : ValueEq km v1 v2) (m : Nat) (hm : m ≤ n),
+        ∃ v1, steps j (.compute [] cenv1 body1) = .halt v1 ∧ ValueEq (km - j) v1 v2))
+    (hcont : ∀ {v1 v2 : CekValue} (j : Nat) (hv : ValueEq (km - j) v1 v2) (m : Nat) (hm : m ≤ n),
       StepCompat k m (.ret stk1 v1) (.ret stk2 v2)) :
     StepCompat k n (.compute stk1 cenv1 body1) (.compute stk2 cenv2 body2) := by
   -- Identify stacked computations as liftState of empty-stack computations
@@ -1523,8 +1565,13 @@ private theorem stepCompat_lift_body
           have hn_eq : n = K + (n - K) := by omega
           rw [hn_eq, steps_trans, h_stk2_K]
           congr 1; omega
-        simp only [StepCompat, hlift1, hlift2, h_decomp1, h_decomp2]
-        exact hcont hv (n - K) (by omega)
+        simp only [hlift1, hlift2]
+        unfold StepCompat
+        rw [h_decomp1, h_decomp2]
+        have hc := hcont (K + 1) hv (n - K) (by omega)
+        exact ⟨hc.1,
+          fun w1 hw1 => let ⟨w2, hw2, hwe⟩ := hc.2.1 w1 hw1; ⟨w2, hw2, valueEq_mono _ _ (by omega) _ _ hwe⟩,
+          fun w2 hw2 => let ⟨w1, hw1, hwe⟩ := hc.2.2 w2 hw2; ⟨w1, hw1, valueEq_mono _ _ (by omega) _ _ hwe⟩⟩
   · -- Case A: no inactive step ≤ n for body1. All j ≤ n active.
     -- h_has_inactive : ¬ ∃ j, j ≤ n ∧ isActive ... = false
     -- Convert to: ∀ j ≤ n, isActive ... ≠ false
@@ -1611,131 +1658,142 @@ theorem stateEq_stepCompat
       refine ⟨⟨fun h => ?_, fun h => ?_⟩, fun v h => ?_, fun v h => ?_⟩
       all_goals (first | (exact absurd h (by decide)) | (simp at h))
   | n + 1 =>
-    -- Reduce to StepCompat k n (step s1) (step s2)
-    apply stepCompat_step
     -- n+1 ≤ k, so k ≥ 1
     obtain ⟨km, rfl⟩ : ∃ m, k = m + 1 := ⟨k - 1, by omega⟩
+    -- Use stepCompat_step_lower: prove StepCompat km n (step s1) (step s2)
+    -- then lift to StepCompat (km+1) (n+1) s1 s2 since (km+1)-(n+1) = km-n.
+    apply stepCompat_step_lower
     -- Now k = km + 1.
     -- hn : n + 1 ≤ km + 1, so n ≤ km
     have hn' : n ≤ km := Nat.le_of_succ_le_succ hn
-    -- Helper: anti-mono IH for calls at strictly smaller outer index
-    have amono_IH : AntiMonoIH km := fun j hj body' env1' env2' henv' n'' hn'' =>
-      stateEq_stepCompat j n'' hn'' (fun i hi v => veq_refl i (by omega) v)
-        (.compute .nil henv')
-    have amono_vr : AntiMonoVeqRefl km := fun j hj v => veq_refl j (by omega) v
-    -- Helper to call recursively at same k=km+1, step n (termination: (km+1, n) < (km+1, n+1))
-    have call_n : ∀ {s1' s2' : State}, StateEq (km + 1) s1' s2' → StepCompat (km + 1) n s1' s2' :=
-      fun hrel' => stateEq_stepCompat (km + 1) n (Nat.le_succ_of_le hn') veq_refl hrel'
-    -- Helper: build ValueEq (km+1) for same-body VLam
-    -- termination: (km, n') < (km+1, n+1) since km < km+1
+    -- Helper to call recursively at level km, step n (termination: (km, n) < (km+1, n+1))
+    have call_n : ∀ {s1' s2' : State}, StateEq km s1' s2' → StepCompat km n s1' s2' :=
+      fun hrel' => stateEq_stepCompat km n hn' (fun i hi v => veq_refl i (by omega) v) hrel'
+    -- Helper: build ValueEq km for same-body VLam (from EnvEq km)
     have vlam_valueEq : ∀ {body : Term} {env1 env2 : CekEnv},
-        EnvEq (km + 1) env1 env2 → ValueEq (km + 1) (.VLam body env1) (.VLam body env2) := by
+        EnvEq km env1 env2 → ValueEq km (.VLam body env1) (.VLam body env2) := by
       intro body env1 env2 henv
-      unfold ValueEq
-      intro arg1 arg2 harg n' hn'_le
-      have henv_km : EnvEq km env1 env2 := envEq_anti_mono amono_IH amono_vr henv
-      have henv1_km : EnvEq km (env1.extend arg1) (env2.extend arg2) :=
-        envEq_extend henv_km harg
-      exact stateEq_stepCompat km n' hn'_le (fun j hj v => veq_refl j (by omega) v)
-        (.compute .nil henv1_km)
-    -- Helper: build ValueEq (km+1) for same-body VDelay
+      cases km with
+      | zero => simp [ValueEq]
+      | succ m =>
+        unfold ValueEq
+        intro j hj arg1 arg2 harg stk1 stk2 hstk n' hn'_le
+        have henv_j : EnvEq j env1 env2 := envEq_mono (by omega) henv
+        have henv1_j : EnvEq j (env1.extend arg1) (env2.extend arg2) :=
+          envEq_extend henv_j harg
+        have hstk_j : StackEq j stk1 stk2 := stackEqR_to_stackEq hstk
+        have hrel : StateEq j (.compute stk1 (env1.extend arg1) body) (.compute stk2 (env2.extend arg2) body) :=
+          .compute hstk_j henv1_j
+        have hsc := stateEq_stepCompat j n' hn'_le
+          (fun i hi v => veq_refl i (by omega) v) hrel
+        exact ⟨hsc.1, hsc.2.1, hsc.2.2⟩
+    -- Helper: build ValueEq km for same-body VDelay (from EnvEq km)
     have vdelay_valueEq : ∀ {body : Term} {env1 env2 : CekEnv},
-        EnvEq (km + 1) env1 env2 → ValueEq (km + 1) (.VDelay body env1) (.VDelay body env2) := by
+        EnvEq km env1 env2 → ValueEq km (.VDelay body env1) (.VDelay body env2) := by
       intro body env1 env2 henv
-      unfold ValueEq
-      intro n' hn'_le
-      have henv_km : EnvEq km env1 env2 := envEq_anti_mono amono_IH amono_vr henv
-      exact stateEq_stepCompat km n' hn'_le (fun j hj v => veq_refl j (by omega) v)
-        (.compute .nil henv_km)
-    -- Helper: build ValueEq (km+1) for same-constructor VConstr from ListValueEq km
+      cases km with
+      | zero => simp [ValueEq]
+      | succ m =>
+        unfold ValueEq
+        intro j hj stk1 stk2 hstk n' hn'_le
+        have henv_j : EnvEq j env1 env2 := envEq_mono (by omega) henv
+        have hstk_j : StackEq j stk1 stk2 := stackEqR_to_stackEq hstk
+        have hrel : StateEq j (.compute stk1 env1 body) (.compute stk2 env2 body) :=
+          .compute hstk_j henv_j
+        have hsc := stateEq_stepCompat j n' hn'_le
+          (fun i hi v => veq_refl i (by omega) v) hrel
+        exact ⟨hsc.1, hsc.2.1, hsc.2.2⟩
+    -- Helper: build ValueEq km for same-constructor VConstr from ListValueEq (km-1)
     have vconstr_valueEq : ∀ {tag : Nat} {fs1 fs2 : List CekValue},
-        ListValueEq km fs1 fs2 → ValueEq (km + 1) (.VConstr tag fs1) (.VConstr tag fs2) := by
+        ListValueEq (km - 1) fs1 fs2 → ValueEq km (.VConstr tag fs1) (.VConstr tag fs2) := by
       intro tag fs1 fs2 hfs
-      unfold ValueEq
-      exact ⟨rfl, hfs⟩
-    -- Helper: anti-mono on individual ValueEq (km+1) → ValueEq km
-    have amono : ∀ {v1 v2 : CekValue}, ValueEq (km + 1) v1 v2 → ValueEq km v1 v2 :=
-      fun hv => valueEq_anti_mono amono_IH amono_vr hv
+      match km with
+      | 0 => simp [ValueEq]
+      | m + 1 => unfold ValueEq; exact ⟨rfl, by simp [Nat.add_sub_cancel] at hfs; exact hfs⟩
+    -- Downgrade hrel from StateEq (km+1) to StateEq km for the stepped states
+    -- hrel : StateEq (km+1) s1 s2
     -- Now case split on hrel
     cases hrel with
     | error =>
-      simp only [step]; exact stepCompat_error (km + 1) n
+      simp only [step]; exact stepCompat_error km n
     | halt hv =>
-      simp only [step]; exact stepCompat_halt (km + 1) n _ _ hv
+      simp only [step]
+      exact stepCompat_halt km n _ _ (valueEq_mono _ _ (by omega) _ _ hv)
     | compute hstk henv =>
       rename_i s1' s2' env1 env2 t
+      -- Downgrade structural relations
+      have hstk_km : StackEq km s1' s2' := stackEq_mono (by omega) hstk
+      have henv_km : EnvEq km env1 env2 := envEq_mono (by omega) henv
       -- Case split on term t
       cases t with
       | Var idx =>
-        have hlookup := envEq_lookup henv idx
+        have hlookup := envEq_lookup henv_km idx
         simp only [step]
         generalize h1 : env1.lookup idx = r1
         generalize h2 : env2.lookup idx = r2
         rw [h1, h2] at hlookup
         match r1, r2, hlookup with
-        | some v1, some v2, hveq => exact call_n (.ret hstk hveq)
-        | none, none, _ => exact stepCompat_error (km + 1) n
+        | some v1, some v2, hveq => exact call_n (.ret hstk_km hveq)
+        | none, none, _ => exact stepCompat_error km n
         | some _, none, hf => exact hf.elim
         | none, some _, hf => exact hf.elim
       | Constant pair =>
         obtain ⟨c, _⟩ := pair
         simp only [step]
-        exact call_n (.ret hstk (veq_refl (km + 1) (Nat.le_refl _) (.VCon c)))
+        exact call_n (.ret hstk_km (veq_refl km (by omega) (.VCon c)))
       | Builtin b =>
         simp only [step]
-        exact call_n (.ret hstk (veq_refl (km + 1) (Nat.le_refl _) (.VBuiltin b [] _)))
+        exact call_n (.ret hstk_km (veq_refl km (by omega) (.VBuiltin b [] _)))
       | Lam _ body =>
         simp only [step]
-        exact call_n (.ret hstk (vlam_valueEq henv))
+        exact call_n (.ret hstk_km (vlam_valueEq henv_km))
       | Delay body =>
         simp only [step]
-        exact call_n (.ret hstk (vdelay_valueEq henv))
+        exact call_n (.ret hstk_km (vdelay_valueEq henv_km))
       | Force e =>
         simp only [step]
-        exact call_n (.compute (.cons .force hstk) henv)
+        exact call_n (.compute (.cons .force hstk_km) henv_km)
       | Apply f x =>
         simp only [step]
-        exact call_n (.compute (.cons (.arg henv) hstk) henv)
+        exact call_n (.compute (.cons (.arg henv_km) hstk_km) henv_km)
       | Error =>
-        simp only [step]; exact stepCompat_error (km + 1) n
+        simp only [step]; exact stepCompat_error km n
       | Constr tag args =>
         cases args with
         | nil =>
           simp only [step]
-          exact call_n (.ret hstk (veq_refl (km + 1) (Nat.le_refl _) (.VConstr tag [])))
+          exact call_n (.ret hstk_km (veq_refl km (by omega) (.VConstr tag [])))
         | cons m ms =>
           simp only [step]
           exact call_n (.compute
-            (.cons (.constrField (by simp [ListValueEq]) henv) hstk) henv)
+            (.cons (.constrField (by simp [ListValueEq]) henv_km) hstk_km) henv_km)
       | Case scrut alts =>
         simp only [step]
-        exact call_n (.compute (.cons (.caseScrutinee henv) hstk) henv)
+        exact call_n (.compute (.cons (.caseScrutinee henv_km) hstk_km) henv_km)
     | ret hstk hv =>
       rename_i s1' s2' v1 v2
+      -- hstk : StackEq (km+1), hv : ValueEq (km+1)
       -- Case split on the stack
       cases hstk with
       | nil =>
         simp only [step]
-        exact stepCompat_halt (km + 1) n v1 v2 hv
+        exact stepCompat_halt km n v1 v2 (valueEq_mono _ _ (by omega) _ _ hv)
       | cons hframe hrest =>
         rename_i f1 f2 rest1 rest2
+        -- Downgrade rest stack for call_n
+        have hrest_km : StackEq km rest1 rest2 := stackEq_mono (by omega) hrest
         -- Case split on the frame
         cases hframe with
         | force =>
-          -- ret (.force :: rest) v → force the value
-          -- First case-split on v1, v2 to make step reducible
+          -- ret (.force :: rest) v -> force the value
           cases v1 with
           | VDelay body1 env1 =>
             cases v2 with
             | VDelay body2 env2 =>
               simp only [step]
               -- hv : ValueEq (km+1) (VDelay body1 env1) (VDelay body2 env2)
-              -- gives StepCompat km n' for empty-stack bodies, but actual
-              -- execution continues with stack rest_i. Resolving this requires
-              -- stack-lifting integration (showing that non-empty-stack execution
-              -- mirrors empty-stack execution modulo stack frames). Blocked on
-              -- the stack-lifting generalization.
-              sorry
+              -- CIU-style: instantiate with rest stacks to get StepCompat directly
+              unfold ValueEq at hv; exact hv km (by omega) rest1 rest2 (stackEq_to_stackEqR hrest_km) n hn'
             | VCon _ | VLam _ _ | VConstr _ _ | VBuiltin _ _ _ =>
               unfold ValueEq at hv; exact hv.elim
           | VBuiltin b1 args1 ea1 =>
@@ -1743,7 +1801,7 @@ theorem stateEq_stepCompat
             | VBuiltin b2 args2 ea2 =>
               -- hv : ValueEq (km+1) (VBuiltin b1 args1 ea1) (VBuiltin b2 args2 ea2)
               unfold ValueEq at hv
-              obtain ⟨hb, hargs, hea, heval_none, heval_some⟩ := hv
+              obtain ⟨hb, hargs_lve, hea⟩ := hv
               subst hb; subst hea
               simp only [step]
               cases h_head : ea1.head with
@@ -1752,66 +1810,84 @@ theorem stateEq_stepCompat
                 cases h_tail : ea1.tail with
                 | none =>
                   simp only [h_tail]
+                  have ⟨heval_none, heval_some⟩ :=
+                    evalBuiltin_cong_same_level km b1 args1 args2
+                      hargs_lve (veq_refl (km + 1) (by omega))
                   cases h_eval1 : evalBuiltin b1 args1 with
                   | none =>
                     simp only [h_eval1, heval_none.mp h_eval1]
                     exact call_n .error
                   | some r1 =>
-                    -- heval_some gives ValueEq km r1 r2 but .ret rest r needs
-                    -- ValueEq (km+1). Level mismatch: cannot upgrade in general.
-                    sorry
+                    have h_eval2 : ∃ r2, evalBuiltin b1 args2 = some r2 := by
+                      by_cases h : evalBuiltin b1 args2 = none
+                      · exact absurd (heval_none.mpr h) (by rw [h_eval1]; simp)
+                      · obtain ⟨r2, hr2⟩ := Option.ne_none_iff_exists'.mp h; exact ⟨r2, hr2⟩
+                    obtain ⟨r2, h_eval2⟩ := h_eval2
+                    simp only [h_eval2]
+                    exact call_n (.ret hrest_km
+                      (valueEq_mono km (km + 1) (by omega) _ _
+                        (heval_some r1 r2 h_eval1 h_eval2)))
                 | some ea_rest =>
                   simp only [h_tail]
-                  -- After subst hea, ea2 = ea1, so ea1.tail = some ea_rest for both sides
-                  -- Build ValueEq (km+1) for the new VBuiltin (same args, smaller ea)
-                  have hvb : ValueEq (km + 1) (.VBuiltin b1 args1 ea_rest) (.VBuiltin b1 args2 ea_rest) := by
-                    unfold ValueEq; exact ⟨rfl, hargs, rfl, heval_none, heval_some⟩
-                  exact call_n (.ret hrest hvb)
+                  -- Build ValueEq km for the new VBuiltin (same args, smaller ea).
+                  -- hargs : ListValueEq km args1 args2 and heval_none/heval_some at km.
+                  -- VBuiltin at level km needs ListValueEq (km-1), but we have ListValueEq km.
+                  -- Downgrade via listValueEq_mono.
+                  have hvb : ValueEq km (.VBuiltin b1 args1 ea_rest) (.VBuiltin b1 args2 ea_rest) := by
+                    match km with
+                    | 0 => simp [ValueEq]
+                    | m + 1 =>
+                      unfold ValueEq
+                      exact ⟨rfl, listValueEq_mono (m + 1) (m + 1 + 1) (by omega) _ _ hargs_lve, rfl⟩
+                  exact call_n (.ret hrest_km hvb)
               | argV =>
                 simp only [h_head]
-                exact stepCompat_error (km + 1) n
+                exact stepCompat_error km n
             | VCon _ | VLam _ _ | VDelay _ _ | VConstr _ _ =>
               unfold ValueEq at hv; exact hv.elim
           | VCon _ =>
             cases v2 with
-            | VCon _ => simp only [step]; exact stepCompat_error (km + 1) n
+            | VCon _ => simp only [step]; exact stepCompat_error km n
             | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
               unfold ValueEq at hv; exact hv.elim
           | VLam _ _ =>
             cases v2 with
-            | VLam _ _ => simp only [step]; exact stepCompat_error (km + 1) n
+            | VLam _ _ => simp only [step]; exact stepCompat_error km n
             | VCon _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
               unfold ValueEq at hv; exact hv.elim
           | VConstr _ _ =>
             cases v2 with
-            | VConstr _ _ => simp only [step]; exact stepCompat_error (km + 1) n
+            | VConstr _ _ => simp only [step]; exact stepCompat_error km n
             | VCon _ | VLam _ _ | VDelay _ _ | VBuiltin _ _ _ =>
               unfold ValueEq at hv; exact hv.elim
         | arg henv_arg =>
-          -- ret (.arg t env :: rest) vf → compute (.funV vf :: rest) env t
+          -- ret (.arg t env :: rest) vf -> compute (.funV vf :: rest) env t
           simp only [step]
-          exact call_n (.compute (.cons (.funV hv) hrest) henv_arg)
+          have henv_arg_km : EnvEq km _ _ := envEq_mono (by omega) henv_arg
+          have hv_km : ValueEq km v1 v2 := valueEq_mono _ _ (by omega) _ _ hv
+          exact call_n (.compute (.cons (.funV hv_km) hrest_km) henv_arg_km)
         | funV hfv =>
-          -- ret (.funV vf :: rest) vx → apply vf to vx
+          -- ret (.funV vf :: rest) vx -> apply vf to vx
           rename_i vf1 vf2
+          -- hfv : ValueEq (km+1), hv (the arg) : ValueEq (km+1)
+          have hfv_km : ValueEq km vf1 vf2 := valueEq_mono _ _ (by omega) _ _ hfv
+          have hv_km : ValueEq km v1 v2 := valueEq_mono _ _ (by omega) _ _ hv
           cases vf1 with
           | VLam body1 env1 =>
             cases vf2 with
             | VLam body2 env2 =>
               simp only [step]
               -- hfv : ValueEq (km+1) (VLam body1 env1) (VLam body2 env2)
-              -- Bodies may differ: step gives .compute rest_i (env_i.extend vx_i) body_i.
-              -- The VLam clause gives StepCompat km for empty-stack computations
-              -- with ValueEq km args, but actual execution has stack rest_i.
-              -- Same stack-lifting issue as VDelay force.
-              sorry
+              -- CIU-style: instantiate with rest stacks and args
+              unfold ValueEq at hfv
+              exact hfv km (by omega) v1 v2 hv_km rest1 rest2 (stackEq_to_stackEqR hrest_km) n hn'
             | VCon _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
               unfold ValueEq at hfv; exact hfv.elim
           | VBuiltin b1 args1 ea1 =>
             cases vf2 with
             | VBuiltin b2 args2 ea2 =>
               unfold ValueEq at hfv
-              obtain ⟨hb, hargs, hea, heval_none, heval_some⟩ := hfv
+              obtain ⟨hb, hargs_lve, hea⟩ := hfv
               subst hb; subst hea
               simp only [step]
               cases h_head : ea1.head with
@@ -1820,80 +1896,86 @@ theorem stateEq_stepCompat
                 cases h_tail : ea1.tail with
                 | none =>
                   simp only [h_tail]
-                  -- Saturation: evalBuiltin b (v1 :: args1) / evalBuiltin b (v2 :: args2).
-                  -- Need congruence for new args and ValueEq (km+1) for results.
-                  -- Saturation: evalBuiltin b (v1::args1) / evalBuiltin b (v2::args2).
-                  -- We have ValueEq (km+1) v1 v2 and ListValueEq km args1 args2.
-                  -- evalBuiltin congruence for (v::args) gives ValueEq km for results,
-                  -- but .ret rest r needs ValueEq (km+1) for call_n. Level mismatch.
-                  sorry
+                  -- Use hv (at km+1) and hargs_lve to form higher-level ListValueEq
+                  have hargs_new_hi : ListValueEq (km + 1) (v1 :: args1) (v2 :: args2) := by
+                    simp only [ListValueEq]; exact ⟨hv, hargs_lve⟩
+                  have ⟨heval_none_new, heval_some_new⟩ :=
+                    evalBuiltin_cong_same_level km b1 (v1 :: args1) (v2 :: args2)
+                      hargs_new_hi (veq_refl (km + 1) (by omega))
+                  cases h_eval1 : evalBuiltin b1 (v1 :: args1) with
+                  | none =>
+                    simp only [h_eval1, heval_none_new.mp h_eval1]
+                    exact call_n .error
+                  | some r1 =>
+                    have h_eval2 : ∃ r2, evalBuiltin b1 (v2 :: args2) = some r2 := by
+                      by_cases h : evalBuiltin b1 (v2 :: args2) = none
+                      · exact absurd (heval_none_new.mpr h) (by rw [h_eval1]; simp)
+                      · obtain ⟨r2, hr2⟩ := Option.ne_none_iff_exists'.mp h; exact ⟨r2, hr2⟩
+                    obtain ⟨r2, h_eval2⟩ := h_eval2
+                    simp only [h_eval2]
+                    exact call_n (.ret hrest_km
+                      (valueEq_mono km (km + 1) (by omega) _ _
+                        (heval_some_new r1 r2 h_eval1 h_eval2)))
                 | some ea_rest =>
                   simp only [h_tail]
-                  -- Partial application: step gives .ret rest (.VBuiltin b (v1::args1) ea_rest).
-                  -- Build ValueEq (km+1) for the new VBuiltin with accumulated args.
-                  have hargs_km : ListValueEq km (v1 :: args1) (v2 :: args2) := by
-                    simp only [ListValueEq]; exact ⟨amono hv, hargs⟩
+                  -- Partial application: build ValueEq km for the new VBuiltin.
+                  have hargs_km : ListValueEq km args1 args2 :=
+                    listValueEq_mono km (km + 1) (by omega) _ _ hargs_lve
                   match km with
                   | 0 =>
-                    -- At km=0, n=0 (since n ≤ km=0), and StepCompat 1 0 for
-                    -- an active ret state is vacuously true.
                     have : n = 0 := by omega
                     subst this
-                    exact stepCompat_zero_ret (0 + 1) rest1 rest2 _ _
+                    exact stepCompat_zero_ret 0 rest1 rest2 _ _
                   | m + 1 =>
-                    -- Use evalBuiltin_cong_same_level at level m to get congruence
-                    -- at level m+1 = km for the new args.
-                    have ⟨heval_none_new, heval_some_new⟩ :=
-                      evalBuiltin_cong_same_level m b1 (v1 :: args1) (v2 :: args2)
-                        hargs_km (veq_refl (m + 1) (by omega))
-                    -- evalBuiltin_cong_same_level gives ValueEq (m+1) = ValueEq km
-                    -- which is exactly what VBuiltin ValueEq at level km+1 needs.
-                    have hvb : ValueEq (m + 1 + 1) (.VBuiltin b1 (v1 :: args1) ea_rest)
+                    have hargs_new : ListValueEq (m + 1) (v1 :: args1) (v2 :: args2) := by
+                      simp only [ListValueEq]; exact ⟨hv_km, hargs_km⟩
+                    have hvb : ValueEq (m + 1) (.VBuiltin b1 (v1 :: args1) ea_rest)
                         (.VBuiltin b1 (v2 :: args2) ea_rest) := by
                       unfold ValueEq
-                      exact ⟨rfl, hargs_km, rfl, heval_none_new, heval_some_new⟩
-                    exact call_n (.ret hrest hvb)
+                      exact ⟨rfl, hargs_new, rfl⟩
+                    exact call_n (.ret hrest_km hvb)
               | argQ =>
                 simp only [h_head]
-                exact stepCompat_error (km + 1) n
+                exact stepCompat_error km n
             | VCon _ | VLam _ _ | VDelay _ _ | VConstr _ _ =>
               unfold ValueEq at hfv; exact hfv.elim
           | VCon _ =>
             cases vf2 with
-            | VCon _ => simp only [step]; exact stepCompat_error (km + 1) n
+            | VCon _ => simp only [step]; exact stepCompat_error km n
             | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
               unfold ValueEq at hfv; exact hfv.elim
           | VDelay _ _ =>
             cases vf2 with
-            | VDelay _ _ => simp only [step]; exact stepCompat_error (km + 1) n
+            | VDelay _ _ => simp only [step]; exact stepCompat_error km n
             | VCon _ | VLam _ _ | VConstr _ _ | VBuiltin _ _ _ =>
               unfold ValueEq at hfv; exact hfv.elim
           | VConstr _ _ =>
             cases vf2 with
-            | VConstr _ _ => simp only [step]; exact stepCompat_error (km + 1) n
+            | VConstr _ _ => simp only [step]; exact stepCompat_error km n
             | VCon _ | VLam _ _ | VDelay _ _ | VBuiltin _ _ _ =>
               unfold ValueEq at hfv; exact hfv.elim
         | applyArg hvx =>
-          -- ret (.applyArg vx :: rest) v → apply v to vx
+          -- ret (.applyArg vx :: rest) v -> apply v to vx
           rename_i vx1 vx2
+          -- hvx : ValueEq (km+1), hv : ValueEq (km+1)
+          have hvx_km : ValueEq km vx1 vx2 := valueEq_mono _ _ (by omega) _ _ hvx
+          have hv_km : ValueEq km v1 v2 := valueEq_mono _ _ (by omega) _ _ hv
           cases v1 with
           | VLam body1 env1 =>
             cases v2 with
             | VLam body2 env2 =>
               simp only [step]
               -- hv : ValueEq (km+1) (VLam body1 env1) (VLam body2 env2)
-              -- Bodies may differ: step gives .compute rest_i (env_i.extend vx_i) body_i.
-              -- The VLam clause gives StepCompat km for empty-stack computations
-              -- with ValueEq km args, but actual execution has stack rest_i.
-              -- Same stack-lifting issue as VDelay force.
-              sorry
+              -- CIU-style: instantiate with rest stacks and args (vx)
+              unfold ValueEq at hv
+              exact hv km (by omega) vx1 vx2 hvx_km rest1 rest2 (stackEq_to_stackEqR hrest_km) n hn'
             | VCon _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
               unfold ValueEq at hv; exact hv.elim
           | VBuiltin b1 args1 ea1 =>
             cases v2 with
             | VBuiltin b2 args2 ea2 =>
               unfold ValueEq at hv
-              obtain ⟨hb, hargs, hea, heval_none, heval_some⟩ := hv
+              obtain ⟨hb, hargs_lve, hea⟩ := hv
               subst hb; subst hea
               simp only [step]
               cases h_head : ea1.head with
@@ -1902,76 +1984,93 @@ theorem stateEq_stepCompat
                 cases h_tail : ea1.tail with
                 | none =>
                   simp only [h_tail]
-                  -- Saturation: evalBuiltin b (vx :: args1) / evalBuiltin b (vx :: args2).
-                  -- The VBuiltin gives evalBuiltin congruence for args1/args2 only.
-                  -- We need it for (vx::args), combining ValueEq (km+1) vx1 vx2
-                  -- with ListValueEq km args1 args2. Even with congruence, results
-                  -- are ValueEq km but .ret rest r needs ValueEq (km+1). Level mismatch.
-                  sorry
+                  -- Use hvx (at km+1) and hargs_lve to form higher-level ListValueEq
+                  have hargs_new_hi : ListValueEq (km + 1) (vx1 :: args1) (vx2 :: args2) := by
+                    simp only [ListValueEq]; exact ⟨hvx, hargs_lve⟩
+                  have ⟨heval_none_new, heval_some_new⟩ :=
+                    evalBuiltin_cong_same_level km b1 (vx1 :: args1) (vx2 :: args2)
+                      hargs_new_hi (veq_refl (km + 1) (by omega))
+                  cases h_eval1 : evalBuiltin b1 (vx1 :: args1) with
+                  | none =>
+                    simp only [h_eval1, heval_none_new.mp h_eval1]
+                    exact call_n .error
+                  | some r1 =>
+                    have h_eval2 : ∃ r2, evalBuiltin b1 (vx2 :: args2) = some r2 := by
+                      by_cases h : evalBuiltin b1 (vx2 :: args2) = none
+                      · exact absurd (heval_none_new.mpr h) (by rw [h_eval1]; simp)
+                      · obtain ⟨r2, hr2⟩ := Option.ne_none_iff_exists'.mp h; exact ⟨r2, hr2⟩
+                    obtain ⟨r2, h_eval2⟩ := h_eval2
+                    simp only [h_eval2]
+                    exact call_n (.ret hrest_km
+                      (valueEq_mono km (km + 1) (by omega) _ _
+                        (heval_some_new r1 r2 h_eval1 h_eval2)))
                 | some ea_rest =>
                   simp only [h_tail]
-                  -- Partial application: step gives .ret rest (.VBuiltin b (vx::args) ea_rest).
-                  -- Build ValueEq (km+1) for the new VBuiltin with accumulated args.
-                  have hargs_km : ListValueEq km (vx1 :: args1) (vx2 :: args2) := by
-                    simp only [ListValueEq]; exact ⟨amono hvx, hargs⟩
+                  have hargs_km : ListValueEq km args1 args2 :=
+                    listValueEq_mono km (km + 1) (by omega) _ _ hargs_lve
                   match km with
                   | 0 =>
                     have : n = 0 := by omega
                     subst this
-                    exact stepCompat_zero_ret (0 + 1) rest1 rest2 _ _
+                    exact stepCompat_zero_ret 0 rest1 rest2 _ _
                   | m + 1 =>
-                    have ⟨heval_none_new, heval_some_new⟩ :=
-                      evalBuiltin_cong_same_level m b1 (vx1 :: args1) (vx2 :: args2)
-                        hargs_km (veq_refl (m + 1) (by omega))
-                    have hvb : ValueEq (m + 1 + 1) (.VBuiltin b1 (vx1 :: args1) ea_rest)
+                    have hargs_new : ListValueEq (m + 1) (vx1 :: args1) (vx2 :: args2) := by
+                      simp only [ListValueEq]; exact ⟨hvx_km, hargs_km⟩
+                    have hvb : ValueEq (m + 1) (.VBuiltin b1 (vx1 :: args1) ea_rest)
                         (.VBuiltin b1 (vx2 :: args2) ea_rest) := by
                       unfold ValueEq
-                      exact ⟨rfl, hargs_km, rfl, heval_none_new, heval_some_new⟩
-                    exact call_n (.ret hrest hvb)
+                      exact ⟨rfl, hargs_new, rfl⟩
+                    exact call_n (.ret hrest_km hvb)
               | argQ =>
                 simp only [h_head]
-                exact stepCompat_error (km + 1) n
+                exact stepCompat_error km n
             | VCon _ | VLam _ _ | VDelay _ _ | VConstr _ _ =>
               unfold ValueEq at hv; exact hv.elim
           | VCon _ =>
             cases v2 with
-            | VCon _ => simp only [step]; exact stepCompat_error (km + 1) n
+            | VCon _ => simp only [step]; exact stepCompat_error km n
             | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
               unfold ValueEq at hv; exact hv.elim
           | VDelay _ _ =>
             cases v2 with
-            | VDelay _ _ => simp only [step]; exact stepCompat_error (km + 1) n
+            | VDelay _ _ => simp only [step]; exact stepCompat_error km n
             | VCon _ | VLam _ _ | VConstr _ _ | VBuiltin _ _ _ =>
               unfold ValueEq at hv; exact hv.elim
           | VConstr _ _ =>
             cases v2 with
-            | VConstr _ _ => simp only [step]; exact stepCompat_error (km + 1) n
+            | VConstr _ _ => simp only [step]; exact stepCompat_error km n
             | VCon _ | VLam _ _ | VDelay _ _ | VBuiltin _ _ _ =>
               unfold ValueEq at hv; exact hv.elim
         | constrField hdone henv_cf =>
-          -- f1 = .constrField tag done1 todo env1_cf, f2 = .constrField tag done2 todo env2_cf
-          -- Introduce names for the frame implicit variables
-          -- Order from error: done1, done2, env1_cf, env2_cf, tag, todo
           rename_i done1 done2 env1_cf env2_cf tag todo
-          -- Step depends on todo (the remaining fields to evaluate)
-          -- Case split on todo first, then simp [step]
+          -- hdone : ListValueEq (km+1), henv_cf : EnvEq (km+1)
+          have hdone_km : ListValueEq km done1 done2 := listValueEq_mono _ _ (by omega) _ _ hdone
+          have henv_cf_km : EnvEq km env1_cf env2_cf := envEq_mono (by omega) henv_cf
+          have hv_km : ValueEq km v1 v2 := valueEq_mono _ _ (by omega) _ _ hv
           cases todo with
           | nil =>
-            -- step (.ret (.constrField tag done1 [] env1_cf :: rest1) v1) =
-            --   .ret rest1 (.VConstr tag (v1::done1).reverse)
             simp only [step]
-            have hfields : ListValueEq km (v1 :: done1).reverse (v2 :: done2).reverse :=
-              listValueEq_cons_rev (amono hv) (listValueEq_anti_mono amono_IH amono_vr hdone)
-            exact call_n (.ret hrest (vconstr_valueEq hfields))
+            match km with
+            | 0 =>
+              -- At km=0, call_n needs StateEq 0 which is trivial (ValueEq 0 = True)
+              have : n = 0 := by omega
+              subst this
+              exact stepCompat_zero_ret 0 rest1 rest2 _ _
+            | m + 1 =>
+              have hfields : ListValueEq m (v1 :: done1).reverse (v2 :: done2).reverse :=
+                listValueEq_cons_rev
+                  (valueEq_mono m (m + 1) (by omega) _ _ hv_km)
+                  (listValueEq_mono m (m + 1) (by omega) _ _ hdone_km)
+              exact call_n (.ret hrest_km (vconstr_valueEq (by simp only [Nat.add_sub_cancel]; exact hfields)))
           | cons m ms =>
-            -- step (.ret (.constrField tag done1 (m::ms) env1_cf :: rest1) v1) =
-            --   .compute (.constrField tag (v1::done1) ms env1_cf :: rest1) env1_cf m
             simp only [step]
-            have hdone' : ListValueEq (km + 1) (v1 :: done1) (v2 :: done2) := by
-              simp only [ListValueEq]; exact ⟨hv, hdone⟩
-            exact call_n (.compute (.cons (.constrField hdone' henv_cf) hrest) henv_cf)
+            have hdone' : ListValueEq km (v1 :: done1) (v2 :: done2) := by
+              simp only [ListValueEq]; exact ⟨hv_km, hdone_km⟩
+            exact call_n (.compute (.cons (.constrField hdone' henv_cf_km) hrest_km) henv_cf_km)
         | caseScrutinee henv_cs =>
           rename_i alts
+          -- henv_cs : EnvEq (km+1)
+          have henv_cs_km : EnvEq km _ _ := envEq_mono (by omega) henv_cs
           cases v1 with
           | VConstr tag1 fields1 =>
             cases v2 with
@@ -1981,15 +2080,15 @@ theorem stateEq_stepCompat
               subst htag
               simp only [step]
               cases h_alt : alts[tag1]? with
-              | none => exact stepCompat_error (km + 1) n
+              | none => exact stepCompat_error km n
               | some alt =>
                 -- hfields : ListValueEq km fields1 fields2
-                -- Step gives .compute (fields.map .applyArg ++ rest) env alt.
-                -- StackEq (km+1) for the applyArg frames needs FrameEq (km+1)
-                -- (.applyArg f1) (.applyArg f2) which needs ValueEq (km+1) per
-                -- field element. But VConstr at ValueEq (km+1) stores ListValueEq km,
-                -- giving only ValueEq km per element. Cannot upgrade. Level mismatch.
-                sorry
+                -- With call_n at level km, we need StackEq km and EnvEq km.
+                -- StackEq km for fields.map .applyArg ++ rest:
+                -- FrameEq km (.applyArg f) needs ValueEq km per field -- we have it!
+                exact call_n (.compute
+                  (stackEq_append (listValueEq_map_applyArg_stackEq hfields) hrest_km)
+                  henv_cs_km)
             | VCon _ | VLam _ _ | VDelay _ _ | VBuiltin _ _ _ =>
               unfold ValueEq at hv; exact hv.elim
           | VCon c1 =>
@@ -1999,42 +2098,37 @@ theorem stateEq_stepCompat
               subst hv
               simp only [step]
               cases h_ctf : constToTagAndFields c1 with
-              | none => exact stepCompat_error (km + 1) n
+              | none => exact stepCompat_error km n
               | some triple =>
                 obtain ⟨tag, numCtors, fields⟩ := triple
-                -- Split on whether numCtors condition holds
                 by_cases hcond : numCtors > 0 && alts.length > numCtors
-                · -- Both error
-                  simp only [hcond, if_true]
-                  exact stepCompat_error (km + 1) n
-                · -- Both continue to match alts[tag]?
-                  simp only [Bool.not_eq_true] at hcond
+                · simp only [hcond, if_true]
+                  exact stepCompat_error km n
+                · simp only [Bool.not_eq_true] at hcond
                   simp only [hcond, if_false]
                   cases h_alt : alts[tag]? with
-                  | none => exact stepCompat_error (km + 1) n
+                  | none => exact stepCompat_error km n
                   | some alt =>
-                    -- fields is the same on both sides (after subst c2 = c1)
-                    -- build ListValueEq (km+1) fields fields using listValueEq_refl
-                    have hfields_refl : ListValueEq (km + 1) fields fields :=
-                      listValueEq_refl (km + 1) fields
+                    have hfields_refl : ListValueEq km fields fields :=
+                      listValueEq_refl km fields
                     exact call_n (.compute
-                      (stackEq_append (listValueEq_map_applyArg_stackEq hfields_refl) hrest)
-                      henv_cs)
+                      (stackEq_append (listValueEq_map_applyArg_stackEq hfields_refl) hrest_km)
+                      henv_cs_km)
             | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
               unfold ValueEq at hv; exact hv.elim
           | VLam _ _ =>
             cases v2 with
-            | VLam _ _ => simp only [step]; exact stepCompat_error (km + 1) n
+            | VLam _ _ => simp only [step]; exact stepCompat_error km n
             | VCon _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
               unfold ValueEq at hv; exact hv.elim
           | VDelay _ _ =>
             cases v2 with
-            | VDelay _ _ => simp only [step]; exact stepCompat_error (km + 1) n
+            | VDelay _ _ => simp only [step]; exact stepCompat_error km n
             | VCon _ | VLam _ _ | VConstr _ _ | VBuiltin _ _ _ =>
               unfold ValueEq at hv; exact hv.elim
           | VBuiltin _ _ _ =>
             cases v2 with
-            | VBuiltin _ _ _ => simp only [step]; exact stepCompat_error (km + 1) n
+            | VBuiltin _ _ _ => simp only [step]; exact stepCompat_error km n
             | VCon _ | VLam _ _ | VDelay _ _ | VConstr _ _ =>
               unfold ValueEq at hv; exact hv.elim
 termination_by (k, n)
@@ -2054,7 +2148,8 @@ theorem gen_fundamental_lemma
 /-! ## Extraction: the original fundamental lemma -/
 
 /-- The fundamental lemma as stated in FundamentalLemma.lean, derived from
-    the generalized version. -/
+    the generalized version. With decaying StepCompat, results after `n`
+    steps from budget `k` are related at `ValueEq (k - n)`. -/
 theorem fundamental_lemma_proved (k : Nat)
     (veq_refl : ∀ j, j ≤ k → ∀ v : CekValue, ValueEq j v v)
     (body : Term) (env : CekEnv)
@@ -2064,12 +2159,76 @@ theorem fundamental_lemma_proved (k : Nat)
      steps n (.compute [] (env.extend arg2) body) = .error) ∧
     (∀ v1, steps n (.compute [] (env.extend arg1) body) = .halt v1 →
       ∃ v2, steps n (.compute [] (env.extend arg2) body) = .halt v2 ∧
-        ValueEq k v1 v2) ∧
+        ValueEq (k - n) v1 v2) ∧
     (∀ v2, steps n (.compute [] (env.extend arg2) body) = .halt v2 →
       ∃ v1, steps n (.compute [] (env.extend arg1) body) = .halt v1 ∧
-        ValueEq k v1 v2) := by
+        ValueEq (k - n) v1 v2) := by
   have henv : EnvEq k (env.extend arg1) (env.extend arg2) :=
     envEq_extend (envEq_refl veq_refl env) hargs
   exact gen_fundamental_lemma veq_refl body _ _ henv n hn
+
+/-! ## Standalone reflexivity (no veq_refl parameter)
+
+`ValueEq k v v` holds for all `k` and `v`. Proved by well-founded induction
+on `(k, sizeOf v)`: VLam/VDelay at level `k+1` delegate to `stateEq_stepCompat`
+at level `≤ k` (Nat decreases); VBuiltin/VConstr at level `k+1` delegate to
+`listValueEq_refl_proved` on structurally smaller values (sizeOf decreases). -/
+
+mutual
+  theorem valueEq_refl_proved : ∀ (k : Nat) (v : CekValue), ValueEq k v v
+    | 0, _ => by simp [ValueEq]
+    | _ + 1, .VCon _ => by simp [ValueEq]
+    | k + 1, .VLam body env => by
+      unfold ValueEq; intro j hj arg1 arg2 hargs stk1 stk2 hstk n hn
+      have veq : ∀ i, i ≤ j → ∀ w : CekValue, ValueEq i w w :=
+        fun i hi w => valueEq_refl_proved i w
+      exact stateEq_stepCompat j n hn veq
+        (.compute (stackEqR_to_stackEq hstk) (envEq_extend (envEq_refl veq env) hargs))
+    | k + 1, .VDelay body env => by
+      unfold ValueEq; intro j hj stk1 stk2 hstk n hn
+      have veq : ∀ i, i ≤ j → ∀ w : CekValue, ValueEq i w w :=
+        fun i hi w => valueEq_refl_proved i w
+      exact stateEq_stepCompat j n hn veq
+        (.compute (stackEqR_to_stackEq hstk) (envEq_refl veq env))
+    | _ + 1, .VConstr _ fields => by
+      unfold ValueEq; exact ⟨rfl, listValueEq_refl_proved _ fields⟩
+    | _ + 1, .VBuiltin b args ea => by
+      unfold ValueEq; exact ⟨rfl, listValueEq_refl_proved _ args, rfl⟩
+  termination_by k v => (k, sizeOf v)
+  theorem listValueEq_refl_proved : ∀ (k : Nat) (vs : List CekValue), ListValueEq k vs vs
+    | _, [] => by simp [ListValueEq]
+    | k, v :: vs => by simp only [ListValueEq]; exact ⟨valueEq_refl_proved k v, listValueEq_refl_proved k vs⟩
+  termination_by k vs => (k, sizeOf vs)
+end
+
+/-! ## Parameter-free wrappers -/
+
+private def veq_refl_of (k : Nat) : ∀ j, j ≤ k → ∀ v : CekValue, ValueEq j v v :=
+  fun j _ v => valueEq_refl_proved j v
+
+/-- `stateEq_stepCompat` without the `veq_refl` parameter. -/
+theorem stateEq_stepCompat' (k n : Nat) (hn : n ≤ k)
+    {s1 s2 : State} (hrel : StateEq k s1 s2) :
+    StepCompat k n s1 s2 :=
+  stateEq_stepCompat k n hn (veq_refl_of k) hrel
+
+/-- `envEq_refl` without the `veq_refl` parameter. -/
+theorem envEq_refl' {k : Nat} (env : CekEnv) : EnvEq k env env :=
+  envEq_refl (veq_refl_of k) env
+
+/-- The fundamental lemma without `veq_refl` parameter. -/
+theorem fundamental_lemma_proved' (k : Nat)
+    (body : Term) (env : CekEnv)
+    (arg1 arg2 : CekValue) (hargs : ValueEq k arg1 arg2)
+    (n : Nat) (hn : n ≤ k) :
+    (steps n (.compute [] (env.extend arg1) body) = .error ↔
+     steps n (.compute [] (env.extend arg2) body) = .error) ∧
+    (∀ v1, steps n (.compute [] (env.extend arg1) body) = .halt v1 →
+      ∃ v2, steps n (.compute [] (env.extend arg2) body) = .halt v2 ∧
+        ValueEq (k - n) v1 v2) ∧
+    (∀ v2, steps n (.compute [] (env.extend arg2) body) = .halt v2 →
+      ∃ v1, steps n (.compute [] (env.extend arg1) body) = .halt v1 ∧
+        ValueEq (k - n) v1 v2) :=
+  fundamental_lemma_proved k (veq_refl_of k) body env arg1 arg2 hargs n hn
 
 end Moist.Verified.ValueEqBisim

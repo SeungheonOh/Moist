@@ -19,24 +19,94 @@ open Moist.MIR (Expr lowerTotalExpr lowerTotalExpr_eq_lowerTotal fixCount)
 /-! ## Fundamental Lemma for VLam Reflexivity -/
 
 /-- The "fundamental lemma" of the step-indexed logical relation, parameterized
-    by `valueEq_refl` at indices `≤ k`.
+    by `valueEq_refl` at indices `≤ j`.
 
-    Given the same body and closure env, with `ValueEq k`-related extension args,
-    bounded computation agrees on error/halt and produces `ValueEq k` results. -/
-theorem fundemental_lemma (k : Nat)
-    (veq_refl : ∀ j, j ≤ k → ∀ v : CekValue, ValueEq j v v)
+    Given the same body and closure env, with `ValueEq j`-related extension args,
+    bounded computation agrees on error/halt and produces `ValueEq (j - n)`
+    results (observation budget decays with computation steps). -/
+theorem fundemental_lemma (j : Nat)
+    (veq_refl : ∀ i, i ≤ j → ∀ v : CekValue, ValueEq i v v)
     (body : Term) (env : CekEnv)
-    (arg1 arg2 : CekValue) (hargs : ValueEq k arg1 arg2)
-    (n : Nat) (hn : n ≤ k) :
-    (steps n (.compute [] (env.extend arg1) body) = .error ↔
-     steps n (.compute [] (env.extend arg2) body) = .error) ∧
-    (∀ v1, steps n (.compute [] (env.extend arg1) body) = .halt v1 →
-      ∃ v2, steps n (.compute [] (env.extend arg2) body) = .halt v2 ∧
-        ValueEq k v1 v2) ∧
-    (∀ v2, steps n (.compute [] (env.extend arg2) body) = .halt v2 →
-      ∃ v1, steps n (.compute [] (env.extend arg1) body) = .halt v1 ∧
-        ValueEq k v1 v2) := by
+    (arg1 arg2 : CekValue) (hargs : ValueEq j arg1 arg2)
+    (stk1 stk2 : Stack) (hstk : StackEqR (ValueEq j) stk1 stk2)
+    (n : Nat) (hn : n ≤ j) :
+    (steps n (.compute stk1 (env.extend arg1) body) = .error ↔
+     steps n (.compute stk2 (env.extend arg2) body) = .error) ∧
+    (∀ v1, steps n (.compute stk1 (env.extend arg1) body) = .halt v1 →
+      ∃ v2, steps n (.compute stk2 (env.extend arg2) body) = .halt v2 ∧
+        ValueEq (j - n) v1 v2) ∧
+    (∀ v2, steps n (.compute stk2 (env.extend arg2) body) = .halt v2 →
+      ∃ v1, steps n (.compute stk1 (env.extend arg1) body) = .halt v1 ∧
+        ValueEq (j - n) v1 v2) := by
   sorry
+
+/-! ## StackEqR / FrameEqR / EnvEqR helpers -/
+
+private theorem envEqR_symm {R : CekValue → CekValue → Prop}
+    (hR : ∀ v₁ v₂, R v₁ v₂ → R v₂ v₁) :
+    ∀ e₁ e₂, EnvEqR R e₁ e₂ → EnvEqR R e₂ e₁
+  | .nil, .nil, _ => trivial
+  | .cons v1 e1, .cons v2 e2, h => ⟨hR v1 v2 h.1, envEqR_symm hR e1 e2 h.2⟩
+  | .nil, .cons _ _, h => absurd h (by simp [EnvEqR])
+  | .cons _ _, .nil, h => absurd h (by simp [EnvEqR])
+
+private theorem listR_symm {R : CekValue → CekValue → Prop}
+    (hR : ∀ v₁ v₂, R v₁ v₂ → R v₂ v₁) :
+    ∀ l₁ l₂, ListR R l₁ l₂ → ListR R l₂ l₁
+  | [], [], _ => trivial
+  | a :: as, b :: bs, h => ⟨hR a b h.1, listR_symm hR as bs h.2⟩
+  | [], _ :: _, h => absurd h (by simp [ListR])
+  | _ :: _, [], h => absurd h (by simp [ListR])
+
+private theorem frameEqR_symm {R : CekValue → CekValue → Prop}
+    (hR : ∀ v₁ v₂, R v₁ v₂ → R v₂ v₁)
+    (f₁ f₂ : Frame) (h : FrameEqR R f₁ f₂) : FrameEqR R f₂ f₁ := by
+  cases f₁ <;> cases f₂ <;> simp [FrameEqR] at h ⊢
+  all_goals (try exact trivial)
+  case arg.arg t1 e1 t2 e2 => exact ⟨h.1.symm, envEqR_symm hR e1 e2 h.2⟩
+  case funV.funV v1 v2 => exact hR v1 v2 h
+  case applyArg.applyArg v1 v2 => exact hR v1 v2 h
+  case constrField.constrField tag1 d1 todo1 env1 tag2 d2 todo2 env2 =>
+    exact ⟨h.1.symm, h.2.1.symm, listR_symm hR d1 d2 h.2.2.1, envEqR_symm hR env1 env2 h.2.2.2⟩
+  case caseScrutinee.caseScrutinee alts1 env1 alts2 env2 =>
+    exact ⟨h.1.symm, envEqR_symm hR env1 env2 h.2⟩
+
+private theorem stackEqR_symm {R : CekValue → CekValue → Prop}
+    (hR : ∀ v₁ v₂, R v₁ v₂ → R v₂ v₁) :
+    ∀ s₁ s₂, StackEqR R s₁ s₂ → StackEqR R s₂ s₁
+  | [], [], _ => trivial
+  | f1 :: s1, f2 :: s2, h => ⟨frameEqR_symm hR f1 f2 h.1, stackEqR_symm hR s1 s2 h.2⟩
+  | [], _ :: _, h => absurd h (by simp [StackEqR])
+  | _ :: _, [], h => absurd h (by simp [StackEqR])
+
+private theorem envEqR_refl {R : CekValue → CekValue → Prop}
+    (hR : ∀ v, R v v) :
+    ∀ e, EnvEqR R e e
+  | .nil => trivial
+  | .cons v e => ⟨hR v, envEqR_refl hR e⟩
+
+private theorem listR_refl {R : CekValue → CekValue → Prop}
+    (hR : ∀ v, R v v) :
+    ∀ l, ListR R l l
+  | [] => trivial
+  | a :: as => ⟨hR a, listR_refl hR as⟩
+
+private theorem frameEqR_refl {R : CekValue → CekValue → Prop}
+    (hR : ∀ v, R v v)
+    (f : Frame) : FrameEqR R f f := by
+  cases f with
+  | force => trivial
+  | arg t env => exact ⟨rfl, envEqR_refl hR env⟩
+  | funV v => exact hR v
+  | applyArg v => exact hR v
+  | constrField tag done todo env => exact ⟨rfl, rfl, listR_refl hR done, envEqR_refl hR env⟩
+  | caseScrutinee alts env => exact ⟨rfl, envEqR_refl hR env⟩
+
+private theorem stackEqR_refl {R : CekValue → CekValue → Prop}
+    (hR : ∀ v, R v v) :
+    ∀ s, StackEqR R s s
+  | [] => trivial
+  | f :: s => ⟨frameEqR_refl hR f, stackEqR_refl hR s⟩
 
 /-! ## ValueEq properties -/
 
@@ -46,17 +116,15 @@ mutual
     | 0, _ => by simp [ValueEq]
     | _ + 1, .VCon _ => by simp [ValueEq]
     | k + 1, .VLam body env => by
-      unfold ValueEq; intro arg1 arg2 hargs n hn
-      exact fundemental_lemma k (fun j hj v => valueEq_refl j v) body env arg1 arg2 hargs n hn
+      unfold ValueEq; intro j hj arg1 arg2 hargs stk1 stk2 hstk n hn
+      exact fundemental_lemma j (fun i hi v => valueEq_refl i v) body env arg1 arg2 hargs stk1 stk2 hstk n hn
     | k + 1, .VDelay _ _ => by
-      unfold ValueEq; intro n hn
-      exact ⟨Iff.rfl, fun v₁ hv₁ => ⟨v₁, hv₁, valueEq_refl k v₁⟩,
-             fun v₂ hv₂ => ⟨v₂, hv₂, valueEq_refl k v₂⟩⟩
+      unfold ValueEq; intro j hj stk1 stk2 hstk n hn
+      sorry -- needs bisimulation: same body/env on related stacks
     | _ + 1, .VConstr _ fields => by
       unfold ValueEq; exact ⟨rfl, listValueEq_refl _ fields⟩
     | k + 1, .VBuiltin b args ea => by
-      unfold ValueEq; exact ⟨rfl, listValueEq_refl k args, rfl, Iff.rfl,
-        fun r1 r2 h1 h2 => by rw [h1] at h2; injection h2 with h2; subst h2; exact valueEq_refl k r1⟩
+      unfold ValueEq; exact ⟨rfl, listValueEq_refl (k + 1) args, rfl⟩
   theorem listValueEq_refl : ∀ (k : Nat) (vs : List CekValue), ListValueEq k vs vs
     | _, [] => by simp [ListValueEq]
     | k, v :: vs => by simp only [ListValueEq]; exact ⟨valueEq_refl k v, listValueEq_refl k vs⟩
@@ -64,24 +132,25 @@ mutual
     | 0, _, _, _ => by simp [ValueEq]
     | _ + 1, .VCon _, .VCon _, h => by simp only [ValueEq] at h ⊢; exact h.symm
     | k + 1, .VLam _ _, .VLam _ _, h => by
-      unfold ValueEq at h ⊢; intro arg1 arg2 hargs n hn
-      have hargs' := valueEq_symm k _ _ hargs
-      have ⟨herr, hhalt1, hhalt2⟩ := h arg2 arg1 hargs' n hn
+      unfold ValueEq at h ⊢; intro j hj arg1 arg2 hargs stk1 stk2 hstk n hn
+      have hargs' := valueEq_symm j _ _ hargs
+      have hstk' := stackEqR_symm (valueEq_symm j) stk1 stk2 hstk
+      have ⟨herr, hhalt1, hhalt2⟩ := h j hj arg2 arg1 hargs' stk2 stk1 hstk' n hn
       exact ⟨herr.symm,
-             fun v1 hv1 => let ⟨v2, hv2, hve⟩ := hhalt2 v1 hv1; ⟨v2, hv2, valueEq_symm k _ _ hve⟩,
-             fun v2 hv2 => let ⟨v1, hv1, hve⟩ := hhalt1 v2 hv2; ⟨v1, hv1, valueEq_symm k _ _ hve⟩⟩
+             fun v1 hv1 => let ⟨v2, hv2, hve⟩ := hhalt2 v1 hv1; ⟨v2, hv2, valueEq_symm (j - n) _ _ hve⟩,
+             fun v2 hv2 => let ⟨v1, hv1, hve⟩ := hhalt1 v2 hv2; ⟨v1, hv1, valueEq_symm (j - n) _ _ hve⟩⟩
     | k + 1, .VDelay _ _, .VDelay _ _, h => by
-      unfold ValueEq at h ⊢; intro n hn
-      have ⟨herr, hhalt1, hhalt2⟩ := h n hn
+      unfold ValueEq at h ⊢; intro j hj stk1 stk2 hstk n hn
+      have hstk' := stackEqR_symm (valueEq_symm j) stk1 stk2 hstk
+      have ⟨herr, hhalt1, hhalt2⟩ := h j hj stk2 stk1 hstk' n hn
       exact ⟨herr.symm,
-             fun v1 hv1 => let ⟨v2, hv2, hve⟩ := hhalt2 v1 hv1; ⟨v2, hv2, valueEq_symm k _ _ hve⟩,
-             fun v2 hv2 => let ⟨v1, hv1, hve⟩ := hhalt1 v2 hv2; ⟨v1, hv1, valueEq_symm k _ _ hve⟩⟩
+             fun v1 hv1 => let ⟨v2, hv2, hve⟩ := hhalt2 v1 hv1; ⟨v2, hv2, valueEq_symm (j - n) _ _ hve⟩,
+             fun v2 hv2 => let ⟨v1, hv1, hve⟩ := hhalt1 v2 hv2; ⟨v1, hv1, valueEq_symm (j - n) _ _ hve⟩⟩
     | _ + 1, .VConstr _ _, .VConstr _ _, h => by
       unfold ValueEq at h ⊢; exact ⟨h.1.symm, listValueEq_symm _ _ _ h.2⟩
     | k + 1, .VBuiltin _ _ _, .VBuiltin _ _ _, h => by
       unfold ValueEq at h ⊢
-      exact ⟨h.1.symm, listValueEq_symm k _ _ h.2.1, h.2.2.1.symm, h.2.2.2.1.symm,
-             fun r1 r2 h1 h2 => valueEq_symm k _ _ (h.2.2.2.2 r2 r1 h2 h1)⟩
+      exact ⟨h.1.symm, listValueEq_symm (k + 1) _ _ h.2.1, h.2.2.symm⟩
     | _ + 1, .VCon _, .VLam _ _, h => by simp [ValueEq] at h
     | _ + 1, .VCon _, .VDelay _ _, h => by simp [ValueEq] at h
     | _ + 1, .VCon _, .VConstr _ _, h => by simp [ValueEq] at h
@@ -117,38 +186,37 @@ mutual
     | _ + 1, .VCon _, .VCon _, .VCon _, h12, h23 => by
       simp only [ValueEq] at h12 h23 ⊢; exact h12.trans h23
     | k + 1, .VLam _ _, .VLam _ _, .VLam _ _, h12, h23 => by
-      unfold ValueEq at h12 h23 ⊢; intro arg1 arg3 hargs13 n hn
-      -- Chain: use arg2 := arg1 for the middle
-      have h12' := h12 arg1 arg1 (valueEq_refl k arg1) n hn
-      have h23' := h23 arg1 arg3 hargs13 n hn
+      unfold ValueEq at h12 h23 ⊢; intro j hj arg1 arg3 hargs13 stk1 stk3 hstk13 n hn
+      -- Chain: use arg2 := arg1 and stk2 := stk1 for the middle
+      have hstk_refl := stackEqR_refl (valueEq_refl j) stk1
+      have h12' := h12 j hj arg1 arg1 (valueEq_refl j arg1) stk1 stk1 hstk_refl n hn
+      have h23' := h23 j hj arg1 arg3 hargs13 stk1 stk3 hstk13 n hn
       refine ⟨h12'.1.trans h23'.1, fun v1 hv1 => ?_, fun v3 hv3 => ?_⟩
       · obtain ⟨v2, hv2, hve12⟩ := h12'.2.1 v1 hv1
         obtain ⟨v3, hv3, hve23⟩ := h23'.2.1 v2 hv2
-        exact ⟨v3, hv3, valueEq_trans k _ _ _ hve12 hve23⟩
+        exact ⟨v3, hv3, valueEq_trans (j - n) _ _ _ hve12 hve23⟩
       · obtain ⟨v2, hv2, hve23⟩ := h23'.2.2 v3 hv3
         obtain ⟨v1, hv1, hve12⟩ := h12'.2.2 v2 hv2
-        exact ⟨v1, hv1, valueEq_trans k _ _ _ hve12 hve23⟩
+        exact ⟨v1, hv1, valueEq_trans (j - n) _ _ _ hve12 hve23⟩
     | k + 1, .VDelay _ _, .VDelay _ _, .VDelay _ _, h12, h23 => by
-      unfold ValueEq at h12 h23 ⊢; intro n hn
-      have h12' := h12 n hn; have h23' := h23 n hn
+      unfold ValueEq at h12 h23 ⊢; intro j hj stk1 stk3 hstk13 n hn
+      have hstk_refl := stackEqR_refl (valueEq_refl j) stk1
+      have h12' := h12 j hj stk1 stk1 hstk_refl n hn
+      have h23' := h23 j hj stk1 stk3 hstk13 n hn
       refine ⟨h12'.1.trans h23'.1, fun v1 hv1 => ?_, fun v3 hv3 => ?_⟩
       · obtain ⟨v2, hv2, hve12⟩ := h12'.2.1 v1 hv1
         obtain ⟨v3, hv3, hve23⟩ := h23'.2.1 v2 hv2
-        exact ⟨v3, hv3, valueEq_trans k _ _ _ hve12 hve23⟩
+        exact ⟨v3, hv3, valueEq_trans (j - n) _ _ _ hve12 hve23⟩
       · obtain ⟨v2, hv2, hve23⟩ := h23'.2.2 v3 hv3
         obtain ⟨v1, hv1, hve12⟩ := h12'.2.2 v2 hv2
-        exact ⟨v1, hv1, valueEq_trans k _ _ _ hve12 hve23⟩
+        exact ⟨v1, hv1, valueEq_trans (j - n) _ _ _ hve12 hve23⟩
     | _ + 1, .VConstr _ _, .VConstr _ _, .VConstr _ _, h12, h23 => by
       unfold ValueEq at h12 h23 ⊢
       exact ⟨h12.1.trans h23.1, listValueEq_trans _ _ _ _ h12.2 h23.2⟩
     | k + 1, .VBuiltin _ _ _, .VBuiltin _ _ _, .VBuiltin _ _ _, h12, h23 => by
       unfold ValueEq at h12 h23 ⊢
-      exact ⟨h12.1.trans h23.1, listValueEq_trans k _ _ _ h12.2.1 h23.2.1,
-             h12.2.2.1.trans h23.2.2.1, h12.2.2.2.1.trans h23.2.2.2.1,
-             fun r1 r3 hr1 hr3 => by
-               rcases h_mid : Moist.CEK.evalBuiltin _ _ with _ | r2
-               · exact absurd (h12.2.2.2.1.mpr h_mid ▸ hr1) (by simp)
-               · exact valueEq_trans k _ _ _ (h12.2.2.2.2 r1 r2 hr1 h_mid) (h23.2.2.2.2 r2 r3 h_mid hr3)⟩
+      exact ⟨h12.1.trans h23.1, listValueEq_trans (k + 1) _ _ _ h12.2.1 h23.2.1,
+             h12.2.2.trans h23.2.2⟩
     -- h12 is False (v₁ and v₂ have different constructors)
     | _ + 1, .VCon _, .VLam _ _, _, h, _ | _ + 1, .VCon _, .VDelay _ _, _, h, _
     | _ + 1, .VCon _, .VConstr _ _, _, h, _ | _ + 1, .VCon _, .VBuiltin _ _ _, _, h, _

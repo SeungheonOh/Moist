@@ -30,6 +30,57 @@ open Moist.MIR
 open Moist.MIR (lowerTotalExpr lowerTotalExpr_eq_lowerTotal)
 open Moist.Verified.Semantics
 
+/-! ## ValueEq monotonicity (early, used by force/app congruence) -/
+
+mutual
+  theorem valueEq_mono : ∀ (j k : Nat), j ≤ k →
+      ∀ (v₁ v₂ : CekValue), ValueEq k v₁ v₂ → ValueEq j v₁ v₂
+    | 0, _, _, _, _, _ => by simp [ValueEq]
+    | _ + 1, 0, hjk, _, _, _ => absurd hjk (by omega)
+    | j + 1, k + 1, hjk, .VCon c₁, .VCon c₂, h => by
+      simp only [ValueEq] at h ⊢; exact h
+    | j + 1, k + 1, hjk, .VLam b₁ e₁, .VLam b₂ e₂, h => by
+      unfold ValueEq at h ⊢; intro i hi arg1 arg2 hargs stk1 stk2 hstk n hn
+      exact h i (by omega) arg1 arg2 hargs stk1 stk2 hstk n hn
+    | j + 1, k + 1, hjk, .VDelay b₁ e₁, .VDelay b₂ e₂, h => by
+      unfold ValueEq at h ⊢; intro i hi stk1 stk2 hstk n hn
+      exact h i (by omega) stk1 stk2 hstk n hn
+    | j + 1, k + 1, hjk, .VConstr _ _, .VConstr _ _, h => by
+      unfold ValueEq at h ⊢
+      exact ⟨h.1, listValueEq_mono j k (by omega) _ _ h.2⟩
+    | j + 1, k + 1, hjk, .VBuiltin _ _ _, .VBuiltin _ _ _, h => by
+      unfold ValueEq at h ⊢
+      exact ⟨h.1, listValueEq_mono (j + 1) (k + 1) (by omega) _ _ h.2.1, h.2.2⟩
+    | _ + 1, _ + 1, _, .VCon _, .VLam _ _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VCon _, .VDelay _ _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VCon _, .VConstr _ _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VCon _, .VBuiltin _ _ _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VLam _ _, .VCon _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VLam _ _, .VDelay _ _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VLam _ _, .VConstr _ _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VLam _ _, .VBuiltin _ _ _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VDelay _ _, .VCon _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VDelay _ _, .VLam _ _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VDelay _ _, .VConstr _ _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VDelay _ _, .VBuiltin _ _ _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VConstr _ _, .VCon _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VConstr _ _, .VLam _ _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VConstr _ _, .VDelay _ _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VConstr _ _, .VBuiltin _ _ _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VBuiltin _ _ _, .VCon _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VBuiltin _ _ _, .VLam _ _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VBuiltin _ _ _, .VDelay _ _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VBuiltin _ _ _, .VConstr _ _, h => by simp [ValueEq] at h
+  theorem listValueEq_mono : ∀ (j k : Nat), j ≤ k →
+      ∀ (vs₁ vs₂ : List CekValue), ListValueEq k vs₁ vs₂ → ListValueEq j vs₁ vs₂
+    | _, _, _, [], [], _ => by simp [ListValueEq]
+    | j, k, hjk, _ :: _, _ :: _, h => by
+      simp only [ListValueEq] at h ⊢
+      exact ⟨valueEq_mono j k hjk _ _ h.1, listValueEq_mono j k hjk _ _ h.2⟩
+    | _, _, _, [], _ :: _, h => by exact absurd h (by simp [ListValueEq])
+    | _, _, _, _ :: _, [], h => by exact absurd h (by simp [ListValueEq])
+end
+
 /-! ## Identical lowering implies behavioral equivalence -/
 
 /-- If two MIR expressions lower to the same UPLC term via `lowerTotalExpr`
@@ -546,7 +597,7 @@ theorem refines_delay_behEq (e e' : Expr) (h : e ⊑ e') :
         cases k with
         | zero => simp [ValueEq]
         | succ k =>
-          unfold ValueEq; intro n hn
+          unfold ValueEq; intro j hj stk1 stk2 hstk n hn
           sorry -- TODO: needs bounded-step from bisimulation
 
 /-- Lam preserves Refines (behavioral). `Lam x body` halts immediately with
@@ -585,7 +636,7 @@ theorem refines_lam_behEq (x : VarId) (body body' : Expr) (h : body ⊑ body') :
         cases k with
         | zero => simp [ValueEq]
         | succ k =>
-          unfold ValueEq; intro arg1 arg2 hargs n hn
+          unfold ValueEq; intro j hj arg1 arg2 hargs stk1 stk2 hstk n hn
           sorry -- TODO: needs bounded-step from bisimulation
 
 /-! ### Force decomposition via liftState
@@ -901,21 +952,61 @@ For VCon/VLam/VConstr: forcing always errors (same constructor → same behavior
 For VBuiltin: same `b` and `ea` mean same branching on `ea.head`/`ea.tail`,
 and `evalBuiltin` none↔ handles the fully-saturated case. -/
 
-/-- Force-frame error transfer: if `ValueEq (k+1) v1 v2` and forcing `v1` errors,
-    then forcing `v2` also errors. -/
-private theorem force_frame_error_transfer (k : Nat)
-    (v1 v2 : CekValue) (hve : ValueEq (k + 1) v1 v2)
+/-- evalBuiltin none↔none for full arg lists under ListValueEq.
+    Proved later via extractConsts_cong + evalBuiltinPassThrough isNone;
+    stated early for use by force/halts transfer. -/
+private theorem evalBuiltin_none_iff_early (k : Nat) (b : BuiltinFun)
+    (a1 a2 : List CekValue) (hargs : ListValueEq (k + 1) a1 a2) :
+    Moist.CEK.evalBuiltin b a1 = none ↔ Moist.CEK.evalBuiltin b a2 = none := by
+  sorry
+
+/-- evalBuiltin value congruence for full arg lists under ListValueEq.
+    Proved later via evalBuiltin_full_cong; stated early for use by
+    refines_force_behEq. -/
+private theorem evalBuiltin_value_cong_early (k : Nat) (b : BuiltinFun)
+    (a1 a2 : List CekValue) (hargs : ListValueEq (k + 1) a1 a2)
+    (r1 r2 : CekValue)
+    (hr1 : Moist.CEK.evalBuiltin b a1 = some r1)
+    (hr2 : Moist.CEK.evalBuiltin b a2 = some r2) :
+    ValueEq k r1 r2 := by
+  sorry
+
+/-- Force-frame error transfer: if `∀ j, ValueEq j v1 v2` and forcing `v1` errors,
+    then forcing `v2` also errors. For VDelay, extract the step count N from
+    `herr`, pick level N to get the bounded CIU clause covering N-1 steps. -/
+private theorem force_frame_error_transfer
+    (v1 v2 : CekValue) (hve : ∀ j, ValueEq j v1 v2)
     (herr : Reaches (.ret [.force] v1) .error) :
     Reaches (.ret [.force] v2) .error := by
   match v1, v2 with
   | .VDelay b1 e1, .VDelay b2 e2 =>
-    sorry -- TODO: adapt to bounded-step VDelay ValueEq
+    -- Extract step count N from herr
+    obtain ⟨N, hN⟩ := herr
+    cases N with
+    | zero => simp [steps] at hN
+    | succ N =>
+      -- steps (N+1) (.ret [.force] (VDelay b1 e1)) = .error
+      -- After 1 step: steps N (.compute [] e1 b1) = .error
+      have hcomp : steps N (.compute [] e1 b1) = .error := by
+        simp only [steps, step] at hN; exact hN
+      -- Pick level N+1 from hve: ValueEq (N+1) (VDelay b1 e1) (VDelay b2 e2)
+      have hveN := hve (N + 1)
+      -- VDelay clause: ∀ j ≤ N, ∀ stk1 stk2, StackEqR (ValueEq j) stk1 stk2 →
+      --               ∀ n ≤ j, (error ↔) ∧ ...
+      unfold ValueEq at hveN
+      -- Use j = N, stk1 = stk2 = [] (StackEqR R [] [] = True), n = N
+      have hclause := hveN N (Nat.le_refl N) [] [] trivial N (Nat.le_refl N)
+      -- hclause.1 : steps N (.compute [] e1 b1) = .error ↔ steps N (.compute [] e2 b2) = .error
+      have herr2 := hclause.1.mp hcomp
+      -- Compose: steps (N+1) (.ret [.force] (VDelay b2 e2)) = steps N (.compute [] e2 b2)
+      exact ⟨N + 1, by simp only [steps, step]; exact herr2⟩
   | .VCon _, .VCon _ => exact force_vcon_reaches_error _
   | .VLam _ _, .VLam _ _ => exact force_vlam_reaches_error _ _
   | .VConstr _ _, .VConstr _ _ => exact force_vconstr_reaches_error _ _
   | .VBuiltin b a1 ea, .VBuiltin _ a2 _ =>
-    unfold ValueEq at hve
-    obtain ⟨hb, _, hea, heval_none, _⟩ := hve; subst hb; subst hea
+    have hve1 := hve 1
+    unfold ValueEq at hve1
+    obtain ⟨hb, hargs_lve, hea⟩ := hve1; subst hb; subst hea
     obtain ⟨n, hn⟩ := herr
     cases n with
     | zero => simp [steps] at hn
@@ -928,8 +1019,6 @@ private theorem force_frame_error_transfer (k : Nat)
         cases ht : ea.tail with
         | some rest =>
           rw [ht] at hn
-          -- hn : steps n (ret [] (VBuiltin b a1 rest)) = error
-          -- But ret [] v halts in 1 step, so can't error
           cases n with
           | zero => simp [steps] at hn
           | succ n => simp [steps, step, steps_halt] at hn
@@ -938,50 +1027,67 @@ private theorem force_frame_error_transfer (k : Nat)
           cases hev : Moist.CEK.evalBuiltin b a1 with
           | some v =>
             rw [hev] at hn
-            -- hn : steps n (ret [] v) = error — impossible (halts in 1 step)
             cases n with
             | zero => simp [steps] at hn
             | succ n => simp [steps, step, steps_halt] at hn
           | none =>
-            have hev2 : Moist.CEK.evalBuiltin b a2 = none := heval_none.mp hev
+            have hcong_none := evalBuiltin_none_iff_early 0 b a1 a2 hargs_lve
+            have hev2 := hcong_none.mp hev
             exact ⟨1, by simp [steps, step, hh, ht, hev2]⟩
   -- Cross-constructor: impossible (ValueEq at mismatched constructors is False)
-  | .VCon _, .VLam _ _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VCon _, .VDelay _ _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VCon _, .VConstr _ _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VCon _, .VBuiltin _ _ _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VLam _ _, .VCon _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VLam _ _, .VDelay _ _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VLam _ _, .VConstr _ _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VLam _ _, .VBuiltin _ _ _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VDelay _ _, .VCon _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VDelay _ _, .VLam _ _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VDelay _ _, .VConstr _ _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VDelay _ _, .VBuiltin _ _ _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VConstr _ _, .VCon _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VConstr _ _, .VLam _ _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VConstr _ _, .VDelay _ _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VConstr _ _, .VBuiltin _ _ _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VBuiltin _ _ _, .VCon _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VBuiltin _ _ _, .VLam _ _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VBuiltin _ _ _, .VDelay _ _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VBuiltin _ _ _, .VConstr _ _ => exact absurd hve (by unfold ValueEq; exact id)
+  | .VCon _, .VLam _ _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VCon _, .VDelay _ _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VCon _, .VConstr _ _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VCon _, .VBuiltin _ _ _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VLam _ _, .VCon _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VLam _ _, .VDelay _ _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VLam _ _, .VConstr _ _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VLam _ _, .VBuiltin _ _ _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VDelay _ _, .VCon _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VDelay _ _, .VLam _ _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VDelay _ _, .VConstr _ _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VDelay _ _, .VBuiltin _ _ _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VConstr _ _, .VCon _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VConstr _ _, .VLam _ _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VConstr _ _, .VDelay _ _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VConstr _ _, .VBuiltin _ _ _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VBuiltin _ _ _, .VCon _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VBuiltin _ _ _, .VLam _ _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VBuiltin _ _ _, .VDelay _ _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VBuiltin _ _ _, .VConstr _ _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
 
-/-- Force-frame halts transfer: if `ValueEq (k+1) v1 v2` and forcing `v1` halts,
-    then forcing `v2` also halts. -/
-private theorem force_frame_halts_transfer (k : Nat)
-    (v1 v2 : CekValue) (hve : ValueEq (k + 1) v1 v2)
+/-- Force-frame halts transfer: if `∀ j, ValueEq j v1 v2` and forcing `v1` halts,
+    then forcing `v2` also halts. For VDelay, extract step count N, pick level N
+    to get bounded CIU clause, derive halt existence on the other side. -/
+private theorem force_frame_halts_transfer
+    (v1 v2 : CekValue) (hve : ∀ j, ValueEq j v1 v2)
     (hh : Halts (.ret [.force] v1)) :
     Halts (.ret [.force] v2) := by
   match v1, v2 with
   | .VDelay b1 e1, .VDelay b2 e2 =>
-    sorry -- TODO: adapt to bounded-step VDelay ValueEq
+    -- Extract step count and halted value
+    obtain ⟨w, N, hN⟩ := hh
+    cases N with
+    | zero => simp [steps] at hN
+    | succ N =>
+      -- After 1 step: steps N (.compute [] e1 b1) = .halt w
+      have hcomp : steps N (.compute [] e1 b1) = .halt w := by
+        simp only [steps, step] at hN; exact hN
+      -- Pick level N+1: ValueEq (N+1) gives VDelay clause with j ≤ N
+      have hveN := hve (N + 1)
+      unfold ValueEq at hveN
+      -- Use j = N, stk = [] (trivial), n = N
+      have hclause := hveN N (Nat.le_refl N) [] [] trivial N (Nat.le_refl N)
+      -- hclause.2.1 : halt transfer from side 1 to side 2
+      obtain ⟨w2, hw2⟩ := hclause.2.1 w hcomp
+      exact ⟨w2, N + 1, by simp only [steps, step]; exact hw2.1⟩
   | .VCon _, .VCon _ => exact absurd hh (force_vcon_not_halts _)
   | .VLam _ _, .VLam _ _ => exact absurd hh (force_vlam_not_halts _ _)
   | .VConstr _ _, .VConstr _ _ => exact absurd hh (force_vconstr_not_halts _ _)
   | .VBuiltin b a1 ea, .VBuiltin _ a2 _ =>
-    unfold ValueEq at hve
-    obtain ⟨hb, _, hea, heval_none, _⟩ := hve; subst hb; subst hea
+    have hve1 := hve 1
+    unfold ValueEq at hve1
+    obtain ⟨hb, hargs_lve, hea⟩ := hve1; subst hb; subst hea
     obtain ⟨w, n, hn⟩ := hh
     cases n with
     | zero => simp [steps] at hn
@@ -1002,28 +1108,30 @@ private theorem force_frame_halts_transfer (k : Nat)
           | some v1 =>
             rw [hev1] at hn
             cases hev2 : Moist.CEK.evalBuiltin b a2 with
-            | none => exact absurd hev2 (by intro h; exact absurd (heval_none.mpr h) (by rw [hev1]; simp))
+            | none =>
+              have hcong_none := evalBuiltin_none_iff_early 0 b a1 a2 hargs_lve
+              exact absurd (hcong_none.mpr hev2) (by rw [hev1]; simp)
             | some v2 => exact ⟨v2, 2, by simp [steps, step, hhead, htail, hev2]⟩
-  | .VCon _, .VLam _ _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VCon _, .VDelay _ _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VCon _, .VConstr _ _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VCon _, .VBuiltin _ _ _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VLam _ _, .VCon _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VLam _ _, .VDelay _ _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VLam _ _, .VConstr _ _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VLam _ _, .VBuiltin _ _ _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VDelay _ _, .VCon _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VDelay _ _, .VLam _ _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VDelay _ _, .VConstr _ _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VDelay _ _, .VBuiltin _ _ _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VConstr _ _, .VCon _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VConstr _ _, .VLam _ _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VConstr _ _, .VDelay _ _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VConstr _ _, .VBuiltin _ _ _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VBuiltin _ _ _, .VCon _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VBuiltin _ _ _, .VLam _ _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VBuiltin _ _ _, .VDelay _ _ => exact absurd hve (by unfold ValueEq; exact id)
-  | .VBuiltin _ _ _, .VConstr _ _ => exact absurd hve (by unfold ValueEq; exact id)
+  | .VCon _, .VLam _ _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VCon _, .VDelay _ _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VCon _, .VConstr _ _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VCon _, .VBuiltin _ _ _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VLam _ _, .VCon _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VLam _ _, .VDelay _ _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VLam _ _, .VConstr _ _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VLam _ _, .VBuiltin _ _ _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VDelay _ _, .VCon _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VDelay _ _, .VLam _ _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VDelay _ _, .VConstr _ _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VDelay _ _, .VBuiltin _ _ _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VConstr _ _, .VCon _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VConstr _ _, .VLam _ _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VConstr _ _, .VDelay _ _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VConstr _ _, .VBuiltin _ _ _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VBuiltin _ _ _, .VCon _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VBuiltin _ _ _, .VLam _ _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VBuiltin _ _ _, .VDelay _ _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
+  | .VBuiltin _ _ _, .VConstr _ _ => exact absurd (hve 1) (by unfold ValueEq; exact id)
 
 /-! ### Force error from sub-expression error -/
 
@@ -1121,30 +1229,34 @@ theorem refines_force_behEq (e e' : Expr) (h : e ⊑ e') :
             · exact force_sub_error ρ te' (herr_sub.mp hte_err)
             · -- te halts with v1, forcing v1 errors
               obtain ⟨v2, hte'_halt⟩ := hhalt_sub.mp ⟨v1, hte_halt⟩
-              have hveq := hval_sub 1 v1 v2 hte_halt hte'_halt
               exact force_compose ρ te' v2 .error hte'_halt
-                (force_frame_error_transfer 0 v1 v2 hveq hforce_v1_err)
+                (force_frame_error_transfer v1 v2
+                  (fun j => hval_sub j v1 v2 hte_halt hte'_halt) hforce_v1_err)
           · -- Force te' errors → Force te errors (symmetric)
             intro herr
             rcases force_reaches_error ρ te' herr with hte'_err | ⟨v2, hte'_halt, hforce_v2_err⟩
             · exact force_sub_error ρ te (herr_sub.mpr hte'_err)
             · obtain ⟨v1, hte_halt⟩ := hhalt_sub.mpr ⟨v2, hte'_halt⟩
-              have hveq := hval_sub 1 v1 v2 hte_halt hte'_halt
               exact force_compose ρ te v1 .error hte_halt
-                (force_frame_error_transfer 0 v2 v1 (valueEq_symm 1 v1 v2 hveq) hforce_v2_err)
+                (force_frame_error_transfer v2 v1
+                  (fun j => valueEq_symm j v1 v2 (hval_sub j v1 v2 hte_halt hte'_halt))
+                  hforce_v2_err)
         -- Halts ↔
         · constructor
           · intro ⟨w, hw⟩
             obtain ⟨v1, hte_halt, hforce_v1_halt⟩ := force_reaches ρ te w hw
             obtain ⟨v2, hte'_halt⟩ := hhalt_sub.mp ⟨v1, hte_halt⟩
-            have hveq := hval_sub 1 v1 v2 hte_halt hte'_halt
-            obtain ⟨w', hforce_v2_halt⟩ := force_frame_halts_transfer 0 v1 v2 hveq ⟨w, hforce_v1_halt⟩
+            obtain ⟨w', hforce_v2_halt⟩ :=
+              force_frame_halts_transfer v1 v2
+                (fun j => hval_sub j v1 v2 hte_halt hte'_halt) ⟨w, hforce_v1_halt⟩
             exact ⟨w', force_compose ρ te' v2 (.halt w') hte'_halt hforce_v2_halt⟩
           · intro ⟨w, hw⟩
             obtain ⟨v2, hte'_halt, hforce_v2_halt⟩ := force_reaches ρ te' w hw
             obtain ⟨v1, hte_halt⟩ := hhalt_sub.mpr ⟨v2, hte'_halt⟩
-            have hveq := hval_sub 1 v1 v2 hte_halt hte'_halt
-            obtain ⟨w', hforce_v1_halt⟩ := force_frame_halts_transfer 0 v2 v1 (valueEq_symm 1 v1 v2 hveq) ⟨w, hforce_v2_halt⟩
+            obtain ⟨w', hforce_v1_halt⟩ :=
+              force_frame_halts_transfer v2 v1
+                (fun j => valueEq_symm j v1 v2 (hval_sub j v1 v2 hte_halt hte'_halt))
+                ⟨w, hforce_v2_halt⟩
             exact ⟨w', force_compose ρ te v1 (.halt w') hte_halt hforce_v1_halt⟩
         -- ValueEq k
         · intro k w1 w2 hw1 hw2
@@ -1154,13 +1266,43 @@ theorem refines_force_behEq (e e' : Expr) (h : e ⊑ e') :
           -- Case-split on value type
           match v1, v2 with
           | .VDelay b1 e1, .VDelay b2 e2 =>
-            sorry -- TODO: adapt to bounded-step VDelay ValueEq
+            -- Extract step counts from forcing
+            obtain ⟨N1, hN1⟩ := hforce_v1_halt
+            cases N1 with
+            | zero => simp [steps] at hN1
+            | succ N1 =>
+              have hcomp1 : steps N1 (.compute [] e1 b1) = .halt w1 := by
+                simp only [steps, step] at hN1; exact hN1
+              obtain ⟨N2, hN2⟩ := hforce_v2_halt
+              cases N2 with
+              | zero => simp [steps] at hN2
+              | succ N2 =>
+                have hcomp2 : steps N2 (.compute [] e2 b2) = .halt w2 := by
+                  simp only [steps, step] at hN2; exact hN2
+                -- Pick level N1 + k + 1 from hval_sub
+                have hveN := hval_sub (N1 + k + 1) _ _ hte_halt hte'_halt
+                unfold ValueEq at hveN
+                -- VDelay clause: ∀ j ≤ N1+k, stk, n ≤ j, ...
+                -- Use j = N1 + k, stk = [], n = N1
+                have hj_le : N1 + k ≤ N1 + k := Nat.le_refl _
+                have hn_le : N1 ≤ N1 + k := Nat.le_add_right N1 k
+                have hclause := hveN (N1 + k) hj_le [] [] trivial N1 hn_le
+                -- hclause.2.1 : ∀ v1', steps N1 (.compute [] e1 b1) = .halt v1' →
+                --   ∃ v2', steps N1 (.compute [] e2 b2) = .halt v2' ∧ ValueEq ((N1+k)-N1) v1' v2'
+                obtain ⟨w2', hw2'_halt, hw2'_veq⟩ := hclause.2.1 w1 hcomp1
+                -- (N1+k) - N1 = k
+                have hk_eq : N1 + k - N1 = k := by omega
+                rw [hk_eq] at hw2'_veq
+                -- w2' = w2 by reaches_unique
+                have : w2' = w2 := reaches_unique ⟨N1, hw2'_halt⟩ ⟨N2, hcomp2⟩
+                subst this
+                exact hw2'_veq
           | .VCon _, .VCon _ => exact absurd ⟨w1, hforce_v1_halt⟩ (force_vcon_not_halts _)
           | .VLam _ _, .VLam _ _ => exact absurd ⟨w1, hforce_v1_halt⟩ (force_vlam_not_halts _ _)
           | .VConstr _ _, .VConstr _ _ => exact absurd ⟨w1, hforce_v1_halt⟩ (force_vconstr_not_halts _ _)
           | .VBuiltin b a1 ea, .VBuiltin _ a2 _ =>
             unfold ValueEq at hveq
-            obtain ⟨hb, hargs, hea, heval_none, heval_val⟩ := hveq; subst hb; subst hea
+            obtain ⟨hb, hargs, hea⟩ := hveq; subst hb; subst hea
             -- Both force to: match ea.head...
             -- If both halt, the results depend on ea and evalBuiltin.
             -- Need to show ValueEq k for the results.
@@ -1208,7 +1350,7 @@ theorem refines_force_behEq (e e' : Expr) (h : e ⊑ e') :
                     | succ k =>
                       have hveq' := hval_sub (k + 1) _ _ hte_halt hte'_halt
                       unfold ValueEq at hveq' ⊢
-                      exact ⟨rfl, hveq'.2.1, rfl, hveq'.2.2.2.1, hveq'.2.2.2.2⟩
+                      exact ⟨rfl, hveq'.2.1, rfl⟩
                 | none =>
                   rw [htail] at hn1
                   cases hev1 : Moist.CEK.evalBuiltin b a1 with
@@ -1238,7 +1380,7 @@ theorem refines_force_behEq (e e' : Expr) (h : e ⊑ e') :
                           | zero => simp [steps] at hn2
                           | succ n2 => simp [steps, step, steps_halt] at hn2; exact hn2.symm
                         subst hw2
-                        exact heval_val w1 w2 hev1 hev2
+                        exact evalBuiltin_value_cong_early k b a1 a2 hargs _ _ hev1 hev2
           | .VCon _, .VLam _ _ => exact absurd hveq (by unfold ValueEq; exact id)
           | .VCon _, .VDelay _ _ => exact absurd hveq (by unfold ValueEq; exact id)
           | .VCon _, .VConstr _ _ => exact absurd hveq (by unfold ValueEq; exact id)
@@ -1264,29 +1406,72 @@ theorem refines_force_behEq (e e' : Expr) (h : e ⊑ e') :
 
 Decomposed into small independently-provable lemmas. -/
 
-/-- VLam application: if ValueEq (k+1) for VLam closures and same arg,
-    the body computations agree on error. -/
-private theorem app_step_vlam_error (k : Nat) (b1 b2 : Term) (e1 e2 : CekEnv)
-    (va : CekValue) (hve : ValueEq (k + 1) (.VLam b1 e1) (.VLam b2 e2)) :
+/-- VLam application: if `∀ j, ValueEq j` for VLam closures and same arg,
+    the body computations agree on error. Extract step count N from Reaches,
+    pick level N+1, instantiate VLam CIU clause with arg=va, stk=[], n=N. -/
+private theorem app_step_vlam_error (b1 b2 : Term) (e1 e2 : CekEnv)
+    (va : CekValue) (hve : ∀ j, ValueEq j (.VLam b1 e1) (.VLam b2 e2)) :
     Reaches (.compute [] (e1.extend va) b1) .error ↔
     Reaches (.compute [] (e2.extend va) b2) .error := by
-  sorry -- TODO: adapt to new VLam ValueEq (two args, bounded steps)
+  constructor
+  · intro ⟨N, hN⟩
+    have hveN := hve (N + 1)
+    unfold ValueEq at hveN
+    -- VLam clause: ∀ i ≤ N, ∀ arg1 arg2, ValueEq i arg1 arg2 → ∀ stk, ... → ∀ n ≤ i, ...
+    -- Use i = N, arg1 = arg2 = va, stk = [], n = N
+    have hclause := hveN N (Nat.le_refl N) va va (valueEq_refl N va) [] [] trivial N (Nat.le_refl N)
+    exact ⟨N, hclause.1.mp hN⟩
+  · intro ⟨N, hN⟩
+    have hveN := hve (N + 1)
+    unfold ValueEq at hveN
+    have hclause := hveN N (Nat.le_refl N) va va (valueEq_refl N va) [] [] trivial N (Nat.le_refl N)
+    exact ⟨N, hclause.1.mpr hN⟩
 
 /-- VLam application: halts agreement. -/
-private theorem app_step_vlam_halts (k : Nat) (b1 b2 : Term) (e1 e2 : CekEnv)
-    (va : CekValue) (hve : ValueEq (k + 1) (.VLam b1 e1) (.VLam b2 e2)) :
+private theorem app_step_vlam_halts (b1 b2 : Term) (e1 e2 : CekEnv)
+    (va : CekValue) (hve : ∀ j, ValueEq j (.VLam b1 e1) (.VLam b2 e2)) :
     Halts (.compute [] (e1.extend va) b1) ↔
     Halts (.compute [] (e2.extend va) b2) := by
-  sorry -- TODO: adapt to new VLam ValueEq (two args, bounded steps)
+  constructor
+  · intro ⟨w, N, hN⟩
+    have hveN := hve (N + 1)
+    unfold ValueEq at hveN
+    have hclause := hveN N (Nat.le_refl N) va va (valueEq_refl N va) [] [] trivial N (Nat.le_refl N)
+    obtain ⟨w2, hw2, _⟩ := hclause.2.1 w hN
+    exact ⟨w2, N, hw2⟩
+  · intro ⟨w, N, hN⟩
+    have hveN := hve (N + 1)
+    unfold ValueEq at hveN
+    have hclause := hveN N (Nat.le_refl N) va va (valueEq_refl N va) [] [] trivial N (Nat.le_refl N)
+    obtain ⟨w1, hw1, _⟩ := hclause.2.2 w hN
+    exact ⟨w1, N, hw1⟩
 
-/-- VLam application: value agreement. -/
+/-- VLam application: value agreement. Extract N1 from h1, pick level N1+k+1,
+    use VLam clause at n=N1 to get ValueEq(N1+k-N1)=ValueEq k for w1 and
+    an intermediate w2'. Then w2'=w2 by reaches_unique. -/
 private theorem app_step_vlam_value (k : Nat) (b1 b2 : Term) (e1 e2 : CekEnv)
-    (va : CekValue) (hve : ValueEq (k + 1) (.VLam b1 e1) (.VLam b2 e2))
+    (va : CekValue) (hve : ∀ j, ValueEq j (.VLam b1 e1) (.VLam b2 e2))
     (v1 v2 : CekValue)
     (h1 : Reaches (.compute [] (e1.extend va) b1) (.halt v1))
     (h2 : Reaches (.compute [] (e2.extend va) b2) (.halt v2)) :
     ValueEq k v1 v2 := by
-  sorry -- TODO: adapt to new VLam ValueEq (two args, bounded steps)
+  obtain ⟨N1, hN1⟩ := h1
+  obtain ⟨N2, hN2⟩ := h2
+  -- Pick level N1 + k + 1
+  have hveN := hve (N1 + k + 1)
+  unfold ValueEq at hveN
+  -- Use i = N1 + k, arg = va, stk = [], n = N1
+  have hi_le : N1 + k ≤ N1 + k := Nat.le_refl _
+  have hn_le : N1 ≤ N1 + k := Nat.le_add_right N1 k
+  have hclause := hveN (N1 + k) hi_le va va (valueEq_refl (N1 + k) va) [] [] trivial N1 hn_le
+  obtain ⟨w2', hw2', hveq_w⟩ := hclause.2.1 v1 hN1
+  -- (N1 + k) - N1 = k
+  have hk_eq : N1 + k - N1 = k := by omega
+  rw [hk_eq] at hveq_w
+  -- w2' = v2 by reaches_unique
+  have : w2' = v2 := reaches_unique ⟨N1, hw2'⟩ ⟨N2, hN2⟩
+  subst this
+  exact hveq_w
 
 /-- Non-function values: application always errors. -/
 private theorem app_step_nonfunction_errors (va : CekValue) (c : Const) :
@@ -1298,66 +1483,6 @@ private theorem app_step_delay_errors (va : CekValue) (b : Term) (e : CekEnv) :
 private theorem app_step_constr_errors (va : CekValue) (tag : Nat) (fs : List CekValue) :
     Reaches (step (.ret [.funV (.VConstr tag fs)] va)) .error := ⟨0, rfl⟩
 
-
-/-! ## ValueEq monotonicity
-
-`ValueEq k` implies `ValueEq j` for `j ≤ k`. Needed for the VBuiltin
-congruence argument: we pick a higher step index from BehEq and then
-lower it back to the desired index. -/
-
-mutual
-  theorem valueEq_mono : ∀ (j k : Nat), j ≤ k →
-      ∀ (v₁ v₂ : CekValue), ValueEq k v₁ v₂ → ValueEq j v₁ v₂
-    | 0, _, _, _, _, _ => by simp [ValueEq]
-    | _ + 1, 0, hjk, _, _, _ => absurd hjk (by omega)
-    | j + 1, k + 1, hjk, .VCon c₁, .VCon c₂, h => by
-      simp only [ValueEq] at h ⊢; exact h
-    | j + 1, k + 1, hjk, .VLam b₁ e₁, .VLam b₂ e₂, h => by
-      unfold ValueEq at h ⊢; intro arg1 arg2 hargs n hn
-      sorry -- TODO: needs anti-mono for args (ValueEq j → can't promote to ValueEq k)
-    | j + 1, k + 1, hjk, .VDelay b₁ e₁, .VDelay b₂ e₂, h => by
-      unfold ValueEq at h ⊢; intro n hn
-      have ⟨herr, hfwd, hbwd⟩ := h n (by omega)
-      exact ⟨herr,
-        fun v₁ hv₁ => let ⟨v₂, hv₂, hve⟩ := hfwd v₁ hv₁; ⟨v₂, hv₂, valueEq_mono j k (by omega) _ _ hve⟩,
-        fun v₂ hv₂ => let ⟨v₁, hv₁, hve⟩ := hbwd v₂ hv₂; ⟨v₁, hv₁, valueEq_mono j k (by omega) _ _ hve⟩⟩
-    | j + 1, k + 1, hjk, .VConstr _ _, .VConstr _ _, h => by
-      unfold ValueEq at h ⊢
-      exact ⟨h.1, listValueEq_mono j k (by omega) _ _ h.2⟩
-    | j + 1, k + 1, hjk, .VBuiltin _ _ _, .VBuiltin _ _ _, h => by
-      unfold ValueEq at h ⊢
-      exact ⟨h.1, listValueEq_mono j k (by omega) _ _ h.2.1, h.2.2.1, h.2.2.2.1,
-             fun r₁ r₂ hr₁ hr₂ =>
-               valueEq_mono j k (by omega) r₁ r₂ (h.2.2.2.2 r₁ r₂ hr₁ hr₂)⟩
-    | _ + 1, _ + 1, _, .VCon _, .VLam _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VCon _, .VDelay _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VCon _, .VConstr _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VCon _, .VBuiltin _ _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VLam _ _, .VCon _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VLam _ _, .VDelay _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VLam _ _, .VConstr _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VLam _ _, .VBuiltin _ _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VDelay _ _, .VCon _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VDelay _ _, .VLam _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VDelay _ _, .VConstr _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VDelay _ _, .VBuiltin _ _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VConstr _ _, .VCon _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VConstr _ _, .VLam _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VConstr _ _, .VDelay _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VConstr _ _, .VBuiltin _ _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VBuiltin _ _ _, .VCon _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VBuiltin _ _ _, .VLam _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VBuiltin _ _ _, .VDelay _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VBuiltin _ _ _, .VConstr _ _, h => by simp [ValueEq] at h
-  theorem listValueEq_mono : ∀ (j k : Nat), j ≤ k →
-      ∀ (vs₁ vs₂ : List CekValue), ListValueEq k vs₁ vs₂ → ListValueEq j vs₁ vs₂
-    | _, _, _, [], [], _ => by simp [ListValueEq]
-    | j, k, hjk, _ :: _, _ :: _, h => by
-      simp only [ListValueEq] at h ⊢
-      exact ⟨valueEq_mono j k hjk _ _ h.1, listValueEq_mono j k hjk _ _ h.2⟩
-    | _, _, _, [], _ :: _, h => by exact absurd h (by simp [ListValueEq])
-    | _, _, _, _ :: _, [], h => by exact absurd h (by simp [ListValueEq])
-end
 
 /-! ## Halts-and-errors impossibility -/
 
@@ -1966,7 +2091,7 @@ private theorem app_step_error_transfer (vf vf' va : CekValue)
   match vf, vf' with
   | .VLam b1 e1, .VLam b2 e2 =>
     simp only [step] at herr ⊢
-    exact (app_step_vlam_error 0 b1 b2 e1 e2 va (hveq 1)).mp herr
+    exact (app_step_vlam_error b1 b2 e1 e2 va hveq).mp herr
   | .VCon c1, .VCon _ =>
     exact app_step_nonfunction_errors va c1 |>.elim (fun n hn => by
       simp only [step] at herr; exact ⟨0, rfl⟩)
@@ -1977,7 +2102,7 @@ private theorem app_step_error_transfer (vf vf' va : CekValue)
   | .VBuiltin b1 args1 ea1, .VBuiltin b2 args2 ea2 =>
     have hve2 : ValueEq 2 (.VBuiltin b1 args1 ea1) (.VBuiltin b2 args2 ea2) := hveq 2
     unfold ValueEq at hve2
-    obtain ⟨hb, hargs, hea, _, _⟩ := hve2
+    obtain ⟨hb, hargs, hea⟩ := hve2
     subst hb; subst hea
     cases hhead : ea1.head with
     | argQ =>
@@ -1989,7 +2114,8 @@ private theorem app_step_error_transfer (vf vf' va : CekValue)
         exact absurd herr (ret_nil_not_error _)
       | none =>
         simp only [step, hhead, htail] at herr ⊢
-        have ⟨hcong, _⟩ := evalBuiltin_cong 0 b1 va args1 args2 hargs
+        have hargs1 := listValueEq_mono 1 2 (by omega) _ _ hargs
+        have ⟨hcong, _⟩ := evalBuiltin_cong 0 b1 va args1 args2 hargs1
         cases hev1 : Moist.CEK.evalBuiltin b1 (va :: args1) with
         | none =>
           rw [hcong.mp hev1]; exact ⟨0, rfl⟩
@@ -2012,8 +2138,7 @@ private theorem app_step_halts_transfer (vf vf' va v : CekValue)
   match vf, vf' with
   | .VLam b1 e1, .VLam b2 e2 =>
     simp only [step] at hh ⊢
-    have hve1 := hveq 1
-    obtain ⟨w, hw⟩ := (app_step_vlam_halts 0 b1 b2 e1 e2 va hve1).mp ⟨v, hh⟩
+    obtain ⟨w, hw⟩ := (app_step_vlam_halts b1 b2 e1 e2 va hveq).mp ⟨v, hh⟩
     exact ⟨w, hw⟩
   | .VCon c, .VCon _ =>
     exact (reaches_halt_not_error hh (app_step_nonfunction_errors va c)).elim
@@ -2024,11 +2149,10 @@ private theorem app_step_halts_transfer (vf vf' va v : CekValue)
   | .VBuiltin b1 args1 ea1, .VBuiltin b2 args2 ea2 =>
     have hve2 : ValueEq 2 (.VBuiltin b1 args1 ea1) (.VBuiltin b2 args2 ea2) := hveq 2
     unfold ValueEq at hve2
-    obtain ⟨hb, hargs, hea, _, _⟩ := hve2
+    obtain ⟨hb, hargs, hea⟩ := hve2
     subst hb; subst hea
     cases hhead : ea1.head with
     | argQ =>
-      -- step (.ret [funV (VBuiltin b1 args1 ea1)] va) with ea1.head=argQ → .error
       have herr : Reaches (step (.ret [.funV (.VBuiltin b1 args1 ea1)] va)) .error :=
         ⟨0, by simp only [steps, step, hhead]⟩
       exact (reaches_halt_not_error hh herr).elim
@@ -2041,7 +2165,8 @@ private theorem app_step_halts_transfer (vf vf' va v : CekValue)
         exact ⟨_, ret_nil_halts (.VBuiltin b1 (va :: args2) rest)⟩
       | none =>
         simp only [step, hhead, htail] at hh ⊢
-        have ⟨hcong, _⟩ := evalBuiltin_cong 0 b1 va args1 args2 hargs
+        have hargs1 := listValueEq_mono 1 2 (by omega) _ _ hargs
+        have ⟨hcong, _⟩ := evalBuiltin_cong 0 b1 va args1 args2 hargs1
         cases hev1 : Moist.CEK.evalBuiltin b1 (va :: args1) with
         | none =>
           simp only [hev1] at hh
@@ -2070,7 +2195,7 @@ private theorem app_step_value_agreement (k : Nat) (vf vf' va : CekValue)
   match vf, vf' with
   | .VLam b1 e1, .VLam b2 e2 =>
     simp only [step] at h1 h2
-    exact app_step_vlam_value k b1 b2 e1 e2 va hveq v1 v2 h1 h2
+    exact app_step_vlam_value k b1 b2 e1 e2 va hveq_all v1 v2 h1 h2
   | .VCon c, .VCon _ =>
     exact (reaches_halt_not_error h1 (app_step_nonfunction_errors va c)).elim
   | .VDelay b e, .VDelay _ _ =>
@@ -2082,11 +2207,11 @@ private theorem app_step_value_agreement (k : Nat) (vf vf' va : CekValue)
     have hve_hi : ValueEq (k + 2) (.VBuiltin b1 args1 ea1) (.VBuiltin b2 args2 ea2) :=
       hveq_all (k + 2)
     unfold ValueEq at hve_hi
-    obtain ⟨hb, hargs, hea, _, _⟩ := hve_hi
+    obtain ⟨hb, hargs, hea⟩ := hve_hi
     subst hb; subst hea
     -- Also unfold hveq at k+1 to get same structure
     unfold ValueEq at hveq
-    obtain ⟨_, hargs2, _, _, _⟩ := hveq
+    obtain ⟨_, hargs2, _⟩ := hveq
     cases hhead : ea1.head with
     | argQ =>
       have herr : Reaches (step (.ret [.funV (.VBuiltin b1 args1 ea1)] va)) .error :=
@@ -2105,20 +2230,15 @@ private theorem app_step_value_agreement (k : Nat) (vf vf' va : CekValue)
         cases k with
         | zero => simp [ValueEq]
         | succ k' =>
-          -- hargs : ListValueEq (k'+2) args1 args2
-          -- Need ListValueEq k' (va::args1) (va::args2)
-          have hargs_lower : ListValueEq k' args1 args2 :=
-            listValueEq_mono k' (k' + 1) (Nat.le_succ k') _ _
-              (listValueEq_mono (k' + 1) (k' + 2) (Nat.le_succ (k' + 1)) _ _ hargs)
-          have hcong := evalBuiltin_cong k' b1 va args1 args2
-            (listValueEq_mono (k' + 1) (k' + 2) (Nat.le_succ (k' + 1)) _ _ hargs)
+          -- hargs : ListValueEq (k'+2+1) args1 args2 (VBuiltin at k+2 stores k+2, k=k'+2)
           unfold ValueEq
-          refine ⟨rfl, ?_, rfl, hcong.1, hcong.2⟩
+          refine ⟨rfl, ?_, rfl⟩
           simp only [ListValueEq]
-          exact ⟨valueEq_refl k' va, hargs_lower⟩
+          exact ⟨valueEq_refl (k' + 1) va, listValueEq_mono (k' + 1) (k' + 2 + 1) (by omega) _ _ hargs⟩
       | none =>
         simp only [step, hhead, htail] at h1 h2
-        have ⟨hcong, hval⟩ := evalBuiltin_cong k b1 va args1 args2 hargs
+        have hargs_k1 := listValueEq_mono (k + 1) (k + 2) (by omega) _ _ hargs
+        have ⟨hcong, hval⟩ := evalBuiltin_cong k b1 va args1 args2 hargs_k1
         cases hev1 : Moist.CEK.evalBuiltin b1 (va :: args1) with
         | none =>
           simp only [hev1] at h1
@@ -2484,6 +2604,48 @@ where
         | _ => simp [Moist.CEK.evalBuiltinPassThrough] at hp1
       | _ => simp [Moist.CEK.evalBuiltinPassThrough] at hp1
 
+/-- Full-list evalBuiltin congruence: when `ListValueEq (k+1) args1 args2`,
+    `evalBuiltin b args1` and `evalBuiltin b args2` agree on `none` and
+    produce `ValueEq k`-related results when both succeed.
+
+    Proof: chain via intermediate list `hd2 :: tl1` using
+    `evalBuiltin_cong_first` (varying head) and `evalBuiltin_cong` (varying tail). -/
+theorem evalBuiltin_full_cong (k : Nat) (b : BuiltinFun)
+    (args1 args2 : List CekValue)
+    (hargs : ListValueEq (k + 1) args1 args2) :
+    (Moist.CEK.evalBuiltin b args1 = none ↔
+     Moist.CEK.evalBuiltin b args2 = none) ∧
+    (∀ r1 r2, Moist.CEK.evalBuiltin b args1 = some r1 →
+              Moist.CEK.evalBuiltin b args2 = some r2 →
+              ValueEq k r1 r2) := by
+  cases args1 with
+  | nil =>
+    cases args2 with
+    | nil => exact ⟨Iff.rfl, fun r1 r2 h1 h2 => by rw [h1] at h2; injection h2 with h2; subst h2; exact valueEq_refl k r1⟩
+    | cons _ _ => simp [ListValueEq] at hargs
+  | cons hd1 tl1 =>
+    cases args2 with
+    | nil => simp [ListValueEq] at hargs
+    | cons hd2 tl2 =>
+      simp only [ListValueEq] at hargs
+      have ⟨hhd, htl⟩ := hargs
+      have h1 := evalBuiltin_cong_first k b hd1 hd2 tl1 hhd
+      have h2 := evalBuiltin_cong k b hd2 tl1 tl2 htl
+      constructor
+      · exact h1.1.trans h2.1
+      · intro r1 r2 hr1 hr2
+        -- Chain: evalBuiltin b (hd1::tl1) = some r1
+        --        evalBuiltin b (hd2::tl2) = some r2
+        -- Need intermediate: evalBuiltin b (hd2::tl1)
+        cases hmid : Moist.CEK.evalBuiltin b (hd2 :: tl1) with
+        | none =>
+          -- hd1::tl1 → some r1, but hd2::tl1 → none; contradiction via h1.1.mpr
+          exact absurd (h1.1.mpr hmid) (by rw [hr1]; simp)
+        | some rmid =>
+          exact valueEq_trans k r1 rmid r2
+            (h1.2 r1 rmid hr1 hmid)
+            (h2.2 rmid r2 hmid hr2)
+
 /-- When `ValueRelV va va'` holds, running the same body in `cenv.extend va`
     vs `cenv.extend va'` yields bisimilar computations. The bisimulation
     gives error transfer and halts transfer directly. For value agreement,
@@ -2672,11 +2834,9 @@ private theorem app_step_arg_value_agreement (k : Nat)
         | zero => simp [ValueEq]
         | succ k =>
           unfold ValueEq
-          have ⟨hcong, hval⟩ := evalBuiltin_cong_first k b va va' args (hva (k + 1))
-          refine ⟨rfl, ?_, rfl, hcong, hval⟩
+          refine ⟨rfl, ?_, rfl⟩
           simp only [ListValueEq]
-          exact ⟨valueEq_mono k (k + 1) (Nat.le_succ k) _ _ (hva (k + 1)),
-                 listValueEq_refl k args⟩
+          exact ⟨hva (k + 1), listValueEq_refl (k + 1) args⟩
       | none =>
         simp only [step, hhead, htail] at h1 h2
         have ⟨hcong, hval⟩ := evalBuiltin_cong_first k b va va' args (hva (k + 1))
