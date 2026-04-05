@@ -30,56 +30,10 @@ open Moist.MIR
 open Moist.MIR (lowerTotalExpr lowerTotalExpr_eq_lowerTotal)
 open Moist.Verified.Semantics
 
-/-! ## ValueEq monotonicity (early, used by force/app congruence) -/
+/-! ## ValueEq monotonicity (re-exported from FundamentalLemma) -/
 
-mutual
-  theorem valueEq_mono : ∀ (j k : Nat), j ≤ k →
-      ∀ (v₁ v₂ : CekValue), ValueEq k v₁ v₂ → ValueEq j v₁ v₂
-    | 0, _, _, _, _, _ => by simp [ValueEq]
-    | _ + 1, 0, hjk, _, _, _ => absurd hjk (by omega)
-    | j + 1, k + 1, hjk, .VCon c₁, .VCon c₂, h => by
-      simp only [ValueEq] at h ⊢; exact h
-    | j + 1, k + 1, hjk, .VLam b₁ e₁, .VLam b₂ e₂, h => by
-      unfold ValueEq at h ⊢; intro i hi arg1 arg2 hargs stk1 stk2 hstk n hn
-      exact h i (by omega) arg1 arg2 hargs stk1 stk2 hstk n hn
-    | j + 1, k + 1, hjk, .VDelay b₁ e₁, .VDelay b₂ e₂, h => by
-      unfold ValueEq at h ⊢; intro i hi stk1 stk2 hstk n hn
-      exact h i (by omega) stk1 stk2 hstk n hn
-    | j + 1, k + 1, hjk, .VConstr _ _, .VConstr _ _, h => by
-      unfold ValueEq at h ⊢
-      exact ⟨h.1, listValueEq_mono j k (by omega) _ _ h.2⟩
-    | j + 1, k + 1, hjk, .VBuiltin _ _ _, .VBuiltin _ _ _, h => by
-      unfold ValueEq at h ⊢
-      exact ⟨h.1, listValueEq_mono (j + 1) (k + 1) (by omega) _ _ h.2.1, h.2.2⟩
-    | _ + 1, _ + 1, _, .VCon _, .VLam _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VCon _, .VDelay _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VCon _, .VConstr _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VCon _, .VBuiltin _ _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VLam _ _, .VCon _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VLam _ _, .VDelay _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VLam _ _, .VConstr _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VLam _ _, .VBuiltin _ _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VDelay _ _, .VCon _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VDelay _ _, .VLam _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VDelay _ _, .VConstr _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VDelay _ _, .VBuiltin _ _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VConstr _ _, .VCon _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VConstr _ _, .VLam _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VConstr _ _, .VDelay _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VConstr _ _, .VBuiltin _ _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VBuiltin _ _ _, .VCon _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VBuiltin _ _ _, .VLam _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VBuiltin _ _ _, .VDelay _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VBuiltin _ _ _, .VConstr _ _, h => by simp [ValueEq] at h
-  theorem listValueEq_mono : ∀ (j k : Nat), j ≤ k →
-      ∀ (vs₁ vs₂ : List CekValue), ListValueEq k vs₁ vs₂ → ListValueEq j vs₁ vs₂
-    | _, _, _, [], [], _ => by simp [ListValueEq]
-    | j, k, hjk, _ :: _, _ :: _, h => by
-      simp only [ListValueEq] at h ⊢
-      exact ⟨valueEq_mono j k hjk _ _ h.1, listValueEq_mono j k hjk _ _ h.2⟩
-    | _, _, _, [], _ :: _, h => by exact absurd h (by simp [ListValueEq])
-    | _, _, _, _ :: _, [], h => by exact absurd h (by simp [ListValueEq])
-end
+-- valueEq_mono and listValueEq_mono are now in the mutual block in FundamentalLemma.lean.
+-- We re-open them here for backward compatibility with existing imports.
 
 /-! ## Identical lowering implies behavioral equivalence -/
 
@@ -597,7 +551,7 @@ theorem refines_delay_behEq (e e' : Expr) (h : e ⊑ e') :
         cases k with
         | zero => simp [ValueEq]
         | succ k =>
-          unfold ValueEq; intro j hj stk1 stk2 hstk n hn
+          unfold ValueEq; intro j hj stk1 stk2 hstk
           sorry -- TODO: needs bounded-step from bisimulation
 
 /-- Lam preserves Refines (behavioral). `Lam x body` halts immediately with
@@ -636,7 +590,7 @@ theorem refines_lam_behEq (x : VarId) (body body' : Expr) (h : body ⊑ body') :
         cases k with
         | zero => simp [ValueEq]
         | succ k =>
-          unfold ValueEq; intro j hj arg1 arg2 hargs stk1 stk2 hstk n hn
+          unfold ValueEq; intro j hj arg1 arg2 hargs stk1 stk2 hstk
           sorry -- TODO: needs bounded-step from bisimulation
 
 /-! ### Force decomposition via liftState
@@ -995,11 +949,11 @@ private theorem force_frame_error_transfer
       --               ∀ n ≤ j, (error ↔) ∧ ...
       unfold ValueEq at hveN
       -- Use j = N, stk1 = stk2 = [] (StackEqR R [] [] = True), n = N
-      have hclause := hveN N (Nat.le_refl N) [] [] trivial N (Nat.le_refl N)
-      -- hclause.1 : steps N (.compute [] e1 b1) = .error ↔ steps N (.compute [] e2 b2) = .error
-      have herr2 := hclause.1.mp hcomp
-      -- Compose: steps (N+1) (.ret [.force] (VDelay b2 e2)) = steps N (.compute [] e2 b2)
-      exact ⟨N + 1, by simp only [steps, step]; exact herr2⟩
+      have hclause := hveN N (Nat.le_refl N) [] [] trivial
+      -- hclause.1 : ∀ n, n ≤ N → error → ∃ m, m ≤ N ∧ error
+      obtain ⟨m, _, herr2⟩ := hclause.1 N (Nat.le_refl N) hcomp
+      -- Compose: steps (m+1) (.ret [.force] (VDelay b2 e2)) = steps m (.compute [] e2 b2)
+      exact ⟨m + 1, by simp only [steps, step]; exact herr2⟩
   | .VCon _, .VCon _ => exact force_vcon_reaches_error _
   | .VLam _ _, .VLam _ _ => exact force_vlam_reaches_error _ _
   | .VConstr _ _, .VConstr _ _ => exact force_vconstr_reaches_error _ _
@@ -1077,10 +1031,10 @@ private theorem force_frame_halts_transfer
       have hveN := hve (N + 1)
       unfold ValueEq at hveN
       -- Use j = N, stk = [] (trivial), n = N
-      have hclause := hveN N (Nat.le_refl N) [] [] trivial N (Nat.le_refl N)
-      -- hclause.2.1 : halt transfer from side 1 to side 2
-      obtain ⟨w2, hw2⟩ := hclause.2.1 w hcomp
-      exact ⟨w2, N + 1, by simp only [steps, step]; exact hw2.1⟩
+      have hclause := hveN N (Nat.le_refl N) [] [] trivial
+      -- hclause.2.1 : ∀ v1 n, n ≤ N → halt v1 → ∃ v2 m, m ≤ N ∧ halt v2 ∧ ValueEq ...
+      obtain ⟨w2, m, _, hw2, _⟩ := hclause.2.1 w N (Nat.le_refl N) hcomp
+      exact ⟨w2, m + 1, by simp only [steps, step]; exact hw2⟩
   | .VCon _, .VCon _ => exact absurd hh (force_vcon_not_halts _)
   | .VLam _ _, .VLam _ _ => exact absurd hh (force_vlam_not_halts _ _)
   | .VConstr _ _, .VConstr _ _ => exact absurd hh (force_vconstr_not_halts _ _)
@@ -1286,15 +1240,15 @@ theorem refines_force_behEq (e e' : Expr) (h : e ⊑ e') :
                 -- Use j = N1 + k, stk = [], n = N1
                 have hj_le : N1 + k ≤ N1 + k := Nat.le_refl _
                 have hn_le : N1 ≤ N1 + k := Nat.le_add_right N1 k
-                have hclause := hveN (N1 + k) hj_le [] [] trivial N1 hn_le
-                -- hclause.2.1 : ∀ v1', steps N1 (.compute [] e1 b1) = .halt v1' →
-                --   ∃ v2', steps N1 (.compute [] e2 b2) = .halt v2' ∧ ValueEq ((N1+k)-N1) v1' v2'
-                obtain ⟨w2', hw2'_halt, hw2'_veq⟩ := hclause.2.1 w1 hcomp1
+                have hclause := hveN (N1 + k) hj_le [] [] trivial
+                -- hclause.2.1 : ∀ v1' n, n ≤ N1+k → steps n (.compute [] e1 b1) = .halt v1' →
+                --   ∃ v2' m, m ≤ N1+k ∧ steps m (.compute [] e2 b2) = .halt v2' ∧ ValueEq ((N1+k)-n) v1' v2'
+                obtain ⟨w2', m', _, hw2'_halt, hw2'_veq⟩ := hclause.2.1 w1 N1 hn_le hcomp1
                 -- (N1+k) - N1 = k
                 have hk_eq : N1 + k - N1 = k := by omega
                 rw [hk_eq] at hw2'_veq
                 -- w2' = w2 by reaches_unique
-                have : w2' = w2 := reaches_unique ⟨N1, hw2'_halt⟩ ⟨N2, hcomp2⟩
+                have : w2' = w2 := reaches_unique ⟨m', hw2'_halt⟩ ⟨N2, hcomp2⟩
                 subst this
                 exact hw2'_veq
           | .VCon _, .VCon _ => exact absurd ⟨w1, hforce_v1_halt⟩ (force_vcon_not_halts _)
@@ -1419,13 +1373,15 @@ private theorem app_step_vlam_error (b1 b2 : Term) (e1 e2 : CekEnv)
     unfold ValueEq at hveN
     -- VLam clause: ∀ i ≤ N, ∀ arg1 arg2, ValueEq i arg1 arg2 → ∀ stk, ... → ∀ n ≤ i, ...
     -- Use i = N, arg1 = arg2 = va, stk = [], n = N
-    have hclause := hveN N (Nat.le_refl N) va va (valueEq_refl N va) [] [] trivial N (Nat.le_refl N)
-    exact ⟨N, hclause.1.mp hN⟩
+    have hclause := hveN N (Nat.le_refl N) va va (valueEq_refl N va) [] [] trivial
+    obtain ⟨m, _, herr2⟩ := hclause.1 N (Nat.le_refl N) hN
+    exact ⟨m, herr2⟩
   · intro ⟨N, hN⟩
     have hveN := hve (N + 1)
     unfold ValueEq at hveN
-    have hclause := hveN N (Nat.le_refl N) va va (valueEq_refl N va) [] [] trivial N (Nat.le_refl N)
-    exact ⟨N, hclause.1.mpr hN⟩
+    have hclause := hveN N (Nat.le_refl N) va va (valueEq_refl N va) [] [] trivial
+    obtain ⟨m, _, herr1⟩ := hclause.2.2.1 N (Nat.le_refl N) hN
+    exact ⟨m, herr1⟩
 
 /-- VLam application: halts agreement. -/
 private theorem app_step_vlam_halts (b1 b2 : Term) (e1 e2 : CekEnv)
@@ -1436,15 +1392,15 @@ private theorem app_step_vlam_halts (b1 b2 : Term) (e1 e2 : CekEnv)
   · intro ⟨w, N, hN⟩
     have hveN := hve (N + 1)
     unfold ValueEq at hveN
-    have hclause := hveN N (Nat.le_refl N) va va (valueEq_refl N va) [] [] trivial N (Nat.le_refl N)
-    obtain ⟨w2, hw2, _⟩ := hclause.2.1 w hN
-    exact ⟨w2, N, hw2⟩
+    have hclause := hveN N (Nat.le_refl N) va va (valueEq_refl N va) [] [] trivial
+    obtain ⟨w2, m, _, hw2, _⟩ := hclause.2.1 w N (Nat.le_refl N) hN
+    exact ⟨w2, m, hw2⟩
   · intro ⟨w, N, hN⟩
     have hveN := hve (N + 1)
     unfold ValueEq at hveN
-    have hclause := hveN N (Nat.le_refl N) va va (valueEq_refl N va) [] [] trivial N (Nat.le_refl N)
-    obtain ⟨w1, hw1, _⟩ := hclause.2.2 w hN
-    exact ⟨w1, N, hw1⟩
+    have hclause := hveN N (Nat.le_refl N) va va (valueEq_refl N va) [] [] trivial
+    obtain ⟨w1, m, _, hw1, _⟩ := hclause.2.2.2 w N (Nat.le_refl N) hN
+    exact ⟨w1, m, hw1⟩
 
 /-- VLam application: value agreement. Extract N1 from h1, pick level N1+k+1,
     use VLam clause at n=N1 to get ValueEq(N1+k-N1)=ValueEq k for w1 and
@@ -1463,13 +1419,13 @@ private theorem app_step_vlam_value (k : Nat) (b1 b2 : Term) (e1 e2 : CekEnv)
   -- Use i = N1 + k, arg = va, stk = [], n = N1
   have hi_le : N1 + k ≤ N1 + k := Nat.le_refl _
   have hn_le : N1 ≤ N1 + k := Nat.le_add_right N1 k
-  have hclause := hveN (N1 + k) hi_le va va (valueEq_refl (N1 + k) va) [] [] trivial N1 hn_le
-  obtain ⟨w2', hw2', hveq_w⟩ := hclause.2.1 v1 hN1
+  have hclause := hveN (N1 + k) hi_le va va (valueEq_refl (N1 + k) va) [] [] trivial
+  obtain ⟨w2', m', _, hw2', hveq_w⟩ := hclause.2.1 v1 N1 hn_le hN1
   -- (N1 + k) - N1 = k
   have hk_eq : N1 + k - N1 = k := by omega
   rw [hk_eq] at hveq_w
   -- w2' = v2 by reaches_unique
-  have : w2' = v2 := reaches_unique ⟨N1, hw2'⟩ ⟨N2, hN2⟩
+  have : w2' = v2 := reaches_unique ⟨m', hw2'⟩ ⟨N2, hN2⟩
   subst this
   exact hveq_w
 

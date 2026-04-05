@@ -191,29 +191,51 @@ mutual
       ∀ j, j ≤ k →
         ∀ (arg1 arg2 : CekValue), ValueEq j arg1 arg2 →
           ∀ (stk1 stk2 : Stack), StackEqR (ValueEq j) stk1 stk2 →
-            ∀ n, n ≤ j →
-              (steps n (.compute stk1 (env1.extend arg1) body1) = .error ↔
-               steps n (.compute stk2 (env2.extend arg2) body2) = .error) ∧
-              (∀ v1, steps n (.compute stk1 (env1.extend arg1) body1) = .halt v1 →
-                ∃ v2, steps n (.compute stk2 (env2.extend arg2) body2) = .halt v2 ∧
-                  ValueEq (j - n) v1 v2) ∧
-              (∀ v2, steps n (.compute stk2 (env2.extend arg2) body2) = .halt v2 →
-                ∃ v1, steps n (.compute stk1 (env1.extend arg1) body1) = .halt v1 ∧
-                  ValueEq (j - n) v1 v2)
+            -- Forward: side 1 bounded at step n, side 2 bounded within j
+            (∀ n, n ≤ j →
+              steps n (.compute stk1 (env1.extend arg1) body1) = .error →
+              ∃ m, m ≤ j ∧
+                steps m (.compute stk2 (env2.extend arg2) body2) = .error) ∧
+            (∀ v1 n, n ≤ j →
+              steps n (.compute stk1 (env1.extend arg1) body1) = .halt v1 →
+              ∃ v2 m, m ≤ j ∧
+                steps m (.compute stk2 (env2.extend arg2) body2) = .halt v2 ∧
+                ValueEq (j - n) v1 v2) ∧
+            -- Backward: side 2 bounded at step n, side 1 bounded within j
+            (∀ n, n ≤ j →
+              steps n (.compute stk2 (env2.extend arg2) body2) = .error →
+              ∃ m, m ≤ j ∧
+                steps m (.compute stk1 (env1.extend arg1) body1) = .error) ∧
+            (∀ v2 n, n ≤ j →
+              steps n (.compute stk2 (env2.extend arg2) body2) = .halt v2 →
+              ∃ v1 m, m ≤ j ∧
+                steps m (.compute stk1 (env1.extend arg1) body1) = .halt v1 ∧
+                ValueEq (j - n) v1 v2)
     | k + 1, .VConstr tag1 fields1, .VConstr tag2 fields2 =>
       tag1 = tag2 ∧ ListValueEq k fields1 fields2
     | k + 1, .VDelay body1 env1, .VDelay body2 env2 =>
       ∀ j, j ≤ k →
         ∀ (stk1 stk2 : Stack), StackEqR (ValueEq j) stk1 stk2 →
-          ∀ n, n ≤ j →
-            (steps n (.compute stk1 env1 body1) = .error ↔
-             steps n (.compute stk2 env2 body2) = .error) ∧
-            (∀ v1, steps n (.compute stk1 env1 body1) = .halt v1 →
-              ∃ v2, steps n (.compute stk2 env2 body2) = .halt v2 ∧
-                ValueEq (j - n) v1 v2) ∧
-            (∀ v2, steps n (.compute stk2 env2 body2) = .halt v2 →
-              ∃ v1, steps n (.compute stk1 env1 body1) = .halt v1 ∧
-                ValueEq (j - n) v1 v2)
+          -- Forward: side 1 bounded at step n, side 2 bounded within j
+          (∀ n, n ≤ j →
+            steps n (.compute stk1 env1 body1) = .error →
+            ∃ m, m ≤ j ∧
+              steps m (.compute stk2 env2 body2) = .error) ∧
+          (∀ v1 n, n ≤ j →
+            steps n (.compute stk1 env1 body1) = .halt v1 →
+            ∃ v2 m, m ≤ j ∧
+              steps m (.compute stk2 env2 body2) = .halt v2 ∧
+              ValueEq (j - n) v1 v2) ∧
+          -- Backward: side 2 bounded at step n, side 1 bounded within j
+          (∀ n, n ≤ j →
+            steps n (.compute stk2 env2 body2) = .error →
+            ∃ m, m ≤ j ∧
+              steps m (.compute stk1 env1 body1) = .error) ∧
+          (∀ v2 n, n ≤ j →
+            steps n (.compute stk2 env2 body2) = .halt v2 →
+            ∃ v1 m, m ≤ j ∧
+              steps m (.compute stk1 env1 body1) = .halt v1 ∧
+              ValueEq (j - n) v1 v2)
     | k + 1, .VBuiltin b1 args1 ea1, .VBuiltin b2 args2 ea2 =>
       b1 = b2 ∧ ListValueEq (k + 1) args1 args2 ∧ ea1 = ea2
     | _, _, _ => False
