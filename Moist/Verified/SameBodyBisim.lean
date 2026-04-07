@@ -78,6 +78,8 @@ mutual
         (hea : ea₁ = ea₂) :
         SBRetEvidence (.VBuiltin b₁ args₁ ea₁) (.VBuiltin b₂ args₂ ea₂)
     | veqAll : (∀ k, ValueEq k v₁ v₂) → SBRetEvidence v₁ v₂
+    | composed₂ : SBRetEvidence v₁ v_mid →
+        SBRetEvidence v_mid v₂ → SBRetEvidence v₁ v₂
 
   /-- Pointwise `SBRetEvidence` on lists. -/
   inductive SBListRetEvidence : List CekValue → List CekValue → Prop where
@@ -181,6 +183,7 @@ mutual
     | .vconstr htag hfs => .vconstr htag.symm (sbListRetEvidence_symm hfs)
     | .vbuiltin hb hargs hea => .vbuiltin hb.symm (sbListRetEvidence_symm hargs) hea.symm
     | .veqAll h => .veqAll fun k => valueEq_symm k _ _ (h k)
+    | .composed₂ hev₁ hev₂ => .composed₂ (sbRetEvidence_symm hev₂) (sbRetEvidence_symm hev₁)
 
   /-- SBEnvEvidence is symmetric. -/
   theorem sbEnvEvidence_symm : SBEnvEvidence d ρ₁ ρ₂ → SBEnvEvidence d ρ₂ ρ₁
@@ -198,27 +201,6 @@ mutual
     | .cons hv hrs => .cons (sbRetEvidence_symm hv) (sbListRetEvidence_symm hrs)
 end
 
-/-- Extract `∀ k, ValueEq k` from `SBRetEvidence.veqAll`. For `.refl`, use `valueEq_refl`.
-    For other constructors, this will be proved later via the bundle (Phase 4).
-    This helper handles just the trivial cases. -/
-theorem sbRetEvidence_veqAll_or_refl (h : SBRetEvidence v₁ v₂) :
-    (∀ k, ValueEq k v₁ v₂) ∨
-    (v₁ = v₂) ∨
-    (∃ body d env₁ env₂, v₁ = .VLam body env₁ ∧ v₂ = .VLam body env₂ ∧
-      closedAt (d + 1) body = true ∧ SBEnvEvidence d env₁ env₂) ∨
-    (∃ body d env₁ env₂, v₁ = .VDelay body env₁ ∧ v₂ = .VDelay body env₂ ∧
-      closedAt d body = true ∧ SBEnvEvidence d env₁ env₂) ∨
-    (∃ tag fs₁ fs₂, v₁ = .VConstr tag fs₁ ∧ v₂ = .VConstr tag fs₂ ∧
-      SBListRetEvidence fs₁ fs₂) ∨
-    (∃ b args₁ args₂ ea, v₁ = .VBuiltin b args₁ ea ∧ v₂ = .VBuiltin b args₂ ea ∧
-      SBListRetEvidence args₁ args₂) := by
-  cases h with
-  | refl => exact .inr (.inl rfl)
-  | vlam d hcl henv => exact .inr (.inr (.inl ⟨_, d, _, _, rfl, rfl, hcl, henv⟩))
-  | vdelay d hcl henv => exact .inr (.inr (.inr (.inl ⟨_, d, _, _, rfl, rfl, hcl, henv⟩)))
-  | vconstr htag hfs => subst htag; exact .inr (.inr (.inr (.inr (.inl ⟨_, _, _, rfl, rfl, hfs⟩))))
-  | vbuiltin hb hargs hea => subst hb; subst hea; exact .inr (.inr (.inr (.inr (.inr ⟨_, _, _, _, rfl, rfl, hargs⟩))))
-  | veqAll h => exact .inl h
 
 /-- SBListRetEvidence append. -/
 theorem sbListRetEvidence_append :
@@ -290,17 +272,26 @@ private theorem vbuiltin_veqAll_to_sbListRetEvidence
 
 /-! ## SBRetEvidence VCon agreement -/
 
+mutual
+/-- Core: structural recursion on SBRetEvidence. Returns what v₁ and v₂ are
+    (either both VCon with same c, or some other constructor pair). -/
+private def sbRetEvidence_same_constructor :
+    (h : SBRetEvidence v₁ v₂) → (∀ c, v₁ = .VCon c → v₂ = .VCon c)
+  | .refl => fun _ rfl => rfl
+  | .veqAll h => fun c hv => by
+    subst hv
+    have hv1 := h 1; revert hv1; cases v₂ <;> simp [ValueEq, eq_comm]
+  | .vlam _ _ _ => fun _ h => by cases h
+  | .vdelay _ _ _ => fun _ h => by cases h
+  | .vconstr _ _ => fun _ h => by cases h
+  | .vbuiltin _ _ _ => fun _ h => by cases h
+  | .composed₂ hev₁ hev₂ => fun c hv =>
+    sbRetEvidence_same_constructor hev₂ c (sbRetEvidence_same_constructor hev₁ c hv)
+end
+
 private theorem sbRetEvidence_vcon_eq (h : SBRetEvidence v₁ v₂) (hv : v₁ = .VCon c) :
-    v₂ = .VCon c := by
-  subst hv
-  cases h with
-  | refl => rfl
-  | veqAll h =>
-    have hv := h 1
-    match v₂ with
-    | .VCon c₂ => unfold ValueEq at hv; exact congrArg CekValue.VCon hv.symm
-    | .VLam _ _ | .VDelay _ _ | .VConstr _ _ | .VBuiltin _ _ _ =>
-      simp [ValueEq] at hv
+    v₂ = .VCon c :=
+  sbRetEvidence_same_constructor h c hv
 
 private theorem sbRetEvidence_not_vcon_left (h : SBRetEvidence v₁ v₂)
     (hne : ∀ c, v₁ ≠ .VCon c) : ∀ c, v₂ ≠ .VCon c := by
@@ -967,20 +958,76 @@ private theorem constrField_halt_transfer (N : Nat) (tag : Nat)
         subst heq; exact hev_wf _ hwf_reach⟩
   termination_by N
 
-/-! ## Phase 3: sameBody_forward + sbRetToVeq — mutual recursion
+/-- Transfer error through a `caseScrutinee` frame.
+
+Given that `steps N (.ret [.caseScrutinee alts ρ₁] vs₁) = .error` on side 1,
+and `SBRetEvidence vs₁ vs₂`, produce a `Reaches` witness for the corresponding
+error on side 2 (with `ρ₂`, `vs₂`).
+
+Handles the one-step dispatch (VConstr → alt lookup, VCon → constToTagAndFields)
+plus the remaining alt + applyArg-chain computation. -/
+private theorem caseScrutinee_error_transfer (N : Nat) (alts : List Term) (d : Nat)
+    (ρ₁ ρ₂ : CekEnv) (vs₁ vs₂ : CekValue)
+    (hev : SBEnvEvidence d ρ₁ ρ₂) (hvs : SBRetEvidence vs₁ vs₂)
+    (hcl_alts : closedAtList d alts = true) (fwd : FwdCallback N)
+    (herr : steps N (.ret [.caseScrutinee alts ρ₁] vs₁) = .error) :
+    Reaches (.ret [.caseScrutinee alts ρ₂] vs₂) .error := by
+  cases hvs with
+  | refl => sorry
+  | vlam _ _ _ =>
+    cases N with
+    | zero => simp [steps] at herr
+    | succ N => exact ⟨1, by simp [steps, step]⟩
+  | vdelay _ _ _ =>
+    cases N with
+    | zero => simp [steps] at herr
+    | succ N => exact ⟨1, by simp [steps, step]⟩
+  | vconstr htag hfs => subst htag; sorry
+  | vbuiltin hb _ hea =>
+    subst hb; subst hea
+    cases N with
+    | zero => simp [steps] at herr
+    | succ N => exact ⟨1, by simp [steps, step]⟩
+  | veqAll h => sorry
+  | composed₂ hev₁ hev₂ => sorry
+
+/-- Transfer halt through a `caseScrutinee` frame. -/
+private theorem caseScrutinee_halt_transfer (N : Nat) (alts : List Term) (d : Nat)
+    (ρ₁ ρ₂ : CekEnv) (vs₁ vs₂ : CekValue) (w₁ : CekValue)
+    (hev : SBEnvEvidence d ρ₁ ρ₂) (hvs : SBRetEvidence vs₁ vs₂)
+    (hcl_alts : closedAtList d alts = true) (fwd : FwdCallback N)
+    (hhalt : steps N (.ret [.caseScrutinee alts ρ₁] vs₁) = .halt w₁) :
+    (∃ w₂, Reaches (.ret [.caseScrutinee alts ρ₂] vs₂) (.halt w₂)) ∧
+    (∀ w₂, Reaches (.ret [.caseScrutinee alts ρ₂] vs₂) (.halt w₂) →
+      SBRetEvidence w₁ w₂) := by
+  cases hvs with
+  | refl => sorry
+  | vlam _ _ _ =>
+    cases N with
+    | zero => simp [steps] at hhalt
+    | succ N => simp [steps, step, steps_error] at hhalt
+  | vdelay _ _ _ =>
+    cases N with
+    | zero => simp [steps] at hhalt
+    | succ N => simp [steps, step, steps_error] at hhalt
+  | vconstr htag hfs => subst htag; sorry
+  | vbuiltin hb _ hea =>
+    subst hb; subst hea
+    cases N with
+    | zero => simp [steps] at hhalt
+    | succ N => simp [steps, step, steps_error] at hhalt
+  | veqAll h => sorry
+  | composed₂ hev₁ hev₂ => sorry
+
+/-! ## Phase 3: sameBody_forward + sbRetToVeq
 
 `sameBody_forward`: forward simulation by induction on step count `n`.
-Produces `SBRetEvidence` on halted values.
+Produces `SBRetEvidence` on halted values. At the VLam Apply halt case,
+uses `.composed₂` to compose structural evidence with ValueEq evidence.
 
-`sbRetToVeq`: converts `SBRetEvidence → ValueEq k` by induction on `k`,
-using `sameBody_forward` for the VLam/VDelay body clauses.
-
-The two are mutually recursive: `sameBody_forward` calls `sbRetToVeq` at
-the `.veqAll` VLam Apply halt case (to compose two hops via ValueEq),
-and `sbRetToVeq` calls `sameBody_forward` for error↔/halts↔ of closure
-bodies. Termination relies on (k decreases in sbRetToVeq, n decreases
-in sameBody_forward) but the cross-calls are not captured by a simple
-lexicographic measure, so we use sorry in decreasing_by.
+`sbRetToVeq`: converts `SBRetEvidence → ValueEq k` by induction on
+`(k, sizeOf h)`. The `.composed₂` case recurses on sub-evidence at
+the same `k` (sizeOf decreases). Called from `sb_bundle` (Phase 4).
 -/
 
 /-- If compute [] ρ t steps to ret [] v in 1 step, it never errors and halts with v at n ≥ 2. -/
@@ -1051,15 +1098,18 @@ private abbrev FwdCallbackUnbounded :=
       (∃ w₂, Reaches (.compute [] ρ₂' t) (.halt w₂)) ∧
       (∀ w₂, Reaches (.compute [] ρ₂' t) (.halt w₂) → SBRetEvidence w₁ w₂))
 
+/-! ### Inner level: structural recursion on SBRetEvidence at fixed k
+
+These `_aux` functions handle `.composed₂` by structural recursion on the evidence.
+They take `ih` (ValueEq at k, from the outer k-induction) as a parameter. -/
+
 mutual
-/-- Convert `SBRetEvidence → ValueEq k` by induction on `k`.
-    Takes `fwd` (sameBody_forward) as a callback to avoid mutual recursion. -/
-private theorem sbRetToVeq (fwd fwd_sym : FwdCallbackUnbounded) :
-    (k : Nat) → (v₁ v₂ : CekValue) → SBRetEvidence v₁ v₂ → ValueEq k v₁ v₂
-  | 0, _, _, _ => by simp [ValueEq]
-  | _ + 1, v₁, _, .refl => valueEq_refl _ v₁
-  | _ + 1, _, _, .veqAll h => h _
-  | k + 1, .VLam body env₁, .VLam _ env₂, .vlam d hcl henv => by
+private def sbRetToVeq_aux (fwd fwd_sym : FwdCallbackUnbounded) (k : Nat)
+    (ih : ∀ v₁ v₂, SBRetEvidence v₁ v₂ → ValueEq k v₁ v₂)
+    : (v₁ v₂ : CekValue) → SBRetEvidence v₁ v₂ → ValueEq (k + 1) v₁ v₂
+  | _, _, .refl => valueEq_refl _ _
+  | _, _, .veqAll h => h _
+  | .VLam body env₁, .VLam _ env₂, .vlam d hcl henv => by
     unfold ValueEq; intro arg
     have henv' := sbEnvEvidence_extend henv (.refl (v := arg))
     have henv'_sym := sbEnvEvidence_symm henv'
@@ -1069,9 +1119,8 @@ private theorem sbRetToVeq (fwd fwd_sym : FwdCallbackUnbounded) :
             fun ⟨v, n, hn⟩ => ((fwd_sym n body (d+1) _ _ hcl henv'_sym).2 v hn).1⟩,
            fun w₁ w₂ hw₁ hw₂ => by
              obtain ⟨n, hn⟩ := hw₁
-             have hev_ret := ((fwd n body (d+1) _ _ hcl henv').2 w₁ hn).2 w₂ hw₂
-             exact sbRetToVeq fwd fwd_sym k w₁ w₂ hev_ret⟩
-  | k + 1, .VDelay body env₁, .VDelay _ env₂, .vdelay d hcl henv => by
+             exact ih w₁ w₂ (((fwd n body (d+1) _ _ hcl henv').2 w₁ hn).2 w₂ hw₂)⟩
+  | .VDelay body env₁, .VDelay _ env₂, .vdelay d hcl henv => by
     unfold ValueEq
     exact ⟨⟨fun ⟨n, hn⟩ => (fwd n body d _ _ hcl henv).1 hn,
             fun ⟨n, hn⟩ => (fwd_sym n body d _ _ hcl (sbEnvEvidence_symm henv)).1 hn⟩,
@@ -1079,32 +1128,68 @@ private theorem sbRetToVeq (fwd fwd_sym : FwdCallbackUnbounded) :
             fun ⟨v, n, hn⟩ => ((fwd_sym n body d _ _ hcl (sbEnvEvidence_symm henv)).2 v hn).1⟩,
            fun w₁ w₂ hw₁ hw₂ => by
              obtain ⟨n, hn⟩ := hw₁
-             have hev_ret := ((fwd n body d _ _ hcl henv).2 w₁ hn).2 w₂ hw₂
-             exact sbRetToVeq fwd fwd_sym k w₁ w₂ hev_ret⟩
-  | k + 1, .VConstr _ fs₁, .VConstr _ fs₂, .vconstr htag hfs => by
-    subst htag; unfold ValueEq; exact ⟨rfl, sbListRetToListVeq fwd fwd_sym k fs₁ fs₂ hfs⟩
-  | k + 1, .VBuiltin b₁ args₁ _, .VBuiltin _ args₂ _, .vbuiltin hb hargs hea => by
+             exact ih w₁ w₂ (((fwd n body d _ _ hcl henv).2 w₁ hn).2 w₂ hw₂)⟩
+  | .VConstr _ fs₁, .VConstr _ fs₂, .vconstr htag hfs => by
+    subst htag; unfold ValueEq
+    exact ⟨rfl, sbListRetToListVeq_ih ih _ _ hfs⟩
+  | .VBuiltin b₁ args₁ _, .VBuiltin _ args₂ _, .vbuiltin hb hargs hea => by
     subst hb; subst hea; unfold ValueEq
     have hab := evalBuiltin_sbListRet_agree' b₁ args₁ args₂ hargs
-    exact ⟨rfl, sbListRetToListVeq fwd fwd_sym k args₁ args₂ hargs, rfl, hab.1,
-           fun r₁ r₂ h₁ h₂ => sbRetToVeq fwd fwd_sym k r₁ r₂ (hab.2 r₁ r₂ h₁ h₂)⟩
+    exact ⟨rfl, sbListRetToListVeq_ih ih _ _ hargs, rfl, hab.1,
+           fun r₁ r₂ h₁ h₂ => ih r₁ r₂ (hab.2 r₁ r₂ h₁ h₂)⟩
+  | _, _, .composed₂ hev₁ hev₂ =>
+    valueEq_trans (k + 1) _ _ _
+      (sbRetToVeq_aux fwd fwd_sym k ih _ _ hev₁)
+      (sbRetToVeq_aux fwd fwd_sym k ih _ _ hev₂)
 
-/-- Convert `SBListRetEvidence → ListValueEq k` pointwise via `sbRetToVeq`. -/
-private theorem sbListRetToListVeq (fwd fwd_sym : FwdCallbackUnbounded) :
-    (k : Nat) → (vs₁ vs₂ : List CekValue) →
-    SBListRetEvidence vs₁ vs₂ → ListValueEq k vs₁ vs₂
-  | _, [], [], .nil => by simp [ListValueEq]
-  | k, _ :: _, _ :: _, .cons hv hrs => by
+private def sbListRetToListVeq_ih
+    (ih : ∀ v₁ v₂, SBRetEvidence v₁ v₂ → ValueEq k v₁ v₂)
+    : (vs₁ vs₂ : List CekValue) → SBListRetEvidence vs₁ vs₂ → ListValueEq k vs₁ vs₂
+  | [], [], .nil => by cases k <;> simp [ListValueEq]
+  | _ :: _, _ :: _, .cons hv hrs => by
+    match k with
+    | 0 => simp only [ListValueEq, ValueEq]; exact ⟨trivial, sbListRetToListVeq_ih ih _ _ hrs⟩
+    | _ + 1 => simp only [ListValueEq]; exact ⟨ih _ _ hv, sbListRetToListVeq_ih ih _ _ hrs⟩
+
+private def sbListRetToListVeq_aux (fwd fwd_sym : FwdCallbackUnbounded) (k : Nat)
+    (ih : ∀ v₁ v₂, SBRetEvidence v₁ v₂ → ValueEq k v₁ v₂)
+    : (vs₁ vs₂ : List CekValue) → SBListRetEvidence vs₁ vs₂ → ListValueEq (k + 1) vs₁ vs₂
+  | [], [], .nil => by simp [ListValueEq]
+  | _ :: _, _ :: _, .cons hv hrs => by
     simp only [ListValueEq]
-    exact ⟨sbRetToVeq fwd fwd_sym k _ _ hv, sbListRetToListVeq fwd fwd_sym k _ _ hrs⟩
-end -- mutual sbRetToVeq / sbListRetToListVeq
+    exact ⟨sbRetToVeq_aux fwd fwd_sym k ih _ _ hv,
+           sbListRetToListVeq_aux fwd fwd_sym k ih _ _ hrs⟩
+end -- mutual sbRetToVeq_aux / sbListRetToListVeq_aux
+
+/-! ### Outer level: Nat induction on k -/
+
+private theorem sbRetToVeq_bundle (fwd fwd_sym : FwdCallbackUnbounded) (k : Nat) :
+    (∀ v₁ v₂, SBRetEvidence v₁ v₂ → ValueEq k v₁ v₂) ∧
+    (∀ vs₁ vs₂, SBListRetEvidence vs₁ vs₂ → ListValueEq k vs₁ vs₂) := by
+  induction k with
+  | zero =>
+    exact ⟨fun _ _ _ => by simp [ValueEq],
+           fun vs₁ vs₂ h => sbListRetToListVeq_ih (fun _ _ _ => by simp [ValueEq]) vs₁ vs₂ h⟩
+  | succ k ihk =>
+    obtain ⟨ihV, _⟩ := ihk
+    exact ⟨fun v₁ v₂ h => sbRetToVeq_aux fwd fwd_sym k ihV v₁ v₂ h,
+           fun vs₁ vs₂ h => sbListRetToListVeq_aux fwd fwd_sym k ihV vs₁ vs₂ h⟩
+
+/-- Convert `SBRetEvidence → ValueEq k`. Outer induction on k, inner structural on h. -/
+private theorem sbRetToVeq (fwd fwd_sym : FwdCallbackUnbounded)
+    (k : Nat) (v₁ v₂ : CekValue) (h : SBRetEvidence v₁ v₂) : ValueEq k v₁ v₂ :=
+  (sbRetToVeq_bundle fwd fwd_sym k).1 v₁ v₂ h
+
+/-- Convert `SBListRetEvidence → ListValueEq k`. -/
+private theorem sbListRetToListVeq (fwd fwd_sym : FwdCallbackUnbounded)
+    (k : Nat) (vs₁ vs₂ : List CekValue) (h : SBListRetEvidence vs₁ vs₂) : ListValueEq k vs₁ vs₂ :=
+  (sbRetToVeq_bundle fwd fwd_sym k).2 vs₁ vs₂ h
 
 /-- When `steps n (.compute [] ρ₁ t)` errors or halts, and `SBEnvEvidence d ρ₁ ρ₂`
     holds with `closedAt d t`, the other side reaches the corresponding outcome
     with `SBRetEvidence` on halted values.
 
-    Termination by `n`. At the `.veqAll` VLam Apply halt case, uses
-    `sbRetToVeq` to compose two hops via `ValueEq`. -/
+    Termination by `n`. -/
 private theorem sameBody_forward (n : Nat) (t : Term) (d : Nat) (ρ₁ ρ₂ : CekEnv)
     (hcl : closedAt d t = true) (hev : SBEnvEvidence d ρ₁ ρ₂) :
     (steps n (.compute [] ρ₁ t) = .error → Reaches (.compute [] ρ₂ t) .error) ∧
@@ -1326,6 +1411,7 @@ private theorem sameBody_forward (n : Nat) (t : Term) (d : Nat) (ρ₁ ρ₂ : C
             obtain ⟨herr_agree, _⟩ := vbuiltin_force_step_agree _ _ _ _ hargs
             obtain ⟨M', hM'⟩ := herr_agree M hM_err
             exact force_compose ρ₂ e _ .error hv₂_reaches ⟨M', hM'⟩
+          | composed₂ _ _ => sorry -- .composed₂ at force frame position
     · -- Halt case for Force
       intro v₁ hv₁
       cases n with
@@ -1423,6 +1509,7 @@ private theorem sameBody_forward (n : Nat) (t : Term) (d : Nat) (ρ₁ ρ₂ : C
             have hforce₂ := force_compose ρ₂ e _ (.halt w₂) hve₂ ⟨M', hM'⟩
             exact ⟨⟨w₂, hforce₂⟩, fun v₂' hv₂' => by
               have := reaches_unique hv₂' hforce₂; subst this; exact hev_w⟩
+          | composed₂ _ _ => sorry
         exact force_halt_transfer
   | .Apply f x =>
     have hcl_apply := closedAt_apply hcl
@@ -1571,6 +1658,7 @@ private theorem sameBody_forward (n : Nat) (t : Term) (d : Nat) (ρ₁ ρ₂ : C
               obtain ⟨herr_agree, _⟩ := vbuiltin_funV_step_agree _ _ _ _ hargs_vb _ _ hevx
               obtain ⟨M', hM'⟩ := herr_agree Mx hMx_err
               exact app_apply_from_parts ρ₂ f x _ _ .error hvf₂ hvx₂ ⟨M', hM'⟩
+            | composed₂ _ _ => sorry
     · -- Halt case for Apply: mirrors error case
       intro v₁ hv₁
       cases n with
@@ -1659,16 +1747,12 @@ private theorem sameBody_forward (n : Nat) (t : Term) (d : Nat) (ρ₁ ρ₂ : C
               obtain ⟨w₂, Nb, hNb⟩ := hhalts2
               have hreach_w₂ := app_apply_from_parts ρ₂ f x _ _ (.halt w₂) hvf₂ hvx₂ ⟨1 + Nb, by
                 rw [steps_trans]; simp [steps, step, hNb]⟩
-              exact ⟨w₂, hreach_w₂,
-                -- Compose two hops: v₁ →(sameBody) w_mid →(VLam clause) w₂
-                have fwd_cb : FwdCallbackUnbounded :=
-                  fun n' t' d' ρ₁' ρ₂' hcl' hev' => sameBody_forward n' t' d' ρ₁' ρ₂' hcl' hev'
-                .veqAll fun j => by
-                  have h1 : ValueEq j v₁ w_mid := sbRetToVeq fwd_cb fwd_cb j v₁ w_mid hev_mid
-                  have hveqj := h (j + 1); unfold ValueEq at hveqj
-                  have ⟨_, _, hveq_body⟩ := hveqj vx₂
-                  have h2 : ValueEq j w_mid w₂ := hveq_body w_mid w₂ hw_mid ⟨Nb, hNb⟩
-                  exact valueEq_trans j v₁ w_mid w₂ h1 h2⟩
+              have h2_veq : ∀ j, ValueEq j w_mid w₂ := fun j => by
+                have hveqj := h (j + 1); unfold ValueEq at hveqj
+                have ⟨_, _, hveq_body⟩ := hveqj vx₂
+                exact hveq_body w_mid w₂ hw_mid ⟨Nb, hNb⟩
+              -- Compose hev_mid : SBRetEvidence v₁ w_mid with h2_veq : ∀ k, ValueEq k w_mid w₂
+              exact ⟨w₂, hreach_w₂, .composed₂ hev_mid (.veqAll h2_veq)⟩
             | .VCon _ | .VDelay _ _ | .VConstr _ _ | .VBuiltin _ _ _ =>
               exact absurd (h 1) (by simp [ValueEq])
           | .VCon _ | .VDelay _ _ | .VConstr _ _ =>
@@ -1700,6 +1784,7 @@ private theorem sameBody_forward (n : Nat) (t : Term) (d : Nat) (ρ₁ ρ₂ : C
           obtain ⟨_, hhalt_agree⟩ := vbuiltin_funV_step_agree _ _ _ _ hargs_vb _ _ hevx
           obtain ⟨w₂, M', hM', hev_w⟩ := hhalt_agree Mfunv v₁ hMfunv_halt
           exact ⟨w₂, app_apply_from_parts ρ₂ f x _ _ (.halt w₂) hvf₂ hvx₂ ⟨M', hM'⟩, hev_w⟩
+        | composed₂ _ _ => sorry
   | .Constr tag args =>
     have hcl_args := closedAt_constr hcl
     match args with
@@ -1793,23 +1878,40 @@ private theorem sameBody_forward (n : Nat) (t : Term) (d : Nat) (ρ₁ ρ₂ : C
           have ih_scrut := sameBody_forward K scrut d ρ₁ ρ₂ hcl_scrut hev
           have ⟨⟨vs₂, hvs₂⟩, hvs_ev⟩ := ih_scrut.2 vs₁ hK_halt
           have hev_scrut := hvs_ev vs₂ hvs₂
-          -- Use the same approach as Apply halt: wrap as full Reaches and call sameBody_forward
-          have h₁_err : Reaches (.compute [] ρ₁ (.Case scrut alts)) .error :=
-            ⟨n + 1, by simp [steps, step]; exact herr⟩
-          obtain ⟨n₁, hn₁⟩ := h₁_err
-          exact (sameBody_forward n₁ (.Case scrut alts) d ρ₁ ρ₂ hcl hev).1 hn₁
+          have h_frame_err := caseScrutinee_error_transfer M alts d ρ₁ ρ₂ vs₁ vs₂
+            hev hev_scrut hcl_alts
+            (fun K' t d' ρ₁' ρ₂' hle hcl' hev' => sameBody_forward K' t d' ρ₁' ρ₂' hcl' hev')
+            hM_err
+          have h_compose := compute_frame_compose (.caseScrutinee alts ρ₂) ρ₂ scrut vs₂
+            .error hvs₂ h_frame_err
+          obtain ⟨Nc, hNc⟩ := h_compose
+          exact ⟨1 + Nc, by rw [steps_trans]; simp [steps, step, hNc]⟩
     · -- Halt case
       intro v₁ hv₁
       cases n with
       | zero => simp [steps] at hv₁
       | succ n =>
         simp only [steps, step] at hv₁
-        have h₁_halt : Reaches (.compute [] ρ₁ (.Case scrut alts)) (.halt v₁) :=
-          ⟨n + 1, by simp [steps, step]; exact hv₁⟩
-        obtain ⟨n₁, hn₁⟩ := h₁_halt
-        exact (sameBody_forward n₁ (.Case scrut alts) d ρ₁ ρ₂ hcl hev).2 v₁ hn₁
+        obtain ⟨vs₁, K, M, hK_le, hM_le, hK_halt, hM_halt⟩ :=
+          compute_frame_halt_bounded (.caseScrutinee alts ρ₁) ρ₁ scrut v₁ n hv₁
+        have ih_scrut := sameBody_forward K scrut d ρ₁ ρ₂ hcl_scrut hev
+        have ⟨⟨vs₂, hvs₂⟩, hvs_ev⟩ := ih_scrut.2 vs₁ hK_halt
+        have hev_scrut := hvs_ev vs₂ hvs₂
+        have h_frame_halt := caseScrutinee_halt_transfer M alts d ρ₁ ρ₂ vs₁ vs₂ v₁
+          hev hev_scrut hcl_alts
+          (fun K' t d' ρ₁' ρ₂' hle hcl' hev' => sameBody_forward K' t d' ρ₁' ρ₂' hcl' hev')
+          hM_halt
+        obtain ⟨⟨w₂, hw₂_reach⟩, hev_w⟩ := h_frame_halt
+        have h_compose := compute_frame_compose (.caseScrutinee alts ρ₂) ρ₂ scrut vs₂
+          (.halt w₂) hvs₂ hw₂_reach
+        obtain ⟨Nc, hNc⟩ := h_compose
+        have hstep_eq : steps (1 + Nc) (.compute [] ρ₂ (.Case scrut alts)) = .halt w₂ := by
+          rw [steps_trans]; simp only [steps, step]; exact hNc
+        exact ⟨⟨w₂, 1 + Nc, hstep_eq⟩, fun v₂' hv₂' => by
+          have heq := reaches_unique hv₂' ⟨1 + Nc, hstep_eq⟩
+          subst heq; exact hev_w _ hw₂_reach⟩
   termination_by n
-  decreasing_by all_goals simp_wf; all_goals first | omega | sorry
+  decreasing_by all_goals simp_wf; omega
 
 /-! ## Phase 4: SBRetEvidence → ValueEq k bridge
 
