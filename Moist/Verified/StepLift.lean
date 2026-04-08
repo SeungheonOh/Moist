@@ -476,4 +476,323 @@ theorem beta_apply_from_inner (env : CekEnv) (body e' : Term) (n : Nat)
     simp [steps, step, hKb]
   exact ⟨3 + K + 1 + Kb, h_total⟩
 
+/-! ## Generalized Apply decomposition
+
+The following theorems generalize `beta_reaches` and friends to handle
+`Apply f x` where `f` is an **arbitrary** term (not necessarily `Lam`).
+
+The decomposition splits `Apply f x` into three phases:
+1. Evaluate `f` to a function value `vf`.
+2. Evaluate `x` to an argument value `vx`.
+3. Apply `vf` to `vx` — i.e. continue from `step (.ret [.funV vf] vx)`.
+
+The "application state" is simply `step (.ret [.funV vf] vx)`, which
+avoids the need to define a separate `applyValue` helper. -/
+
+/-- Helper: extracting a value from the first inactive state of an inner
+    computation. At step K the inner state is inactive and not error,
+    so it must be `halt ve` or `ret [] ve`, and `liftState base` maps
+    it to `ret base ve`. -/
+private theorem extractValue (base : Stack) (s : State) (K : Nat)
+    (hK_inact : isActive (steps K s) = false)
+    (h_not_error : steps K s ≠ .error) :
+    ∃ ve, (steps K s = .halt ve ∨ steps K s = .ret [] ve) ∧
+          liftState base (steps K s) = .ret base ve := by
+  generalize h_sK : steps K s = sK at hK_inact h_not_error
+  match sK with
+  | .compute .. => simp [isActive] at hK_inact
+  | .ret [] ve => exact ⟨ve, .inr rfl, by simp [liftState]⟩
+  | .ret (_ :: _) _ => simp [isActive] at hK_inact
+  | .halt ve => exact ⟨ve, .inl rfl, by simp [liftState]⟩
+  | .error => exact absurd rfl h_not_error
+
+/-- Helper: a computation that eventually halts cannot be `.error` at
+    any earlier step, since `.error` is absorbing. -/
+private theorem not_error_before_halt {s : State} {K Ke : Nat} {ve : CekValue}
+    (hK_le : K ≤ Ke) (hKe : steps Ke s = .halt ve)
+    (h : steps K s = .error) : False := by
+  have : steps Ke s = .error := by
+    have : Ke = K + (Ke - K) := by omega
+    rw [this, steps_trans, h, steps_error]
+  rw [hKe] at this; exact absurd this (by simp)
+
+/-- Helper: the halted value is unique. If `steps (K+1) s = .halt ve'` and
+    `steps Ke s = .halt ve` with `K ≤ Ke`, then `ve' = ve`. -/
+private theorem halt_value_unique' {s : State} {K Ke : Nat} {ve ve' : CekValue}
+    (hK_le : K ≤ Ke)
+    (h_inner_eq : steps K s = .halt ve' ∨ steps K s = .ret [] ve')
+    (hKe : steps Ke s = .halt ve) : ve' = ve := by
+  have h_halt_ve' : steps (K + 1) s = .halt ve' := by
+    cases h_inner_eq with
+    | inl h => rw [steps_trans, h, steps_halt]
+    | inr h => rw [steps_trans, h]; rfl
+  by_cases hle : K + 1 ≤ Ke
+  · have h_Ke_eq : steps Ke s = .halt ve' := by
+      have : Ke = (K + 1) + (Ke - (K + 1)) := by omega
+      rw [this, steps_trans, h_halt_ve', steps_halt]
+    rw [hKe] at h_Ke_eq; exact (State.halt.inj h_Ke_eq).symm
+  · have hKeq : K = Ke := by omega
+    rw [← hKeq] at hKe
+    have : steps (K + 1) s = .halt ve := by
+      rw [steps_trans, hKe]; rfl
+    rw [h_halt_ve'] at this; exact State.halt.inj this
+
+/-- Helper: given a sub-computation that eventually halts, find the first
+    inactive step and show that `liftState` maps it to `ret base` with the
+    same halted value. -/
+private theorem liftedHaltValue (base : Stack) (s : State) (N : Nat) (v : CekValue)
+    (hN : steps N (liftState base s) = .halt v) :
+    ∃ K ve, K ≤ N ∧
+      (∀ j, j < K → isActive (steps j s) = true) ∧
+      (steps K s = .halt ve ∨ steps K s = .ret [] ve) ∧
+      liftState base (steps K s) = .ret base ve ∧
+      steps K (liftState base s) = .ret base ve ∧
+      Reaches s (.halt ve) ∧
+      steps (N - K) (.ret base ve) = .halt v := by
+  have h_has_inactive : ∃ k, k ≤ N ∧ isActive (steps k s) = false := by
+    exact Classical.byContradiction fun hall => by
+      have hall' : ∀ j, j ≤ N → isActive (steps j s) = true := by
+        intro j hj
+        by_cases hact : isActive (steps j s) = true
+        · exact hact
+        · exfalso; apply hall; exact ⟨j, hj, by cases isActive (steps j s) <;> simp_all⟩
+      have h_comm := steps_liftState base N s (fun j hj => hall' j (by omega))
+      rw [hN] at h_comm
+      exact absurd h_comm.symm (liftState_ne_halt _ _ v)
+  obtain ⟨K, hK_le, hK_inact, hK_min⟩ := firstInactive s N h_has_inactive
+  have h_comm : steps K (liftState base s) = liftState base (steps K s) :=
+    steps_liftState base K s hK_min
+  have h_not_error : steps K s ≠ .error := by
+    intro herr
+    have : steps (N - K) (liftState base .error) = .halt v := by
+      have : N = K + (N - K) := by omega
+      rw [this, steps_trans, h_comm, herr] at hN; exact hN
+    simp [liftState, steps_error] at this
+  obtain ⟨ve, h_inner_eq, h_lifted_eq⟩ := extractValue base s K hK_inact h_not_error
+  have h_reaches : Reaches s (.halt ve) := by
+    cases h_inner_eq with
+    | inl h => exact ⟨K, h⟩
+    | inr h => exact ⟨K + 1, by rw [steps_trans, h]; rfl⟩
+  have h_rest : steps (N - K) (.ret base ve) = .halt v := by
+    have : N = K + (N - K) := by omega
+    rw [this, steps_trans, h_comm, h_lifted_eq] at hN; exact hN
+  exact ⟨K, ve, hK_le, hK_min, h_inner_eq, h_lifted_eq, by rw [h_comm, h_lifted_eq],
+    h_reaches, h_rest⟩
+
+/-- Helper: given a sub-computation that eventually reaches error (from a lifted
+    context), find the first inactive step and determine whether it is an error
+    or a halt with some value. -/
+private theorem liftedErrorValue (base : Stack) (s : State) (N : Nat)
+    (hN : steps N (liftState base s) = .error) :
+    ∃ K, K ≤ N ∧
+      (∀ j, j < K → isActive (steps j s) = true) ∧
+      steps K (liftState base s) = liftState base (steps K s) ∧
+      (steps K s = .error ∨
+        ∃ ve, (steps K s = .halt ve ∨ steps K s = .ret [] ve) ∧
+              liftState base (steps K s) = .ret base ve ∧
+              Reaches s (.halt ve) ∧
+              steps (N - K) (.ret base ve) = .error) := by
+  have h_has_inactive : ∃ k, k ≤ N ∧ isActive (steps k s) = false := by
+    exact Classical.byContradiction fun hall => by
+      have hall' : ∀ j, j ≤ N → isActive (steps j s) = true := by
+        intro j hj
+        by_cases hact : isActive (steps j s) = true
+        · exact hact
+        · exfalso; apply hall; exact ⟨j, hj, by cases isActive (steps j s) <;> simp_all⟩
+      have h_comm := steps_liftState base N s (fun j hj => hall' j (by omega))
+      rw [hN] at h_comm
+      have h_inner_err := liftState_eq_error _ _ h_comm.symm
+      have := hall' N (Nat.le_refl _)
+      rw [h_inner_err] at this; simp [isActive] at this
+  obtain ⟨K, hK_le, hK_inact, hK_min⟩ := firstInactive s N h_has_inactive
+  have h_comm : steps K (liftState base s) = liftState base (steps K s) :=
+    steps_liftState base K s hK_min
+  by_cases h_is_error : steps K s = .error
+  · exact ⟨K, hK_le, hK_min, h_comm, .inl h_is_error⟩
+  · obtain ⟨ve, h_inner_eq, h_lifted_eq⟩ := extractValue base s K hK_inact h_is_error
+    have h_reaches : Reaches s (.halt ve) := by
+      cases h_inner_eq with
+      | inl h => exact ⟨K, h⟩
+      | inr h => exact ⟨K + 1, by rw [steps_trans, h]; rfl⟩
+    have h_rest : steps (N - K) (.ret base ve) = .error := by
+      have : N = K + (N - K) := by omega
+      rw [this, steps_trans, h_comm, h_lifted_eq] at hN; exact hN
+    exact ⟨K, hK_le, hK_min, h_comm, .inr ⟨ve, h_inner_eq, h_lifted_eq, h_reaches, h_rest⟩⟩
+
+/-- **Generalized Apply decomposition (halt case)**: if `Apply f x` halts
+    with value `v`, then `f` halts with some function value `vf`, `x` halts
+    with some argument value `vx`, and the application step
+    `step (.ret [.funV vf] vx)` eventually reaches `halt v`. -/
+theorem apply_reaches (env : CekEnv) (f x : Term) (v : CekValue)
+    (hreach : Reaches (.compute [] env (.Apply f x)) (.halt v)) :
+    ∃ vf vx, Reaches (.compute [] env f) (.halt vf) ∧
+              Reaches (.compute [] env x) (.halt vx) ∧
+              Reaches (step (.ret [.funV vf] vx)) (.halt v) := by
+  obtain ⟨N, hN⟩ := hreach
+  have hge1 : N ≥ 1 := by
+    match N, hN with
+    | 0, hN => simp [steps, step] at hN
+    | _ + 1, _ => omega
+  have h1 : steps 1 (.compute [] env (.Apply f x)) =
+      .compute [.arg x env] env f := by simp [steps, step]
+  have hrest1 : steps (N - 1) (.compute [.arg x env] env f) = .halt v := by
+    have : N = 1 + (N - 1) := by omega
+    rw [this, steps_trans, h1] at hN; exact hN
+  have hlift_f : State.compute [.arg x env] env f =
+      liftState [.arg x env] (.compute [] env f) := by simp [liftState]
+  rw [hlift_f] at hrest1
+  obtain ⟨Kf, vf, _, _, _, _, _, h_reaches_f, h_after_f⟩ :=
+    liftedHaltValue [.arg x env] (.compute [] env f) (N - 1) v hrest1
+  have hge1_after_f : (N - 1) - Kf ≥ 1 := by
+    by_cases hlt : (N - 1) - Kf ≥ 1
+    · exact hlt
+    · exfalso; have : (N - 1) - Kf = 0 := by omega
+      rw [this] at h_after_f; simp [steps] at h_after_f
+  have hrest2 : steps ((N - 1) - Kf - 1) (.compute [.funV vf] env x) = .halt v := by
+    have : (N - 1) - Kf = 1 + ((N - 1) - Kf - 1) := by omega
+    rw [this, steps_trans] at h_after_f
+    simp [steps, step] at h_after_f
+    exact h_after_f
+  have hlift_x : State.compute [.funV vf] env x =
+      liftState [.funV vf] (.compute [] env x) := by simp [liftState]
+  rw [hlift_x] at hrest2
+  obtain ⟨Kx, vx, _, _, _, _, _, h_reaches_x, h_after_x⟩ :=
+    liftedHaltValue [.funV vf] (.compute [] env x) ((N - 1) - Kf - 1) v hrest2
+  have hge1_after_x : ((N - 1) - Kf - 1) - Kx ≥ 1 := by
+    by_cases hlt : ((N - 1) - Kf - 1) - Kx ≥ 1
+    · exact hlt
+    · exfalso; have : ((N - 1) - Kf - 1) - Kx = 0 := by omega
+      rw [this] at h_after_x; simp [steps] at h_after_x
+  have h_app : steps (((N - 1) - Kf - 1) - Kx - 1)
+      (step (.ret [.funV vf] vx)) = .halt v := by
+    have : ((N - 1) - Kf - 1) - Kx = 1 + (((N - 1) - Kf - 1) - Kx - 1) := by omega
+    rw [this, steps_trans] at h_after_x
+    simp [steps] at h_after_x
+    exact h_after_x
+  exact ⟨vf, vx, h_reaches_f, h_reaches_x, ((N - 1) - Kf - 1) - Kx - 1, h_app⟩
+
+/-- **Generalized Apply decomposition (error case)**: if `Apply f x` reaches
+    `error`, then either `f` itself errors, or `f` halts with `vf` and either
+    `x` errors, or `x` halts with `vx` and the application step
+    `step (.ret [.funV vf] vx)` reaches error. -/
+theorem apply_reaches_error (env : CekEnv) (f x : Term)
+    (hreach : Reaches (.compute [] env (.Apply f x)) .error) :
+    Reaches (.compute [] env f) .error ∨
+    (∃ vf, Reaches (.compute [] env f) (.halt vf) ∧
+      (Reaches (.compute [] env x) .error ∨
+       ∃ vx, Reaches (.compute [] env x) (.halt vx) ∧
+              Reaches (step (.ret [.funV vf] vx)) .error)) := by
+  obtain ⟨N, hN⟩ := hreach
+  have hge1 : N ≥ 1 := by
+    match N, hN with
+    | 0, hN => simp [steps, step] at hN
+    | _ + 1, _ => omega
+  have h1 : steps 1 (.compute [] env (.Apply f x)) =
+      .compute [.arg x env] env f := by simp [steps, step]
+  have hrest1 : steps (N - 1) (.compute [.arg x env] env f) = .error := by
+    have : N = 1 + (N - 1) := by omega
+    rw [this, steps_trans, h1] at hN; exact hN
+  have hlift_f : State.compute [.arg x env] env f =
+      liftState [.arg x env] (.compute [] env f) := by simp [liftState]
+  rw [hlift_f] at hrest1
+  obtain ⟨Kf, _, hKf_min, h_comm_f, h_case_f⟩ :=
+    liftedErrorValue [.arg x env] (.compute [] env f) (N - 1) hrest1
+  cases h_case_f with
+  | inl h_err_f =>
+    left; exact ⟨Kf, h_err_f⟩
+  | inr h_halt_f =>
+    right
+    obtain ⟨vf, _, h_lifted_f_eq, h_reaches_f, h_after_f⟩ := h_halt_f
+    have hge1_after_f : (N - 1) - Kf ≥ 1 := by
+      by_cases hlt : (N - 1) - Kf ≥ 1
+      · exact hlt
+      · exfalso; have : (N - 1) - Kf = 0 := by omega
+        rw [this] at h_after_f; simp [steps] at h_after_f
+    have hrest2 : steps ((N - 1) - Kf - 1) (.compute [.funV vf] env x) = .error := by
+      have : (N - 1) - Kf = 1 + ((N - 1) - Kf - 1) := by omega
+      rw [this, steps_trans] at h_after_f
+      simp [steps, step] at h_after_f
+      exact h_after_f
+    have hlift_x : State.compute [.funV vf] env x =
+        liftState [.funV vf] (.compute [] env x) := by simp [liftState]
+    rw [hlift_x] at hrest2
+    obtain ⟨Kx, _, _, _, h_case_x⟩ :=
+      liftedErrorValue [.funV vf] (.compute [] env x) ((N - 1) - Kf - 1) hrest2
+    cases h_case_x with
+    | inl h_err_x =>
+      exact ⟨vf, h_reaches_f, .inl ⟨Kx, h_err_x⟩⟩
+    | inr h_halt_x =>
+      obtain ⟨vx, _, _, h_reaches_x, h_after_x⟩ := h_halt_x
+      have hge1_after_x : ((N - 1) - Kf - 1) - Kx ≥ 1 := by
+        by_cases hlt : ((N - 1) - Kf - 1) - Kx ≥ 1
+        · exact hlt
+        · exfalso; have : ((N - 1) - Kf - 1) - Kx = 0 := by omega
+          rw [this] at h_after_x; simp [steps] at h_after_x
+      have h_app : steps (((N - 1) - Kf - 1) - Kx - 1)
+          (step (.ret [.funV vf] vx)) = .error := by
+        have : ((N - 1) - Kf - 1) - Kx = 1 + (((N - 1) - Kf - 1) - Kx - 1) := by omega
+        rw [this, steps_trans] at h_after_x
+        simp [steps] at h_after_x
+        exact h_after_x
+      exact ⟨vf, h_reaches_f, .inr ⟨vx, h_reaches_x,
+        ((N - 1) - Kf - 1) - Kx - 1, h_app⟩⟩
+
+/-- **Generalized Apply composition (synthesis direction)**: given that `f`
+    halts with `vf`, `x` halts with `vx`, and continuing from
+    `step (.ret [.funV vf] vx)` reaches state `s`, compose the three to
+    show `Apply f x` reaches `s`. -/
+theorem apply_compose (env : CekEnv) (f x : Term) (vf vx : CekValue) (s : State)
+    (hf : Reaches (.compute [] env f) (.halt vf))
+    (hx : Reaches (.compute [] env x) (.halt vx))
+    (happ : Reaches (step (.ret [.funV vf] vx)) s) :
+    Reaches (.compute [] env (.Apply f x)) s := by
+  obtain ⟨Kef, hKef⟩ := hf
+  obtain ⟨Kex, hKex⟩ := hx
+  obtain ⟨Ka, hKa⟩ := happ
+  have h1 : steps 1 (.compute [] env (.Apply f x)) =
+      .compute [.arg x env] env f := by simp [steps, step]
+  have hlift_f : State.compute [.arg x env] env f =
+      liftState [.arg x env] (.compute [] env f) := by simp [liftState]
+  have h_not_active_Kef : isActive (steps Kef (.compute [] env f)) = false := by
+    rw [hKef]; rfl
+  obtain ⟨Kf, hKf_le, hKf_inact, hKf_min⟩ :=
+    firstInactive (.compute [] env f) Kef
+      ⟨Kef, Nat.le_refl _, h_not_active_Kef⟩
+  have h_comm_f : steps Kf (liftState [.arg x env] (.compute [] env f)) =
+      liftState [.arg x env] (steps Kf (.compute [] env f)) :=
+    steps_liftState [.arg x env] Kf (.compute [] env f) hKf_min
+  have h_not_error_f : steps Kf (.compute [] env f) ≠ .error := by
+    intro herr; exact not_error_before_halt hKf_le hKef herr
+  obtain ⟨vf', h_inner_f_eq, h_lifted_f_eq⟩ :=
+    extractValue [.arg x env] (.compute [] env f) Kf hKf_inact h_not_error_f
+  have h_vf_eq : vf' = vf :=
+    halt_value_unique' hKf_le h_inner_f_eq hKef
+  rw [h_vf_eq] at h_lifted_f_eq
+  have hlift_x : State.compute [.funV vf] env x =
+      liftState [.funV vf] (.compute [] env x) := by simp [liftState]
+  have h_not_active_Kex : isActive (steps Kex (.compute [] env x)) = false := by
+    rw [hKex]; rfl
+  obtain ⟨Kx, hKx_le, hKx_inact, hKx_min⟩ :=
+    firstInactive (.compute [] env x) Kex
+      ⟨Kex, Nat.le_refl _, h_not_active_Kex⟩
+  have h_comm_x : steps Kx (liftState [.funV vf] (.compute [] env x)) =
+      liftState [.funV vf] (steps Kx (.compute [] env x)) :=
+    steps_liftState [.funV vf] Kx (.compute [] env x) hKx_min
+  have h_not_error_x : steps Kx (.compute [] env x) ≠ .error := by
+    intro herr; exact not_error_before_halt hKx_le hKex herr
+  obtain ⟨vx', h_inner_x_eq, h_lifted_x_eq⟩ :=
+    extractValue [.funV vf] (.compute [] env x) Kx hKx_inact h_not_error_x
+  have h_vx_eq : vx' = vx :=
+    halt_value_unique' hKx_le h_inner_x_eq hKex
+  rw [h_vx_eq] at h_lifted_x_eq
+  have h_total : steps (1 + Kf + 1 + Kx + 1 + Ka) (.compute [] env (.Apply f x)) = s := by
+    have : 1 + Kf + 1 + Kx + 1 + Ka = 1 + (Kf + (1 + (Kx + (1 + Ka)))) := by omega
+    rw [this, steps_trans, h1, hlift_f, steps_trans, h_comm_f, h_lifted_f_eq]
+    rw [show 1 + (Kx + (1 + Ka)) = 1 + (Kx + (1 + Ka)) from rfl, steps_trans]
+    simp [steps, step]
+    rw [hlift_x, steps_trans, h_comm_x, h_lifted_x_eq]
+    rw [show 1 + Ka = 1 + Ka from rfl, steps_trans]
+    simp [steps, hKa]
+  exact ⟨1 + Kf + 1 + Kx + 1 + Ka, h_total⟩
+
 end Moist.Verified.StepLift

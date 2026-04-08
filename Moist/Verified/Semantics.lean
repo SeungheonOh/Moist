@@ -428,6 +428,63 @@ mutual
     | _, _ :: _, _ :: _, [], _, h => by simp [ListValueEq] at h
 end
 
+mutual
+  /-- `ValueEq` is monotone in the step index: lowering the observation
+      budget preserves equivalence. -/
+  theorem valueEq_mono : ∀ (k j : Nat), j ≤ k → ∀ (v₁ v₂ : CekValue),
+      ValueEq k v₁ v₂ → ValueEq j v₁ v₂
+    | 0, 0, _, _, _, h => h
+    | _ + 1, 0, _, _, _, _ => by simp [ValueEq]
+    | k + 1, j + 1, hjk, .VCon _, .VCon _, h => by simp only [ValueEq] at h ⊢; exact h
+    | k + 1, j + 1, hjk, .VLam _ _, .VLam _ _, h => by
+      unfold ValueEq at h ⊢
+      intro arg
+      have ⟨he, hh, hv⟩ := h arg
+      exact ⟨he, hh, fun w₁ w₂ hw₁ hw₂ =>
+        valueEq_mono k j (by omega) w₁ w₂ (hv w₁ w₂ hw₁ hw₂)⟩
+    | k + 1, j + 1, hjk, .VDelay _ _, .VDelay _ _, h => by
+      unfold ValueEq at h ⊢
+      exact ⟨h.1, h.2.1, fun w₁ w₂ hw₁ hw₂ =>
+        valueEq_mono k j (by omega) w₁ w₂ (h.2.2 w₁ w₂ hw₁ hw₂)⟩
+    | k + 1, j + 1, hjk, .VConstr _ _, .VConstr _ _, h => by
+      unfold ValueEq at h ⊢
+      exact ⟨h.1, listValueEq_mono k j (by omega) _ _ h.2⟩
+    | k + 1, j + 1, hjk, .VBuiltin _ _ _, .VBuiltin _ _ _, h => by
+      unfold ValueEq at h ⊢
+      exact ⟨h.1, listValueEq_mono k j (by omega) _ _ h.2.1, h.2.2.1, h.2.2.2.1,
+             fun r1 r2 hr1 hr2 =>
+               valueEq_mono k j (by omega) r1 r2 (h.2.2.2.2 r1 r2 hr1 hr2)⟩
+    -- cross-constructor: False propagates
+    | _ + 1, _ + 1, _, .VCon _, .VLam _ _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VCon _, .VDelay _ _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VCon _, .VConstr _ _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VCon _, .VBuiltin _ _ _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VLam _ _, .VCon _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VLam _ _, .VDelay _ _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VLam _ _, .VConstr _ _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VLam _ _, .VBuiltin _ _ _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VDelay _ _, .VCon _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VDelay _ _, .VLam _ _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VDelay _ _, .VConstr _ _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VDelay _ _, .VBuiltin _ _ _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VConstr _ _, .VCon _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VConstr _ _, .VLam _ _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VConstr _ _, .VDelay _ _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VConstr _ _, .VBuiltin _ _ _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VBuiltin _ _ _, .VCon _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VBuiltin _ _ _, .VLam _ _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VBuiltin _ _ _, .VDelay _ _, h => by simp [ValueEq] at h
+    | _ + 1, _ + 1, _, .VBuiltin _ _ _, .VConstr _ _, h => by simp [ValueEq] at h
+  theorem listValueEq_mono : ∀ (k j : Nat), j ≤ k → ∀ (vs₁ vs₂ : List CekValue),
+      ListValueEq k vs₁ vs₂ → ListValueEq j vs₁ vs₂
+    | _, _, _, [], [], _ => by simp [ListValueEq]
+    | k, j, hle, _ :: _, _ :: _, h => by
+      simp only [ListValueEq] at h ⊢
+      exact ⟨valueEq_mono k j hle _ _ h.1, listValueEq_mono k j hle _ _ h.2⟩
+    | _, _, _, [], _ :: _, h => by simp [ListValueEq] at h
+    | _, _, _, _ :: _, [], h => by simp [ListValueEq] at h
+end
+
 /-! ## Transitivity of behavioral equivalence -/
 
 /-- Extract the content of `BehEqClosed` when both sides lower successfully. -/
