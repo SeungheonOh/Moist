@@ -54,20 +54,11 @@ private theorem vlam_diff_arg_via_bisim (k : Nat) (body : Term) (cenv : CekEnv)
     sorry
   · -- Same hole as above for halt transfer.
     sorry
-  · -- Value agreement at arbitrary level `k`, via bisim at level
-    -- `k + max N1 N2`. The new mutual-halt clause survives unchanged.
-    intro v1 v2 h1 h2
-    obtain ⟨N1, hN1⟩ := h1
-    obtain ⟨N2, hN2⟩ := h2
-    have hsr := fundamental_lemma_proved' (k + max N1 N2) body cenv va va' (hva _)
-    have hN1_le : N1 ≤ k + max N1 N2 :=
-      Nat.le_trans (Nat.le_max_left N1 N2) (Nat.le_add_left _ k)
-    have hN2_le : N2 ≤ k + max N1 N2 :=
-      Nat.le_trans (Nat.le_max_right N1 N2) (Nat.le_add_left _ k)
-    have hresult := (hsr N1 N2 hN1_le hN2_le).2.2 v1 v2 hN1 hN2
-    have hlvl : k + max N1 N2 - max N1 N2 = k := by omega
-    rw [hlvl] at hresult
-    exact hresult
+  · -- **Post-asymmetric-redesign hole**: same as the app_step_vlam_value
+    -- issue — the asymmetric StateRelated's forward halt returns an
+    -- unbounded existential m that can exceed max N1 N2, making the
+    -- returned level arithmetic fail. Left as sorry.
+    sorry
 
 /-- VLam application step: same closure, different args. Bundled
     error/halts/value agreement. -/

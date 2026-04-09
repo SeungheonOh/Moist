@@ -943,12 +943,22 @@ private theorem force_frame_error_transfer
     (herr : Reaches (.ret [.force] v1) .error) :
     Reaches (.ret [.force] v2) .error := by
   match v1, v2 with
-  | .VDelay _ _, .VDelay _ _ =>
-    -- **Post-redesign hole:** the new VDelay clause asserts only
-    -- cross-terminal impossibility + mutual-halt value, not the
-    -- one-sided error transfer we need here. This is the
-    -- divergent-inner-closure weakness flagged in `Semantics.lean`.
-    sorry
+  | .VDelay b1 e1, .VDelay b2 e2 =>
+    -- Step through the force frame on side1 to get an inner-compute error,
+    -- then transfer via the forward error clause of VDelay (asymmetric form).
+    obtain ⟨N, hN⟩ := herr
+    cases N with
+    | zero => simp [steps] at hN
+    | succ N =>
+      have hinner1_at : steps N (.compute [] e1 b1) = .error := by
+        simp only [steps, step] at hN; exact hN
+      -- Use VDelay clause at level N+2 so j = N+1 covers step count N.
+      have hveN := hve (N + 2)
+      unfold ValueEq at hveN
+      have hclause := hveN (N + 1) (Nat.le_refl _) [] [] trivial
+      -- hclause.1 is the forward error clause
+      obtain ⟨M, hM⟩ := hclause.1 N (by omega) hinner1_at
+      exact ⟨M + 1, by simp only [steps, step]; exact hM⟩
   | .VCon _, .VCon _ => exact force_vcon_reaches_error _
   | .VLam _ _, .VLam _ _ => exact force_vlam_reaches_error _ _
   | .VConstr _ _, .VConstr _ _ => exact force_vconstr_reaches_error _ _
@@ -1015,10 +1025,20 @@ private theorem force_frame_halts_transfer
     (hh : Halts (.ret [.force] v1)) :
     Halts (.ret [.force] v2) := by
   match v1, v2 with
-  | .VDelay _ _, .VDelay _ _ =>
-    -- **Post-redesign hole:** parallel to `force_frame_error_transfer`.
-    -- The new VDelay clause cannot witness one-sided halt transfer.
-    sorry
+  | .VDelay b1 e1, .VDelay b2 e2 =>
+    obtain ⟨w, N, hN⟩ := hh
+    cases N with
+    | zero => simp [steps] at hN
+    | succ N =>
+      have hinner1_at : steps N (.compute [] e1 b1) = .halt w := by
+        simp only [steps, step] at hN; exact hN
+      -- Use VDelay clause at level N+2 so j = N+1 covers step count N.
+      have hveN := hve (N + 2)
+      unfold ValueEq at hveN
+      have hclause := hveN (N + 1) (Nat.le_refl _) [] [] trivial
+      -- hclause.2.2.1 is the forward halt clause
+      obtain ⟨M, w', hM, _⟩ := hclause.2.2.1 N w (by omega) hinner1_at
+      exact ⟨w', M + 1, by simp only [steps, step]; exact hM⟩
   | .VCon _, .VCon _ => exact absurd hh (force_vcon_not_halts _)
   | .VLam _ _, .VLam _ _ => exact absurd hh (force_vlam_not_halts _ _)
   | .VConstr _ _, .VConstr _ _ => exact absurd hh (force_vconstr_not_halts _ _)
@@ -1228,17 +1248,15 @@ theorem refines_force_behEq (e e' : Expr) (h : e ⊑ e') :
                   Nat.le_trans (Nat.le_max_left N1 N2) (Nat.le_add_left _ k)
                 have hN2_le_j : N2 ≤ k + max N1 N2 :=
                   Nat.le_trans (Nat.le_max_right N1 N2) (Nat.le_add_left _ k)
-                -- New VDelay clause: hveN j hj stk1 stk2 hstk n m hn hm
-                --   := ⟨cross1, cross2, mutual_halt⟩
-                have hclause :=
-                  hveN (k + max N1 N2) (Nat.le_refl _) [] []
-                    (by trivial : StackEqR _ [] [])
-                    N1 N2 hN1_le_j hN2_le_j
-                have hresult := hclause.2.2 w1 w2 hcomp1 hcomp2
-                -- hresult : ValueEq ((k + max N1 N2) - max N1 N2) w1 w2
-                have hlvl : k + max N1 N2 - max N1 N2 = k := by omega
-                rw [hlvl] at hresult
-                exact hresult
+                -- **Post-asymmetric-redesign hole**: the asymmetric clause's
+                -- backward halt returns an unbounded existential n for side1's
+                -- halt step. By CEK determinism the halt value is w1, but the
+                -- level `j - max n m` depends on n being bounded. For proofs
+                -- of the clause where n > max N1 N2, the returned level is < k
+                -- and mono cannot recover. Left as a sorry pending a helper
+                -- lemma that chains the asymmetric clause with determinism to
+                -- get a tight witness.
+                sorry
           | .VCon _, .VCon _ => exact absurd ⟨w1, hforce_v1_halt⟩ (force_vcon_not_halts _)
           | .VLam _ _, .VLam _ _ => exact absurd ⟨w1, hforce_v1_halt⟩ (force_vlam_not_halts _ _)
           | .VConstr _ _, .VConstr _ _ => exact absurd ⟨w1, hforce_v1_halt⟩ (force_vconstr_not_halts _ _)
@@ -1392,15 +1410,11 @@ private theorem app_step_vlam_value (k : Nat) (b1 b2 : Term) (e1 e2 : CekEnv)
     Nat.le_trans (Nat.le_max_left N1 N2) (Nat.le_add_left _ k)
   have hN2_le : N2 ≤ k + max N1 N2 :=
     Nat.le_trans (Nat.le_max_right N1 N2) (Nat.le_add_left _ k)
-  -- New clause: hveN j hj args... stk... n m hn hm := ⟨cross1, cross2, mutual_halt⟩
-  have hclause :=
-    hveN (k + max N1 N2) (Nat.le_refl _) va va
-      (valueEq_refl (k + max N1 N2) va) [] [] (by trivial : StackEqR _ [] [])
-      N1 N2 hN1_le hN2_le
-  have hresult := hclause.2.2 v1 v2 hN1 hN2
-  have hlvl : k + max N1 N2 - max N1 N2 = k := by omega
-  rw [hlvl] at hresult
-  exact hresult
+  -- **Post-asymmetric-redesign hole**: same as refines_force_behEq's VDelay
+  -- case — the asymmetric clause's forward halt returns an unbounded
+  -- existential that can't be bounded by the outer level arithmetic.
+  -- Left as a sorry pending a helper lemma.
+  sorry
 
 /-- Non-function values: application always errors. -/
 private theorem app_step_nonfunction_errors (va : CekValue) (c : Const) :

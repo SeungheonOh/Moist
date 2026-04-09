@@ -248,15 +248,10 @@ private theorem relV_implies_valueEq_succ (k : Nat)
   cases hr with
   | vcon => simp [ValueEq]
   | vlam σ d hcl henv =>
-    unfold ValueEq; intro j hj arg1 arg2 hargs stk1 stk2 hstk n hn
-    -- Bisimulation gives lockstep agreement for same arg, then compose with arg variation
-    have hext := envRelV_extend σ d _ _ arg1 arg1 henv .refl
-    have hsr := StateRel.compute .nil (liftRename σ) (d + 1) hext hcl
+    unfold ValueEq; intro j hj arg1 arg2 hargs stk1 stk2 hstk
     sorry -- TODO: compose bisim (same arg) + vlam_refl_fundamental (arg variation)
   | vdelay σ d hcl henv =>
-    unfold ValueEq; intro j hj stk1 stk2 hstk n hn
-    -- Bisimulation directly gives bounded-step agreement
-    have hsr := StateRel.compute .nil σ d henv hcl
+    unfold ValueEq; intro j hj stk1 stk2 hstk
     sorry -- TODO: extract bounded-step from bisimulation
   | vconstr htag hfs => subst htag; unfold ValueEq; exact ⟨rfl, ihC _ _ hfs⟩
   | vbuiltin hb hargs hea =>
@@ -331,13 +326,13 @@ private theorem closed_eval_valueEq_succ (k : Nat)
     have := reaches_unique h₁ (⟨2, rfl⟩ : Reaches _ (.halt _)); subst this
     simp only [renameTerm] at h₂
     have := reaches_unique h₂ (⟨2, rfl⟩ : Reaches _ (.halt _)); subst this
-    unfold ValueEq; intro j hj arg1 arg2 hargs stk1 stk2 hstk n hn
+    unfold ValueEq; intro j hj arg1 arg2 hargs stk1 stk2 hstk
     sorry -- TODO: compose bisim (same arg) + arg variation for VLam
   | .Delay body =>
     have := reaches_unique h₁ (⟨2, rfl⟩ : Reaches _ (.halt _)); subst this
     simp only [renameTerm] at h₂
     have := reaches_unique h₂ (⟨2, rfl⟩ : Reaches _ (.halt _)); subst this
-    unfold ValueEq; intro j hj stk1 stk2 hstk n hn
+    unfold ValueEq; intro j hj stk1 stk2 hstk
     sorry -- TODO: extract bounded-step from bisimulation for VDelay
   | .Apply _ _ | .Force _ | .Constr _ _ | .Case _ _ =>
     exact relV_to_eq v₁ v₂ (Bisim.bisim_reaches (.compute .nil σ d hrel hcl) h₁ h₂)

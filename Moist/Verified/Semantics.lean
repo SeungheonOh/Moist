@@ -172,18 +172,23 @@ Key design choices:
 2. **`∀ j ≤ k` quantification** for VLam: the closure is tested at every
    observation level up to `k`. This makes anti-monotonicity trivially true.
 
-3. **Cross-terminal impossibility + mutual-halt value**: rather than
-   asserting termination equivalence (error/halt iffs), we merely assert
-   that terminal behaviours cannot be *mismatched* between sides (no
-   halt-vs-error crossing) and that whenever both sides halt the values
-   decay-relate. This sidesteps divergence-detection weaknesses in the
-   step-indexed setting — at the cost of not distinguishing a closure
-   that diverges from one that halts, when the root program never forces
-   them (acceptable for total-program settings like Plutus scripts).
+3. **Asymmetric forward/backward clauses**: the "source" step count is
+   bounded by `j`, but the "target" step count is unbounded. This lets
+   step-count-changing optimizations (like `Delay 10 ~ Delay (5+5)`) be
+   equivalent — side1 halting at step 1 is matched by side2 halting at step
+   8 via the unbounded target `∃ m`. Crucially, the bound on the source
+   keeps the step-indexed fundamental lemma provable.
 
 4. **Decaying result level** (`j - max n m`): after reaching a halt from
    the two sides at step counts `n` and `m`, the observation budget for
-   result values is `j - max n m` (natural subtraction).
+   result values is `j - max n m` (natural subtraction). If `m > j`, the
+   level collapses to 0 (trivial), which is fine because we only care about
+   deep observations when both halts fit within the budget.
+
+5. **Divergence-vs-halting is detected**: if side1 halts at step `n ≤ j`
+   but side2 diverges, the forward halt clause demands `∃ m, side2 halts at
+   m`, which is FALSE. So halting vs diverging closures are distinguished.
+   Similarly for error-vs-halting.
 
 `ListValueEq` extends this pointwise to lists of values. -/
 
@@ -200,33 +205,48 @@ mutual
       ∀ j, j ≤ k →
         ∀ (arg1 arg2 : CekValue), ValueEq j arg1 arg2 →
           ∀ (stk1 stk2 : Stack), StackEqR (ValueEq j) stk1 stk2 →
-            ∀ n m, n ≤ j → m ≤ j →
-              -- Cross-terminal impossibility (halt/error mismatch forbidden)
-              (¬(∃ v, steps n (.compute stk1 (env1.extend arg1) body1) = .halt v ∧
-                      steps m (.compute stk2 (env2.extend arg2) body2) = .error)) ∧
-              (¬(steps n (.compute stk1 (env1.extend arg1) body1) = .error ∧
-                 ∃ v, steps m (.compute stk2 (env2.extend arg2) body2) = .halt v)) ∧
-              -- Mutual-halt value equivalence with decay
-              (∀ v1 v2,
-                steps n (.compute stk1 (env1.extend arg1) body1) = .halt v1 →
-                steps m (.compute stk2 (env2.extend arg2) body2) = .halt v2 →
-                ValueEq (j - max n m) v1 v2)
+            -- Forward error: if side1 errors within `j` steps, side2 reaches error.
+            (∀ n, n ≤ j →
+              steps n (.compute stk1 (env1.extend arg1) body1) = .error →
+              Reaches (.compute stk2 (env2.extend arg2) body2) .error) ∧
+            -- Backward error: symmetric.
+            (∀ m, m ≤ j →
+              steps m (.compute stk2 (env2.extend arg2) body2) = .error →
+              Reaches (.compute stk1 (env1.extend arg1) body1) .error) ∧
+            -- Forward halt: side1 halts at bounded `n ≤ j` → ∃ m (unbounded),
+            -- side2 halts at m with values decay-related at level `j - max n m`.
+            (∀ n v1, n ≤ j →
+              steps n (.compute stk1 (env1.extend arg1) body1) = .halt v1 →
+              ∃ m v2, steps m (.compute stk2 (env2.extend arg2) body2) = .halt v2 ∧
+                      ValueEq (j - max n m) v1 v2) ∧
+            -- Backward halt: symmetric.
+            (∀ m v2, m ≤ j →
+              steps m (.compute stk2 (env2.extend arg2) body2) = .halt v2 →
+              ∃ n v1, steps n (.compute stk1 (env1.extend arg1) body1) = .halt v1 ∧
+                      ValueEq (j - max n m) v1 v2)
     | k + 1, .VConstr tag1 fields1, .VConstr tag2 fields2 =>
       tag1 = tag2 ∧ ListValueEq k fields1 fields2
     | k + 1, .VDelay body1 env1, .VDelay body2 env2 =>
       ∀ j, j ≤ k →
         ∀ (stk1 stk2 : Stack), StackEqR (ValueEq j) stk1 stk2 →
-          ∀ n m, n ≤ j → m ≤ j →
-            -- Cross-terminal impossibility
-            (¬(∃ v, steps n (.compute stk1 env1 body1) = .halt v ∧
-                    steps m (.compute stk2 env2 body2) = .error)) ∧
-            (¬(steps n (.compute stk1 env1 body1) = .error ∧
-               ∃ v, steps m (.compute stk2 env2 body2) = .halt v)) ∧
-            -- Mutual-halt value equivalence with decay
-            (∀ v1 v2,
-              steps n (.compute stk1 env1 body1) = .halt v1 →
-              steps m (.compute stk2 env2 body2) = .halt v2 →
-              ValueEq (j - max n m) v1 v2)
+          -- Forward error
+          (∀ n, n ≤ j →
+            steps n (.compute stk1 env1 body1) = .error →
+            Reaches (.compute stk2 env2 body2) .error) ∧
+          -- Backward error
+          (∀ m, m ≤ j →
+            steps m (.compute stk2 env2 body2) = .error →
+            Reaches (.compute stk1 env1 body1) .error) ∧
+          -- Forward halt with unbounded target and decay
+          (∀ n v1, n ≤ j →
+            steps n (.compute stk1 env1 body1) = .halt v1 →
+            ∃ m v2, steps m (.compute stk2 env2 body2) = .halt v2 ∧
+                    ValueEq (j - max n m) v1 v2) ∧
+          -- Backward halt
+          (∀ m v2, m ≤ j →
+            steps m (.compute stk2 env2 body2) = .halt v2 →
+            ∃ n v1, steps n (.compute stk1 env1 body1) = .halt v1 ∧
+                    ValueEq (j - max n m) v1 v2)
     | k + 1, .VBuiltin b1 args1 ea1, .VBuiltin b2 args2 ea2 =>
       b1 = b2 ∧ ListValueEq (k + 1) args1 args2 ∧ ea1 = ea2
     | _, _, _ => False

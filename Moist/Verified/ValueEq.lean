@@ -202,27 +202,22 @@ private theorem stackEqR_to_stackEq : ∀ {k : Nat} {s1 s2 : Stack},
   | _, _ :: _, [], h => absurd h (by simp [StackEqR])
 
 /-- **StateRelated**: the canonical "two states are related at level `k`" relation.
-    Directly matches the new VLam/VDelay clause structure in `ValueEq`:
-    * Cross-terminal impossibility (halt on one side, error on the other, is forbidden)
-    * Mutual-halt value equivalence with decay: for any halt step counts
-      `n, m ≤ k`, the halt values are related at level `k - max n m`.
-
-    Step counts on both sides are universally quantified. This matches what
-    the `ValueEq` VLam/VDelay clause expects directly — no intermediate
-    existential-witness conversion is needed.
-
-    **Design note:** this relation does *not* claim termination equivalence
-    (if one side halts, the other need not). That weakness is accepted for
-    divergent-inner closures that are never forced by the root program —
-    see the module docstring at the top of `Semantics.lean`. -/
+    Directly matches the asymmetric `ValueEq` VLam/VDelay clause structure.
+    The source step count is bounded by `k`; the target step count is
+    unbounded (existential). This lets step-count-changing optimizations be
+    in the relation while step-indexing keeps the FL provable. -/
 def StateRelated (k : Nat) (s1 s2 : State) : Prop :=
-  ∀ n m, n ≤ k → m ≤ k →
-    -- Cross-terminal impossibility
-    (¬(∃ v, steps n s1 = .halt v ∧ steps m s2 = .error)) ∧
-    (¬(steps n s1 = .error ∧ ∃ v, steps m s2 = .halt v)) ∧
-    -- Mutual-halt value equivalence with decay
-    (∀ v1 v2, steps n s1 = .halt v1 → steps m s2 = .halt v2 →
-      ValueEq (k - max n m) v1 v2)
+  -- Forward error: side1 errors within `k` steps → side2 reaches error.
+  (∀ n, n ≤ k → steps n s1 = .error → Reaches s2 .error) ∧
+  -- Backward error: symmetric.
+  (∀ m, m ≤ k → steps m s2 = .error → Reaches s1 .error) ∧
+  -- Forward halt: side1 halts at `n ≤ k` → ∃ m, side2 halts at m
+  -- with values decay-related at level `k - max n m`.
+  (∀ n v1, n ≤ k → steps n s1 = .halt v1 →
+    ∃ m v2, steps m s2 = .halt v2 ∧ ValueEq (k - max n m) v1 v2) ∧
+  -- Backward halt: symmetric.
+  (∀ m v2, m ≤ k → steps m s2 = .halt v2 →
+    ∃ n v1, steps n s1 = .halt v1 ∧ ValueEq (k - max n m) v1 v2)
 
 /-- Lift `StateRelated` from stepped states to original (non-terminal) states.
     When both sides are "in progress" (compute/ret, neither halt nor error),
@@ -237,54 +232,61 @@ theorem stateRelated_lift_compute {k : Nat}
       (step (.compute stk1 env1 t))
       (step (.compute stk2 env2 t))) :
     StateRelated (k + 1) (.compute stk1 env1 t) (.compute stk2 env2 t) := by
-  intro n m hn hm
-  refine ⟨?_, ?_, ?_⟩
-  · -- ¬(∃ v, halt at n side1 ∧ err at m side2)
-    rintro ⟨v, hh1, he2⟩
-    match n, hh1 with
-    | 0, hh1 => simp [steps] at hh1  -- compute state is never .halt at step 0
-    | n' + 1, hh1 =>
-      match m, he2 with
-      | 0, he2 => simp [steps] at he2
-      | m' + 1, he2 =>
-        rw [show steps (n' + 1) (State.compute stk1 env1 t)
-              = steps n' (step (.compute stk1 env1 t)) from rfl] at hh1
+  refine ⟨?_, ?_, ?_, ?_⟩
+  · -- Forward error: side1 at n ≤ k+1 errors → side2 reaches error.
+    intro n hn he
+    match n, he with
+    | 0, he => simp [steps] at he
+    | n' + 1, he =>
+      rw [show steps (n' + 1) (State.compute stk1 env1 t)
+            = steps n' (step (.compute stk1 env1 t)) from rfl] at he
+      have hreach_step := hstep.1 n' (by omega) he
+      obtain ⟨m', hm'⟩ := hreach_step
+      exact ⟨m' + 1, by
         rw [show steps (m' + 1) (State.compute stk2 env2 t)
-              = steps m' (step (.compute stk2 env2 t)) from rfl] at he2
-        exact (hstep n' m' (by omega) (by omega)).1 ⟨v, hh1, he2⟩
-  · -- ¬(err at n side1 ∧ ∃ v, halt at m side2)
-    rintro ⟨he1, v, hh2⟩
-    match n, he1 with
-    | 0, he1 => simp [steps] at he1
-    | n' + 1, he1 =>
-      match m, hh2 with
-      | 0, hh2 => simp [steps] at hh2
-      | m' + 1, hh2 =>
+              = steps m' (step (.compute stk2 env2 t)) from rfl]; exact hm'⟩
+  · -- Backward error: symmetric.
+    intro m hm he
+    match m, he with
+    | 0, he => simp [steps] at he
+    | m' + 1, he =>
+      rw [show steps (m' + 1) (State.compute stk2 env2 t)
+            = steps m' (step (.compute stk2 env2 t)) from rfl] at he
+      have hreach_step := hstep.2.1 m' (by omega) he
+      obtain ⟨n', hn'⟩ := hreach_step
+      exact ⟨n' + 1, by
         rw [show steps (n' + 1) (State.compute stk1 env1 t)
-              = steps n' (step (.compute stk1 env1 t)) from rfl] at he1
-        rw [show steps (m' + 1) (State.compute stk2 env2 t)
-              = steps m' (step (.compute stk2 env2 t)) from rfl] at hh2
-        exact (hstep n' m' (by omega) (by omega)).2.1 ⟨he1, v, hh2⟩
-  · -- Value relate at level k+1 for (n, m) ≤ k+1
-    intro v1 v2 hv1 hv2
-    match n, hv1 with
-    | 0, hv1 => simp [steps] at hv1
-    | n' + 1, hv1 =>
-      match m, hv2 with
-      | 0, hv2 => simp [steps] at hv2
-      | m' + 1, hv2 =>
-        rw [show steps (n' + 1) (State.compute stk1 env1 t)
-              = steps n' (step (.compute stk1 env1 t)) from rfl] at hv1
-        rw [show steps (m' + 1) (State.compute stk2 env2 t)
-              = steps m' (step (.compute stk2 env2 t)) from rfl] at hv2
-        have hrel := (hstep n' m' (by omega) (by omega)).2.2 v1 v2 hv1 hv2
-        -- hrel : ValueEq (k - max n' m') v1 v2
-        -- Want: ValueEq (k + 1 - max (n' + 1) (m' + 1)) v1 v2
-        have hmax : max (n' + 1) (m' + 1) = max n' m' + 1 := by omega
+              = steps n' (step (.compute stk1 env1 t)) from rfl]; exact hn'⟩
+  · -- Forward halt: side1 halts at n ≤ k+1 with v1 → ∃ m v2 ...
+    intro n v1 hn hh
+    match n, hh with
+    | 0, hh => simp [steps] at hh
+    | n' + 1, hh =>
+      rw [show steps (n' + 1) (State.compute stk1 env1 t)
+            = steps n' (step (.compute stk1 env1 t)) from rfl] at hh
+      obtain ⟨m', v2, hm', hrel⟩ := hstep.2.2.1 n' v1 (by omega) hh
+      refine ⟨m' + 1, v2, ?_, ?_⟩
+      · rw [show steps (m' + 1) (State.compute stk2 env2 t)
+              = steps m' (step (.compute stk2 env2 t)) from rfl]; exact hm'
+      · have hmax : max (n' + 1) (m' + 1) = max n' m' + 1 := by omega
         have hlvl : k + 1 - max (n' + 1) (m' + 1) = k - max n' m' := by
           rw [hmax]; omega
-        rw [hlvl]
-        exact hrel
+        rw [hlvl]; exact hrel
+  · -- Backward halt: symmetric.
+    intro m v2 hm hh
+    match m, hh with
+    | 0, hh => simp [steps] at hh
+    | m' + 1, hh =>
+      rw [show steps (m' + 1) (State.compute stk2 env2 t)
+            = steps m' (step (.compute stk2 env2 t)) from rfl] at hh
+      obtain ⟨n', v1, hn', hrel⟩ := hstep.2.2.2 m' v2 (by omega) hh
+      refine ⟨n' + 1, v1, ?_, ?_⟩
+      · rw [show steps (n' + 1) (State.compute stk1 env1 t)
+              = steps n' (step (.compute stk1 env1 t)) from rfl]; exact hn'
+      · have hmax : max (n' + 1) (m' + 1) = max n' m' + 1 := by omega
+        have hlvl : k + 1 - max (n' + 1) (m' + 1) = k - max n' m' := by
+          rw [hmax]; omega
+        rw [hlvl]; exact hrel
 
 /-- Lift `StateRelated` for `.ret` states (non-terminal). Parallel to
     `stateRelated_lift_compute`. -/
@@ -294,50 +296,59 @@ theorem stateRelated_lift_ret {k : Nat}
       (step (.ret stk1 v1))
       (step (.ret stk2 v2))) :
     StateRelated (k + 1) (.ret stk1 v1) (.ret stk2 v2) := by
-  intro n m hn hm
-  refine ⟨?_, ?_, ?_⟩
-  · rintro ⟨v, hh1, he2⟩
-    match n, hh1 with
-    | 0, hh1 => simp [steps] at hh1
-    | n' + 1, hh1 =>
-      match m, he2 with
-      | 0, he2 => simp [steps] at he2
-      | m' + 1, he2 =>
-        rw [show steps (n' + 1) (State.ret stk1 v1)
-              = steps n' (step (.ret stk1 v1)) from rfl] at hh1
+  refine ⟨?_, ?_, ?_, ?_⟩
+  · -- Forward error: side1 at n ≤ k+1 errors → side2 reaches error.
+    intro n hn he
+    match n, he with
+    | 0, he => simp [steps] at he
+    | n' + 1, he =>
+      rw [show steps (n' + 1) (State.ret stk1 v1)
+            = steps n' (step (.ret stk1 v1)) from rfl] at he
+      obtain ⟨m', hm'⟩ := hstep.1 n' (by omega) he
+      exact ⟨m' + 1, by
         rw [show steps (m' + 1) (State.ret stk2 v2)
-              = steps m' (step (.ret stk2 v2)) from rfl] at he2
-        exact (hstep n' m' (by omega) (by omega)).1 ⟨v, hh1, he2⟩
-  · rintro ⟨he1, v, hh2⟩
-    match n, he1 with
-    | 0, he1 => simp [steps] at he1
-    | n' + 1, he1 =>
-      match m, hh2 with
-      | 0, hh2 => simp [steps] at hh2
-      | m' + 1, hh2 =>
+              = steps m' (step (.ret stk2 v2)) from rfl]; exact hm'⟩
+  · -- Backward error
+    intro m hm he
+    match m, he with
+    | 0, he => simp [steps] at he
+    | m' + 1, he =>
+      rw [show steps (m' + 1) (State.ret stk2 v2)
+            = steps m' (step (.ret stk2 v2)) from rfl] at he
+      obtain ⟨n', hn'⟩ := hstep.2.1 m' (by omega) he
+      exact ⟨n' + 1, by
         rw [show steps (n' + 1) (State.ret stk1 v1)
-              = steps n' (step (.ret stk1 v1)) from rfl] at he1
-        rw [show steps (m' + 1) (State.ret stk2 v2)
-              = steps m' (step (.ret stk2 v2)) from rfl] at hh2
-        exact (hstep n' m' (by omega) (by omega)).2.1 ⟨he1, v, hh2⟩
-  · -- Value relate
-    intro w1 w2 hw1 hw2
-    match n, hw1 with
-    | 0, hw1 => simp [steps] at hw1
-    | n' + 1, hw1 =>
-      match m, hw2 with
-      | 0, hw2 => simp [steps] at hw2
-      | m' + 1, hw2 =>
-        rw [show steps (n' + 1) (State.ret stk1 v1)
-              = steps n' (step (.ret stk1 v1)) from rfl] at hw1
-        rw [show steps (m' + 1) (State.ret stk2 v2)
-              = steps m' (step (.ret stk2 v2)) from rfl] at hw2
-        have hrel := (hstep n' m' (by omega) (by omega)).2.2 w1 w2 hw1 hw2
-        have hmax : max (n' + 1) (m' + 1) = max n' m' + 1 := by omega
+              = steps n' (step (.ret stk1 v1)) from rfl]; exact hn'⟩
+  · -- Forward halt
+    intro n w1 hn hh
+    match n, hh with
+    | 0, hh => simp [steps] at hh
+    | n' + 1, hh =>
+      rw [show steps (n' + 1) (State.ret stk1 v1)
+            = steps n' (step (.ret stk1 v1)) from rfl] at hh
+      obtain ⟨m', w2, hm', hrel⟩ := hstep.2.2.1 n' w1 (by omega) hh
+      refine ⟨m' + 1, w2, ?_, ?_⟩
+      · rw [show steps (m' + 1) (State.ret stk2 v2)
+              = steps m' (step (.ret stk2 v2)) from rfl]; exact hm'
+      · have hmax : max (n' + 1) (m' + 1) = max n' m' + 1 := by omega
         have hlvl : k + 1 - max (n' + 1) (m' + 1) = k - max n' m' := by
           rw [hmax]; omega
-        rw [hlvl]
-        exact hrel
+        rw [hlvl]; exact hrel
+  · -- Backward halt
+    intro m w2 hm hh
+    match m, hh with
+    | 0, hh => simp [steps] at hh
+    | m' + 1, hh =>
+      rw [show steps (m' + 1) (State.ret stk2 v2)
+            = steps m' (step (.ret stk2 v2)) from rfl] at hh
+      obtain ⟨n', w1, hn', hrel⟩ := hstep.2.2.2 m' w2 (by omega) hh
+      refine ⟨n' + 1, w1, ?_, ?_⟩
+      · rw [show steps (n' + 1) (State.ret stk1 v1)
+              = steps n' (step (.ret stk1 v1)) from rfl]; exact hn'
+      · have hmax : max (n' + 1) (m' + 1) = max n' m' + 1 := by omega
+        have hlvl : k + 1 - max (n' + 1) (m' + 1) = k - max n' m' := by
+          rw [hmax]; omega
+        rw [hlvl]; exact hrel
 
 
 /-! ## Mono helpers for structural relations -/
@@ -1301,28 +1312,54 @@ theorem stateEq_stateRelated : ∀ (k : Nat)
     (_veq_refl : ∀ j, j ≤ k → ∀ v : CekValue, ValueEq j v v)
     {s1 s2 : State}, StateEq k s1 s2 → StateRelated k s1 s2
   | 0, _, _, _, hrel => by
-    -- Base case k = 0: n, m ≤ 0 so n = m = 0. The state at step 0 is just
-    -- the state itself (determined by the StateEq constructor). Cross-terminal
-    -- and mutual-halt are vacuous in every case.
-    intro n m hn hm
-    have hn0 : n = 0 := by omega
-    have hm0 : m = 0 := by omega
-    subst hn0; subst hm0
-    refine ⟨?_, ?_, ?_⟩
-    · rintro ⟨v, hh, he⟩
+    -- Base case k = 0. Under the asymmetric form with `n ≤ 0`, all four
+    -- conjuncts become vacuous for compute/ret (step 0 is not halt/error)
+    -- and direct for error/halt constructors. No sorries needed.
+    refine ⟨?_, ?_, ?_, ?_⟩
+    · -- Forward error at n ≤ 0
+      intro n hn he
+      have : n = 0 := by omega
+      subst this
       cases hrel with
-      | error => simp [steps] at hh
-      | halt _ => simp [steps] at he
-      | compute _ _ => simp [steps] at hh
-      | ret _ _ => simp [steps] at hh
-    · rintro ⟨he, v, hh⟩
-      cases hrel with
-      | error => simp [steps] at hh
+      | error => exact ⟨0, rfl⟩
       | halt _ => simp [steps] at he
       | compute _ _ => simp [steps] at he
       | ret _ _ => simp [steps] at he
-    · intro v1 v2 _ _
-      simp [ValueEq]
+    · -- Backward error at m ≤ 0
+      intro m hm he
+      have : m = 0 := by omega
+      subst this
+      cases hrel with
+      | error => exact ⟨0, rfl⟩
+      | halt _ => simp [steps] at he
+      | compute _ _ => simp [steps] at he
+      | ret _ _ => simp [steps] at he
+    · -- Forward halt at n ≤ 0
+      intro n v1 hn hh
+      have : n = 0 := by omega
+      subst this
+      cases hrel with
+      | error => simp [steps] at hh
+      | halt hv =>
+        rename_i w1 w2
+        refine ⟨0, w2, rfl, ?_⟩
+        simp [steps] at hh; subst hh
+        simp [ValueEq]
+      | compute _ _ => simp [steps] at hh
+      | ret _ _ => simp [steps] at hh
+    · -- Backward halt at m ≤ 0
+      intro m v2 hm hh
+      have : m = 0 := by omega
+      subst this
+      cases hrel with
+      | error => simp [steps] at hh
+      | halt hv =>
+        rename_i w1 w2
+        refine ⟨0, w1, rfl, ?_⟩
+        simp [steps] at hh; subst hh
+        simp [ValueEq]
+      | compute _ _ => simp [steps] at hh
+      | ret _ _ => simp [steps] at hh
   | k + 1, veq_refl, s1, s2, hrel => by
     -- Inductive case: step once, recurse on k via call_k, lift via stateRelated_lift_*
     have call_k : ∀ {s1' s2' : State}, StateEq k s1' s2' → StateRelated k s1' s2' :=
@@ -1331,26 +1368,29 @@ theorem stateEq_stateRelated : ∀ (k : Nat)
       fun hrel' => call_k (stateEq_mono (by omega) hrel')
     cases hrel with
     | error =>
-      -- Both states are .error. steps n .error = .error, so no halt witnesses;
-      -- cross-terminal and mutual-halt are both vacuous.
-      intro n m hn hm
-      refine ⟨?_, ?_, ?_⟩
-      · rintro ⟨v, hh, _⟩; rw [steps_error] at hh; exact State.noConfusion hh
-      · rintro ⟨_, v, hh⟩; rw [steps_error] at hh; exact State.noConfusion hh
-      · intro w1 w2 hh1 _; rw [steps_error] at hh1; exact State.noConfusion hh1
+      -- Both states are .error. Trivially Reach .error on either side; neither halts.
+      refine ⟨?_, ?_, ?_, ?_⟩
+      · intro _ _ _; exact ⟨0, rfl⟩
+      · intro _ _ _; exact ⟨0, rfl⟩
+      · intro _ _ _ hh; rw [steps_error] at hh; exact State.noConfusion hh
+      · intro _ _ _ hh; rw [steps_error] at hh; exact State.noConfusion hh
     | halt hv =>
       rename_i v1 v2
-      -- hv : ValueEq (k+1) v1 v2. Both states are .halt v, so steps n (.halt v) = .halt v
-      -- and halt values match the constructor exactly.
-      intro n m hn hm
-      refine ⟨?_, ?_, ?_⟩
-      · rintro ⟨_, _, he⟩; rw [steps_halt] at he; exact State.noConfusion he
-      · rintro ⟨he, _, _⟩; rw [steps_halt] at he; exact State.noConfusion he
-      · intro w1 w2 hw1 hw2
-        rw [steps_halt] at hw1 hw2
-        injection hw1 with hw1_eq; subst hw1_eq
-        injection hw2 with hw2_eq; subst hw2_eq
-        exact valueEq_mono ((k + 1) - max n m) (k + 1) (by omega) _ _ hv
+      -- hv : ValueEq (k+1) v1 v2. Both halt trivially at step 0.
+      refine ⟨?_, ?_, ?_, ?_⟩
+      · intro _ _ he; rw [steps_halt] at he; exact State.noConfusion he
+      · intro _ _ he; rw [steps_halt] at he; exact State.noConfusion he
+      · -- Forward halt: side1 halts at n with w1, need ∃ m w2, side2 halts at m with w2 + decay.
+        intro n w1 hn hh
+        rw [steps_halt] at hh; injection hh with heq; subst heq
+        refine ⟨0, v2, by simp [steps], ?_⟩
+        -- Decay: (k+1) - max n 0 = (k+1) - n. Use mono on hv.
+        exact valueEq_mono ((k + 1) - max n 0) (k + 1) (by omega) _ _ hv
+      · -- Backward halt
+        intro m w2 hm hh
+        rw [steps_halt] at hh; injection hh with heq; subst heq
+        refine ⟨0, v1, by simp [steps], ?_⟩
+        exact valueEq_mono ((k + 1) - max 0 m) (k + 1) (by omega) _ _ hv
     | compute hstk henv =>
       rename_i env1 env2 t
       -- Step case on term t
@@ -1922,19 +1962,17 @@ mutual
     | _ + 1, .VCon _, .VCon _, .VCon _, h12, h23 => by
       simp only [ValueEq] at h12 h23 ⊢; exact h12.trans h23
     | k + 1, .VLam _ _, .VLam _ _, .VLam _ _, _, _ => by
-      -- Pointwise transitivity for VLam under the new cross-terminal +
-      -- mutual-halt clause is not directly provable: the middle closure
-      -- may be "stalled" (neither halting nor erroring at any bounded
-      -- step count within the observation budget), in which case the
-      -- clause's contents are vacuously satisfied for `h12` and `h23`
-      -- but a real cross-terminal mismatch between side1 and side3 still
-      -- goes unwitnessed. This is the divergent-inner-closure weakness
-      -- accepted by the new design. `behEq_trans` at the top level does
-      -- not depend on pointwise `valueEq_trans` for closure values
-      -- (BehEq ties termination at the root program).
+      -- Pointwise transitivity under the asymmetric forward/backward form:
+      -- chaining h12's forward halt (which produces an UNBOUNDED target
+      -- step count `m_a`) into h23's forward halt (which requires
+      -- `m_a ≤ j`) can fail when the middle closure's halt step exceeds
+      -- the current level. The asymmetric form accepts this limitation
+      -- in exchange for allowing step-count-different halting closures
+      -- (e.g. `Delay 10 ~ Delay (5+5)`) to be equivalent.
+      -- `behEq_trans` at the top level sidesteps this via `∀ k, ValueEq k`.
       sorry
     | k + 1, .VDelay _ _, .VDelay _ _, .VDelay _ _, _, _ => by
-      -- Same divergent-inner-closure weakness as VLam above.
+      -- Same limitation as VLam above.
       sorry
     | k + 1, .VConstr _ _, .VConstr _ _, .VConstr _ _, h12, h23 => by
       unfold ValueEq at h12 h23 ⊢

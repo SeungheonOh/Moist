@@ -148,38 +148,42 @@ mutual
     | _ + 1, .VCon _, .VCon _, h => by simp only [ValueEq] at h ⊢; exact h.symm
     | k + 1, .VLam _ _, .VLam _ _, h => by
       unfold ValueEq at h ⊢
-      intro j hj arg1 arg2 hargs stk1 stk2 hstk n m hn hm
+      intro j hj arg1 arg2 hargs stk1 stk2 hstk
       have hargs' := valueEq_symm j _ _ hargs
       have hstk' := stackEqR_symm (valueEq_symm j) stk1 stk2 hstk
-      -- Invoke the swapped clause at (m, n)
-      have hswap := h j hj arg2 arg1 hargs' stk2 stk1 hstk' m n hm hn
-      refine ⟨?_, ?_, ?_⟩
-      · -- ¬(halt side1 ∧ err side2)  ←  ¬(err side1' ∧ halt side2')
-        rintro ⟨v, hs1, hs2⟩
-        exact hswap.2.1 ⟨hs2, v, hs1⟩
-      · -- ¬(err side1 ∧ halt side2)  ←  ¬(halt side1' ∧ err side2')
-        rintro ⟨hs1, v, hs2⟩
-        exact hswap.1 ⟨v, hs2, hs1⟩
-      · intro v1 v2 hv1 hv2
-        have hr := hswap.2.2 v2 v1 hv2 hv1
-        have hmax : max m n = max n m := Nat.max_comm m n
-        rw [hmax] at hr
-        exact valueEq_symm (j - max n m) _ _ hr
+      have hswap := h j hj arg2 arg1 hargs' stk2 stk1 hstk'
+      -- Swapping sides: forward/backward error and halt swap.
+      refine ⟨hswap.2.1, hswap.1, ?_, ?_⟩
+      · -- Forward halt of goal: use hswap.2.2.2 (backward halt of h).
+        intro n v hn hh
+        obtain ⟨m, v', hm, hrel⟩ := hswap.2.2.2 n v hn hh
+        refine ⟨m, v', hm, ?_⟩
+        -- Per Lean: hrel : ValueEq (j - max m n) v v'. Goal: ValueEq (j - max n m) v' v.
+        rw [Nat.max_comm m n] at hrel
+        exact valueEq_symm _ _ _ hrel
+      · -- Backward halt of goal: use hswap.2.2.1 (forward halt of h).
+        intro m v hm hh
+        obtain ⟨n, v', hn, hrel⟩ := hswap.2.2.1 m v hm hh
+        refine ⟨n, v', hn, ?_⟩
+        -- Per Lean: hrel : ValueEq (j - max m n) v v'. Goal: ValueEq (j - max n m) v' v.
+        rw [Nat.max_comm m n] at hrel
+        exact valueEq_symm _ _ _ hrel
     | k + 1, .VDelay _ _, .VDelay _ _, h => by
       unfold ValueEq at h ⊢
-      intro j hj stk1 stk2 hstk n m hn hm
+      intro j hj stk1 stk2 hstk
       have hstk' := stackEqR_symm (valueEq_symm j) stk1 stk2 hstk
-      have hswap := h j hj stk2 stk1 hstk' m n hm hn
-      refine ⟨?_, ?_, ?_⟩
-      · rintro ⟨v, hs1, hs2⟩
-        exact hswap.2.1 ⟨hs2, v, hs1⟩
-      · rintro ⟨hs1, v, hs2⟩
-        exact hswap.1 ⟨v, hs2, hs1⟩
-      · intro v1 v2 hv1 hv2
-        have hr := hswap.2.2 v2 v1 hv2 hv1
-        have hmax : max m n = max n m := Nat.max_comm m n
-        rw [hmax] at hr
-        exact valueEq_symm (j - max n m) _ _ hr
+      have hswap := h j hj stk2 stk1 hstk'
+      refine ⟨hswap.2.1, hswap.1, ?_, ?_⟩
+      · intro n v hn hh
+        obtain ⟨m, v', hm, hrel⟩ := hswap.2.2.2 n v hn hh
+        refine ⟨m, v', hm, ?_⟩
+        rw [Nat.max_comm m n] at hrel
+        exact valueEq_symm _ _ _ hrel
+      · intro m v hm hh
+        obtain ⟨n, v', hn, hrel⟩ := hswap.2.2.1 m v hm hh
+        refine ⟨n, v', hn, ?_⟩
+        rw [Nat.max_comm m n] at hrel
+        exact valueEq_symm _ _ _ hrel
     | _ + 1, .VConstr _ _, .VConstr _ _, h => by
       unfold ValueEq at h ⊢; exact ⟨h.1.symm, listValueEq_symm _ _ _ h.2⟩
     | k + 1, .VBuiltin _ _ _, .VBuiltin _ _ _, h => by
