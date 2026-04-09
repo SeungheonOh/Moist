@@ -943,27 +943,12 @@ private theorem force_frame_error_transfer
     (herr : Reaches (.ret [.force] v1) .error) :
     Reaches (.ret [.force] v2) .error := by
   match v1, v2 with
-  | .VDelay b1 e1, .VDelay b2 e2 =>
-    -- Extract step count N from herr
-    obtain ⟨N, hN⟩ := herr
-    cases N with
-    | zero => simp [steps] at hN
-    | succ N =>
-      -- steps (N+1) (.ret [.force] (VDelay b1 e1)) = .error
-      -- After 1 step: steps N (.compute [] e1 b1) = .error
-      have hcomp : steps N (.compute [] e1 b1) = .error := by
-        simp only [steps, step] at hN; exact hN
-      -- Pick level N+1 from hve: ValueEq (N+1) (VDelay b1 e1) (VDelay b2 e2)
-      have hveN := hve (N + 1)
-      -- VDelay clause: ∀ j ≤ N, ∀ stk1 stk2, StackEqR (ValueEq j) stk1 stk2 →
-      --               ∀ n ≤ j, (error ↔) ∧ ...
-      unfold ValueEq at hveN
-      -- Use j = N, stk1 = stk2 = [] (StackEqR R [] [] = True), n = N
-      have hclause := hveN N (Nat.le_refl N) [] [] trivial
-      -- hclause.1 : (∃ n ≤ N, error s1) ↔ (∃ m ≤ N, error s2)
-      obtain ⟨m, _, herr2⟩ := hclause.1.mp ⟨N, Nat.le_refl N, hcomp⟩
-      -- Compose: steps (m+1) (.ret [.force] (VDelay b2 e2)) = steps m (.compute [] e2 b2)
-      exact ⟨m + 1, by simp only [steps, step]; exact herr2⟩
+  | .VDelay _ _, .VDelay _ _ =>
+    -- **Post-redesign hole:** the new VDelay clause asserts only
+    -- cross-terminal impossibility + mutual-halt value, not the
+    -- one-sided error transfer we need here. This is the
+    -- divergent-inner-closure weakness flagged in `Semantics.lean`.
+    sorry
   | .VCon _, .VCon _ => exact force_vcon_reaches_error _
   | .VLam _ _, .VLam _ _ => exact force_vlam_reaches_error _ _
   | .VConstr _ _, .VConstr _ _ => exact force_vconstr_reaches_error _ _
@@ -1030,23 +1015,10 @@ private theorem force_frame_halts_transfer
     (hh : Halts (.ret [.force] v1)) :
     Halts (.ret [.force] v2) := by
   match v1, v2 with
-  | .VDelay b1 e1, .VDelay b2 e2 =>
-    -- Extract step count and halted value
-    obtain ⟨w, N, hN⟩ := hh
-    cases N with
-    | zero => simp [steps] at hN
-    | succ N =>
-      -- After 1 step: steps N (.compute [] e1 b1) = .halt w
-      have hcomp : steps N (.compute [] e1 b1) = .halt w := by
-        simp only [steps, step] at hN; exact hN
-      -- Pick level N+1: ValueEq (N+1) gives VDelay clause with j ≤ N
-      have hveN := hve (N + 1)
-      unfold ValueEq at hveN
-      -- Use j = N, stk = [] (trivial), n = N
-      have hclause := hveN N (Nat.le_refl N) [] [] trivial
-      -- hclause.2.1 : (∃ n v, n ≤ N ∧ halt v on s1) ↔ (∃ m v, m ≤ N ∧ halt v on s2)
-      obtain ⟨m, w2, _, hw2⟩ := hclause.2.1.mp ⟨N, w, Nat.le_refl N, hcomp⟩
-      exact ⟨w2, m + 1, by simp only [steps, step]; exact hw2⟩
+  | .VDelay _ _, .VDelay _ _ =>
+    -- **Post-redesign hole:** parallel to `force_frame_error_transfer`.
+    -- The new VDelay clause cannot witness one-sided halt transfer.
+    sorry
   | .VCon _, .VCon _ => exact absurd hh (force_vcon_not_halts _)
   | .VLam _ _, .VLam _ _ => exact absurd hh (force_vlam_not_halts _ _)
   | .VConstr _ _, .VConstr _ _ => exact absurd hh (force_vconstr_not_halts _ _)
@@ -1256,10 +1228,13 @@ theorem refines_force_behEq (e e' : Expr) (h : e ⊑ e') :
                   Nat.le_trans (Nat.le_max_left N1 N2) (Nat.le_add_left _ k)
                 have hN2_le_j : N2 ≤ k + max N1 N2 :=
                   Nat.le_trans (Nat.le_max_right N1 N2) (Nat.le_add_left _ k)
-                have ⟨_, _, hveclause⟩ :=
-                  hveN (k + max N1 N2) (Nat.le_refl _) [] [] (by trivial : StackEqR _ [] [])
-                have hresult :=
-                  hveclause N1 N2 hN1_le_j hN2_le_j w1 w2 hcomp1 hcomp2
+                -- New VDelay clause: hveN j hj stk1 stk2 hstk n m hn hm
+                --   := ⟨cross1, cross2, mutual_halt⟩
+                have hclause :=
+                  hveN (k + max N1 N2) (Nat.le_refl _) [] []
+                    (by trivial : StackEqR _ [] [])
+                    N1 N2 hN1_le_j hN2_le_j
+                have hresult := hclause.2.2 w1 w2 hcomp1 hcomp2
                 -- hresult : ValueEq ((k + max N1 N2) - max N1 N2) w1 w2
                 have hlvl : k + max N1 N2 - max N1 N2 = k := by omega
                 rw [hlvl] at hresult
@@ -1376,51 +1351,33 @@ theorem refines_force_behEq (e e' : Expr) (h : e ⊑ e') :
 Decomposed into small independently-provable lemmas. -/
 
 /-- VLam application: if `∀ j, ValueEq j` for VLam closures and same arg,
-    the body computations agree on error. Extract step count N from Reaches,
-    pick level N+1, instantiate VLam CIU clause with arg=va, stk=[], n=N. -/
-private theorem app_step_vlam_error (b1 b2 : Term) (e1 e2 : CekEnv)
-    (va : CekValue) (hve : ∀ j, ValueEq j (.VLam b1 e1) (.VLam b2 e2)) :
-    Reaches (.compute [] (e1.extend va) b1) .error ↔
-    Reaches (.compute [] (e2.extend va) b2) .error := by
-  constructor
-  · intro ⟨N, hN⟩
-    have hveN := hve (N + 1)
-    unfold ValueEq at hveN
-    -- VLam clause: ∀ i ≤ N, ∀ arg1 arg2, ValueEq i arg1 arg2 → ∀ stk, ... →
-    --   (err iff) ∧ (halt iff) ∧ (value relate)
-    have hclause := hveN N (Nat.le_refl N) va va (valueEq_refl N va) [] [] trivial
-    obtain ⟨m, _, herr2⟩ := hclause.1.mp ⟨N, Nat.le_refl N, hN⟩
-    exact ⟨m, herr2⟩
-  · intro ⟨N, hN⟩
-    have hveN := hve (N + 1)
-    unfold ValueEq at hveN
-    have hclause := hveN N (Nat.le_refl N) va va (valueEq_refl N va) [] [] trivial
-    obtain ⟨m, _, herr1⟩ := hclause.1.mpr ⟨N, Nat.le_refl N, hN⟩
-    exact ⟨m, herr1⟩
+    the body computations agree on error.
 
-/-- VLam application: halts agreement. -/
-private theorem app_step_vlam_halts (b1 b2 : Term) (e1 e2 : CekEnv)
-    (va : CekValue) (hve : ∀ j, ValueEq j (.VLam b1 e1) (.VLam b2 e2)) :
-    Halts (.compute [] (e1.extend va) b1) ↔
-    Halts (.compute [] (e2.extend va) b2) := by
-  constructor
-  · intro ⟨w, N, hN⟩
-    have hveN := hve (N + 1)
-    unfold ValueEq at hveN
-    have hclause := hveN N (Nat.le_refl N) va va (valueEq_refl N va) [] [] trivial
-    obtain ⟨m, w2, _, hw2⟩ := hclause.2.1.mp ⟨N, w, Nat.le_refl N, hN⟩
-    exact ⟨w2, m, hw2⟩
-  · intro ⟨w, N, hN⟩
-    have hveN := hve (N + 1)
-    unfold ValueEq at hveN
-    have hclause := hveN N (Nat.le_refl N) va va (valueEq_refl N va) [] [] trivial
-    obtain ⟨m, w1, _, hw1⟩ := hclause.2.1.mpr ⟨N, w, Nat.le_refl N, hN⟩
-    exact ⟨w1, m, hw1⟩
+    **Note (post-redesign hole):** under the new VLam clause (cross-terminal
+    + mutual-halt) this is no longer derivable from `ValueEq` alone — the
+    new clause refuses to assert one-sided termination/error transfers, in
+    order to accommodate divergent-inner-closure cases. -/
+private theorem app_step_vlam_error (_b1 _b2 : Term) (_e1 _e2 : CekEnv)
+    (_va : CekValue) (_hve : ∀ j, ValueEq j (.VLam _b1 _e1) (.VLam _b2 _e2)) :
+    Reaches (.compute [] (_e1.extend _va) _b1) .error ↔
+    Reaches (.compute [] (_e2.extend _va) _b2) .error := by
+  sorry
+
+/-- VLam application: halts agreement.
+
+    **Note (post-redesign hole):** same divergence-related weakness as
+    `app_step_vlam_error` above — `ValueEq` no longer asserts one-sided
+    halt transfer in either direction. -/
+private theorem app_step_vlam_halts (_b1 _b2 : Term) (_e1 _e2 : CekEnv)
+    (_va : CekValue) (_hve : ∀ j, ValueEq j (.VLam _b1 _e1) (.VLam _b2 _e2)) :
+    Halts (.compute [] (_e1.extend _va) _b1) ↔
+    Halts (.compute [] (_e2.extend _va) _b2) := by
+  sorry
 
 /-- VLam application: value agreement. Extract N1, N2 from the halt witnesses,
     use `hve` at level `k + max N1 N2 + 1` so the VLam clause unfolds at
-    level `j = k + max N1 N2`. The value clause at step counts (N1, N2) then
-    yields `ValueEq (j - max N1 N2) v1 v2 = ValueEq k v1 v2`. -/
+    level `j = k + max N1 N2`. The mutual-halt clause at step counts (N1, N2)
+    then yields `ValueEq (j - max N1 N2) v1 v2 = ValueEq k v1 v2`. -/
 private theorem app_step_vlam_value (k : Nat) (b1 b2 : Term) (e1 e2 : CekEnv)
     (va : CekValue) (hve : ∀ j, ValueEq j (.VLam b1 e1) (.VLam b2 e2))
     (v1 v2 : CekValue)
@@ -1435,10 +1392,12 @@ private theorem app_step_vlam_value (k : Nat) (b1 b2 : Term) (e1 e2 : CekEnv)
     Nat.le_trans (Nat.le_max_left N1 N2) (Nat.le_add_left _ k)
   have hN2_le : N2 ≤ k + max N1 N2 :=
     Nat.le_trans (Nat.le_max_right N1 N2) (Nat.le_add_left _ k)
-  have ⟨_, _, hval⟩ :=
+  -- New clause: hveN j hj args... stk... n m hn hm := ⟨cross1, cross2, mutual_halt⟩
+  have hclause :=
     hveN (k + max N1 N2) (Nat.le_refl _) va va
       (valueEq_refl (k + max N1 N2) va) [] [] (by trivial : StackEqR _ [] [])
-  have hresult := hval N1 N2 hN1_le hN2_le v1 v2 hN1 hN2
+      N1 N2 hN1_le hN2_le
+  have hresult := hclause.2.2 v1 v2 hN1 hN2
   have hlvl : k + max N1 N2 - max N1 N2 = k := by omega
   rw [hlvl] at hresult
   exact hresult

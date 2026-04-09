@@ -512,7 +512,7 @@ partial def Expr.isANF : Expr → Bool
 abbrev ANFExpr := { e : Expr // e.isANF = true }
 
 instance : Inhabited ANFExpr where
-  default := ⟨.Error, sorry⟩
+  default := ⟨.Error, by native_decide⟩
 
 def Expr.toANF? (e : Expr) : Option ANFExpr :=
   if h : e.isANF then some ⟨e, h⟩ else none

@@ -45,28 +45,17 @@ private theorem vlam_diff_arg_via_bisim (k : Nat) (body : Term) (cenv : CekEnv)
       Reaches (.compute [] (cenv.extend va') body) (.halt v2) →
       ValueEq k v1 v2 := by
   refine ⟨?_, ?_, ?_⟩
-  · -- Error iff via `StateRelated N` at the Reaches witness level.
-    constructor
-    · intro ⟨N, hN⟩
-      have hsr := fundamental_lemma_proved' N body cenv va va' (hva N)
-      obtain ⟨m, _, hm_err⟩ := hsr.1.mp ⟨N, Nat.le_refl N, hN⟩
-      exact ⟨m, hm_err⟩
-    · intro ⟨N, hN⟩
-      have hsr := fundamental_lemma_proved' N body cenv va va' (hva N)
-      obtain ⟨m, _, hm_err⟩ := hsr.1.mpr ⟨N, Nat.le_refl N, hN⟩
-      exact ⟨m, hm_err⟩
-  · -- Halt iff via `StateRelated N` at the Reaches witness level.
-    constructor
-    · intro ⟨w, N, hN⟩
-      have hsr := fundamental_lemma_proved' N body cenv va va' (hva N)
-      obtain ⟨m, w', _, hm_halt⟩ := hsr.2.1.mp ⟨N, w, Nat.le_refl N, hN⟩
-      exact ⟨w', m, hm_halt⟩
-    · intro ⟨w, N, hN⟩
-      have hsr := fundamental_lemma_proved' N body cenv va va' (hva N)
-      obtain ⟨m, w', _, hm_halt⟩ := hsr.2.1.mpr ⟨N, w, Nat.le_refl N, hN⟩
-      exact ⟨w', m, hm_halt⟩
+  · -- **Post-redesign hole:** the new `StateRelated` clause no longer
+    -- exposes one-sided error transfer. Same divergent-inner-closure
+    -- weakness flagged in `Semantics.lean`. (For SAME body, this *is*
+    -- in principle provable via the structural bisimulation in
+    -- `Bisim.lean`, but the bridge `∀ j, ValueEq j → StateRel ...`
+    -- requires extra machinery that is out of scope for this redesign.)
+    sorry
+  · -- Same hole as above for halt transfer.
+    sorry
   · -- Value agreement at arbitrary level `k`, via bisim at level
-    -- `k + max N1 N2`.
+    -- `k + max N1 N2`. The new mutual-halt clause survives unchanged.
     intro v1 v2 h1 h2
     obtain ⟨N1, hN1⟩ := h1
     obtain ⟨N2, hN2⟩ := h2
@@ -75,7 +64,7 @@ private theorem vlam_diff_arg_via_bisim (k : Nat) (body : Term) (cenv : CekEnv)
       Nat.le_trans (Nat.le_max_left N1 N2) (Nat.le_add_left _ k)
     have hN2_le : N2 ≤ k + max N1 N2 :=
       Nat.le_trans (Nat.le_max_right N1 N2) (Nat.le_add_left _ k)
-    have hresult := hsr.2.2 N1 N2 hN1_le hN2_le v1 v2 hN1 hN2
+    have hresult := (hsr N1 N2 hN1_le hN2_le).2.2 v1 v2 hN1 hN2
     have hlvl : k + max N1 N2 - max N1 N2 = k := by omega
     rw [hlvl] at hresult
     exact hresult
