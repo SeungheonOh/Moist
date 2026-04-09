@@ -950,8 +950,8 @@ private theorem force_frame_error_transfer
       unfold ValueEq at hveN
       -- Use j = N, stk1 = stk2 = [] (StackEqR R [] [] = True), n = N
       have hclause := hveN N (Nat.le_refl N) [] [] trivial
-      -- hclause.1 : ∀ n, n ≤ N → error → ∃ m, m ≤ N ∧ error
-      obtain ⟨m, _, herr2⟩ := hclause.1 N (Nat.le_refl N) hcomp
+      -- hclause.1 : (∃ n ≤ N, error s1) ↔ (∃ m ≤ N, error s2)
+      obtain ⟨m, _, herr2⟩ := hclause.1.mp ⟨N, Nat.le_refl N, hcomp⟩
       -- Compose: steps (m+1) (.ret [.force] (VDelay b2 e2)) = steps m (.compute [] e2 b2)
       exact ⟨m + 1, by simp only [steps, step]; exact herr2⟩
   | .VCon _, .VCon _ => exact force_vcon_reaches_error _
@@ -1032,8 +1032,8 @@ private theorem force_frame_halts_transfer
       unfold ValueEq at hveN
       -- Use j = N, stk = [] (trivial), n = N
       have hclause := hveN N (Nat.le_refl N) [] [] trivial
-      -- hclause.2.1 : ∀ v1 n, n ≤ N → halt v1 → ∃ v2 m, m ≤ N ∧ halt v2 ∧ ValueEq ...
-      obtain ⟨w2, m, _, hw2, _⟩ := hclause.2.1 w N (Nat.le_refl N) hcomp
+      -- hclause.2.1 : (∃ n v, n ≤ N ∧ halt v on s1) ↔ (∃ m v, m ≤ N ∧ halt v on s2)
+      obtain ⟨m, w2, _, hw2⟩ := hclause.2.1.mp ⟨N, w, Nat.le_refl N, hcomp⟩
       exact ⟨w2, m + 1, by simp only [steps, step]; exact hw2⟩
   | .VCon _, .VCon _ => exact absurd hh (force_vcon_not_halts _)
   | .VLam _ _, .VLam _ _ => exact absurd hh (force_vlam_not_halts _ _)
@@ -1233,24 +1233,23 @@ theorem refines_force_behEq (e e' : Expr) (h : e ⊑ e') :
               | succ N2 =>
                 have hcomp2 : steps N2 (.compute [] e2 b2) = .halt w2 := by
                   simp only [steps, step] at hN2; exact hN2
-                -- Pick level N1 + k + 1 from hval_sub
-                have hveN := hval_sub (N1 + k + 1) _ _ hte_halt hte'_halt
+                -- Use hval_sub at level `k + max N1 N2 + 1` so the VDelay clause
+                -- unfolds at `j = k + max N1 N2 ≥ max N1 N2` and the value clause
+                -- at (N1, N2) yields `ValueEq (j - max N1 N2) w1 w2 = ValueEq k w1 w2`.
+                have hveN := hval_sub (k + max N1 N2 + 1) _ _ hte_halt hte'_halt
                 unfold ValueEq at hveN
-                -- VDelay clause: ∀ j ≤ N1+k, stk, n ≤ j, ...
-                -- Use j = N1 + k, stk = [], n = N1
-                have hj_le : N1 + k ≤ N1 + k := Nat.le_refl _
-                have hn_le : N1 ≤ N1 + k := Nat.le_add_right N1 k
-                have hclause := hveN (N1 + k) hj_le [] [] trivial
-                -- hclause.2.1 : ∀ v1' n, n ≤ N1+k → steps n (.compute [] e1 b1) = .halt v1' →
-                --   ∃ v2' m, m ≤ N1+k ∧ steps m (.compute [] e2 b2) = .halt v2' ∧ ValueEq ((N1+k)-n) v1' v2'
-                obtain ⟨w2', m', _, hw2'_halt, hw2'_veq⟩ := hclause.2.1 w1 N1 hn_le hcomp1
-                -- (N1+k) - N1 = k
-                have hk_eq : N1 + k - N1 = k := by omega
-                rw [hk_eq] at hw2'_veq
-                -- w2' = w2 by reaches_unique
-                have : w2' = w2 := reaches_unique ⟨m', hw2'_halt⟩ ⟨N2, hcomp2⟩
-                subst this
-                exact hw2'_veq
+                have hN1_le_j : N1 ≤ k + max N1 N2 :=
+                  Nat.le_trans (Nat.le_max_left N1 N2) (Nat.le_add_left _ k)
+                have hN2_le_j : N2 ≤ k + max N1 N2 :=
+                  Nat.le_trans (Nat.le_max_right N1 N2) (Nat.le_add_left _ k)
+                have ⟨_, _, hveclause⟩ :=
+                  hveN (k + max N1 N2) (Nat.le_refl _) [] [] (by trivial : StackEqR _ [] [])
+                have hresult :=
+                  hveclause N1 N2 hN1_le_j hN2_le_j w1 w2 hcomp1 hcomp2
+                -- hresult : ValueEq ((k + max N1 N2) - max N1 N2) w1 w2
+                have hlvl : k + max N1 N2 - max N1 N2 = k := by omega
+                rw [hlvl] at hresult
+                exact hresult
           | .VCon _, .VCon _ => exact absurd ⟨w1, hforce_v1_halt⟩ (force_vcon_not_halts _)
           | .VLam _ _, .VLam _ _ => exact absurd ⟨w1, hforce_v1_halt⟩ (force_vlam_not_halts _ _)
           | .VConstr _ _, .VConstr _ _ => exact absurd ⟨w1, hforce_v1_halt⟩ (force_vconstr_not_halts _ _)
@@ -1371,16 +1370,16 @@ private theorem app_step_vlam_error (b1 b2 : Term) (e1 e2 : CekEnv)
   · intro ⟨N, hN⟩
     have hveN := hve (N + 1)
     unfold ValueEq at hveN
-    -- VLam clause: ∀ i ≤ N, ∀ arg1 arg2, ValueEq i arg1 arg2 → ∀ stk, ... → ∀ n ≤ i, ...
-    -- Use i = N, arg1 = arg2 = va, stk = [], n = N
+    -- VLam clause: ∀ i ≤ N, ∀ arg1 arg2, ValueEq i arg1 arg2 → ∀ stk, ... →
+    --   (err iff) ∧ (halt iff) ∧ (value relate)
     have hclause := hveN N (Nat.le_refl N) va va (valueEq_refl N va) [] [] trivial
-    obtain ⟨m, _, herr2⟩ := hclause.1 N (Nat.le_refl N) hN
+    obtain ⟨m, _, herr2⟩ := hclause.1.mp ⟨N, Nat.le_refl N, hN⟩
     exact ⟨m, herr2⟩
   · intro ⟨N, hN⟩
     have hveN := hve (N + 1)
     unfold ValueEq at hveN
     have hclause := hveN N (Nat.le_refl N) va va (valueEq_refl N va) [] [] trivial
-    obtain ⟨m, _, herr1⟩ := hclause.2.2.1 N (Nat.le_refl N) hN
+    obtain ⟨m, _, herr1⟩ := hclause.1.mpr ⟨N, Nat.le_refl N, hN⟩
     exact ⟨m, herr1⟩
 
 /-- VLam application: halts agreement. -/
@@ -1393,18 +1392,19 @@ private theorem app_step_vlam_halts (b1 b2 : Term) (e1 e2 : CekEnv)
     have hveN := hve (N + 1)
     unfold ValueEq at hveN
     have hclause := hveN N (Nat.le_refl N) va va (valueEq_refl N va) [] [] trivial
-    obtain ⟨w2, m, _, hw2, _⟩ := hclause.2.1 w N (Nat.le_refl N) hN
+    obtain ⟨m, w2, _, hw2⟩ := hclause.2.1.mp ⟨N, w, Nat.le_refl N, hN⟩
     exact ⟨w2, m, hw2⟩
   · intro ⟨w, N, hN⟩
     have hveN := hve (N + 1)
     unfold ValueEq at hveN
     have hclause := hveN N (Nat.le_refl N) va va (valueEq_refl N va) [] [] trivial
-    obtain ⟨w1, m, _, hw1, _⟩ := hclause.2.2.2 w N (Nat.le_refl N) hN
+    obtain ⟨m, w1, _, hw1⟩ := hclause.2.1.mpr ⟨N, w, Nat.le_refl N, hN⟩
     exact ⟨w1, m, hw1⟩
 
-/-- VLam application: value agreement. Extract N1 from h1, pick level N1+k+1,
-    use VLam clause at n=N1 to get ValueEq(N1+k-N1)=ValueEq k for w1 and
-    an intermediate w2'. Then w2'=w2 by reaches_unique. -/
+/-- VLam application: value agreement. Extract N1, N2 from the halt witnesses,
+    use `hve` at level `k + max N1 N2 + 1` so the VLam clause unfolds at
+    level `j = k + max N1 N2`. The value clause at step counts (N1, N2) then
+    yields `ValueEq (j - max N1 N2) v1 v2 = ValueEq k v1 v2`. -/
 private theorem app_step_vlam_value (k : Nat) (b1 b2 : Term) (e1 e2 : CekEnv)
     (va : CekValue) (hve : ∀ j, ValueEq j (.VLam b1 e1) (.VLam b2 e2))
     (v1 v2 : CekValue)
@@ -1413,21 +1413,19 @@ private theorem app_step_vlam_value (k : Nat) (b1 b2 : Term) (e1 e2 : CekEnv)
     ValueEq k v1 v2 := by
   obtain ⟨N1, hN1⟩ := h1
   obtain ⟨N2, hN2⟩ := h2
-  -- Pick level N1 + k + 1
-  have hveN := hve (N1 + k + 1)
+  have hveN := hve (k + max N1 N2 + 1)
   unfold ValueEq at hveN
-  -- Use i = N1 + k, arg = va, stk = [], n = N1
-  have hi_le : N1 + k ≤ N1 + k := Nat.le_refl _
-  have hn_le : N1 ≤ N1 + k := Nat.le_add_right N1 k
-  have hclause := hveN (N1 + k) hi_le va va (valueEq_refl (N1 + k) va) [] [] trivial
-  obtain ⟨w2', m', _, hw2', hveq_w⟩ := hclause.2.1 v1 N1 hn_le hN1
-  -- (N1 + k) - N1 = k
-  have hk_eq : N1 + k - N1 = k := by omega
-  rw [hk_eq] at hveq_w
-  -- w2' = v2 by reaches_unique
-  have : w2' = v2 := reaches_unique ⟨m', hw2'⟩ ⟨N2, hN2⟩
-  subst this
-  exact hveq_w
+  have hN1_le : N1 ≤ k + max N1 N2 :=
+    Nat.le_trans (Nat.le_max_left N1 N2) (Nat.le_add_left _ k)
+  have hN2_le : N2 ≤ k + max N1 N2 :=
+    Nat.le_trans (Nat.le_max_right N1 N2) (Nat.le_add_left _ k)
+  have ⟨_, _, hval⟩ :=
+    hveN (k + max N1 N2) (Nat.le_refl _) va va
+      (valueEq_refl (k + max N1 N2) va) [] [] (by trivial : StackEqR _ [] [])
+  have hresult := hval N1 N2 hN1_le hN2_le v1 v2 hN1 hN2
+  have hlvl : k + max N1 N2 - max N1 N2 = k := by omega
+  rw [hlvl] at hresult
+  exact hresult
 
 /-- Non-function values: application always errors. -/
 private theorem app_step_nonfunction_errors (va : CekValue) (c : Const) :
@@ -1618,7 +1616,7 @@ where
       rcases as1 with _ | ⟨x1, _ | ⟨y1, _ | ⟨_, _⟩⟩⟩ <;>
       rcases as2 with _ | ⟨x2, _ | ⟨y2, _ | ⟨_, _⟩⟩⟩ <;>
       (try (simp only [List.length_cons, List.length_nil] at hlen; omega)) <;>
-      try simp [Moist.CEK.evalBuiltinPassThrough]
+      try simp
       -- Only remaining: as1 = [x1, y1], as2 = [x2, y2]
       simp only [ListValueEq] at hargs
       cases y1 with
@@ -1626,19 +1624,19 @@ where
         cases y2 with
         | VCon c2 =>
           have hc : c1 = c2 := by have := hargs.2.1; simp only [ValueEq] at this; exact this
-          subst hc; cases c1 <;> simp [Moist.CEK.evalBuiltinPassThrough]
+          subst hc; cases c1 <;> simp
         | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
           simp only [ValueEq] at hargs; exact hargs.2.1.elim
       | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
         cases y2 with
         | VCon _ => simp only [ValueEq] at hargs; exact hargs.2.1.elim
-        | _ => simp [Moist.CEK.evalBuiltinPassThrough]
+        | _ => simp
     -- ChooseUnit: exact match on [result, VCon Unit] (as1 = [VCon Unit])
     · have hlen := listValueEq_same_length (k + 1) as1 as2 hargs
       rcases as1 with _ | ⟨x1, _ | ⟨_, _⟩⟩ <;>
       rcases as2 with _ | ⟨x2, _ | ⟨_, _⟩⟩ <;>
       (try (simp only [List.length_cons, List.length_nil] at hlen; omega)) <;>
-      try simp [Moist.CEK.evalBuiltinPassThrough]
+      try simp
       -- Only remaining: as1 = [x1], as2 = [x2]
       simp only [ListValueEq] at hargs
       cases x1 with
@@ -1646,19 +1644,19 @@ where
         cases x2 with
         | VCon c2 =>
           have hc : c1 = c2 := by simp only [ValueEq] at hargs; exact hargs.1
-          subst hc; cases c1 <;> simp [Moist.CEK.evalBuiltinPassThrough]
+          subst hc; cases c1 <;> simp
         | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
           simp only [ValueEq] at hargs; exact hargs.1.elim
       | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
         cases x2 with
         | VCon _ => simp only [ValueEq] at hargs; exact hargs.1.elim
-        | _ => simp [Moist.CEK.evalBuiltinPassThrough]
+        | _ => simp
     -- Trace: exact match on [result, VCon (String _)] (as1 = [VCon (String _)])
     · have hlen := listValueEq_same_length (k + 1) as1 as2 hargs
       rcases as1 with _ | ⟨x1, _ | ⟨_, _⟩⟩ <;>
       rcases as2 with _ | ⟨x2, _ | ⟨_, _⟩⟩ <;>
       (try (simp only [List.length_cons, List.length_nil] at hlen; omega)) <;>
-      try simp [Moist.CEK.evalBuiltinPassThrough]
+      try simp
       -- Only remaining: as1 = [x1], as2 = [x2]
       simp only [ListValueEq] at hargs
       cases x1 with
@@ -1666,20 +1664,20 @@ where
         cases x2 with
         | VCon c2 =>
           have hc : c1 = c2 := by simp only [ValueEq] at hargs; exact hargs.1
-          subst hc; cases c1 <;> simp [Moist.CEK.evalBuiltinPassThrough]
+          subst hc; cases c1 <;> simp
         | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
           simp only [ValueEq] at hargs; exact hargs.1.elim
       | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
         cases x2 with
         | VCon _ => simp only [ValueEq] at hargs; exact hargs.1.elim
-        | _ => simp [Moist.CEK.evalBuiltinPassThrough]
+        | _ => simp
     -- ChooseList: exact match on [consCase, nilCase, VCon (ConstDataList/ConstList l)]
     -- as1 must have 2 elements; deciding element is as1[1]
     · have hlen := listValueEq_same_length (k + 1) as1 as2 hargs
       rcases as1 with _ | ⟨x1, _ | ⟨y1, _ | ⟨_, _⟩⟩⟩ <;>
       rcases as2 with _ | ⟨x2, _ | ⟨y2, _ | ⟨_, _⟩⟩⟩ <;>
       (try (simp only [List.length_cons, List.length_nil] at hlen; omega)) <;>
-      try simp [Moist.CEK.evalBuiltinPassThrough]
+      try simp
       -- Only remaining: as1 = [x1, y1], as2 = [x2, y2]
       simp only [ListValueEq] at hargs
       cases y1 with
@@ -1687,13 +1685,13 @@ where
         cases y2 with
         | VCon c2 =>
           have hc : c1 = c2 := by have := hargs.2.1; simp only [ValueEq] at this; exact this
-          subst hc; cases c1 <;> simp [Moist.CEK.evalBuiltinPassThrough]
+          subst hc; cases c1 <;> simp
         | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
           simp only [ValueEq] at hargs; exact hargs.2.1.elim
       | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
         cases y2 with
         | VCon _ => simp only [ValueEq] at hargs; exact hargs.2.1.elim
-        | _ => simp [Moist.CEK.evalBuiltinPassThrough]
+        | _ => simp
     -- MkCons: match on [VCon (ConstList tail), elem] — va itself decides
     · cases va with
       | VCon c =>
@@ -1703,7 +1701,7 @@ where
           rcases as1 with _ | ⟨x1, _ | ⟨_, _⟩⟩ <;>
           rcases as2 with _ | ⟨x2, _ | ⟨_, _⟩⟩ <;>
           (try (simp only [List.length_cons, List.length_nil] at hlen; omega)) <;>
-          try simp [Moist.CEK.evalBuiltinPassThrough]
+          try simp
           -- Only remaining: as1 = [x1], as2 = [x2]
           simp only [ListValueEq] at hargs
           cases x1 with
@@ -1711,22 +1709,22 @@ where
             cases x2 with
             | VCon c2 =>
               have hc : c1 = c2 := by simp only [ValueEq] at hargs; exact hargs.1
-              subst hc; simp [Moist.CEK.evalBuiltinPassThrough]
+              subst hc; simp
             | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
               simp only [ValueEq] at hargs; exact hargs.1.elim
           | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
             cases x2 with
             | VCon _ => simp only [ValueEq] at hargs; exact hargs.1.elim
-            | _ => simp [Moist.CEK.evalBuiltinPassThrough]
-        | _ => simp [Moist.CEK.evalBuiltinPassThrough]
-      | _ => simp [Moist.CEK.evalBuiltinPassThrough]
+            | _ => simp
+        | _ => simp
+      | _ => simp
     -- ChooseData: exact match on [bCase,iCase,listCase,mapCase,constrCase,VCon(Data d)]
     -- as1 must have 5 elements; deciding element is as1[4]
     · have hlen := listValueEq_same_length (k + 1) as1 as2 hargs
       rcases as1 with _ | ⟨a0, _ | ⟨a1, _ | ⟨a2, _ | ⟨a3, _ | ⟨x1, _ | ⟨_, _⟩⟩⟩⟩⟩⟩ <;>
       rcases as2 with _ | ⟨b0, _ | ⟨b1, _ | ⟨b2, _ | ⟨b3, _ | ⟨x2, _ | ⟨_, _⟩⟩⟩⟩⟩⟩ <;>
       (try (simp only [List.length_cons, List.length_nil] at hlen; omega)) <;>
-      try simp [Moist.CEK.evalBuiltinPassThrough]
+      try simp
       -- Only remaining: as1 = [a0,a1,a2,a3,x1], as2 = [b0,b1,b2,b3,x2]
       simp only [ListValueEq] at hargs
       cases x1 with
@@ -1735,14 +1733,14 @@ where
         | VCon c2 =>
           have hc : c1 = c2 := by have := hargs.2.2.2.2.1; simp only [ValueEq] at this; exact this
           subst hc; cases c1 with
-          | Data d => cases d <;> simp [Moist.CEK.evalBuiltinPassThrough]
-          | _ => simp [Moist.CEK.evalBuiltinPassThrough]
+          | Data d => cases d <;> simp
+          | _ => simp
         | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
           simp only [ValueEq] at hargs; exact hargs.2.2.2.2.1.elim
       | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
         cases x2 with
         | VCon _ => simp only [ValueEq] at hargs; exact hargs.2.2.2.2.1.elim
-        | _ => simp [Moist.CEK.evalBuiltinPassThrough]
+        | _ => simp
   evalBuiltinPassThrough_valueEq (k : Nat) (b : BuiltinFun) (va : CekValue)
       (as1 as2 : List CekValue)
       (hargs : ListValueEq (k + 1) as1 as2)
@@ -1773,15 +1771,15 @@ where
           subst ha2_1
           cases cond with
           | true =>
-            simp [Moist.CEK.evalBuiltinPassThrough] at hp1 hp2
+            simp at hp1 hp2
             subst hp1; subst hp2
             exact valueEq_mono k (k + 1) (Nat.le_succ k) a1_0 a2_0 hargs.1
           | false =>
-            simp [Moist.CEK.evalBuiltinPassThrough] at hp1 hp2
+            simp at hp1 hp2
             subst hp1; subst hp2
             exact valueEq_refl k va
-        | _ => simp [Moist.CEK.evalBuiltinPassThrough] at hp1
-      | _ => simp [Moist.CEK.evalBuiltinPassThrough] at hp1
+        | _ => simp at hp1
+      | _ => simp at hp1
     -- ChooseUnit: [result=va, VCon Unit=as1[0]] → r1 = va = r2
     · have hlen := listValueEq_same_length (k + 1) as1 as2 hargs
       rcases as1 with _ | ⟨a1_0, _ | ⟨_, _⟩⟩ <;>
@@ -1796,11 +1794,11 @@ where
         | Unit =>
           have ha2_0 := vcon_eq_of_valueEq_succ hargs.1
           subst ha2_0
-          simp [Moist.CEK.evalBuiltinPassThrough] at hp1 hp2
+          simp at hp1 hp2
           subst hp1; subst hp2
           exact valueEq_refl k va
-        | _ => simp [Moist.CEK.evalBuiltinPassThrough] at hp1
-      | _ => simp [Moist.CEK.evalBuiltinPassThrough] at hp1
+        | _ => simp at hp1
+      | _ => simp at hp1
     -- Trace: [result=va, VCon(String s)=as1[0]] → r1 = va = r2
     · have hlen := listValueEq_same_length (k + 1) as1 as2 hargs
       rcases as1 with _ | ⟨a1_0, _ | ⟨_, _⟩⟩ <;>
@@ -1815,11 +1813,11 @@ where
         | String _ =>
           have ha2_0 := vcon_eq_of_valueEq_succ hargs.1
           subst ha2_0
-          simp [Moist.CEK.evalBuiltinPassThrough] at hp1 hp2
+          simp at hp1 hp2
           subst hp1; subst hp2
           exact valueEq_refl k va
-        | _ => simp [Moist.CEK.evalBuiltinPassThrough] at hp1
-      | _ => simp [Moist.CEK.evalBuiltinPassThrough] at hp1
+        | _ => simp at hp1
+      | _ => simp at hp1
     -- ChooseList: [consCase=va, nilCase=as1[0], VCon(ConstDataList/ConstList l)=as1[1]]
     · have hlen := listValueEq_same_length (k + 1) as1 as2 hargs
       rcases as1 with _ | ⟨a1_0, _ | ⟨a1_1, _ | ⟨_, _⟩⟩⟩ <;>
@@ -1834,29 +1832,29 @@ where
         subst ha2_1
         cases c1 with
         | ConstDataList l =>
-          simp [Moist.CEK.evalBuiltinPassThrough] at hp1 hp2
+          simp at hp1 hp2
           cases h : l.isEmpty with
           | true =>
             simp only [h, ite_true] at hp1 hp2
             subst hp1; subst hp2
             exact valueEq_mono k (k + 1) (Nat.le_succ k) _ _ hargs.1
           | false =>
-            simp only [h, ite_false] at hp1 hp2
+            simp only [h] at hp1 hp2
             subst hp1; subst hp2
             exact valueEq_refl k va
         | ConstList l =>
-          simp [Moist.CEK.evalBuiltinPassThrough] at hp1 hp2
+          simp at hp1 hp2
           cases h : l.isEmpty with
           | true =>
             simp only [h, ite_true] at hp1 hp2
             subst hp1; subst hp2
             exact valueEq_mono k (k + 1) (Nat.le_succ k) _ _ hargs.1
           | false =>
-            simp only [h, ite_false] at hp1 hp2
+            simp only [h] at hp1 hp2
             subst hp1; subst hp2
             exact valueEq_refl k va
-        | _ => simp [Moist.CEK.evalBuiltinPassThrough] at hp1
-      | _ => simp [Moist.CEK.evalBuiltinPassThrough] at hp1
+        | _ => simp at hp1
+      | _ => simp at hp1
     -- MkCons: va = VCon (ConstList tail), elem = as1[0] = VCon c1 → r = VCon (ConstList (c1::tail))
     · cases va with
       | VCon c =>
@@ -1873,12 +1871,12 @@ where
           | VCon c1 =>
             have ha2_0 := vcon_eq_of_valueEq_succ hargs.1
             subst ha2_0
-            simp [Moist.CEK.evalBuiltinPassThrough] at hp1 hp2
+            simp at hp1 hp2
             subst hp1; subst hp2
             exact valueEq_refl k (.VCon (.ConstList (c1 :: tail)))
-          | _ => simp [Moist.CEK.evalBuiltinPassThrough] at hp1
-        | _ => simp [Moist.CEK.evalBuiltinPassThrough] at hp1
-      | _ => simp [Moist.CEK.evalBuiltinPassThrough] at hp1
+          | _ => simp at hp1
+        | _ => simp at hp1
+      | _ => simp at hp1
     -- ChooseData: [bCase=va, iCase=as1[0], ..., constrCase=as1[3], VCon(Data d)=as1[4]]
     · have hlen := listValueEq_same_length (k + 1) as1 as2 hargs
       rcases as1 with _ | ⟨a1_0, _ | ⟨a1_1, _ | ⟨a1_2, _ | ⟨a1_3, _ | ⟨a1_4, _ | ⟨_, _⟩⟩⟩⟩⟩⟩ <;>
@@ -1893,7 +1891,7 @@ where
         | Data d =>
           have ha2_4 := vcon_eq_of_valueEq_succ hargs.2.2.2.2.1
           subst ha2_4
-          simp [Moist.CEK.evalBuiltinPassThrough] at hp1 hp2
+          simp at hp1 hp2
           obtain ⟨hv0, hv1, hv2, hv3, _, _⟩ := hargs
           cases d with
           | Constr _ _ =>
@@ -1911,8 +1909,8 @@ where
           | B _ =>
             simp at hp1 hp2; subst hp1; subst hp2
             exact valueEq_refl k va
-        | _ => simp [Moist.CEK.evalBuiltinPassThrough] at hp1
-      | _ => simp [Moist.CEK.evalBuiltinPassThrough] at hp1
+        | _ => simp at hp1
+      | _ => simp at hp1
 
 /-! ## App congruence: same argument, function changes -/
 
@@ -2131,7 +2129,7 @@ private theorem app_step_halts_transfer (vf vf' va v : CekValue)
           simp only [hev1] at hh
           cases hev2 : Moist.CEK.evalBuiltin b1 (va :: args2) with
           | none => exact absurd (hcong.mpr hev2) (by simp [hev1])
-          | some r2 => simp only [hev2]; exact ⟨r2, ret_nil_halts r2⟩
+          | some r2 => simp only; exact ⟨r2, ret_nil_halts r2⟩
   | .VLam _ _, .VCon _ | .VLam _ _, .VDelay _ _ | .VLam _ _, .VConstr _ _
   | .VLam _ _, .VBuiltin _ _ _ | .VCon _, .VLam _ _ | .VCon _, .VDelay _ _
   | .VCon _, .VConstr _ _ | .VCon _, .VBuiltin _ _ _ | .VDelay _ _, .VCon _
@@ -2239,7 +2237,7 @@ theorem refines_app_fn_behEq (f f' a : Expr) (hf : f ⊑ f') :
     | none => simp [Option.bind_none]
     | some tf =>
       cases hea : lowerTotalExpr env a with
-      | none => simp [Option.bind_some, Option.bind_none]
+      | none => simp [Option.bind_none]
       | some ta =>
         cases hef' : lowerTotalExpr env f' with
         | none => simp [Option.bind_some, Option.bind_none]
@@ -2379,36 +2377,36 @@ where
     cases b <;> try simp [Moist.CEK.evalBuiltinPassThrough]
     -- IfThenElse: args decides (args[1] = VCon (Bool cond)); va=elseV is not inspected for isNone
     · rcases args with _ | ⟨x, _ | ⟨y, _ | ⟨_, _⟩⟩⟩ <;>
-      try simp [Moist.CEK.evalBuiltinPassThrough]
+      try simp
       -- remaining: args = [x, y]
       cases y with
-      | VCon c => cases c <;> simp [Moist.CEK.evalBuiltinPassThrough]
+      | VCon c => cases c <;> simp
       | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
-        simp [Moist.CEK.evalBuiltinPassThrough]
+        simp
     -- ChooseUnit: args decides (args[0] = VCon Unit); va=result is not inspected for isNone
     · rcases args with _ | ⟨x, _ | ⟨_, _⟩⟩ <;>
-      try simp [Moist.CEK.evalBuiltinPassThrough]
+      try simp
       -- remaining: args = [x]
       cases x with
-      | VCon c => cases c <;> simp [Moist.CEK.evalBuiltinPassThrough]
+      | VCon c => cases c <;> simp
       | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
-        simp [Moist.CEK.evalBuiltinPassThrough]
+        simp
     -- Trace: args decides (args[0] = VCon (String _)); va=result is not inspected for isNone
     · rcases args with _ | ⟨x, _ | ⟨_, _⟩⟩ <;>
-      try simp [Moist.CEK.evalBuiltinPassThrough]
+      try simp
       -- remaining: args = [x]
       cases x with
-      | VCon c => cases c <;> simp [Moist.CEK.evalBuiltinPassThrough]
+      | VCon c => cases c <;> simp
       | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
-        simp [Moist.CEK.evalBuiltinPassThrough]
+        simp
     -- ChooseList: args decides (args[1] = VCon (ConstDataList/ConstList)); va=consCase not inspected
     · rcases args with _ | ⟨x, _ | ⟨y, _ | ⟨_, _⟩⟩⟩ <;>
-      try simp [Moist.CEK.evalBuiltinPassThrough]
+      try simp
       -- remaining: args = [x, y]
       cases y with
-      | VCon c => cases c <;> simp [Moist.CEK.evalBuiltinPassThrough]
+      | VCon c => cases c <;> simp
       | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
-        simp [Moist.CEK.evalBuiltinPassThrough]
+        simp
     -- MkCons: va itself is inspected (must be VCon (ConstList _)).
     -- ValueEq (k+1) preserves VCon identity: if va = VCon c then va' = VCon c (subst).
     -- After subst, both sides are identical, so isNone equality is trivially rfl.
@@ -2426,18 +2424,18 @@ where
         cases va' with
         | VCon c => exact absurd rfl (hva'_not_vcon c)
         | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
-          simp [Moist.CEK.evalBuiltinPassThrough]
+          simp
     -- ChooseData: args decides (args[4] = VCon (Data d)); va=bCase not inspected for isNone
     · rcases args with _ | ⟨a0, _ | ⟨a1, _ | ⟨a2, _ | ⟨a3, _ | ⟨x, _ | ⟨_, _⟩⟩⟩⟩⟩⟩ <;>
-      try simp [Moist.CEK.evalBuiltinPassThrough]
+      try simp
       -- remaining: args = [a0, a1, a2, a3, x]
       cases x with
       | VCon c =>
         cases c with
-        | Data d => cases d <;> simp [Moist.CEK.evalBuiltinPassThrough]
-        | _ => simp [Moist.CEK.evalBuiltinPassThrough]
+        | Data d => cases d <;> simp
+        | _ => simp
       | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ =>
-        simp [Moist.CEK.evalBuiltinPassThrough]
+        simp
   -- ValueEq k of results when both evalBuiltinPassThrough return some and the head varies.
   -- Returned values are either from `args` (same → valueEq_refl) or va/va' (ValueEq k by mono).
   evalBuiltinPassThrough_valueEq_first (k : Nat) (b : BuiltinFun)
@@ -2451,7 +2449,7 @@ where
     -- IfThenElse: args = [thenV, VCon (Bool cond)]; va=elseV
     -- Wrong lengths give hp1: none = some r1, closed by simp. Matching length: args = [x, y].
     · rcases args with _ | ⟨x, _ | ⟨y, _ | ⟨_, _⟩⟩⟩ <;>
-      try (simp [Moist.CEK.evalBuiltinPassThrough] at hp1)
+      try (simp at hp1)
       -- remaining: args = [x, y]
       cases y with
       | VCon c =>
@@ -2465,11 +2463,11 @@ where
             simp [Moist.CEK.evalBuiltinPassThrough] at hp1 hp2
             subst hp1; subst hp2
             exact valueEq_mono k (k + 1) (Nat.le_succ k) va va' hva
-        | _ => simp [Moist.CEK.evalBuiltinPassThrough] at hp1
-      | _ => simp [Moist.CEK.evalBuiltinPassThrough] at hp1
+        | _ => simp at hp1
+      | _ => simp at hp1
     -- ChooseUnit: args = [VCon Unit]; va=result
     · rcases args with _ | ⟨x, _ | ⟨_, _⟩⟩ <;>
-      try (simp [Moist.CEK.evalBuiltinPassThrough] at hp1)
+      try (simp at hp1)
       -- remaining: args = [x]
       cases x with
       | VCon c =>
@@ -2478,11 +2476,11 @@ where
           simp [Moist.CEK.evalBuiltinPassThrough] at hp1 hp2
           subst hp1; subst hp2
           exact valueEq_mono k (k + 1) (Nat.le_succ k) va va' hva
-        | _ => simp [Moist.CEK.evalBuiltinPassThrough] at hp1
-      | _ => simp [Moist.CEK.evalBuiltinPassThrough] at hp1
+        | _ => simp at hp1
+      | _ => simp at hp1
     -- Trace: args = [VCon (String s)]; va=result
     · rcases args with _ | ⟨x, _ | ⟨_, _⟩⟩ <;>
-      try (simp [Moist.CEK.evalBuiltinPassThrough] at hp1)
+      try (simp at hp1)
       -- remaining: args = [x]
       cases x with
       | VCon c =>
@@ -2491,11 +2489,11 @@ where
           simp [Moist.CEK.evalBuiltinPassThrough] at hp1 hp2
           subst hp1; subst hp2
           exact valueEq_mono k (k + 1) (Nat.le_succ k) va va' hva
-        | _ => simp [Moist.CEK.evalBuiltinPassThrough] at hp1
-      | _ => simp [Moist.CEK.evalBuiltinPassThrough] at hp1
+        | _ => simp at hp1
+      | _ => simp at hp1
     -- ChooseList: args = [nilCase, VCon(l)]; va=consCase
     · rcases args with _ | ⟨x, _ | ⟨y, _ | ⟨_, _⟩⟩⟩ <;>
-      try (simp [Moist.CEK.evalBuiltinPassThrough] at hp1)
+      try (simp at hp1)
       -- remaining: args = [x, y]
       cases y with
       | VCon c =>
@@ -2507,7 +2505,7 @@ where
             simp only [h, ite_true] at hp1 hp2
             subst hp1; subst hp2; exact valueEq_refl k x
           | false =>
-            simp only [h, ite_false] at hp1 hp2
+            simp only [h] at hp1 hp2
             subst hp1; subst hp2
             exact valueEq_mono k (k + 1) (Nat.le_succ k) va va' hva
         | ConstList l =>
@@ -2517,11 +2515,11 @@ where
             simp only [h, ite_true] at hp1 hp2
             subst hp1; subst hp2; exact valueEq_refl k x
           | false =>
-            simp only [h, ite_false] at hp1 hp2
+            simp only [h] at hp1 hp2
             subst hp1; subst hp2
             exact valueEq_mono k (k + 1) (Nat.le_succ k) va va' hva
-        | _ => simp [Moist.CEK.evalBuiltinPassThrough] at hp1
-      | _ => simp [Moist.CEK.evalBuiltinPassThrough] at hp1
+        | _ => simp at hp1
+      | _ => simp at hp1
     -- MkCons: va = VCon (ConstList tail); args = [VCon c1]
     -- After vcon_eq_of_valueEq_succ + subst, va' = va, so hp2 has same LHS as hp1.
     · cases va with
@@ -2531,18 +2529,18 @@ where
         cases c with
         | ConstList tail =>
           rcases args with _ | ⟨x, _ | ⟨_, _⟩⟩ <;>
-          try (simp [Moist.CEK.evalBuiltinPassThrough] at hp1)
+          try (simp at hp1)
           -- remaining: args = [x]
           cases x with
           | VCon c1 =>
             simp [Moist.CEK.evalBuiltinPassThrough] at hp1 hp2
             subst hp1; subst hp2; exact valueEq_refl k _
-          | _ => simp [Moist.CEK.evalBuiltinPassThrough] at hp1
-        | _ => simp [Moist.CEK.evalBuiltinPassThrough] at hp1
-      | _ => simp [Moist.CEK.evalBuiltinPassThrough] at hp1
+          | _ => simp at hp1
+        | _ => simp at hp1
+      | _ => simp at hp1
     -- ChooseData: args = [iCase, listCase, mapCase, constrCase, VCon (Data d)]; va=bCase
     · rcases args with _ | ⟨a0, _ | ⟨a1, _ | ⟨a2, _ | ⟨a3, _ | ⟨x, _ | ⟨_, _⟩⟩⟩⟩⟩⟩ <;>
-      try (simp [Moist.CEK.evalBuiltinPassThrough] at hp1)
+      try (simp at hp1)
       -- remaining: args = [a0, a1, a2, a3, x]
       cases x with
       | VCon c =>
@@ -2557,8 +2555,8 @@ where
           | B _ =>
             simp at hp1 hp2; subst hp1; subst hp2
             exact valueEq_mono k (k + 1) (Nat.le_succ k) va va' hva
-        | _ => simp [Moist.CEK.evalBuiltinPassThrough] at hp1
-      | _ => simp [Moist.CEK.evalBuiltinPassThrough] at hp1
+        | _ => simp at hp1
+      | _ => simp at hp1
 
 /-- Full-list evalBuiltin congruence: when `ListValueEq (k+1) args1 args2`,
     `evalBuiltin b args1` and `evalBuiltin b args2` agree on `none` and
@@ -2598,7 +2596,7 @@ theorem evalBuiltin_full_cong (k : Nat) (b : BuiltinFun)
           -- hd1::tl1 → some r1, but hd2::tl1 → none; contradiction via h1.1.mpr
           exact absurd (h1.1.mpr hmid) (by rw [hr1]; simp)
         | some rmid =>
-          exact valueEq_trans k r1 rmid r2
+          exact Moist.Verified.Semantics.valueEq_trans k r1 rmid r2
             (h1.2 r1 rmid hr1 hmid)
             (h2.2 rmid r2 hmid hr2)
 
@@ -2756,7 +2754,7 @@ private theorem app_step_arg_halts_transfer (vf va va' : CekValue)
           have ⟨hcong, _⟩ := evalBuiltin_cong_first 0 b va va' args (hva 1)
           cases hev2 : Moist.CEK.evalBuiltin b (va' :: args) with
           | none => exact absurd (hcong.mpr hev2) (by simp [hev1])
-          | some r2 => simp only [hev2]; exact ⟨r2, ret_nil_halts r2⟩
+          | some r2 => simp only; exact ⟨r2, ret_nil_halts r2⟩
 
 /-- Application step: same function, different args. Value agreement. -/
 private theorem app_step_arg_value_agreement (k : Nat)

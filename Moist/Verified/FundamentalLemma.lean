@@ -29,20 +29,14 @@ theorem fundemental_lemma (j : Nat)
     (body : Term) (env : CekEnv)
     (arg1 arg2 : CekValue) (hargs : ValueEq j arg1 arg2)
     (stk1 stk2 : Stack) (hstk : StackEqR (ValueEq j) stk1 stk2) :
-    (∀ n, n ≤ j →
-      steps n (.compute stk1 (env.extend arg1) body) = .error →
-      ∃ m, m ≤ j ∧ steps m (.compute stk2 (env.extend arg2) body) = .error) ∧
-    (∀ v1 n, n ≤ j →
+    ((∃ n, n ≤ j ∧ steps n (.compute stk1 (env.extend arg1) body) = .error) ↔
+     (∃ m, m ≤ j ∧ steps m (.compute stk2 (env.extend arg2) body) = .error)) ∧
+    ((∃ n v, n ≤ j ∧ steps n (.compute stk1 (env.extend arg1) body) = .halt v) ↔
+     (∃ m v, m ≤ j ∧ steps m (.compute stk2 (env.extend arg2) body) = .halt v)) ∧
+    (∀ n m, n ≤ j → m ≤ j → ∀ v1 v2,
       steps n (.compute stk1 (env.extend arg1) body) = .halt v1 →
-      ∃ v2 m, m ≤ j ∧ steps m (.compute stk2 (env.extend arg2) body) = .halt v2 ∧
-        ValueEq (j - n) v1 v2) ∧
-    (∀ n, n ≤ j →
-      steps n (.compute stk2 (env.extend arg2) body) = .error →
-      ∃ m, m ≤ j ∧ steps m (.compute stk1 (env.extend arg1) body) = .error) ∧
-    (∀ v2 n, n ≤ j →
-      steps n (.compute stk2 (env.extend arg2) body) = .halt v2 →
-      ∃ v1 m, m ≤ j ∧ steps m (.compute stk1 (env.extend arg1) body) = .halt v1 ∧
-        ValueEq (j - n) v1 v2) := by
+      steps m (.compute stk2 (env.extend arg2) body) = .halt v2 →
+      ValueEq (j - max n m) v1 v2) := by
   sorry
 
 /-- The fundamental lemma for VDelay: same body and env, related stacks.
@@ -51,20 +45,14 @@ theorem fundemental_lemma_delay (j : Nat)
     (veq_refl : ∀ i, i ≤ j → ∀ v : CekValue, ValueEq i v v)
     (body : Term) (env : CekEnv)
     (stk1 stk2 : Stack) (hstk : StackEqR (ValueEq j) stk1 stk2) :
-    (∀ n, n ≤ j →
-      steps n (.compute stk1 env body) = .error →
-      ∃ m, m ≤ j ∧ steps m (.compute stk2 env body) = .error) ∧
-    (∀ v1 n, n ≤ j →
+    ((∃ n, n ≤ j ∧ steps n (.compute stk1 env body) = .error) ↔
+     (∃ m, m ≤ j ∧ steps m (.compute stk2 env body) = .error)) ∧
+    ((∃ n v, n ≤ j ∧ steps n (.compute stk1 env body) = .halt v) ↔
+     (∃ m v, m ≤ j ∧ steps m (.compute stk2 env body) = .halt v)) ∧
+    (∀ n m, n ≤ j → m ≤ j → ∀ v1 v2,
       steps n (.compute stk1 env body) = .halt v1 →
-      ∃ v2 m, m ≤ j ∧ steps m (.compute stk2 env body) = .halt v2 ∧
-        ValueEq (j - n) v1 v2) ∧
-    (∀ n, n ≤ j →
-      steps n (.compute stk2 env body) = .error →
-      ∃ m, m ≤ j ∧ steps m (.compute stk1 env body) = .error) ∧
-    (∀ v2 n, n ≤ j →
-      steps n (.compute stk2 env body) = .halt v2 →
-      ∃ v1 m, m ≤ j ∧ steps m (.compute stk1 env body) = .halt v1 ∧
-        ValueEq (j - n) v1 v2) := by
+      steps m (.compute stk2 env body) = .halt v2 →
+      ValueEq (j - max n m) v1 v2) := by
   sorry
 
 /-! ## StackEqR / FrameEqR / EnvEqR helpers -/
@@ -135,6 +123,51 @@ private theorem stackEqR_refl {R : CekValue → CekValue → Prop}
   | [] => trivial
   | f :: s => ⟨frameEqR_refl hR f, stackEqR_refl hR s⟩
 
+/-! ### Relation-implication helpers
+
+Given a pointwise implication `R₁ → R₂` on values, lift it to `EnvEqR`,
+`ListR`, `FrameEqR`, and `StackEqR`. Used with `R₁ := ValueEq k`,
+`R₂ := ValueEq j` (for `j ≤ k` via `valueEq_mono`) to downgrade
+a stack/environment relation to a lower step index. -/
+
+private theorem envEqR_implication {R₁ R₂ : CekValue → CekValue → Prop}
+    (h : ∀ v₁ v₂, R₁ v₁ v₂ → R₂ v₁ v₂) :
+    ∀ e₁ e₂, EnvEqR R₁ e₁ e₂ → EnvEqR R₂ e₁ e₂
+  | .nil, .nil, _ => trivial
+  | .cons _ e1, .cons _ e2, hh => ⟨h _ _ hh.1, envEqR_implication h e1 e2 hh.2⟩
+  | .nil, .cons _ _, hh => absurd hh (by simp [EnvEqR])
+  | .cons _ _, .nil, hh => absurd hh (by simp [EnvEqR])
+
+private theorem listR_implication {R₁ R₂ : CekValue → CekValue → Prop}
+    (h : ∀ v₁ v₂, R₁ v₁ v₂ → R₂ v₁ v₂) :
+    ∀ l₁ l₂, ListR R₁ l₁ l₂ → ListR R₂ l₁ l₂
+  | [], [], _ => trivial
+  | _ :: as, _ :: bs, hh => ⟨h _ _ hh.1, listR_implication h as bs hh.2⟩
+  | [], _ :: _, hh => absurd hh (by simp [ListR])
+  | _ :: _, [], hh => absurd hh (by simp [ListR])
+
+private theorem frameEqR_implication {R₁ R₂ : CekValue → CekValue → Prop}
+    (h : ∀ v₁ v₂, R₁ v₁ v₂ → R₂ v₁ v₂)
+    (f₁ f₂ : Frame) (hh : FrameEqR R₁ f₁ f₂) : FrameEqR R₂ f₁ f₂ := by
+  cases f₁ <;> cases f₂ <;> simp [FrameEqR] at hh ⊢
+  all_goals (try exact trivial)
+  case arg.arg => exact ⟨hh.1, envEqR_implication h _ _ hh.2⟩
+  case funV.funV => exact h _ _ hh
+  case applyArg.applyArg => exact h _ _ hh
+  case constrField.constrField =>
+    exact ⟨hh.1, hh.2.1, listR_implication h _ _ hh.2.2.1,
+           envEqR_implication h _ _ hh.2.2.2⟩
+  case caseScrutinee.caseScrutinee => exact ⟨hh.1, envEqR_implication h _ _ hh.2⟩
+
+private theorem stackEqR_implication {R₁ R₂ : CekValue → CekValue → Prop}
+    (h : ∀ v₁ v₂, R₁ v₁ v₂ → R₂ v₁ v₂) :
+    ∀ s₁ s₂, StackEqR R₁ s₁ s₂ → StackEqR R₂ s₁ s₂
+  | [], [], _ => trivial
+  | f1 :: s1, f2 :: s2, hh =>
+      ⟨frameEqR_implication h f1 f2 hh.1, stackEqR_implication h s1 s2 hh.2⟩
+  | [], _ :: _, hh => absurd hh (by simp [StackEqR])
+  | _ :: _, [], hh => absurd hh (by simp [StackEqR])
+
 /-! ## ValueEq properties -/
 
 mutual
@@ -164,23 +197,23 @@ mutual
       unfold ValueEq at h ⊢; intro j hj arg1 arg2 hargs stk1 stk2 hstk
       have hargs' := valueEq_symm j _ _ hargs
       have hstk' := stackEqR_symm (valueEq_symm j) stk1 stk2 hstk
-      have ⟨hfe, hfh, hbe, hbh⟩ := h j hj arg2 arg1 hargs' stk2 stk1 hstk'
-      exact ⟨fun n hn he => let ⟨m, hm, hme⟩ := hbe n hn he; ⟨m, hm, hme⟩,
-             fun v1 n hn hv1 => let ⟨v2, m, hm, hv2, hve⟩ := hbh v1 n hn hv1;
-               ⟨v2, m, hm, hv2, valueEq_symm (j - n) _ _ hve⟩,
-             fun n hn he => let ⟨m, hm, hme⟩ := hfe n hn he; ⟨m, hm, hme⟩,
-             fun v2 n hn hv2 => let ⟨v1, m, hm, hv1, hve⟩ := hfh v2 n hn hv2;
-               ⟨v1, m, hm, hv1, valueEq_symm (j - n) _ _ hve⟩⟩
+      have hswap := h j hj arg2 arg1 hargs' stk2 stk1 hstk'
+      refine ⟨hswap.1.symm, hswap.2.1.symm, ?_⟩
+      intro n m hn hm v1 v2 hv1 hv2
+      have hr := hswap.2.2 m n hm hn v2 v1 hv2 hv1
+      have hmax : max m n = max n m := Nat.max_comm m n
+      rw [hmax] at hr
+      exact valueEq_symm (j - max n m) _ _ hr
     | k + 1, .VDelay _ _, .VDelay _ _, h => by
       unfold ValueEq at h ⊢; intro j hj stk1 stk2 hstk
       have hstk' := stackEqR_symm (valueEq_symm j) stk1 stk2 hstk
-      have ⟨hfe, hfh, hbe, hbh⟩ := h j hj stk2 stk1 hstk'
-      exact ⟨fun n hn he => let ⟨m, hm, hme⟩ := hbe n hn he; ⟨m, hm, hme⟩,
-             fun v1 n hn hv1 => let ⟨v2, m, hm, hv2, hve⟩ := hbh v1 n hn hv1;
-               ⟨v2, m, hm, hv2, valueEq_symm (j - n) _ _ hve⟩,
-             fun n hn he => let ⟨m, hm, hme⟩ := hfe n hn he; ⟨m, hm, hme⟩,
-             fun v2 n hn hv2 => let ⟨v1, m, hm, hv1, hve⟩ := hfh v2 n hn hv2;
-               ⟨v1, m, hm, hv1, valueEq_symm (j - n) _ _ hve⟩⟩
+      have hswap := h j hj stk2 stk1 hstk'
+      refine ⟨hswap.1.symm, hswap.2.1.symm, ?_⟩
+      intro n m hn hm v1 v2 hv1 hv2
+      have hr := hswap.2.2 m n hm hn v2 v1 hv2 hv1
+      have hmax : max m n = max n m := Nat.max_comm m n
+      rw [hmax] at hr
+      exact valueEq_symm (j - max n m) _ _ hr
     | _ + 1, .VConstr _ _, .VConstr _ _, h => by
       unfold ValueEq at h ⊢; exact ⟨h.1.symm, listValueEq_symm _ _ _ h.2⟩
     | k + 1, .VBuiltin _ _ _, .VBuiltin _ _ _, h => by
@@ -262,248 +295,133 @@ mutual
     | _, _, _, _ :: _, [], h => by exact absurd h (by simp [ListValueEq])
 end
 
-/-! ## Transitivity under ∀ k
+/-! ## Pointwise transitivity of `ValueEq`
 
-Pointwise `valueEq_trans k` for VLam/VDelay has a level mismatch when
-intermediate step counts differ. With `∀ n` on both inputs, we pick
-levels high enough: use h12 with actual args to get `w2, m12`, then h23
-at level `j-n+m12+2` with refl args to get `ValueEq (j-n) w2 w3`,
-identify w3 by `reaches_unique`, and recurse at `j-n < k+1`. -/
+Transitivity of `ValueEq` at a single step index, proved by well-founded
+recursion on `(k, sizeOf v₁)`.
+
+The VLam/VDelay cases use a **tight-bound trick**: applying `h12` at the
+unfold level `max n m` (instead of `j`) forces its halt iff to produce
+a witness `p_B ≤ max n m` (because `n ≤ max n m` is the halt iff bound).
+This tight bound keeps the intermediate step count inside `max n m`,
+so the resulting `ValueEq (j - max n p_B) v1 w_B` downgrades cleanly to
+`ValueEq (j - max n m) v1 w_B` via `valueEq_mono` (since
+`max n p_B ≤ max n m`). The symmetric argument on `h23` gives
+`ValueEq (j - max n m) w_B v3`, and pointwise recursion at the smaller
+level `j - max n m ≤ k` closes the case. -/
 
 mutual
-  theorem valueEqAll_trans : ∀ (k : Nat) (v₁ v₂ v₃ : CekValue),
-      (∀ n, ValueEq n v₁ v₂) → (∀ n, ValueEq n v₂ v₃) →
-      ValueEq k v₁ v₃
+  theorem valueEq_trans : ∀ (k : Nat) (v₁ v₂ v₃ : CekValue),
+      ValueEq k v₁ v₂ → ValueEq k v₂ v₃ → ValueEq k v₁ v₃
     | 0, _, _, _, _, _ => by simp [ValueEq]
-    | _ + 1, .VCon _, .VCon _, .VCon _, h12_all, h23_all => by
-      have h12 := h12_all 2; have h23 := h23_all 2
+    | _ + 1, .VCon _, .VCon _, .VCon _, h12, h23 => by
       simp only [ValueEq] at h12 h23 ⊢; exact h12.trans h23
-    | k + 1, .VLam body1 env1, .VLam body2 env2, .VLam body3 env3, h12_all, h23_all => by
-      unfold ValueEq; intro j hj arg1 arg3 hargs13 stk1 stk3 hstk13
-      -- h12 with ACTUAL args → middle = compute stk3 (env2.extend arg3) body2
-      have h12v := h12_all (j + 2); unfold ValueEq at h12v
-      have ⟨hfe12, hfh12, hbe12, hbh12⟩ :=
-        h12v j (by omega) arg1 arg3 hargs13 stk1 stk3 hstk13
-      -- h23 with REFL args (arg3,arg3) stks (stk3,stk3) at level j+2
-      -- → side1 = compute stk3 (env2.extend arg3) body2 (= h12's middle)
-      -- → side3 = compute stk3 (env3.extend arg3) body3 (= conclusion's side3)
-      have h23v_j := h23_all (j + 2); unfold ValueEq at h23v_j
-      have ⟨hfe23, hfh23, hbe23, hbh23⟩ :=
-        h23v_j j (by omega) arg3 arg3 (valueEq_refl j arg3)
-          stk3 stk3 (stackEqR_refl (valueEq_refl j) stk3)
-      refine ⟨fun n hn he => ?_, fun v1 n hn hv1 => ?_,
-              fun n hn he => ?_, fun v3 n hn hv3 => ?_⟩
-      · -- Forward error: chain h12 → h23
-        obtain ⟨m12, hm12, he12⟩ := hfe12 n hn he
-        obtain ⟨m23, hm23, he23⟩ := hfe23 m12 hm12 he12
-        exact ⟨m23, hm23, he23⟩
-      · -- Forward halt: the key case
-        obtain ⟨w2, m12, hm12, hw2, hve12⟩ := hfh12 v1 n hn hv1
-        -- w3, m23 from h23 at level j (for ∃ m ≤ j witness)
-        obtain ⟨w3, m23, hm23, hw3, _⟩ := hfh23 w2 m12 hm12 hw2
-        -- ValueEq (j-n) w2 w3 from h23 at HIGH level j-n+m12+2, refl args
-        have h23_hi := h23_all (j - n + m12 + 2); unfold ValueEq at h23_hi
-        have ⟨_, hfh23_hi, _, _⟩ :=
-          h23_hi (j - n + m12) (by omega) arg3 arg3
-            (valueEq_refl (j - n + m12) arg3) stk3 stk3
-            (stackEqR_refl (valueEq_refl (j - n + m12)) stk3)
-        obtain ⟨w3', _, _, hw3', hve23'⟩ := hfh23_hi w2 m12 (by omega) hw2
-        have hve23 : ValueEq (j - n) w2 w3 := by
-          have := reaches_unique ⟨_, hw3'⟩ ⟨m23, hw3⟩; subst this
-          have : j - n + m12 - m12 = j - n := by omega
-          rw [this] at hve23'; exact hve23'
-        -- Build ∀ K for v1-w2: from h12_all at level K+n+2, actual args
-        -- NOTE: sorry for args/StackEqR mono (can't upgrade ValueEq j / StackEqR j to level K+n)
-        have hw12_all : ∀ K, ValueEq K v1 w2 := by
-          intro K
-          have h12K := h12_all (K + n + 2); unfold ValueEq at h12K
-          have ⟨_, hfhK, _, _⟩ :=
-            h12K (K + n) (by omega) arg1 arg3
-              (sorry) -- ValueEq (K+n) arg1 arg3: can't mono up from level j
-              stk1 stk3 (sorry) -- StackEqR mono: can't upgrade from level j
-          obtain ⟨w2', _, _, hw2', hveK⟩ := hfhK v1 n (by omega) hv1
-          have := reaches_unique ⟨_, hw2'⟩ ⟨m12, hw2⟩; subst this
-          have hsub : K + n - n = K := by omega
-          rw [hsub] at hveK; exact hveK
-        -- Build ∀ K for w2-w3: from h23_all at level K+m12+2, refl args
-        have hw23_all : ∀ K, ValueEq K w2 w3 := by
-          intro K
-          have h23K := h23_all (K + m12 + 2); unfold ValueEq at h23K
-          have ⟨_, hfhK, _, _⟩ :=
-            h23K (K + m12) (by omega) arg3 arg3
-              (valueEq_refl (K + m12) arg3) stk3 stk3
-              (stackEqR_refl (valueEq_refl (K + m12)) stk3)
-          obtain ⟨w3', _, _, hw3', hveK⟩ := hfhK w2 m12 (by omega) hw2
-          have := reaches_unique ⟨_, hw3'⟩ ⟨m23, hw3⟩; subst this
-          have hsub : K + m12 - m12 = K := by omega
-          rw [hsub] at hveK; exact hveK
-        -- Recurse at j-n < k+1
-        exact ⟨w3, m23, hm23, hw3, valueEqAll_trans (j - n) v1 w2 w3 hw12_all hw23_all⟩
-      · -- Backward error: chain h23 → h12
-        obtain ⟨m23, hm23, he23⟩ := hbe23 n hn he
-        obtain ⟨m12, hm12, he12⟩ := hbe12 m23 hm23 he23
-        exact ⟨m12, hm12, he12⟩
-      · -- Backward halt: symmetric to forward
-        -- Get w2 from h23 backward (refl args): side2=stk3/env3/body3 → side1=stk3/env2/body2
-        obtain ⟨w2, m23, hm23, hw2, _⟩ := hbh23 v3 n hn hv3
-        -- Get w1 from h12 backward (actual args): side2=stk3/env2/body2 → side1=stk1/env1/body1
-        obtain ⟨w1, m12, hm12, hw1, _⟩ := hbh12 w2 m23 hm23 hw2
-        -- ValueEq (j-n) w1 w2 from h12 at HIGH level j-n+m23+2, backward, actual args
-        have h12_hi := h12_all (j - n + m23 + 2); unfold ValueEq at h12_hi
-        have ⟨_, _, _, hbh12_hi⟩ :=
-          h12_hi (j - n + m23) (by omega) arg1 arg3
-            (sorry) -- args mono: can't mono up from level j
-            stk1 stk3 (sorry) -- StackEqR mono
-        obtain ⟨w1', _, _, hw1', hve12'⟩ := hbh12_hi w2 m23 (by omega) hw2
-        have hve12 : ValueEq (j - n) w1 w2 := by
-          have := reaches_unique ⟨_, hw1'⟩ ⟨m12, hw1⟩; subst this
-          have : j - n + m23 - m23 = j - n := by omega
-          rw [this] at hve12'; exact hve12'
-        -- Build ∀ K for w1-w2: h12 backward at level K+m23+2, actual args
-        -- NOTE: sorry for args/StackEqR mono (same as forward case)
-        have hw12_all : ∀ K, ValueEq K w1 w2 := by
-          intro K
-          have h12K := h12_all (K + m23 + 2); unfold ValueEq at h12K
-          have ⟨_, _, _, hbhK⟩ :=
-            h12K (K + m23) (by omega) arg1 arg3
-              (sorry) -- ValueEq (K+m23) arg1 arg3: can't mono up from level j
-              stk1 stk3 (sorry) -- StackEqR mono: can't upgrade from level j
-          obtain ⟨w1', _, _, hw1', hveK⟩ := hbhK w2 m23 (by omega) hw2
-          have := reaches_unique ⟨_, hw1'⟩ ⟨m12, hw1⟩; subst this
-          have hsub : K + m23 - m23 = K := by omega
-          rw [hsub] at hveK; exact hveK
-        -- Build ∀ K for w2-v3: h23 backward at level K+n+2, refl args
-        have hw23_all : ∀ K, ValueEq K w2 v3 := by
-          intro K
-          have h23K := h23_all (K + n + 2); unfold ValueEq at h23K
-          have ⟨_, _, _, hbhK⟩ :=
-            h23K (K + n) (by omega) arg3 arg3
-              (valueEq_refl (K + n) arg3) stk3 stk3
-              (stackEqR_refl (valueEq_refl (K + n)) stk3)
-          obtain ⟨w2', _, _, hw2', hveK⟩ := hbhK v3 n (by omega) hv3
-          have := reaches_unique ⟨_, hw2'⟩ ⟨m23, hw2⟩; subst this
-          have hsub : K + n - n = K := by omega
-          rw [hsub] at hveK; exact hveK
-        -- Recurse at j-n < k+1
-        exact ⟨w1, m12, hm12, hw1, valueEqAll_trans (j - n) w1 w2 v3 hw12_all hw23_all⟩
-    | k + 1, .VDelay body1 env1, .VDelay body2 env2, .VDelay body3 env3, h12_all, h23_all => by
-      unfold ValueEq; intro j hj stk1 stk3 hstk13
-      -- h12 with actual stks at level j+2
-      have h12v := h12_all (j + 2); unfold ValueEq at h12v
-      have ⟨hfe12, hfh12, hbe12, hbh12⟩ := h12v j (by omega) stk1 stk3 hstk13
-      -- h23 with refl stks (stk3,stk3) at level j+2
-      have h23v := h23_all (j + 2); unfold ValueEq at h23v
-      have ⟨hfe23, hfh23, hbe23, hbh23⟩ :=
-        h23v j (by omega) stk3 stk3 (stackEqR_refl (valueEq_refl j) stk3)
-      refine ⟨fun n hn he => ?_, fun v1 n hn hv1 => ?_,
-              fun n hn he => ?_, fun v3 n hn hv3 => ?_⟩
-      · -- Forward error
-        obtain ⟨m12, hm12, he12⟩ := hfe12 n hn he
-        obtain ⟨m23, hm23, he23⟩ := hfe23 m12 hm12 he12
-        exact ⟨m23, hm23, he23⟩
-      · -- Forward halt
-        obtain ⟨w2, m12, hm12, hw2, hve12⟩ := hfh12 v1 n hn hv1
-        obtain ⟨w3, m23, hm23, hw3, _⟩ := hfh23 w2 m12 hm12 hw2
-        -- ValueEq (j-n) w2 w3 from h23 at HIGH level
-        have h23_hi := h23_all (j - n + m12 + 2); unfold ValueEq at h23_hi
-        have ⟨_, hfh23_hi, _, _⟩ :=
-          h23_hi (j - n + m12) (by omega) stk3 stk3
-            (stackEqR_refl (valueEq_refl (j - n + m12)) stk3)
-        obtain ⟨w3', _, _, hw3', hve23'⟩ := hfh23_hi w2 m12 (by omega) hw2
-        have hve23 : ValueEq (j - n) w2 w3 := by
-          have := reaches_unique ⟨_, hw3'⟩ ⟨m23, hw3⟩; subst this
-          have : j - n + m12 - m12 = j - n := by omega
-          rw [this] at hve23'; exact hve23'
-        -- Build ∀ K for w1-w2: h12 forward at level K+n+2, actual stks
-        -- NOTE: sorry for StackEqR mono (can't upgrade from level j to K+n)
-        have hw12_all : ∀ K, ValueEq K v1 w2 := by
-          intro K
-          have h12K := h12_all (K + n + 2); unfold ValueEq at h12K
-          have ⟨_, hfhK, _, _⟩ :=
-            h12K (K + n) (by omega)
-              stk1 stk3 (sorry) -- StackEqR mono: can't upgrade from level j
-          obtain ⟨w2', _, _, hw2', hveK⟩ := hfhK v1 n (by omega) hv1
-          have := reaches_unique ⟨_, hw2'⟩ ⟨m12, hw2⟩; subst this
-          have hsub : K + n - n = K := by omega
-          rw [hsub] at hveK; exact hveK
-        -- Build ∀ K for w2-w3: h23 forward at level K+m12+2, refl stks
-        have hw23_all : ∀ K, ValueEq K w2 w3 := by
-          intro K
-          have h23K := h23_all (K + m12 + 2); unfold ValueEq at h23K
-          have ⟨_, hfhK, _, _⟩ :=
-            h23K (K + m12) (by omega) stk3 stk3
-              (stackEqR_refl (valueEq_refl (K + m12)) stk3)
-          obtain ⟨w3', _, _, hw3', hveK⟩ := hfhK w2 m12 (by omega) hw2
-          have := reaches_unique ⟨_, hw3'⟩ ⟨m23, hw3⟩; subst this
-          have hsub : K + m12 - m12 = K := by omega
-          rw [hsub] at hveK; exact hveK
-        exact ⟨w3, m23, hm23, hw3, valueEqAll_trans (j - n) v1 w2 w3 hw12_all hw23_all⟩
-      · -- Backward error
-        obtain ⟨m23, hm23, he23⟩ := hbe23 n hn he
-        obtain ⟨m12, hm12, he12⟩ := hbe12 m23 hm23 he23
-        exact ⟨m12, hm12, he12⟩
-      · -- Backward halt
-        obtain ⟨w2, m23, hm23, hw2, _⟩ := hbh23 v3 n hn hv3
-        obtain ⟨w1, m12, hm12, hw1, _⟩ := hbh12 w2 m23 hm23 hw2
-        -- ValueEq (j-n) w1 w2 from h12 at HIGH level, backward
-        have h12_hi := h12_all (j - n + m23 + 2); unfold ValueEq at h12_hi
-        have ⟨_, _, _, hbh12_hi⟩ :=
-          h12_hi (j - n + m23) (by omega)
-            stk1 stk3 (sorry) -- StackEqR mono
-        obtain ⟨w1', _, _, hw1', hve12'⟩ := hbh12_hi w2 m23 (by omega) hw2
-        have hve12 : ValueEq (j - n) w1 w2 := by
-          have := reaches_unique ⟨_, hw1'⟩ ⟨m12, hw1⟩; subst this
-          have : j - n + m23 - m23 = j - n := by omega
-          rw [this] at hve12'; exact hve12'
-        -- Build ∀ K for w1-w2: h12 backward at level K+m23+2, actual stks
-        have hw12_all : ∀ K, ValueEq K w1 w2 := by
-          intro K
-          have h12K := h12_all (K + m23 + 2); unfold ValueEq at h12K
-          have ⟨_, _, _, hbhK⟩ :=
-            h12K (K + m23) (by omega)
-              stk1 stk3 (sorry) -- StackEqR mono
-          obtain ⟨w1', _, _, hw1', hveK⟩ := hbhK w2 m23 (by omega) hw2
-          have := reaches_unique ⟨_, hw1'⟩ ⟨m12, hw1⟩; subst this
-          have hsub : K + m23 - m23 = K := by omega
-          rw [hsub] at hveK; exact hveK
-        -- Build ∀ K for w2-v3: h23 backward at level K+n+2, refl stks
-        have hw23_all : ∀ K, ValueEq K w2 v3 := by
-          intro K
-          have h23K := h23_all (K + n + 2); unfold ValueEq at h23K
-          have ⟨_, _, _, hbhK⟩ :=
-            h23K (K + n) (by omega) stk3 stk3
-              (stackEqR_refl (valueEq_refl (K + n)) stk3)
-          obtain ⟨w2', _, _, hw2', hveK⟩ := hbhK v3 n (by omega) hv3
-          have := reaches_unique ⟨_, hw2'⟩ ⟨m23, hw2⟩; subst this
-          have hsub : K + n - n = K := by omega
-          rw [hsub] at hveK; exact hveK
-        exact ⟨w1, m12, hm12, hw1, valueEqAll_trans (j - n) w1 w2 v3 hw12_all hw23_all⟩
-    | k + 1, .VConstr _ _, .VConstr _ _, .VConstr _ _, h12_all, h23_all => by
-      have h12 := h12_all 2; have h23 := h23_all 2
+    | k + 1, .VLam body1 env1, .VLam body2 env2, .VLam body3 env3, h12, h23 => by
+      unfold ValueEq at h12 h23 ⊢
+      intro j hj arg1 arg3 hargs stk1 stk3 hstk
+      -- h12 applied at the outer unfold level j with refl args/stacks.
+      -- Relates A and B = (body2, env2.extend arg1, stk1).
+      have h12_j := h12 j hj arg1 arg1 (valueEq_refl j arg1) stk1 stk1
+        (stackEqR_refl (valueEq_refl j) stk1)
+      -- h23 applied at level j with actual args and stacks. Relates B and C.
+      have h23_j := h23 j hj arg1 arg3 hargs stk1 stk3 hstk
+      refine ⟨h12_j.1.trans h23_j.1, h12_j.2.1.trans h23_j.2.1, ?_⟩
+      intro n m hn hm v1 v3 hv1 hv3
+      -- Pre-compute facts about `max n m`.
+      have hn_le_M : n ≤ max n m := Nat.le_max_left n m
+      have hm_le_M : m ≤ max n m := Nat.le_max_right n m
+      have hM_le_j : max n m ≤ j := Nat.max_le.mpr ⟨hn, hm⟩
+      have hM_le_k : max n m ≤ k := Nat.le_trans hM_le_j hj
+      -- Apply h12 at unfold level `max n m` to get a tight halt witness
+      -- `p_B ≤ max n m`.
+      have h12_tight := h12 (max n m) hM_le_k arg1 arg1
+        (valueEq_refl (max n m) arg1) stk1 stk1
+        (stackEqR_refl (valueEq_refl (max n m)) stk1)
+      obtain ⟨p_B, w_B, hp_B_le_M, hw_B⟩ :=
+        h12_tight.2.1.mp ⟨n, v1, hn_le_M, hv1⟩
+      have hp_B_le_j : p_B ≤ j := Nat.le_trans hp_B_le_M hM_le_j
+      -- Value clause from h12 at level j at (n, p_B).
+      have hve12 : ValueEq (j - max n p_B) v1 w_B :=
+        h12_j.2.2 n p_B hn hp_B_le_j v1 w_B hv1 hw_B
+      -- `max n p_B ≤ max n m`, so `j - max n m ≤ j - max n p_B`.
+      have hmax_npB_le_M : max n p_B ≤ max n m :=
+        Nat.max_le.mpr ⟨hn_le_M, hp_B_le_M⟩
+      have hve12' : ValueEq (j - max n m) v1 w_B :=
+        valueEq_mono (j - max n m) (j - max n p_B)
+          (Nat.sub_le_sub_left hmax_npB_le_M j) _ _ hve12
+      -- h23 at unfold level `max n m` (tight) with downgraded hargs, hstk.
+      have hargs_tight : ValueEq (max n m) arg1 arg3 :=
+        valueEq_mono (max n m) j hM_le_j _ _ hargs
+      have hstk_tight : StackEqR (ValueEq (max n m)) stk1 stk3 :=
+        stackEqR_implication
+          (fun _ _ h' => valueEq_mono (max n m) j hM_le_j _ _ h') _ _ hstk
+      have h23_tight := h23 (max n m) hM_le_k arg1 arg3 hargs_tight
+        stk1 stk3 hstk_tight
+      obtain ⟨p_B', w_B', hp_B'_le_M, hw_B'⟩ :=
+        h23_tight.2.1.mpr ⟨m, v3, hm_le_M, hv3⟩
+      have hp_B'_le_j : p_B' ≤ j := Nat.le_trans hp_B'_le_M hM_le_j
+      -- `w_B' = w_B` by determinism of halting (same state B on both sides).
+      have hwB_eq : w_B' = w_B := reaches_unique ⟨p_B', hw_B'⟩ ⟨p_B, hw_B⟩
+      rw [hwB_eq] at hw_B'
+      -- Value clause from h23 at level j at (p_B', m).
+      have hve23 : ValueEq (j - max p_B' m) w_B v3 :=
+        h23_j.2.2 p_B' m hp_B'_le_j hm w_B v3 hw_B' hv3
+      have hmax_pB'm_le_M : max p_B' m ≤ max n m :=
+        Nat.max_le.mpr ⟨hp_B'_le_M, hm_le_M⟩
+      have hve23' : ValueEq (j - max n m) w_B v3 :=
+        valueEq_mono (j - max n m) (j - max p_B' m)
+          (Nat.sub_le_sub_left hmax_pB'm_le_M j) _ _ hve23
+      -- Pointwise recursion at the strictly smaller level `j - max n m`.
+      exact valueEq_trans (j - max n m) v1 w_B v3 hve12' hve23'
+    | k + 1, .VDelay body1 env1, .VDelay body2 env2, .VDelay body3 env3, h12, h23 => by
+      unfold ValueEq at h12 h23 ⊢
+      intro j hj stk1 stk3 hstk
+      have h12_j := h12 j hj stk1 stk1 (stackEqR_refl (valueEq_refl j) stk1)
+      have h23_j := h23 j hj stk1 stk3 hstk
+      refine ⟨h12_j.1.trans h23_j.1, h12_j.2.1.trans h23_j.2.1, ?_⟩
+      intro n m hn hm v1 v3 hv1 hv3
+      have hn_le_M : n ≤ max n m := Nat.le_max_left n m
+      have hm_le_M : m ≤ max n m := Nat.le_max_right n m
+      have hM_le_j : max n m ≤ j := Nat.max_le.mpr ⟨hn, hm⟩
+      have hM_le_k : max n m ≤ k := Nat.le_trans hM_le_j hj
+      have h12_tight := h12 (max n m) hM_le_k stk1 stk1
+        (stackEqR_refl (valueEq_refl (max n m)) stk1)
+      obtain ⟨p_B, w_B, hp_B_le_M, hw_B⟩ :=
+        h12_tight.2.1.mp ⟨n, v1, hn_le_M, hv1⟩
+      have hp_B_le_j : p_B ≤ j := Nat.le_trans hp_B_le_M hM_le_j
+      have hve12 : ValueEq (j - max n p_B) v1 w_B :=
+        h12_j.2.2 n p_B hn hp_B_le_j v1 w_B hv1 hw_B
+      have hmax_npB_le_M : max n p_B ≤ max n m :=
+        Nat.max_le.mpr ⟨hn_le_M, hp_B_le_M⟩
+      have hve12' : ValueEq (j - max n m) v1 w_B :=
+        valueEq_mono (j - max n m) (j - max n p_B)
+          (Nat.sub_le_sub_left hmax_npB_le_M j) _ _ hve12
+      have hstk_tight : StackEqR (ValueEq (max n m)) stk1 stk3 :=
+        stackEqR_implication
+          (fun _ _ h' => valueEq_mono (max n m) j hM_le_j _ _ h') _ _ hstk
+      have h23_tight := h23 (max n m) hM_le_k stk1 stk3 hstk_tight
+      obtain ⟨p_B', w_B', hp_B'_le_M, hw_B'⟩ :=
+        h23_tight.2.1.mpr ⟨m, v3, hm_le_M, hv3⟩
+      have hp_B'_le_j : p_B' ≤ j := Nat.le_trans hp_B'_le_M hM_le_j
+      have hwB_eq : w_B' = w_B := reaches_unique ⟨p_B', hw_B'⟩ ⟨p_B, hw_B⟩
+      rw [hwB_eq] at hw_B'
+      have hve23 : ValueEq (j - max p_B' m) w_B v3 :=
+        h23_j.2.2 p_B' m hp_B'_le_j hm w_B v3 hw_B' hv3
+      have hmax_pB'm_le_M : max p_B' m ≤ max n m :=
+        Nat.max_le.mpr ⟨hp_B'_le_M, hm_le_M⟩
+      have hve23' : ValueEq (j - max n m) w_B v3 :=
+        valueEq_mono (j - max n m) (j - max p_B' m)
+          (Nat.sub_le_sub_left hmax_pB'm_le_M j) _ _ hve23
+      exact valueEq_trans (j - max n m) v1 w_B v3 hve12' hve23'
+    | k + 1, .VConstr _ _, .VConstr _ _, .VConstr _ _, h12, h23 => by
+      unfold ValueEq at h12 h23 ⊢
+      exact ⟨h12.1.trans h23.1, listValueEq_trans k _ _ _ h12.2 h23.2⟩
+    | k + 1, .VBuiltin _ _ _, .VBuiltin _ _ _, .VBuiltin _ _ _, h12, h23 => by
       unfold ValueEq at h12 h23 ⊢
       exact ⟨h12.1.trans h23.1,
-        listValueEqAll_trans k _ _ _
-          (fun n => by have h := h12_all (n + 1); unfold ValueEq at h; exact h.2)
-          (fun n => by have h := h23_all (n + 1); unfold ValueEq at h; exact h.2)⟩
-    | k + 1, .VBuiltin _ _ _, .VBuiltin _ _ _, .VBuiltin _ _ _, h12_all, h23_all => by
-      have h12 := h12_all 2; have h23 := h23_all 2
-      unfold ValueEq at h12 h23 ⊢
-      exact ⟨h12.1.trans h23.1,
-        listValueEqAll_trans (_ + 1) _ _ _
-          (fun n => by
-            cases n with
-            | zero =>
-              have h1 := h12_all 1; unfold ValueEq at h1
-              exact listValueEq_mono 0 1 (by omega) _ _ h1.2.1
-            | succ n => have h := h12_all (n + 1); unfold ValueEq at h; exact h.2.1)
-          (fun n => by
-            cases n with
-            | zero =>
-              have h1 := h23_all 1; unfold ValueEq at h1
-              exact listValueEq_mono 0 1 (by omega) _ _ h1.2.1
-            | succ n => have h := h23_all (n + 1); unfold ValueEq at h; exact h.2.1),
-        h12.2.2.trans h23.2.2⟩
-    -- Impossible: v1 v2 different constructors (use h12_all 1)
+             listValueEq_trans (k + 1) _ _ _ h12.2.1 h23.2.1,
+             h12.2.2.trans h23.2.2⟩
+    -- Impossible: v₁, v₂ different constructors
     | _ + 1, .VCon _, .VLam _ _, _, h, _ | _ + 1, .VCon _, .VDelay _ _, _, h, _
     | _ + 1, .VCon _, .VConstr _ _, _, h, _ | _ + 1, .VCon _, .VBuiltin _ _ _, _, h, _
     | _ + 1, .VLam _ _, .VCon _, _, h, _ | _ + 1, .VLam _ _, .VDelay _ _, _, h, _
@@ -514,9 +432,8 @@ mutual
     | _ + 1, .VConstr _ _, .VDelay _ _, _, h, _ | _ + 1, .VConstr _ _, .VBuiltin _ _ _, _, h, _
     | _ + 1, .VBuiltin _ _ _, .VCon _, _, h, _ | _ + 1, .VBuiltin _ _ _, .VLam _ _, _, h, _
     | _ + 1, .VBuiltin _ _ _, .VDelay _ _, _, h, _
-    | _ + 1, .VBuiltin _ _ _, .VConstr _ _, _, h, _ => by
-      have := h 1; simp [ValueEq] at this
-    -- Impossible: v2 v3 different constructors (use h23_all 1)
+    | _ + 1, .VBuiltin _ _ _, .VConstr _ _, _, h, _ => by simp [ValueEq] at h
+    -- Impossible: v₂, v₃ different constructors
     | _ + 1, .VCon _, .VCon _, .VLam _ _, _, h | _ + 1, .VCon _, .VCon _, .VDelay _ _, _, h
     | _ + 1, .VCon _, .VCon _, .VConstr _ _, _, h | _ + 1, .VCon _, .VCon _, .VBuiltin _ _ _, _, h
     | _ + 1, .VLam _ _, .VLam _ _, .VCon _, _, h | _ + 1, .VLam _ _, .VLam _ _, .VDelay _ _, _, h
@@ -532,20 +449,19 @@ mutual
     | _ + 1, .VBuiltin _ _ _, .VBuiltin _ _ _, .VCon _, _, h
     | _ + 1, .VBuiltin _ _ _, .VBuiltin _ _ _, .VLam _ _, _, h
     | _ + 1, .VBuiltin _ _ _, .VBuiltin _ _ _, .VDelay _ _, _, h
-    | _ + 1, .VBuiltin _ _ _, .VBuiltin _ _ _, .VConstr _ _, _, h => by
-      have := h 1; simp [ValueEq] at this
-  theorem listValueEqAll_trans : ∀ (k : Nat) (vs₁ vs₂ vs₃ : List CekValue),
-      (∀ n, ListValueEq n vs₁ vs₂) → (∀ n, ListValueEq n vs₂ vs₃) →
-      ListValueEq k vs₁ vs₃
+    | _ + 1, .VBuiltin _ _ _, .VBuiltin _ _ _, .VConstr _ _, _, h => by simp [ValueEq] at h
+  termination_by k v _ _ _ _ => (k, sizeOf v)
+  theorem listValueEq_trans : ∀ (k : Nat) (vs₁ vs₂ vs₃ : List CekValue),
+      ListValueEq k vs₁ vs₂ → ListValueEq k vs₂ vs₃ → ListValueEq k vs₁ vs₃
     | _, [], [], [], _, _ => by simp [ListValueEq]
-    | _, [], _ :: _, _, h, _ => by have := h 0; simp [ListValueEq] at this
-    | _, _ :: _, [], _, h, _ => by have := h 0; simp [ListValueEq] at this
-    | _, [], [], _ :: _, _, h => by have := h 0; simp [ListValueEq] at this
-    | _, _ :: _, _ :: _, [], _, h => by have := h 0; simp [ListValueEq] at this
     | k, _ :: _, _ :: _, _ :: _, h12, h23 => by
       simp only [ListValueEq] at h12 h23 ⊢
-      exact ⟨valueEqAll_trans k _ _ _ (fun n => (h12 n).1) (fun n => (h23 n).1),
-             listValueEqAll_trans k _ _ _ (fun n => (h12 n).2) (fun n => (h23 n).2)⟩
+      exact ⟨valueEq_trans k _ _ _ h12.1 h23.1,
+             listValueEq_trans k _ _ _ h12.2 h23.2⟩
+    | _, [], _ :: _, _, h, _ | _, _ :: _, [], _, h, _ => by simp [ListValueEq] at h
+    | _, [], [], _ :: _, _, h => by simp [ListValueEq] at h
+    | _, _ :: _, _ :: _, [], _, h => by simp [ListValueEq] at h
+  termination_by k vs _ _ _ _ => (k, sizeOf vs)
 end
 
 private abbrev emptyEnv : List MIR.VarId := []
@@ -579,7 +495,7 @@ theorem behEqClosed_trans {a b c : Expr}
       refine ⟨herr12.trans herr23, hh12.trans hh23, ?_⟩
       intro k v₁ v₃ hv₁ hv₃
       obtain ⟨v₂, hv₂⟩ := hh12.mp ⟨v₁, hv₁⟩
-      exact valueEqAll_trans k v₁ v₂ v₃ (fun n => hv12 n v₁ v₂ hv₁ hv₂) (fun n => hv23 n v₂ v₃ hv₂ hv₃)
+      exact valueEq_trans k v₁ v₂ v₃ (hv12 k v₁ v₂ hv₁ hv₂) (hv23 k v₂ v₃ hv₂ hv₃)
 
 private theorem behEq_extract {m1 m2 : Expr} {env : List MIR.VarId} {t1 t2 : Term}
     (h1 : lowerTotalExpr env m1 = some t1) (h2 : lowerTotalExpr env m2 = some t2)
@@ -614,7 +530,7 @@ theorem behEq_trans {a b c : Expr}
       refine ⟨herr12.trans herr23, hh12.trans hh23, ?_⟩
       intro k v₁ v₃ hv₁ hv₃
       obtain ⟨v₂, hv₂⟩ := hh12.mp ⟨v₁, hv₁⟩
-      exact valueEqAll_trans k v₁ v₂ v₃ (fun n => hv12 n v₁ v₂ hv₁ hv₂) (fun n => hv23 n v₂ v₃ hv₂ hv₃)
+      exact valueEq_trans k v₁ v₂ v₃ (hv12 k v₁ v₂ hv₁ hv₂) (hv23 k v₂ v₃ hv₂ hv₃)
 
 /-- **Unconditional transitivity of refinement.** -/
 theorem refines_trans {a b c : Expr}
