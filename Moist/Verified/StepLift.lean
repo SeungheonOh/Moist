@@ -152,7 +152,7 @@ theorem steps_liftState (base : Stack) :
     and certify that all earlier steps were active. This is a well-founded
     search used by the beta decomposition lemmas to locate the point where
     the inner sub-computation finishes (halts or returns with empty stack). -/
-private theorem firstInactive (s : State) (bound : Nat)
+theorem firstInactive (s : State) (bound : Nat)
     (hex : ∃ k, k ≤ bound ∧ isActive (steps k s) = false) :
     ∃ K, K ≤ bound ∧ isActive (steps K s) = false ∧
          (∀ j, j < K → isActive (steps j s) = true) := by

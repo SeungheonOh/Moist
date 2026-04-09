@@ -1,9 +1,9 @@
-import Moist.Verified.FundamentalLemma
+import Moist.Verified.ValueEq
 
 /-! # Transitivity of Behavioral Equivalence and Refinement
 
 All transitivity theorems (`valueEq_trans`, `behEqClosed_trans`, `behEq_trans`,
-`refines_trans`) are now in `Moist.Verified.FundamentalLemma`.
+`refines_trans`) are now in `Moist.Verified.ValueEq`.
 
 This file re-exports them in the `Moist.Verified.Trans` namespace for backward
 compatibility. -/

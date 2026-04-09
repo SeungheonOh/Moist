@@ -1,6 +1,6 @@
 import Moist.Verified.Semantics
 import Moist.MIR.LowerTotal
-import Moist.Verified.FundamentalLemma
+import Moist.Verified.ValueEq
 
 /-! # Let Flattening ≡ Let Nesting
 

@@ -5,7 +5,7 @@ import Moist.MIR.LowerTotal
 import Moist.Plutus.DecidableEq
 import Moist.Verified.Bisim
 import Moist.Verified.Rename
-import Moist.Verified.FundamentalLemma
+import Moist.Verified.ValueEq
 
 set_option linter.unusedSimpArgs false
 

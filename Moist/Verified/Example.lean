@@ -2,7 +2,7 @@ import Moist.Verified.Semantics
 import Moist.Verified.DeadLet
 import Moist.Verified.Trans
 import Moist.Plutus.DecidableEq
-import Moist.Verified.FundamentalLemma
+import Moist.Verified.ValueEq
 
 namespace Moist.Verified.Example
 
