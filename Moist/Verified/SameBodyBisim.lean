@@ -426,7 +426,184 @@ private theorem evalBuiltinPassThrough_sbListRet_agree'
     (evalBuiltinPassThrough b args₁ = none ↔ evalBuiltinPassThrough b args₂ = none) ∧
     (∀ r₁ r₂, evalBuiltinPassThrough b args₁ = some r₁ →
      evalBuiltinPassThrough b args₂ = some r₂ → SBRetEvidence r₁ r₂) := by
-  sorry
+  -- Helpers for when both sides are none or both are some
+  have nc {as₁ as₂ : List CekValue} {b' : BuiltinFun}
+      (h₁ : evalBuiltinPassThrough b' as₁ = none) (h₂ : evalBuiltinPassThrough b' as₂ = none) :
+      (evalBuiltinPassThrough b' as₁ = none ↔ evalBuiltinPassThrough b' as₂ = none) ∧
+      (∀ r₁ r₂, evalBuiltinPassThrough b' as₁ = some r₁ →
+       evalBuiltinPassThrough b' as₂ = some r₂ → SBRetEvidence r₁ r₂) :=
+    ⟨⟨fun _ => h₂, fun _ => h₁⟩, fun _ _ hr₁ => by simp [h₁] at hr₁⟩
+  have sc {as₁ as₂ : List CekValue} {b' : BuiltinFun} {v₁ v₂ : CekValue}
+      (h₁ : evalBuiltinPassThrough b' as₁ = some v₁) (h₂ : evalBuiltinPassThrough b' as₂ = some v₂)
+      (hev : SBRetEvidence v₁ v₂) :
+      (evalBuiltinPassThrough b' as₁ = none ↔ evalBuiltinPassThrough b' as₂ = none) ∧
+      (∀ r₁ r₂, evalBuiltinPassThrough b' as₁ = some r₁ →
+       evalBuiltinPassThrough b' as₂ = some r₂ → SBRetEvidence r₁ r₂) :=
+    ⟨⟨fun h => by simp [h₁] at h, fun h => by simp [h₂] at h⟩,
+     fun r₁ r₂ hr₁ hr₂ => by
+       have := h₁ ▸ hr₁; have := h₂ ▸ hr₂; cases ‹some v₁ = some r₁›; cases ‹some v₂ = some r₂›; exact hev⟩
+  -- Helper: non-VCon value makes a specific pass-through builtin return none
+  have not_vcon_none : ∀ {v : CekValue}, (∀ c, v ≠ .VCon c) →
+      ∀ (f : CekValue → Option CekValue), (∀ c, f (.VCon c) = none ∨ ∃ r, f (.VCon c) = some r) →
+      (∀ v, (∀ c, v ≠ .VCon c) → f v = none) →
+      f v = none := fun hv f _ hf => hf _ hv
+  by_cases hb : b = .IfThenElse ∨ b = .ChooseUnit ∨ b = .Trace ∨
+                 b = .ChooseData ∨ b = .ChooseList ∨ b = .MkCons
+  · rcases hb with rfl | rfl | rfl | rfl | rfl | rfl
+    · -- IfThenElse [elseV, thenV, VCon (Bool cond)]
+      cases hargs with
+      | nil => exact absurd rfl h_ne
+      | cons hv1 hr1 => cases hr1 with
+        | nil => exact nc (by simp [evalBuiltinPassThrough]) (by simp [evalBuiltinPassThrough])
+        | cons hv2 hr2 => cases hr2 with
+          | nil => exact nc (by simp [evalBuiltinPassThrough]) (by simp [evalBuiltinPassThrough])
+          | cons hv3 hr3 => cases hr3 with
+            | cons _ _ => exact nc (by simp [evalBuiltinPassThrough]) (by simp [evalBuiltinPassThrough])
+            | nil =>
+              rcases sbRetEvidence_vcon_or_not hv3 with ⟨c, rfl, rfl⟩ | ⟨hne1, hne2⟩
+              · match c with
+                | .Bool false => exact sc rfl rfl hv1
+                | .Bool true => exact sc rfl rfl hv2
+                | .Integer _ | .ByteString _ | .String _ | .Unit | .Data _
+                | .ConstList _ | .ConstDataList _ | .ConstPairDataList _
+                | .Pair _ | .PairData _ | .ConstArray _
+                | .Bls12_381_G1_element | .Bls12_381_G2_element
+                | .Bls12_381_MlResult => exact nc rfl rfl
+              · have : ∀ a b (v : CekValue), (∀ c, v ≠ .VCon c) →
+                    evalBuiltinPassThrough .IfThenElse [a, b, v] = none := by
+                  intro a b v hv; cases v with
+                  | VCon c => exact absurd rfl (hv c)
+                  | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ => rfl
+                exact nc (this _ _ _ hne1) (this _ _ _ hne2)
+    · -- ChooseUnit [result, VCon Unit]
+      cases hargs with
+      | nil => exact absurd rfl h_ne
+      | cons hv1 hr1 => cases hr1 with
+        | nil => exact nc (by simp [evalBuiltinPassThrough]) (by simp [evalBuiltinPassThrough])
+        | cons hv2 hr2 => cases hr2 with
+          | cons _ _ => exact nc (by simp [evalBuiltinPassThrough]) (by simp [evalBuiltinPassThrough])
+          | nil =>
+            rcases sbRetEvidence_vcon_or_not hv2 with ⟨c, rfl, rfl⟩ | ⟨hne1, hne2⟩
+            · cases c with
+              | Unit => exact sc (by simp [evalBuiltinPassThrough]) (by simp [evalBuiltinPassThrough]) hv1
+              | _ => all_goals exact nc (by simp [evalBuiltinPassThrough]) (by simp [evalBuiltinPassThrough])
+            · have : ∀ a (v : CekValue), (∀ c, v ≠ .VCon c) →
+                  evalBuiltinPassThrough .ChooseUnit [a, v] = none := by
+                intro a v hv; cases v with
+                | VCon c => exact absurd rfl (hv c)
+                | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ => rfl
+              exact nc (this _ _ hne1) (this _ _ hne2)
+    · -- Trace [result, VCon (String _)]
+      cases hargs with
+      | nil => exact absurd rfl h_ne
+      | cons hv1 hr1 => cases hr1 with
+        | nil => exact nc (by simp [evalBuiltinPassThrough]) (by simp [evalBuiltinPassThrough])
+        | cons hv2 hr2 => cases hr2 with
+          | cons _ _ => exact nc (by simp [evalBuiltinPassThrough]) (by simp [evalBuiltinPassThrough])
+          | nil =>
+            rcases sbRetEvidence_vcon_or_not hv2 with ⟨c, rfl, rfl⟩ | ⟨hne1, hne2⟩
+            · cases c with
+              | String _ => exact sc (by simp [evalBuiltinPassThrough]) (by simp [evalBuiltinPassThrough]) hv1
+              | _ => all_goals exact nc (by simp [evalBuiltinPassThrough]) (by simp [evalBuiltinPassThrough])
+            · have : ∀ a (v : CekValue), (∀ c, v ≠ .VCon c) →
+                  evalBuiltinPassThrough .Trace [a, v] = none := by
+                intro a v hv; cases v with
+                | VCon c => exact absurd rfl (hv c)
+                | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ => rfl
+              exact nc (this _ _ hne1) (this _ _ hne2)
+    · -- ChooseData [bCase, iCase, listCase, mapCase, constrCase, VCon (Data d)]
+      cases hargs with
+      | nil => exact absurd rfl h_ne
+      | cons hv1 hr1 => cases hr1 with
+        | nil => exact nc (by simp [evalBuiltinPassThrough]) (by simp [evalBuiltinPassThrough])
+        | cons hv2 hr2 => cases hr2 with
+          | nil => exact nc (by simp [evalBuiltinPassThrough]) (by simp [evalBuiltinPassThrough])
+          | cons hv3 hr3 => cases hr3 with
+            | nil => exact nc (by simp [evalBuiltinPassThrough]) (by simp [evalBuiltinPassThrough])
+            | cons hv4 hr4 => cases hr4 with
+              | nil => exact nc (by simp [evalBuiltinPassThrough]) (by simp [evalBuiltinPassThrough])
+              | cons hv5 hr5 => cases hr5 with
+                | nil => exact nc (by simp [evalBuiltinPassThrough]) (by simp [evalBuiltinPassThrough])
+                | cons hv6 hr6 => cases hr6 with
+                  | cons _ _ => exact nc (by simp [evalBuiltinPassThrough]) (by simp [evalBuiltinPassThrough])
+                  | nil =>
+                    rcases sbRetEvidence_vcon_or_not hv6 with ⟨c, rfl, rfl⟩ | ⟨hne1, hne2⟩
+                    · cases c with
+                      | Data d => cases d with
+                        | Constr _ _ => exact sc (by simp [evalBuiltinPassThrough]) (by simp [evalBuiltinPassThrough]) hv5
+                        | Map _ => exact sc (by simp [evalBuiltinPassThrough]) (by simp [evalBuiltinPassThrough]) hv4
+                        | List _ => exact sc (by simp [evalBuiltinPassThrough]) (by simp [evalBuiltinPassThrough]) hv3
+                        | I _ => exact sc (by simp [evalBuiltinPassThrough]) (by simp [evalBuiltinPassThrough]) hv2
+                        | B _ => exact sc (by simp [evalBuiltinPassThrough]) (by simp [evalBuiltinPassThrough]) hv1
+                      | _ => all_goals exact nc (by simp [evalBuiltinPassThrough]) (by simp [evalBuiltinPassThrough])
+                    · have : ∀ a b c d e (v : CekValue), (∀ k, v ≠ .VCon k) →
+                          evalBuiltinPassThrough .ChooseData [a, b, c, d, e, v] = none := by
+                        intro a b c d e v hv; cases v with
+                        | VCon k => exact absurd rfl (hv k)
+                        | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ => rfl
+                      exact nc (this _ _ _ _ _ _ hne1) (this _ _ _ _ _ _ hne2)
+    · -- ChooseList [consCase, nilCase, VCon (ConstDataList/ConstList l)]
+      cases hargs with
+      | nil => exact absurd rfl h_ne
+      | cons hv1 hr1 => cases hr1 with
+        | nil => exact nc (by simp [evalBuiltinPassThrough]) (by simp [evalBuiltinPassThrough])
+        | cons hv2 hr2 => cases hr2 with
+          | nil => exact nc (by simp [evalBuiltinPassThrough]) (by simp [evalBuiltinPassThrough])
+          | cons hv3 hr3 => cases hr3 with
+            | cons _ _ => exact nc (by simp [evalBuiltinPassThrough]) (by simp [evalBuiltinPassThrough])
+            | nil =>
+              rcases sbRetEvidence_vcon_or_not hv3 with ⟨c, rfl, rfl⟩ | ⟨hne1, hne2⟩
+              · cases c with
+                | ConstDataList l =>
+                  cases h : l.isEmpty
+                  · exact sc (by simp [evalBuiltinPassThrough, h]) (by simp [evalBuiltinPassThrough, h]) hv1
+                  · exact sc (by simp [evalBuiltinPassThrough, h]) (by simp [evalBuiltinPassThrough, h]) hv2
+                | ConstList l =>
+                  cases h : l.isEmpty
+                  · exact sc (by simp [evalBuiltinPassThrough, h]) (by simp [evalBuiltinPassThrough, h]) hv1
+                  · exact sc (by simp [evalBuiltinPassThrough, h]) (by simp [evalBuiltinPassThrough, h]) hv2
+                | _ => all_goals exact nc (by simp [evalBuiltinPassThrough]) (by simp [evalBuiltinPassThrough])
+              · have : ∀ a b (v : CekValue), (∀ c, v ≠ .VCon c) →
+                    evalBuiltinPassThrough .ChooseList [a, b, v] = none := by
+                  intro a b v hv; cases v with
+                  | VCon c => exact absurd rfl (hv c)
+                  | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ => rfl
+                exact nc (this _ _ _ hne1) (this _ _ _ hne2)
+    · -- MkCons [VCon (ConstList tail), elem]
+      cases hargs with
+      | nil => exact absurd rfl h_ne
+      | cons hv1 hr1 => cases hr1 with
+        | nil => exact nc (by simp [evalBuiltinPassThrough]) (by simp [evalBuiltinPassThrough])
+        | cons hv2 hr2 => cases hr2 with
+          | cons _ _ => exact nc (by simp [evalBuiltinPassThrough]) (by simp [evalBuiltinPassThrough])
+          | nil =>
+            have hmk_not_vcon : ∀ (v₁ v₂ : CekValue), (∀ c, v₁ ≠ .VCon c) →
+                evalBuiltinPassThrough .MkCons [v₁, v₂] = none := by
+              intro v₁ v₂ hv; cases v₁ with
+              | VCon c => exact absurd rfl (hv c)
+              | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ => rfl
+            rcases sbRetEvidence_vcon_or_not hv1 with ⟨c1, rfl, rfl⟩ | ⟨hne1a, hne2a⟩
+            · rcases sbRetEvidence_vcon_or_not hv2 with ⟨c2, rfl, rfl⟩ | ⟨hne1b, hne2b⟩
+              · exact absurd rfl h_ne
+              · cases c1 with
+                | ConstList tail =>
+                  have : ∀ (v : CekValue), (∀ c, v ≠ .VCon c) →
+                      evalBuiltinPassThrough .MkCons [.VCon (.ConstList tail), v] = none := by
+                    intro v hv; cases v with
+                    | VCon c => exact absurd rfl (hv c)
+                    | VLam _ _ | VDelay _ _ | VConstr _ _ | VBuiltin _ _ _ => rfl
+                  exact nc (this _ hne1b) (this _ hne2b)
+                | _ => all_goals exact nc (by simp [evalBuiltinPassThrough]) (by simp [evalBuiltinPassThrough])
+            · exact nc (hmk_not_vcon _ _ hne1a) (hmk_not_vcon _ _ hne2a)
+  · have hb_not : b ≠ .IfThenElse ∧ b ≠ .ChooseUnit ∧ b ≠ .Trace ∧
+                   b ≠ .ChooseData ∧ b ≠ .ChooseList ∧ b ≠ .MkCons :=
+      ⟨fun h => hb (h ▸ .inl rfl), fun h => hb (h ▸ .inr (.inl rfl)),
+       fun h => hb (h ▸ .inr (.inr (.inl rfl))),
+       fun h => hb (h ▸ .inr (.inr (.inr (.inl rfl)))),
+       fun h => hb (h ▸ .inr (.inr (.inr (.inr (.inl rfl))))),
+       fun h => hb (h ▸ .inr (.inr (.inr (.inr (.inr rfl)))))⟩
+    exact nc (evalBuiltinPassThrough_none_of_not_passthrough b args₁ hb_not)
+             (evalBuiltinPassThrough_none_of_not_passthrough b args₂ hb_not)
 
 /-- evalBuiltin agreement from SBListRetEvidence. -/
 private theorem evalBuiltin_sbListRet_agree' (b : BuiltinFun)
@@ -1846,14 +2023,19 @@ private theorem applyFunV_halt_transfer_sbret (N : Nat) (fwd : FwdCallback N)
       exfalso; cases Nmid with
       | zero => simp [steps] at hNmid
       | succ M => simp [steps, step, steps_error] at hNmid
-    | .VBuiltin _ _ _ =>
-      -- VBuiltin sub-case: the funV-frame variant requires constructing
-      -- ValueEq k (VBuiltin b (vx₁ :: args_mid) rest) (VBuiltin b (vx₂ :: args_2) rest)
-      -- which mixes arguments from h2 (over args_mid/args_2) with hevx (over vx₁/vx₂).
-      -- The hevx leg requires sbRetToVeq with a callback, which complicates the
-      -- construction. This sub-case is unreachable in practice (composedVeq is
-      -- produced by the Apply halt VLam case for VLam closures, not VBuiltins).
-      exact sorry
+    | .VBuiltin b_mid args_mid ea_mid =>
+      match vf₂ with
+      | .VBuiltin b₂ args_2 ea₂ =>
+        have hveq_b := h2 1; unfold ValueEq at hveq_b
+        obtain ⟨hb_eq, _, hea_eq, _, _⟩ := hveq_b
+        subst hb_eq; subst hea_eq
+        obtain ⟨_, hhalt_agree⟩ := vbuiltin_funV_step_agree b_mid args_mid args_2 ea_mid
+          (vbuiltin_veqAll_to_sbListRetEvidence h2) vx₂ vx₂ .refl
+        obtain ⟨w₂, M', hM', hev_w⟩ := hhalt_agree Nmid w_mid hNmid
+        exact ⟨w₂, ⟨M', hM'⟩,
+          .composedVeq hev_v1_wmid (veq_cb _ _ hev_v1_wmid) fun k => veq_cb _ _ hev_w k⟩
+      | .VCon _ | .VLam _ _ | .VDelay _ _ | .VConstr _ _ =>
+        exact absurd (h2 1) (by simp [ValueEq])
 
 /-- Unbounded version of FwdCallback for the bridge functions. -/
 private abbrev FwdCallbackUnbounded :=
