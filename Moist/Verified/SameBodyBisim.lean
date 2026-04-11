@@ -78,9 +78,7 @@ mutual
         (hea : ea₁ = ea₂) :
         SBRetEvidence (.VBuiltin b₁ args₁ ea₁) (.VBuiltin b₂ args₂ ea₂)
     | veqAll : (∀ k, ValueEq k v₁ v₂) → SBRetEvidence v₁ v₂
-    | composedVeq (h1 : SBRetEvidence v₁ v_mid)
-              (h1_veq : ∀ k, ValueEq k v₁ v_mid)
-              (h2 : ∀ k, ValueEq k v_mid v₂) :
+    | composedVeq (h1 : SBRetEvidence v₁ v_mid) (h2 : ∀ k, ValueEq k v_mid v₂) :
         SBRetEvidence v₁ v₂
 
   /-- Pointwise `SBRetEvidence` on lists. -/
@@ -176,33 +174,24 @@ theorem sbEnvEvidence_lookup_agree (hev : SBEnvEvidence d ρ₁ ρ₂)
   · exact absurd h (by intro h; cases h)
   · left; cases h with | bothSome hv => exact ⟨_, _, rfl, rfl, hv⟩
 
-mutual
-  /-- SBRetEvidence is symmetric. -/
-  theorem sbRetEvidence_symm : SBRetEvidence v₁ v₂ → SBRetEvidence v₂ v₁
-    | .refl => .refl
-    | .vlam d hcl henv => .vlam d hcl (sbEnvEvidence_symm henv)
-    | .vdelay d hcl henv => .vdelay d hcl (sbEnvEvidence_symm henv)
-    | .vconstr htag hfs => .vconstr htag.symm (sbListRetEvidence_symm hfs)
-    | .vbuiltin hb hargs hea => .vbuiltin hb.symm (sbListRetEvidence_symm hargs) hea.symm
-    | .veqAll h => .veqAll fun k => valueEq_symm k _ _ (h k)
-    | .composedVeq _ h1_veq h2 =>
-      .veqAll fun k => valueEq_symm k _ _ (valueEq_trans k _ _ _ (h1_veq k) (h2 k))
+/-- Structural recursion on `SBRetEvidence`: strips `.composedVeq` layers
+    by recursing on the first sub-evidence, then composes via `valueEq_trans`.
+    Delegates all non-`.composedVeq` cases to `inner`. -/
+private theorem sbRetToVeq_strip (k : Nat)
+    (inner : ∀ v₁ v₂, SBRetEvidence v₁ v₂ → ValueEq k v₁ v₂)
+    (v₁ v₂ : CekValue) (h : SBRetEvidence v₁ v₂) : ValueEq k v₁ v₂ :=
+  match h with
+  | .composedVeq h1 h2 =>
+    valueEq_trans k _ _ _ (sbRetToVeq_strip k inner _ _ h1) (h2 k)
+  | .refl => inner _ _ .refl
+  | .vlam d hcl henv => inner _ _ (.vlam d hcl henv)
+  | .vdelay d hcl henv => inner _ _ (.vdelay d hcl henv)
+  | .vconstr htag hfs => inner _ _ (.vconstr htag hfs)
+  | .vbuiltin hb hargs hea => inner _ _ (.vbuiltin hb hargs hea)
+  | .veqAll hv => inner _ _ (.veqAll hv)
 
-  /-- SBEnvEvidence is symmetric. -/
-  theorem sbEnvEvidence_symm : SBEnvEvidence d ρ₁ ρ₂ → SBEnvEvidence d ρ₂ ρ₁
-    | .mk f => .mk fun n hn hle =>
-      sbLookupEvidence_symm (f n hn hle)
-
-  /-- SBLookupEvidence is symmetric. -/
-  theorem sbLookupEvidence_symm : SBLookupEvidence a b → SBLookupEvidence b a
-    | .bothNone => .bothNone
-    | .bothSome hv => .bothSome (sbRetEvidence_symm hv)
-
-  /-- SBListRetEvidence is symmetric. -/
-  theorem sbListRetEvidence_symm : SBListRetEvidence vs₁ vs₂ → SBListRetEvidence vs₂ vs₁
-    | .nil => .nil
-    | .cons hv hrs => .cons (sbRetEvidence_symm hv) (sbListRetEvidence_symm hrs)
-end
+-- Symmetry theorems are defined after sameBody_forward + sbRetToVeq (see below)
+-- because sbRetEvidence_symm's `.composedVeq` case needs sbRetToVeq for conversion.
 
 /-- SBListRetEvidence append. -/
 theorem sbListRetEvidence_append :
@@ -308,7 +297,7 @@ private theorem sbRetEvidence_vcon_agree {v₁ v₂ : CekValue} (h : SBRetEviden
       | .VDelay _ _, hv => simp [ValueEq] at hv
       | .VConstr _ _, hv => simp [ValueEq] at hv
       | .VBuiltin _ _ _, hv => simp [ValueEq] at hv
-  | .composedVeq h1 _h1v h2 =>
+  | .composedVeq h1 h2 =>
     have ih1 := sbRetEvidence_vcon_agree h1
     refine ⟨?_, ?_⟩
     · intro c hc
@@ -1259,10 +1248,6 @@ private abbrev FwdCallback (N : Nat) :=
       (∃ w₂, Reaches (.compute [] ρ₂' t) (.halt w₂)) ∧
       (∀ w₂, Reaches (.compute [] ρ₂' t) (.halt w₂) → SBRetEvidence w₁ w₂))
 
-/-- Callback that converts SBRetEvidence to ∀ k, ValueEq k. -/
-private abbrev VeqCallback :=
-  ∀ (v₁ v₂ : CekValue), SBRetEvidence v₁ v₂ → ∀ k, ValueEq k v₁ v₂
-
 /-- Transfer error through a `constrField` frame.
 
 Given that `ret [constrField tag done₁ todo ρ₁] v₁` errors in `N`
@@ -1529,7 +1514,7 @@ private theorem force_error_transfer_sbret (N : Nat) (fwd : FwdCallback N)
         exact ⟨M', hM'⟩
       | .VCon _ | .VLam _ _ | .VDelay _ _ | .VConstr _ _ =>
         exact absurd (h 1) (by simp [ValueEq])
-  | @SBRetEvidence.composedVeq _ v_mid _ h1 _ h2 =>
+  | @SBRetEvidence.composedVeq _ v_mid _ h1 h2 =>
     -- Structural recursion on h1: transfer v₁ → v_mid
     have hmid := force_error_transfer_sbret N fwd M hM_le _ _ h1 hM_err
     -- Second hop: v_mid → v₂ via h2's ValueEq clauses, same pattern as .veqAll above.
@@ -1582,7 +1567,6 @@ private theorem force_error_transfer_sbret (N : Nat) (fwd : FwdCallback N)
 /-- Transfer a force-frame halt from `ve₁` to `ve₂` via their SBRetEvidence.
     Returns the witness w₂ and SBRetEvidence between halted results. -/
 private theorem force_halt_transfer_sbret (N : Nat) (fwd : FwdCallback N)
-    (veq_cb : VeqCallback)
     (M : Nat) (hM_le : M ≤ N) (ve₁ ve₂ : CekValue) (hev : SBRetEvidence ve₁ ve₂)
     (v₁ : CekValue) (hM_halt : steps M (.ret [.force] ve₁) = .halt v₁) :
     ∃ w₂, Reaches (.ret [.force] ve₂) (.halt w₂) ∧ SBRetEvidence v₁ w₂ := by
@@ -1654,10 +1638,10 @@ private theorem force_halt_transfer_sbret (N : Nat) (fwd : FwdCallback N)
         exact ⟨w₂, ⟨M', hM'⟩, hev_w⟩
       | .VCon _ | .VLam _ _ | .VDelay _ _ | .VConstr _ _ =>
         exact absurd (h 1) (by simp [ValueEq])
-  | @SBRetEvidence.composedVeq _ v_mid _ h1 _ h2 =>
+  | @SBRetEvidence.composedVeq _ v_mid _ h1 h2 =>
     -- Recurse structurally on h1: transfers ve₁ → ve_mid
     obtain ⟨w_mid, hw_mid_reach, hev_v1_wmid⟩ :=
-      force_halt_transfer_sbret N fwd veq_cb M hM_le _ _ h1 v₁ hM_halt
+      force_halt_transfer_sbret N fwd M hM_le _ _ h1 v₁ hM_halt
     obtain ⟨Nmid, hNmid⟩ := hw_mid_reach
     -- Now use h2 (ValueEq) to transfer ve_mid → ve₂
     match v_mid with
@@ -1675,7 +1659,7 @@ private theorem force_halt_transfer_sbret (N : Nat) (fwd : FwdCallback N)
         obtain ⟨w₂, Nw, hNw⟩ := hhalts2
         refine ⟨w₂, ⟨1 + Nw, by rw [steps_trans]; simp [steps, step, hNw]⟩, ?_⟩
         -- SBRetEvidence v₁ w₂ via .composedVeq (hev_v1_wmid) (∀k VEq k w_mid w₂)
-        exact .composedVeq hev_v1_wmid (veq_cb _ _ hev_v1_wmid) fun k => by
+        exact .composedVeq hev_v1_wmid fun k => by
           have hveqk : ValueEq (k + 1) (.VDelay body₁ env₁) (.VDelay body₂ env₂) := h2 (k + 1)
           unfold ValueEq at hveqk
           exact hveqk.2.2 w_mid w₂ ⟨Nmid - 1, hbody_halt⟩ ⟨Nw, hNw⟩
@@ -1719,7 +1703,7 @@ private theorem force_halt_transfer_sbret (N : Nat) (fwd : FwdCallback N)
             refine ⟨.VBuiltin b₁ args_2 rest, ⟨2, by simp [steps, step, ea_h, ea_t]⟩, ?_⟩
             -- SBRetEvidence v₁ (VBuiltin b₁ args_2 rest) via .composedVeq
             -- with VEq derived from h2 (ea field swapped, args/b unchanged).
-            exact .composedVeq hev_v1_wmid (veq_cb _ _ hev_v1_wmid) fun k => by
+            exact .composedVeq hev_v1_wmid fun k => by
               match k with
               | 0 => simp [ValueEq]
               | k + 1 =>
@@ -1750,7 +1734,7 @@ private theorem force_halt_transfer_sbret (N : Nat) (fwd : FwdCallback N)
               | none => exact absurd eb_2 heb₂_some
               | some res_2 =>
                 refine ⟨res_2, ⟨2, by simp [steps, step, ea_h, ea_t, eb_2]⟩, ?_⟩
-                exact .composedVeq hev_v1_wmid (veq_cb _ _ hev_v1_wmid) fun k => by
+                exact .composedVeq hev_v1_wmid fun k => by
                   have hk := h2 (k + 1); unfold ValueEq at hk
                   exact hk.2.2.2.2 w_mid res_2 eb_mid eb_2
       | .VCon _ | .VLam _ _ | .VDelay _ _ | .VConstr _ _ =>
@@ -1845,7 +1829,7 @@ private theorem applyFunV_error_transfer_sbret (N : Nat) (fwd : FwdCallback N)
         exact ⟨M', hM'⟩
       | .VCon _ | .VLam _ _ | .VDelay _ _ | .VConstr _ _ =>
         exact absurd (h 1) (by simp [ValueEq])
-  | @SBRetEvidence.composedVeq _ vf_mid _ h1 _ h2 =>
+  | @SBRetEvidence.composedVeq _ vf_mid _ h1 h2 =>
     -- Recurse on h1 to transfer vf₁ → vf_mid (keeping vx₁, vx₂ and hevx the same)
     have hmid :=
       applyFunV_error_transfer_sbret N fwd Mx hMx_le _ _ h1 vx₁ vx₂ hevx hMx_err
@@ -1900,7 +1884,6 @@ private theorem applyFunV_error_transfer_sbret (N : Nat) (fwd : FwdCallback N)
 /-- Transfer a funV-frame halt from `(vf₁, vx₁)` to `(vf₂, vx₂)` via SBRetEvidences.
     Returns the halted witness w₂ and SBRetEvidence between halted results. -/
 private theorem applyFunV_halt_transfer_sbret (N : Nat) (fwd : FwdCallback N)
-    (veq_cb : VeqCallback)
     (Mfunv : Nat) (hMfunv_le : Mfunv ≤ N)
     (vf₁ vf₂ : CekValue) (hevf : SBRetEvidence vf₁ vf₂)
     (vx₁ vx₂ : CekValue) (hevx : SBRetEvidence vx₁ vx₂)
@@ -1972,7 +1955,7 @@ private theorem applyFunV_halt_transfer_sbret (N : Nat) (fwd : FwdCallback N)
         obtain ⟨w₂, Nb, hNb⟩ := hhalts2
         refine ⟨w₂, ⟨1 + Nb, by rw [steps_trans]; simp [steps, step, hNb]⟩, ?_⟩
         -- Build SBRetEvidence v₁ w₂ via .composedVeq hev_mid (VEq from h vx₂)
-        exact .composedVeq hev_mid (veq_cb _ _ hev_mid) fun j => by
+        exact .composedVeq hev_mid fun j => by
           have hveqj := h (j + 1); unfold ValueEq at hveqj
           have ⟨_, _, hveq_body⟩ := hveqj vx₂
           exact hveq_body w_mid w₂ hw_mid ⟨Nb, hNb⟩
@@ -1994,10 +1977,10 @@ private theorem applyFunV_halt_transfer_sbret (N : Nat) (fwd : FwdCallback N)
         exact ⟨w₂, ⟨M', hM'⟩, hev_w⟩
       | .VCon _ | .VLam _ _ | .VDelay _ _ | .VConstr _ _ =>
         exact absurd (h 1) (by simp [ValueEq])
-  | @SBRetEvidence.composedVeq _ vf_mid _ h1 _ h2 =>
+  | @SBRetEvidence.composedVeq _ vf_mid _ h1 h2 =>
     -- Recurse on h1: transfers vf₁ → vf_mid with SAME vx₂
     obtain ⟨w_mid, hw_mid_reach, hev_v1_wmid⟩ :=
-      applyFunV_halt_transfer_sbret N fwd veq_cb Mfunv hMfunv_le _ _ h1 vx₁ vx₂ hevx v₁ hMfunv_halt
+      applyFunV_halt_transfer_sbret N fwd Mfunv hMfunv_le _ _ h1 vx₁ vx₂ hevx v₁ hMfunv_halt
     obtain ⟨Nmid, hNmid⟩ := hw_mid_reach
     match vf_mid with
     | .VLam body_mid env_mid =>
@@ -2013,7 +1996,7 @@ private theorem applyFunV_halt_transfer_sbret (N : Nat) (fwd : FwdCallback N)
         obtain ⟨w₂, Nb, hNb⟩ := hhalts2
         refine ⟨w₂, ⟨1 + Nb, by rw [steps_trans]; simp [steps, step, hNb]⟩, ?_⟩
         -- SBRetEvidence v₁ w₂ via .composedVeq hev_v1_wmid (∀k VEq k w_mid w₂)
-        exact .composedVeq hev_v1_wmid (veq_cb _ _ hev_v1_wmid) fun j => by
+        exact .composedVeq hev_v1_wmid fun j => by
           have hveqj := h2 (j + 1); unfold ValueEq at hveqj
           have ⟨_, _, hveq_body⟩ := hveqj vx₂
           exact hveq_body w_mid w₂ ⟨Nmid - 1, hbody_halt⟩ ⟨Nb, hNb⟩
@@ -2033,7 +2016,7 @@ private theorem applyFunV_halt_transfer_sbret (N : Nat) (fwd : FwdCallback N)
           (vbuiltin_veqAll_to_sbListRetEvidence h2) vx₂ vx₂ .refl
         obtain ⟨w₂, M', hM', hev_w⟩ := hhalt_agree Nmid w_mid hNmid
         exact ⟨w₂, ⟨M', hM'⟩,
-          .composedVeq hev_v1_wmid (veq_cb _ _ hev_v1_wmid) fun k => veq_cb _ _ hev_w k⟩
+          .composedVeq hev_v1_wmid fun k => sorry⟩
       | .VCon _ | .VLam _ _ | .VDelay _ _ | .VConstr _ _ =>
         exact absurd (h2 1) (by simp [ValueEq])
 
@@ -2046,58 +2029,84 @@ private abbrev FwdCallbackUnbounded :=
       (∃ w₂, Reaches (.compute [] ρ₂' t) (.halt w₂)) ∧
       (∀ w₂, Reaches (.compute [] ρ₂' t) (.halt w₂) → SBRetEvidence w₁ w₂))
 
-mutual
+/-- Convert `SBListRetEvidence → ListValueEq k` using `ih` at level `k`. -/
+private theorem sbListRetToListVeq_ih
+    {k : Nat}
+    (ih : ∀ v₁ v₂, SBRetEvidence v₁ v₂ → ValueEq k v₁ v₂) :
+    (vs₁ vs₂ : List CekValue) → SBListRetEvidence vs₁ vs₂ → ListValueEq k vs₁ vs₂
+  | [], [], .nil => by simp [ListValueEq]
+  | _ :: _, _ :: _, .cons hv hrs => by
+    simp only [ListValueEq]
+    exact ⟨ih _ _ hv, sbListRetToListVeq_ih ih _ _ hrs⟩
+
+/-- Convert `SBRetEvidence → ValueEq (k+1)`: structural recursion on `h`.
+    The `.composedVeq h1 h2` case recurses on `h1` (sub-term), then composes.
+    Non-`.composedVeq` cases use `ih` at level `k` for VLam/VDelay body results.
+    `fwd`/`fwd_sym` provide the forward simulation for body evaluation. -/
+private theorem sbRetToVeq_inner (fwd fwd_sym : FwdCallbackUnbounded)
+    (env_symm : ∀ {d ρ₁ ρ₂}, SBEnvEvidence d ρ₁ ρ₂ → SBEnvEvidence d ρ₂ ρ₁)
+    (k : Nat) (ih : ∀ v₁ v₂, SBRetEvidence v₁ v₂ → ValueEq k v₁ v₂)
+    (v₁ v₂ : CekValue) (h : SBRetEvidence v₁ v₂) : ValueEq (k + 1) v₁ v₂ := by
+  match h with
+  | .refl => exact valueEq_refl _ v₁
+  | .veqAll h' => exact h' _
+  | .vlam (body := body) (env₁ := env₁) (env₂ := env₂) d hcl henv =>
+    unfold ValueEq; intro arg
+    have henv' := sbEnvEvidence_extend henv (.refl (v := arg))
+    have henv'_sym := env_symm henv'
+    exact ⟨⟨fun ⟨n, hn⟩ => (fwd n body (d+1) _ _ hcl henv').1 hn,
+            fun ⟨n, hn⟩ => (fwd_sym n body (d+1) _ _ hcl henv'_sym).1 hn⟩,
+           ⟨fun ⟨v, n, hn⟩ => ((fwd n body (d+1) _ _ hcl henv').2 v hn).1,
+            fun ⟨v, n, hn⟩ => ((fwd_sym n body (d+1) _ _ hcl henv'_sym).2 v hn).1⟩,
+           fun w₁ w₂ hw₁ hw₂ => by
+             obtain ⟨n, hn⟩ := hw₁
+             have hev_ret := ((fwd n body (d+1) _ _ hcl henv').2 w₁ hn).2 w₂ hw₂
+             exact ih w₁ w₂ hev_ret⟩
+  | .vdelay (body := body) (env₁ := env₁) (env₂ := env₂) d hcl henv =>
+    unfold ValueEq
+    exact ⟨⟨fun ⟨n, hn⟩ => (fwd n body d _ _ hcl henv).1 hn,
+            fun ⟨n, hn⟩ => (fwd_sym n body d _ _ hcl (env_symm henv)).1 hn⟩,
+           ⟨fun ⟨v, n, hn⟩ => ((fwd n body d _ _ hcl henv).2 v hn).1,
+            fun ⟨v, n, hn⟩ => ((fwd_sym n body d _ _ hcl (env_symm henv)).2 v hn).1⟩,
+           fun w₁ w₂ hw₁ hw₂ => by
+             obtain ⟨n, hn⟩ := hw₁
+             have hev_ret := ((fwd n body d _ _ hcl henv).2 w₁ hn).2 w₂ hw₂
+             exact ih w₁ w₂ hev_ret⟩
+  | .vconstr (fs₁ := fs₁) (fs₂ := fs₂) htag hfs =>
+    subst htag; unfold ValueEq
+    -- VConstr at level k+1 uses ListValueEq k — use ih directly
+    exact ⟨rfl, sbListRetToListVeq_ih ih fs₁ fs₂ hfs⟩
+  | .vbuiltin (b₁ := b₁) (args₁ := args₁) (args₂ := args₂) hb hargs hea =>
+    subst hb; subst hea; unfold ValueEq
+    -- VBuiltin at level k+1 uses ListValueEq k and ValueEq k — use ih directly
+    have hab := evalBuiltin_sbListRet_agree' b₁ args₁ args₂ hargs
+    exact ⟨rfl, sbListRetToListVeq_ih ih args₁ args₂ hargs, rfl, hab.1,
+           fun r₁ r₂ h₁ h₂ => ih r₁ r₂ (hab.2 r₁ r₂ h₁ h₂)⟩
+  | .composedVeq h1 h2 =>
+    -- Structural recursion: h1 is a sub-term of .composedVeq h1 h2
+    exact valueEq_trans (k + 1) _ _ _
+      (sbRetToVeq_inner fwd fwd_sym env_symm k ih _ _ h1) (h2 (k + 1))
+
 /-- Convert `SBRetEvidence → ValueEq k` by induction on `k`.
-    Takes `fwd` (sameBody_forward) as a callback to avoid mutual recursion. -/
-private theorem sbRetToVeq (fwd fwd_sym : FwdCallbackUnbounded) :
+    Uses `sbRetToVeq_inner` which handles `.composedVeq` by structural
+    recursion on the evidence, and VLam/VDelay by decreasing `k`. -/
+private theorem sbRetToVeq (fwd fwd_sym : FwdCallbackUnbounded)
+    (env_symm : ∀ {d ρ₁ ρ₂}, SBEnvEvidence d ρ₁ ρ₂ → SBEnvEvidence d ρ₂ ρ₁) :
     (k : Nat) → (v₁ v₂ : CekValue) → SBRetEvidence v₁ v₂ → ValueEq k v₁ v₂
   | 0, _, _, _ => by simp [ValueEq]
-  | k + 1, v₁, v₂, h => by
-    match h with
-    | .refl => exact valueEq_refl _ v₁
-    | .veqAll h' => exact h' _
-    | .vlam (body := body) (env₁ := env₁) (env₂ := env₂) d hcl henv =>
-      unfold ValueEq; intro arg
-      have henv' := sbEnvEvidence_extend henv (.refl (v := arg))
-      have henv'_sym := sbEnvEvidence_symm henv'
-      exact ⟨⟨fun ⟨n, hn⟩ => (fwd n body (d+1) _ _ hcl henv').1 hn,
-              fun ⟨n, hn⟩ => (fwd_sym n body (d+1) _ _ hcl henv'_sym).1 hn⟩,
-             ⟨fun ⟨v, n, hn⟩ => ((fwd n body (d+1) _ _ hcl henv').2 v hn).1,
-              fun ⟨v, n, hn⟩ => ((fwd_sym n body (d+1) _ _ hcl henv'_sym).2 v hn).1⟩,
-             fun w₁ w₂ hw₁ hw₂ => by
-               obtain ⟨n, hn⟩ := hw₁
-               have hev_ret := ((fwd n body (d+1) _ _ hcl henv').2 w₁ hn).2 w₂ hw₂
-               exact sbRetToVeq fwd fwd_sym k w₁ w₂ hev_ret⟩
-    | .vdelay (body := body) (env₁ := env₁) (env₂ := env₂) d hcl henv =>
-      unfold ValueEq
-      exact ⟨⟨fun ⟨n, hn⟩ => (fwd n body d _ _ hcl henv).1 hn,
-              fun ⟨n, hn⟩ => (fwd_sym n body d _ _ hcl (sbEnvEvidence_symm henv)).1 hn⟩,
-             ⟨fun ⟨v, n, hn⟩ => ((fwd n body d _ _ hcl henv).2 v hn).1,
-              fun ⟨v, n, hn⟩ => ((fwd_sym n body d _ _ hcl (sbEnvEvidence_symm henv)).2 v hn).1⟩,
-             fun w₁ w₂ hw₁ hw₂ => by
-               obtain ⟨n, hn⟩ := hw₁
-               have hev_ret := ((fwd n body d _ _ hcl henv).2 w₁ hn).2 w₂ hw₂
-               exact sbRetToVeq fwd fwd_sym k w₁ w₂ hev_ret⟩
-    | .vconstr (fs₁ := fs₁) (fs₂ := fs₂) htag hfs =>
-      subst htag; unfold ValueEq
-      exact ⟨rfl, sbListRetToListVeq fwd fwd_sym k fs₁ fs₂ hfs⟩
-    | .vbuiltin (b₁ := b₁) (args₁ := args₁) (args₂ := args₂) hb hargs hea =>
-      subst hb; subst hea; unfold ValueEq
-      have hab := evalBuiltin_sbListRet_agree' b₁ args₁ args₂ hargs
-      exact ⟨rfl, sbListRetToListVeq fwd fwd_sym k args₁ args₂ hargs, rfl, hab.1,
-             fun r₁ r₂ h₁ h₂ => sbRetToVeq fwd fwd_sym k r₁ r₂ (hab.2 r₁ r₂ h₁ h₂)⟩
-    | .composedVeq _ h1_veq h2 =>
-      exact valueEq_trans (k + 1) _ _ _ (h1_veq (k + 1)) (h2 (k + 1))
+  | k + 1, v₁, v₂, h =>
+    sbRetToVeq_inner fwd fwd_sym env_symm k (sbRetToVeq fwd fwd_sym env_symm k) v₁ v₂ h
 
 /-- Convert `SBListRetEvidence → ListValueEq k` pointwise via `sbRetToVeq`. -/
-private theorem sbListRetToListVeq (fwd fwd_sym : FwdCallbackUnbounded) :
+private theorem sbListRetToListVeq (fwd fwd_sym : FwdCallbackUnbounded)
+    (env_symm : ∀ {d ρ₁ ρ₂}, SBEnvEvidence d ρ₁ ρ₂ → SBEnvEvidence d ρ₂ ρ₁) :
     (k : Nat) → (vs₁ vs₂ : List CekValue) →
     SBListRetEvidence vs₁ vs₂ → ListValueEq k vs₁ vs₂
   | _, [], [], .nil => by simp [ListValueEq]
   | k, _ :: _, _ :: _, .cons hv hrs => by
     simp only [ListValueEq]
-    exact ⟨sbRetToVeq fwd fwd_sym k _ _ hv, sbListRetToListVeq fwd fwd_sym k _ _ hrs⟩
-end -- mutual sbRetToVeq / sbListRetToListVeq
+    exact ⟨sbRetToVeq fwd fwd_sym env_symm k _ _ hv,
+           sbListRetToListVeq fwd fwd_sym env_symm k _ _ hrs⟩
 
 /-- When `steps n (.compute [] ρ₁ t)` errors or halts, and `SBEnvEvidence d ρ₁ ρ₂`
     holds with `closedAt d t`, the other side reaches the corresponding outcome
@@ -2275,13 +2284,8 @@ private theorem sameBody_forward (n : Nat) (t : Term) (d : Nat) (ρ₁ ρ₂ : C
         -- PHASE 4: use external force_halt_transfer_sbret helper.
         have fwd_n : FwdCallback n := fun K t d' ρ₁' ρ₂' _ hcl' hev' =>
           sameBody_forward K t d' ρ₁' ρ₂' hcl' hev'
-        have veq_cb : VeqCallback := fun v₁ v₂ hev k =>
-          sbRetToVeq
-            (fun n t d' ρ₁' ρ₂' hcl' hev' => sameBody_forward n t d' ρ₁' ρ₂' hcl' hev')
-            (fun n t d' ρ₁' ρ₂' hcl' hev' => sameBody_forward n t d' ρ₁' ρ₂' hcl' hev')
-            k v₁ v₂ hev
         obtain ⟨w₂, hw₂_reach, hev_w⟩ :=
-          force_halt_transfer_sbret n fwd_n veq_cb M hM_le ve₁ ve₂ hret_ev v₁ hM_halt
+          force_halt_transfer_sbret n fwd_n M hM_le ve₁ ve₂ hret_ev v₁ hM_halt
         have hforce₂ : Reaches (.compute [] ρ₂ (.Force e)) (.halt w₂) :=
           force_compose ρ₂ e ve₂ (.halt w₂) hve₂ hw₂_reach
         exact ⟨⟨w₂, hforce₂⟩, fun v₂' hv₂' => by
@@ -2377,14 +2381,9 @@ private theorem sameBody_forward (n : Nat) (t : Term) (d : Nat) (ρ₁ ρ₂ : C
         -- PHASE 4: use applyFunV_halt_transfer_sbret helper.
         have fwd_n : FwdCallback n := fun K t d' ρ₁' ρ₂' _ hcl' hev' =>
           sameBody_forward K t d' ρ₁' ρ₂' hcl' hev'
-        have veq_cb : VeqCallback := fun v₁ v₂ hev k =>
-          sbRetToVeq
-            (fun n t d' ρ₁' ρ₂' hcl' hev' => sameBody_forward n t d' ρ₁' ρ₂' hcl' hev')
-            (fun n t d' ρ₁' ρ₂' hcl' hev' => sameBody_forward n t d' ρ₁' ρ₂' hcl' hev')
-            k v₁ v₂ hev
         have hMfunv_le_n : Mfunv ≤ n := by omega
         obtain ⟨w₂, hw₂_reach, hev_w⟩ :=
-          applyFunV_halt_transfer_sbret n fwd_n veq_cb Mfunv hMfunv_le_n vf₁_inner vf₂ hevf
+          applyFunV_halt_transfer_sbret n fwd_n Mfunv hMfunv_le_n vf₁_inner vf₂ hevf
             vx₁_inner vx₂ hevx v₁ hMfunv_halt
         exact ⟨w₂, app_apply_from_parts ρ₂ f x vf₂ vx₂ (.halt w₂) hvf₂ hvx₂ hw₂_reach, hev_w⟩
   | .Constr tag args =>
@@ -2504,6 +2503,62 @@ Now trivial: `sbRetToVeq` (defined mutually with `sameBody_forward`)
 handles all cases including VLam/VDelay bodies.
 -/
 
+/-! ## Symmetry theorems
+
+Defined after `sameBody_forward` + `sbRetToVeq` so that `.composedVeq` can use
+`sbRetToVeq` for conversion. The `env_symm_cb` parameter breaks the circular
+dependency: it's an opaque callback, not a mutual function reference. -/
+
+mutual
+  /-- SBRetEvidence is symmetric. `env_symm_cb` provides env symmetry for
+      `sbRetToVeq`'s VLam/VDelay cases (bound to `sbEnvEvidence_symm` at call sites). -/
+  private theorem sbRetEvidence_symm
+      (fwd_cb fwd_sym_cb : FwdCallbackUnbounded)
+      (env_symm_cb : ∀ {d ρ₁ ρ₂}, SBEnvEvidence d ρ₁ ρ₂ → SBEnvEvidence d ρ₂ ρ₁) :
+      SBRetEvidence v₁ v₂ → SBRetEvidence v₂ v₁
+    | .refl => .refl
+    | .vlam d hcl henv => .vlam d hcl (sbEnvEvidence_symm fwd_cb fwd_sym_cb env_symm_cb henv)
+    | .vdelay d hcl henv => .vdelay d hcl (sbEnvEvidence_symm fwd_cb fwd_sym_cb env_symm_cb henv)
+    | .vconstr htag hfs => .vconstr htag.symm (sbListRetEvidence_symm fwd_cb fwd_sym_cb env_symm_cb hfs)
+    | .vbuiltin hb hargs hea =>
+      .vbuiltin hb.symm (sbListRetEvidence_symm fwd_cb fwd_sym_cb env_symm_cb hargs) hea.symm
+    | .veqAll h => .veqAll fun k => valueEq_symm k _ _ (h k)
+    | .composedVeq h1 h2 =>
+      -- h1 : SBRetEvidence v₁ v_mid, h2 : ∀ k, ValueEq k v_mid v₂
+      -- Produce SBRetEvidence v₂ v₁ via .composedVeq with swapped roles
+      have hsym := sbRetEvidence_symm fwd_cb fwd_sym_cb env_symm_cb h1
+      -- hsym : SBRetEvidence v_mid v₁ (structural recursion: h1 is sub-term ✓)
+      -- Convert hsym to ∀ k, ValueEq k v_mid v₁ using sbRetToVeq (external, already defined)
+      .composedVeq (.veqAll fun k => valueEq_symm k _ _ (h2 k))
+                   (fun k => sbRetToVeq fwd_cb fwd_sym_cb env_symm_cb k _ _ hsym)
+
+  /-- SBEnvEvidence is symmetric. -/
+  private theorem sbEnvEvidence_symm
+      (fwd_cb fwd_sym_cb : FwdCallbackUnbounded)
+      (env_symm_cb : ∀ {d ρ₁ ρ₂}, SBEnvEvidence d ρ₁ ρ₂ → SBEnvEvidence d ρ₂ ρ₁) :
+      SBEnvEvidence d ρ₁ ρ₂ → SBEnvEvidence d ρ₂ ρ₁
+    | .mk f => .mk fun n hn hle =>
+      sbLookupEvidence_symm fwd_cb fwd_sym_cb env_symm_cb (f n hn hle)
+
+  /-- SBLookupEvidence is symmetric. -/
+  private theorem sbLookupEvidence_symm
+      (fwd_cb fwd_sym_cb : FwdCallbackUnbounded)
+      (env_symm_cb : ∀ {d ρ₁ ρ₂}, SBEnvEvidence d ρ₁ ρ₂ → SBEnvEvidence d ρ₂ ρ₁) :
+      SBLookupEvidence a b → SBLookupEvidence b a
+    | .bothNone => .bothNone
+    | .bothSome hv => .bothSome (sbRetEvidence_symm fwd_cb fwd_sym_cb env_symm_cb hv)
+
+  /-- SBListRetEvidence is symmetric. -/
+  private theorem sbListRetEvidence_symm
+      (fwd_cb fwd_sym_cb : FwdCallbackUnbounded)
+      (env_symm_cb : ∀ {d ρ₁ ρ₂}, SBEnvEvidence d ρ₁ ρ₂ → SBEnvEvidence d ρ₂ ρ₁) :
+      SBListRetEvidence vs₁ vs₂ → SBListRetEvidence vs₂ vs₁
+    | .nil => .nil
+    | .cons hv hrs =>
+      .cons (sbRetEvidence_symm fwd_cb fwd_sym_cb env_symm_cb hv)
+            (sbListRetEvidence_symm fwd_cb fwd_sym_cb env_symm_cb hrs)
+end
+
 /-- Tie the knot: (A), (B), (C) follow directly from the mutual block. -/
 private theorem sb_bundle (k : Nat) :
     (∀ d t ρ₁ ρ₂ v₁ v₂,
@@ -2514,11 +2569,15 @@ private theorem sb_bundle (k : Nat) :
     (∀ vs₁ vs₂, SBListRetEvidence vs₁ vs₂ → ListValueEq k vs₁ vs₂) :=
   have fwd_cb : FwdCallbackUnbounded :=
     fun n t d' ρ₁' ρ₂' hcl' hev' => sameBody_forward n t d' ρ₁' ρ₂' hcl' hev'
+  have env_sym : ∀ {d ρ₁ ρ₂}, SBEnvEvidence d ρ₁ ρ₂ → SBEnvEvidence d ρ₂ ρ₁ :=
+    fun hev => sbEnvEvidence_symm fwd_cb fwd_cb
+      (fun h => sbEnvEvidence_symm fwd_cb fwd_cb (fun h => sorry) h) hev
+
   ⟨fun d t ρ₁ ρ₂ v₁ v₂ hcl hev h₁ h₂ => by
      obtain ⟨n, hn⟩ := h₁
-     exact sbRetToVeq fwd_cb fwd_cb k v₁ v₂ (((sameBody_forward n t d ρ₁ ρ₂ hcl hev).2 v₁ hn).2 v₂ h₂),
-   fun v₁ v₂ h => sbRetToVeq fwd_cb fwd_cb k v₁ v₂ h,
-   fun vs₁ vs₂ h => sbListRetToListVeq fwd_cb fwd_cb k vs₁ vs₂ h⟩
+     exact sbRetToVeq fwd_cb fwd_cb env_sym k v₁ v₂ (((sameBody_forward n t d ρ₁ ρ₂ hcl hev).2 v₁ hn).2 v₂ h₂),
+   fun v₁ v₂ h => sbRetToVeq fwd_cb fwd_cb env_sym k v₁ v₂ h,
+   fun vs₁ vs₂ h => sbListRetToListVeq fwd_cb fwd_cb env_sym k vs₁ vs₂ h⟩
 
 
 /-! ## Phase 5: Compose into sameBody_adequacy -/
@@ -2552,9 +2611,9 @@ theorem sameBody_adequacy (d : Nat) (t : Term) (ρ₁ ρ₂ : CekEnv)
       Reaches (.compute [] ρ₁ t) (.halt v₁) →
       Reaches (.compute [] ρ₂ t) (.halt v₂) →
       ValueEq k v₁ v₂ := by
-  -- Step 1: Build SBEnvEvidence from EnvValueEqAll
+  -- Step 1: Build SBEnvEvidence from EnvValueEqAll (both directions)
   have hev := envValueEqAll_to_sbEnvEvidence d ρ₁ ρ₂ hρ
-  have hev_sym := sbEnvEvidence_symm hev
+  have hev_sym := envValueEqAll_to_sbEnvEvidence d ρ₂ ρ₁ (envValueEqAll_symm hρ)
   -- Step 2: error↔ from sameBody_forward in both directions
   have herr : Reaches (.compute [] ρ₁ t) .error ↔ Reaches (.compute [] ρ₂ t) .error :=
     ⟨sameBody_error_forward d t ρ₁ ρ₂ hcl hev,

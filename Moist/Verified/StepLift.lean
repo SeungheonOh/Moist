@@ -795,4 +795,162 @@ theorem apply_compose (env : CekEnv) (f x : Term) (vf vx : CekValue) (s : State)
     simp [steps, hKa]
   exact ⟨1 + Kf + 1 + Kx + 1 + Ka, h_total⟩
 
+/-! ## Generalized Force decomposition
+
+The following theorems decompose `Force e` in the same style as the
+Apply decomposition above.
+
+`Force e` steps as: compute s ρ (Force e) → compute (.force :: s) ρ e.
+When e finishes with value ve, `ret (.force :: s) ve` dispatches on ve.
+The "force state" is `step (.ret [.force] ve)`. -/
+
+/-- **Force decomposition (halt case)**: if `Force e` halts with `v`,
+    then `e` halts with some `ve` and `step (.ret [.force] ve)` reaches `halt v`. -/
+theorem force_reaches (env : CekEnv) (e : Term) (v : CekValue)
+    (hreach : Reaches (.compute [] env (.Force e)) (.halt v)) :
+    ∃ ve, Reaches (.compute [] env e) (.halt ve) ∧
+          Reaches (step (.ret [.force] ve)) (.halt v) := by
+  obtain ⟨N, hN⟩ := hreach
+  have hge1 : N ≥ 1 := by
+    match N, hN with
+    | 0, hN => simp [steps, step] at hN
+    | _ + 1, _ => omega
+  have h1 : steps 1 (.compute [] env (.Force e)) =
+      .compute [.force] env e := by simp [steps, step]
+  have hrest1 : steps (N - 1) (.compute [.force] env e) = .halt v := by
+    have : N = 1 + (N - 1) := by omega
+    rw [this, steps_trans, h1] at hN; exact hN
+  have hlift_e : State.compute [.force] env e =
+      liftState [.force] (.compute [] env e) := by simp [liftState]
+  rw [hlift_e] at hrest1
+  obtain ⟨Ke, ve, _, _, _, _, _, h_reaches_e, h_after_e⟩ :=
+    liftedHaltValue [.force] (.compute [] env e) (N - 1) v hrest1
+  have hge1_after_e : (N - 1) - Ke ≥ 1 := by
+    by_cases hlt : (N - 1) - Ke ≥ 1
+    · exact hlt
+    · exfalso; have : (N - 1) - Ke = 0 := by omega
+      rw [this] at h_after_e; simp [steps] at h_after_e
+  have h_force : steps ((N - 1) - Ke - 1) (step (.ret [.force] ve)) = .halt v := by
+    have : (N - 1) - Ke = 1 + ((N - 1) - Ke - 1) := by omega
+    rw [this, steps_trans] at h_after_e
+    simp [steps] at h_after_e
+    exact h_after_e
+  exact ⟨ve, h_reaches_e, (N - 1) - Ke - 1, h_force⟩
+
+/-- **Force decomposition (error case)**: if `Force e` errors, then either
+    `e` itself errors, or `e` halts with `ve` and `step (.ret [.force] ve)`
+    reaches error. -/
+theorem force_reaches_error (env : CekEnv) (e : Term)
+    (hreach : Reaches (.compute [] env (.Force e)) .error) :
+    Reaches (.compute [] env e) .error ∨
+    (∃ ve, Reaches (.compute [] env e) (.halt ve) ∧
+           Reaches (step (.ret [.force] ve)) .error) := by
+  obtain ⟨N, hN⟩ := hreach
+  have hge1 : N ≥ 1 := by
+    match N, hN with
+    | 0, hN => simp [steps, step] at hN
+    | _ + 1, _ => omega
+  have h1 : steps 1 (.compute [] env (.Force e)) =
+      .compute [.force] env e := by simp [steps, step]
+  have hrest1 : steps (N - 1) (.compute [.force] env e) = .error := by
+    have : N = 1 + (N - 1) := by omega
+    rw [this, steps_trans, h1] at hN; exact hN
+  have hlift_e : State.compute [.force] env e =
+      liftState [.force] (.compute [] env e) := by simp [liftState]
+  rw [hlift_e] at hrest1
+  obtain ⟨Ke, _, hKe_min, h_comm_e, h_case_e⟩ :=
+    liftedErrorValue [.force] (.compute [] env e) (N - 1) hrest1
+  cases h_case_e with
+  | inl h_err_e => left; exact ⟨Ke, h_err_e⟩
+  | inr h_halt_e =>
+    right
+    obtain ⟨ve, _, h_lifted_e_eq, h_reaches_e, h_after_e⟩ := h_halt_e
+    have hge1_after_e : (N - 1) - Ke ≥ 1 := by
+      by_cases hlt : (N - 1) - Ke ≥ 1
+      · exact hlt
+      · exfalso; have : (N - 1) - Ke = 0 := by omega
+        rw [this] at h_after_e; simp [steps] at h_after_e
+    have h_force : steps ((N - 1) - Ke - 1) (step (.ret [.force] ve)) = .error := by
+      have : (N - 1) - Ke = 1 + ((N - 1) - Ke - 1) := by omega
+      rw [this, steps_trans] at h_after_e
+      simp [steps] at h_after_e
+      exact h_after_e
+    exact ⟨ve, h_reaches_e, (N - 1) - Ke - 1, h_force⟩
+
+/-- **Force composition (synthesis)**: given that `e` halts with `ve` and
+    `step (.ret [.force] ve)` reaches state `s`, compose to show
+    `Force e` reaches `s`. -/
+theorem force_compose (env : CekEnv) (e : Term) (ve : CekValue) (s : State)
+    (he : Reaches (.compute [] env e) (.halt ve))
+    (happ : Reaches (step (.ret [.force] ve)) s) :
+    Reaches (.compute [] env (.Force e)) s := by
+  obtain ⟨Ke, hKe⟩ := he
+  obtain ⟨Ka, hKa⟩ := happ
+  have h1 : steps 1 (.compute [] env (.Force e)) =
+      .compute [.force] env e := by simp [steps, step]
+  have hlift_e : State.compute [.force] env e =
+      liftState [.force] (.compute [] env e) := by simp [liftState]
+  have h_not_active_Ke : isActive (steps Ke (.compute [] env e)) = false := by
+    rw [hKe]; rfl
+  obtain ⟨K, hK_le, hK_inact, hK_min⟩ :=
+    firstInactive (.compute [] env e) Ke ⟨Ke, Nat.le_refl _, h_not_active_Ke⟩
+  have h_comm : steps K (liftState [.force] (.compute [] env e)) =
+      liftState [.force] (steps K (.compute [] env e)) :=
+    steps_liftState [.force] K (.compute [] env e) hK_min
+  have h_not_error : steps K (.compute [] env e) ≠ .error := by
+    intro herr; exact not_error_before_halt hK_le hKe herr
+  obtain ⟨ve', h_inner_eq, h_lifted_eq⟩ :=
+    extractValue [.force] (.compute [] env e) K hK_inact h_not_error
+  have h_ve_eq : ve' = ve := halt_value_unique' hK_le h_inner_eq hKe
+  rw [h_ve_eq] at h_lifted_eq
+  have h_total : steps (1 + K + 1 + Ka) (.compute [] env (.Force e)) = s := by
+    have : 1 + K + 1 + Ka = 1 + (K + (1 + Ka)) := by omega
+    rw [this, steps_trans, h1, hlift_e, steps_trans, h_comm, h_lifted_eq]
+    rw [show 1 + Ka = 1 + Ka from rfl, steps_trans]
+    simp [steps, hKa]
+  exact ⟨1 + K + 1 + Ka, h_total⟩
+
+/-- If a computation reaches error at step n and step K (≤ n) is inactive,
+    then step K = error. -/
+private theorem first_inactive_is_error (s : State) (n K : Nat)
+    (hn : steps n s = .error) (hK_le : K ≤ n)
+    (hK_inact : isActive (steps K s) = false) :
+    steps K s = .error := by
+  match hstK : steps K s, hK_inact with
+  | .compute _ _ _, hi => simp [isActive] at hi
+  | .ret (_ :: _) _, hi => simp [isActive] at hi
+  | .ret [] v, _ =>
+    exfalso
+    have hKn : K < n := by
+      rcases Nat.eq_or_lt_of_le hK_le with rfl | h
+      · rw [hstK] at hn; cases hn
+      · exact h
+    have h1 : steps (K + 1) s = .halt v := by rw [steps_trans, hstK]; rfl
+    have h2 : steps n s = .halt v := by
+      rw [show n = (K+1)+(n-(K+1)) from by omega, steps_trans, h1, steps_halt]
+    rw [h2] at hn; cases hn
+  | .halt v, _ =>
+    exfalso
+    have h2 : steps n s = .halt v := by
+      rw [show n = K+(n-K) from by omega, steps_trans, hstK, steps_halt]
+    rw [h2] at hn; cases hn
+  | .error, _ => rfl
+
+/-- If `e` errors, `Force e` also errors. -/
+theorem force_e_error_compose (env : CekEnv) (e : Term)
+    (he : Reaches (.compute [] env e) .error) :
+    Reaches (.compute [] env (.Force e)) .error := by
+  obtain ⟨n, hn⟩ := he
+  have h_inact : isActive (steps n (.compute [] env e)) = false := by rw [hn]; rfl
+  obtain ⟨K, hK_le, hK_inact, hK_min⟩ :=
+    firstInactive (.compute [] env e) n ⟨n, Nat.le_refl _, h_inact⟩
+  have hK_err := first_inactive_is_error _ n K hn hK_le hK_inact
+  have h_comm := steps_liftState [.force] K (.compute [] env e) hK_min
+  exact ⟨1 + K, by
+    rw [steps_trans]; simp [steps, step]
+    show steps K (.compute [.force] env e) = .error
+    rw [show State.compute [.force] env e = liftState [.force] (.compute [] env e) from
+      by simp [liftState]]
+    rw [h_comm, hK_err]; rfl⟩
+
 end Moist.Verified.StepLift
