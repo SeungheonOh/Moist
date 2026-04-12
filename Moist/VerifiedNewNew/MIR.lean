@@ -217,7 +217,7 @@ theorem mirCtxEq_refl (d : Nat) (m : Expr) : MIRCtxEq d m m := by
   refine ⟨Iff.rfl, ?_⟩
   cases h : lowerTotalExpr env m
   · trivial
-  · exact fun _ _ => Iff.rfl
+  · exact fun _ => Iff.rfl
 
 /-- Symmetry of `MIRCtxEq`. -/
 theorem mirCtxEq_symm {d : Nat} {m₁ m₂ : Expr} :
@@ -235,7 +235,7 @@ theorem mirCtxEq_symm {d : Nat} {m₁ m₂ : Expr} :
     | none => trivial
     | some t₂ =>
       rw [h₁, h₂] at hctx
-      intro C hC; exact (hctx C hC).symm
+      intro C; exact (hctx C).symm
 
 /-- Transitivity of `MIRCtxEq` — follows directly from the iff lemma below
     plus `mirCtxRefines_trans`. -/
@@ -256,8 +256,8 @@ theorem mirCtxEq_trans {d : Nat} {m₁ m₂ m₃ : Expr} :
       | none => rw [h₂] at hsome2; exact absurd hsome2 (by simp)
       | some t₂ =>
         rw [h₁, h₂] at hctx12; rw [h₂, h₃] at hctx23
-        intro C hC
-        exact Iff.trans (hctx12 C hC) (hctx23 C hC)
+        intro C
+        exact Iff.trans (hctx12 C) (hctx23 C)
 
 --------------------------------------------------------------------------------
 -- 6. THE FIX FOR ISSUE #4: MIRCtxEq ↔ bidirectional MIRCtxRefines
