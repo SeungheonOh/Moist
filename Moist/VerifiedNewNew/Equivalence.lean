@@ -1,7 +1,5 @@
 import Moist.CEK.Machine
 import Moist.CEK.Readback
-import Moist.MIR.Lower
-import Moist.MIR.LowerTotal
 import Moist.VerifiedNewNew.Rename
 import Moist.CEK.DecidableEq
 
