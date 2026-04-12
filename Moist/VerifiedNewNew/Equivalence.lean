@@ -990,6 +990,48 @@ theorem compat_case_k {k d : Nat} {scrut₁ scrut₂ : Term} {alts : List Term}
   | .VBuiltin _ _ _, .VConstr _ _ => simp only [ValueEqK] at hv
 
 --------------------------------------------------------------------------------
+-- 6b. UNBOUNDED CONGRUENCE COROLLARIES (OpenEq versions of compat_*_k)
+--
+-- Each compat_*_k step lemma drops the step index by one. Quantifying over
+-- all k turns them into proper OpenEq congruences, giving the building blocks
+-- for the contextual closure proof in `Contextual.lean`.
+--------------------------------------------------------------------------------
+
+theorem compat_app {d : Nat} {f₁ f₂ a₁ a₂ : Term}
+    (hf : OpenEq d f₁ f₂) (ha : OpenEq d a₁ a₂) :
+    OpenEq d (.Apply f₁ a₁) (.Apply f₂ a₂) :=
+  fun k => compat_app_k (hf (k+1)) (ha (k+1))
+
+theorem compat_lam {d : Nat} {name : Nat} {body₁ body₂ : Term}
+    (hbody : OpenEq (d+1) body₁ body₂) :
+    OpenEq d (.Lam name body₁) (.Lam name body₂) :=
+  fun k => compat_lam_k (hbody (k+1))
+
+theorem compat_delay {d : Nat} {body₁ body₂ : Term}
+    (hbody : OpenEq d body₁ body₂) :
+    OpenEq d (.Delay body₁) (.Delay body₂) :=
+  fun k => compat_delay_k (hbody (k+1))
+
+theorem compat_force {d : Nat} {t₁ t₂ : Term}
+    (ht : OpenEq d t₁ t₂) :
+    OpenEq d (.Force t₁) (.Force t₂) :=
+  fun k => compat_force_k (ht (k+1))
+
+theorem compat_constr {d tag : Nat} {m₁ m₂ : Term} {ms₁ ms₂ : List Term}
+    (hm : OpenEq d m₁ m₂)
+    (hms : ListRel (fun t₁ t₂ => OpenEq d t₁ t₂) ms₁ ms₂) :
+    OpenEq d (.Constr tag (m₁ :: ms₁)) (.Constr tag (m₂ :: ms₂)) := by
+  intro k
+  exact compat_constr_k (hm (k+1)) (listRel_mono (fun _ _ h => h (k+1)) hms)
+
+theorem compat_case {d : Nat} {scrut₁ scrut₂ : Term} {alts : List Term}
+    (halts : ListRel (fun a₁ a₂ => OpenEq d a₁ a₂) alts alts)
+    (hscrut : OpenEq d scrut₁ scrut₂) :
+    OpenEq d (.Case scrut₁ alts) (.Case scrut₂ alts) := by
+  intro k
+  exact compat_case_k (listRel_mono (fun _ _ h => h (k+1)) halts) (hscrut (k+1))
+
+--------------------------------------------------------------------------------
 -- 7. MAIN THEOREMS
 --------------------------------------------------------------------------------
 
