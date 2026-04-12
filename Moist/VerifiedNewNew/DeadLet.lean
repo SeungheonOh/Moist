@@ -1761,7 +1761,7 @@ private def multiStepBindings :
       rw [show shiftByN 0 1 = id from shiftByN_zero_eq_id 1]
       simp [Moist.Verified.renameTerm_id, steps]
     · have : j = 0 := by omega
-      subst this; simp [steps]; exact fun _ => State.noConfusion
+      subst this; simp [steps]
   | @cons x e rest body' hcond _hrest_sc ih =>
     intro env ρ hwf π t hlet body_t hbody
     simp only [lowerTotalLet.eq_2, Option.bind_eq_bind, Option.bind_eq_some_iff] at hlet
@@ -1807,7 +1807,6 @@ private def multiStepBindings :
       congr 1
       rw [← shiftByN_one_eq_shiftRename 1]
       rw [renameTerm_shiftByN_comp rest.length 1 1 (by omega) body_t]
-      congr 1; omega
     · -- no halt in any prefix
       intro j hj v hv
       by_cases hjp : j ≤ 3 + m₁ + 1 - 1

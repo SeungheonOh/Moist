@@ -913,70 +913,88 @@ theorem applyArgFrames_stackRelK {j : Nat}
     | .VBuiltin _ _ _, .VLam _ _ | .VBuiltin _ _ _, .VDelay _ _
     | .VBuiltin _ _ _, .VConstr _ _ => simp only [ValueEqK] at hw
 
-theorem compat_case_k {k d : Nat} {scrut₁ scrut₂ : Term} {alts : List Term}
-    (halts : ListRel (fun a₁ a₂ => OpenEqK (k+1) d a₁ a₂) alts alts) :
+theorem compat_case_k {k d : Nat} {scrut₁ scrut₂ : Term} {alts₁ alts₂ : List Term}
+    (halts : ListRel (fun a₁ a₂ => OpenEqK (k+1) d a₁ a₂) alts₁ alts₂) :
     OpenEqK (k+1) d scrut₁ scrut₂ →
-    OpenEqK k d (.Case scrut₁ alts) (.Case scrut₂ alts) := by
+    OpenEqK k d (.Case scrut₁ alts₁) (.Case scrut₂ alts₂) := by
   intro hscrut j hj ρ₁ ρ₂ henv i hi π₁ π₂ hπ
   match i with
   | 0 => exact obsEqK_zero_nonhalt (fun _ => State.noConfusion) (fun _ => State.noConfusion)
   | i' + 1 =>
   apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
   simp only [step]
-  -- Goal: ObsEqK i' (.compute (.caseScrutinee alts ρ₁ :: π₁) ρ₁ scrut₁) (...)
   apply hscrut (i'+1) (by omega) ρ₁ ρ₂ (envEqK_mono (by omega) henv) i' (by omega)
-  -- StackRelK for caseScrutinee alts ρ :: π
+  -- StackRelK for caseScrutinee alts₁ ρ₁ :: π₁ vs caseScrutinee alts₂ ρ₂ :: π₂
   intro j' hj' v₁ v₂ hv
   match j' with
   | 0 => exact obsEqK_zero_nonhalt (fun _ => State.noConfusion) (fun _ => State.noConfusion)
   | n + 1 =>
   apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+  have hlen : alts₁.length = alts₂.length := listRel_length halts
   match v₁, v₂ with
   | .VConstr tag₁ fields₁, .VConstr tag₂ fields₂ =>
     simp only [ValueEqK] at hv; obtain ⟨rfl, hfields_v⟩ := hv
     simp only [step]
-    -- Both sides look up alts[tag₁]? — same alts, same tag
-    split
-    · -- some alt: evaluate alt with field applyArg frames
-      rename_i alt halt
-      -- Need to evaluate alt in ρ₁/ρ₂ with field-application stacks
-      -- alt is alts[tag₁], and halts gives OpenEqK for each alt
-      have halt_eq : OpenEqK (k+1) d alt alt := by
-        -- Extract from halts using the list lookup
-        have hsome := List.getElem?_eq_some_iff.mp halt
-        have hi : tag₁ < alts.length := hsome.1
-        have heq : alts[tag₁] = alt := hsome.2
-        rw [← heq]; exact listRel_getElem halts hi
+    -- Dispatch on alts₁[tag₁]? and alts₂[tag₁]? jointly via length equality
+    cases halt₁ : alts₁[tag₁]? with
+    | some alt₁ =>
+      have hsome₁ := List.getElem?_eq_some_iff.mp halt₁
+      have hi₁ : tag₁ < alts₁.length := hsome₁.1
+      have hi₂ : tag₁ < alts₂.length := by rw [← hlen]; exact hi₁
+      have halt₂_eq : alts₂[tag₁]? = some (alts₂[tag₁]'hi₂) := by
+        rw [List.getElem?_eq_getElem hi₂]
+      rw [halt₂_eq]
+      have halt_eq : OpenEqK (k+1) d alt₁ (alts₂[tag₁]'hi₂) := by
+        have heq₁ : alts₁[tag₁] = alt₁ := hsome₁.2
+        rw [← heq₁]; exact listRel_getElem halts hi₁
       apply halt_eq (n+1) (by omega) ρ₁ ρ₂ (envEqK_mono (by omega) henv) n (by omega)
       exact applyArgFrames_stackRelK
         (listRel_mono (fun a b h => valueEqK_mono (by omega) a b h) hfields_v)
         (stackRelK_mono (by omega) hπ)
-    · -- none: error
+    | none =>
+      have hge₁ : alts₁.length ≤ tag₁ := List.getElem?_eq_none_iff.mp halt₁
+      have hge₂ : alts₂.length ≤ tag₁ := by rw [← hlen]; exact hge₁
+      have halt₂ : alts₂[tag₁]? = none := List.getElem?_eq_none hge₂
+      rw [halt₂]
       exact obsEqK_error _
   | .VCon c₁, .VCon c₂ =>
     simp only [ValueEqK] at hv; subst hv
     simp only [step]
-    -- constToTagAndFields same on both sides (same constant)
-    split
-    · rename_i tag numCtors fields htag
-      split
-      · exact obsEqK_error _
-      · split
-        · rename_i alt halt
-          have halt_eq : OpenEqK (k+1) d alt alt := by
-            have hsome := List.getElem?_eq_some_iff.mp halt
-            have hi : tag < alts.length := hsome.1
-            have heq : alts[tag] = alt := hsome.2
-            rw [← heq]; exact listRel_getElem halts hi
+    -- Align RHS's alts₂.length with alts₁.length so the IF condition matches
+    rw [show alts₂.length = alts₁.length from hlen.symm]
+    cases h_const : constToTagAndFields c₁ with
+    | none => exact obsEqK_error _
+    | some triple =>
+      obtain ⟨tag, numCtors, fields⟩ := triple
+      dsimp only []
+      -- Dispatch on the IF condition (same on both sides now)
+      by_cases h_check : (decide (numCtors > 0) && decide (alts₁.length > numCtors)) = true
+      · rw [if_pos h_check, if_pos h_check]
+        exact obsEqK_error _
+      · rw [if_neg h_check, if_neg h_check]
+        cases halt₁ : alts₁[tag]? with
+        | some alt₁ =>
+          have hsome₁ := List.getElem?_eq_some_iff.mp halt₁
+          have hi₁ : tag < alts₁.length := hsome₁.1
+          have hi₂ : tag < alts₂.length := by rw [← hlen]; exact hi₁
+          have halt₂_eq : alts₂[tag]? = some (alts₂[tag]'hi₂) :=
+            List.getElem?_eq_getElem hi₂
+          rw [halt₂_eq]
+          have halt_eq : OpenEqK (k+1) d alt₁ (alts₂[tag]'hi₂) := by
+            have heq₁ : alts₁[tag] = alt₁ := hsome₁.2
+            rw [← heq₁]; exact listRel_getElem halts hi₁
           apply halt_eq (n+1) (by omega) ρ₁ ρ₂ (envEqK_mono (by omega) henv) n (by omega)
-          -- fields from constToTagAndFields are identical on both sides
           have hfields_vcon := constToTagAndFields_fields_vcon c₁
-          rw [htag] at hfields_vcon
+          rw [h_const] at hfields_vcon
           exact applyArgFrames_stackRelK
             (listRel_refl_vcon n fields hfields_vcon)
             (stackRelK_mono (by omega) hπ)
-        · exact obsEqK_error _
-    · exact obsEqK_error _
+        | none =>
+          have hge₁ : alts₁.length ≤ tag := List.getElem?_eq_none_iff.mp halt₁
+          have hge₂ : alts₂.length ≤ tag := by rw [← hlen]; exact hge₁
+          have halt₂ : alts₂[tag]? = none := List.getElem?_eq_none hge₂
+          rw [halt₂]
+          exact obsEqK_error _
   | .VLam _ _, .VLam _ _ | .VDelay _ _, .VDelay _ _
   | .VBuiltin _ _ _, .VBuiltin _ _ _ => simp only [step]; exact obsEqK_error _
   | .VCon _, .VLam _ _ | .VCon _, .VDelay _ _ | .VCon _, .VConstr _ _
@@ -1024,10 +1042,10 @@ theorem compat_constr {d tag : Nat} {m₁ m₂ : Term} {ms₁ ms₂ : List Term}
   intro k
   exact compat_constr_k (hm (k+1)) (listRel_mono (fun _ _ h => h (k+1)) hms)
 
-theorem compat_case {d : Nat} {scrut₁ scrut₂ : Term} {alts : List Term}
-    (halts : ListRel (fun a₁ a₂ => OpenEq d a₁ a₂) alts alts)
+theorem compat_case {d : Nat} {scrut₁ scrut₂ : Term} {alts₁ alts₂ : List Term}
+    (halts : ListRel (fun a₁ a₂ => OpenEq d a₁ a₂) alts₁ alts₂)
     (hscrut : OpenEq d scrut₁ scrut₂) :
-    OpenEq d (.Case scrut₁ alts) (.Case scrut₂ alts) := by
+    OpenEq d (.Case scrut₁ alts₁) (.Case scrut₂ alts₂) := by
   intro k
   exact compat_case_k (listRel_mono (fun _ _ h => h (k+1)) halts) (hscrut (k+1))
 

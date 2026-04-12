@@ -27,6 +27,10 @@ inductive Context
   | Force : Context → Context
   | Constr : Nat → List Term → Context → List Term → Context
   | Case : Context → List Term → Context
+  /-- Hole inside a single alt of a `Case`.
+      `CaseAlt scrut lefts C rights` places the hole at slot `|lefts|` of
+      `Case scrut (lefts ++ [HOLE] ++ rights)`. -/
+  | CaseAlt : Term → List Term → Context → List Term → Context
   -- NOTE: No `Builtin` constructor: `Term.Builtin : BuiltinFun → Term` is nullary;
   -- builtin arguments are introduced via `Apply`, so the `AppLeft`/`AppRight` cases
   -- already cover holes inside builtin applications.
@@ -48,6 +52,7 @@ def fill : Context → Term → Term
   | .Force C, t => .Force (fill C t)
   | .Constr tag lefts C rights, t => .Constr tag (lefts ++ [fill C t] ++ rights)
   | .Case C alts, t => .Case (fill C t) alts
+  | .CaseAlt scrut lefts C rights, t => .Case scrut (lefts ++ [fill C t] ++ rights)
 
 --------------------------------------------------------------------------------
 -- 3. CONTEXTUAL EQUIVALENCE & TRANSITIVITY
@@ -62,7 +67,8 @@ def Context.binders : Context → Nat
   | .Lam _ C => C.binders + 1
   | .AppLeft C _ | .AppRight _ C
   | .Delay C    | .Force C
-  | .Constr _ _ C _ | .Case C _ => C.binders
+  | .Constr _ _ C _ | .Case C _
+  | .CaseAlt _ _ C _ => C.binders
 
 /--
   `C.closedAt d` asserts that every non-hole sibling term embedded in `C` is
@@ -82,6 +88,10 @@ def Context.closedAt : Nat → Context → Bool
         && Moist.VerifiedNewNew.closedAtList d rights
   | d, .Case C alts =>
       Context.closedAt d C && Moist.VerifiedNewNew.closedAtList d alts
+  | d, .CaseAlt scrut lefts C rights =>
+      Moist.VerifiedNewNew.closedAt d scrut
+        && Moist.VerifiedNewNew.closedAtList d lefts && Context.closedAt d C
+        && Moist.VerifiedNewNew.closedAtList d rights
 
 /--
   Two terms are contextually equivalent if, when placed in any **closed** syntax
@@ -129,6 +139,8 @@ def Context.compose : Context → Context → Context
   | .Constr tag lefts C rights, inner =>
       .Constr tag lefts (Context.compose C inner) rights
   | .Case C alts, inner => .Case (Context.compose C inner) alts
+  | .CaseAlt scrut lefts C rights, inner =>
+      .CaseAlt scrut lefts (Context.compose C inner) rights
 
 /-- The composition law: filling a composed context equals filling outer with the
     inner-filled term. -/
@@ -143,6 +155,7 @@ theorem fill_compose (outer inner : Context) (t : Term) :
   | Force C ih => simp [Context.compose, fill, ih]
   | Constr tag lefts C rights ih => simp [Context.compose, fill, ih]
   | Case C alts ih => simp [Context.compose, fill, ih]
+  | CaseAlt scrut lefts C rights ih => simp [Context.compose, fill, ih]
 
 /-- Number of binders is additive under composition (since the inner context's
     binders are nested below the outer's). -/
@@ -158,6 +171,7 @@ theorem Context.compose_binders (outer inner : Context) :
   | Force C ih => simp [Context.compose, Context.binders, ih]
   | Constr tag lefts C rights ih => simp [Context.compose, Context.binders, ih]
   | Case C alts ih => simp [Context.compose, Context.binders, ih]
+  | CaseAlt scrut lefts C rights ih => simp [Context.compose, Context.binders, ih]
 
 /-- Closedness of a composed context: the outer must be closed at `d`, and the
     inner must be closed at `d + outer.binders` (the depth at which it sits). -/
@@ -205,6 +219,10 @@ theorem Context.compose_closedAt {outer inner : Context} :
     intro d houter hinner
     simp [Context.closedAt, Context.compose, Context.binders] at houter hinner ⊢
     exact ⟨ih houter.1 hinner, houter.2⟩
+  | CaseAlt scrut lefts C rights ih =>
+    intro d houter hinner
+    simp [Context.closedAt, Context.compose, Context.binders] at houter hinner ⊢
+    exact ⟨⟨⟨houter.1.1.1, houter.1.1.2⟩, ih houter.1.2 hinner⟩, houter.2⟩
 
 --------------------------------------------------------------------------------
 -- 5. CONGRUENCE THEOREMS FOR CtxEq (port of compat_* from Equivalence)
@@ -385,14 +403,10 @@ theorem ctxEq_constr {tag : Nat} {m₁ m₂ : Term} {ms₁ ms₂ : List Term}
   simpa using this
 
 /--
-  Case congruence (scrutinee swap form), mirroring `compat_case` in
-  `Equivalence.lean`. The `alts` list is identical on both sides; only the
-  scrutinee is swapped via the inner context `Case Hole alts`. The `Context`
-  inductive does not currently expose a `CaseAlt` constructor, so swapping an
-  individual alt would require extending `Context` (and porting this through
-  `binders`, `closedAt`, `compose`, and `openEq_contextual_closure`).
+  Case scrutinee-swap congruence: swap only the scrutinee, leave `alts` fixed.
+  Uses the inner context `Case Hole alts`.
 -/
-theorem ctxEq_case {scrut₁ scrut₂ : Term} {alts : List Term}
+theorem ctxEq_case_scrut {scrut₁ scrut₂ : Term} {alts : List Term}
     (halts_closed : closedAtList 0 alts = true)
     (hscrut : CtxEq scrut₁ scrut₂) :
     CtxEq (.Case scrut₁ alts) (.Case scrut₂ alts) := by
@@ -400,6 +414,73 @@ theorem ctxEq_case {scrut₁ scrut₂ : Term} {alts : List Term}
     simp [Context.closedAt]
     exact closedAtList_mono halts_closed (Nat.zero_le _))
   simpa [fill] using hwrap
+
+/--
+  Case alt-swap congruence (single position): swaps one alt at slot `|pre|`
+  using the inner context `CaseAlt scrut pre Hole post`.
+-/
+theorem ctxEq_case_one_alt {scrut : Term} {a b : Term} {pre post : List Term}
+    (hscrut_closed : closedAt 0 scrut = true)
+    (hpre : closedAtList 0 pre = true)
+    (hpost : closedAtList 0 post = true)
+    (hab : CtxEq a b) :
+    CtxEq (.Case scrut (pre ++ a :: post)) (.Case scrut (pre ++ b :: post)) := by
+  have hwrap := ctxEq_extend hab (.CaseAlt scrut pre .Hole post) (fun {C} _ => by
+    simp [Context.closedAt]
+    refine ⟨⟨closedAt_mono hscrut_closed (Nat.zero_le _),
+            closedAtList_mono hpre (Nat.zero_le _)⟩,
+            closedAtList_mono hpost (Nat.zero_le _)⟩)
+  simpa [fill] using hwrap
+
+/-- Inductive worker for the Case alt-list pointwise congruence. -/
+private theorem ctxEq_case_swap_prefix {scrut : Term}
+    (hscrut_closed : closedAt 0 scrut = true) {as₁ as₂ : List Term}
+    (pre : List Term) (hpre : closedAtList 0 pre = true)
+    (hclo₁ : closedAtList 0 as₁ = true)
+    (hclo₂ : closedAtList 0 as₂ = true)
+    (hrel : ListRel CtxEq as₁ as₂) :
+    CtxEq (.Case scrut (pre ++ as₁)) (.Case scrut (pre ++ as₂)) := by
+  induction as₁ generalizing as₂ pre with
+  | nil =>
+    cases as₂ with
+    | nil => exact ctxEq_refl _
+    | cons => exact absurd hrel id
+  | cons a₁ as₁ ih =>
+    cases as₂ with
+    | nil => exact absurd hrel id
+    | cons a₂ as₂ =>
+      simp [closedAtList] at hclo₁ hclo₂
+      have hA : CtxEq (.Case scrut (pre ++ a₁ :: as₁)) (.Case scrut (pre ++ a₂ :: as₁)) :=
+        ctxEq_case_one_alt hscrut_closed hpre hclo₁.2 hrel.1
+      have ha₂_list : closedAtList 0 [a₂] = true := by
+        simp [closedAtList]; exact hclo₂.1
+      have hpre' : closedAtList 0 (pre ++ [a₂]) = true := closedAtList_append hpre ha₂_list
+      have hB := ih (pre := pre ++ [a₂]) hpre' hclo₁.2 hclo₂.2 hrel.2
+      have e1 : (pre ++ [a₂]) ++ as₁ = pre ++ (a₂ :: as₁) := by simp
+      have e2 : (pre ++ [a₂]) ++ as₂ = pre ++ (a₂ :: as₂) := by simp
+      rw [e1, e2] at hB
+      exact ctxEq_trans hA hB
+
+/--
+  General Case congruence: swap both the scrutinee and the alts pointwise,
+  mirroring (and now generalizing) `compat_case` in `Equivalence.lean`.
+-/
+theorem ctxEq_case {scrut₁ scrut₂ : Term} {alts₁ alts₂ : List Term}
+    (_hs₁_closed : closedAt 0 scrut₁ = true) (hs₂_closed : closedAt 0 scrut₂ = true)
+    (halts₁_closed : closedAtList 0 alts₁ = true)
+    (halts₂_closed : closedAtList 0 alts₂ = true)
+    (hscrut : CtxEq scrut₁ scrut₂)
+    (halts : ListRel CtxEq alts₁ alts₂) :
+    CtxEq (.Case scrut₁ alts₁) (.Case scrut₂ alts₂) := by
+  -- Step A: swap scrutinee at fixed alts₁
+  have hA : CtxEq (.Case scrut₁ alts₁) (.Case scrut₂ alts₁) :=
+    ctxEq_case_scrut halts₁_closed hscrut
+  -- Step B: swap alts₁ → alts₂ at scrutinee scrut₂
+  have hB : CtxEq (.Case scrut₂ alts₁) (.Case scrut₂ alts₂) := by
+    have := ctxEq_case_swap_prefix hs₂_closed (pre := []) (by simp [closedAtList])
+      halts₁_closed halts₂_closed halts
+    simpa using this
+  exact ctxEq_trans hA hB
 
 -- ── Helper lemmas for the contextual closure ─────────────────────────────────
 
@@ -496,6 +577,18 @@ theorem openEq_contextual_closure {t₁ t₂ : Term} (C : Context) :
     simp [Context.closedAt] at hC
     obtain ⟨hCcl, halts⟩ := hC
     exact compat_case (openEq_listRel_refl d halts) (ih hCcl h)
+  | CaseAlt scrut lefts C rights ih =>
+    intro d hC h
+    simp [Context.closedAt] at hC
+    obtain ⟨⟨⟨hscrut_closed, hlefts⟩, hCcl⟩, hrights⟩ := hC
+    have hhole : OpenEq d (fill C t₁) (fill C t₂) := ih hCcl h
+    -- Goal: OpenEq d (Case scrut (lefts ++ [fill C t₁] ++ rights))
+    --                (Case scrut (lefts ++ [fill C t₂] ++ rights))
+    apply compat_case _ (openEq_refl d scrut hscrut_closed)
+    show ListRel _ ((lefts ++ [fill C t₁]) ++ rights) ((lefts ++ [fill C t₂]) ++ rights)
+    rw [List.append_assoc, List.append_assoc]
+    show ListRel _ (lefts ++ fill C t₁ :: rights) (lefts ++ fill C t₂ :: rights)
+    exact openEq_listRel_around hlefts hhole hrights
 
 -- ── Bridge lemmas: OpenEq 0 → ObsEq at empty env / empty stack ───────────────
 
