@@ -946,67 +946,6 @@ mutual
 end
 
 --------------------------------------------------------------------------------
--- 7. Main theorem
---------------------------------------------------------------------------------
-
-theorem dead_let_sound (x : VarId) (e body : Expr)
-    (hsc : MIRDeadLetCond x e body) :
-    .Let [(x, e, false)] body ⊑ᴹ body := by
-  have hfc_e : fixCount e = 0 := by have := hsc.fixFree; omega
-  have hfc_b : fixCount body = 0 := by have := hsc.fixFree; omega
-  have hfc_let : fixCount (.Let [(x, e, false)] body) = 0 := by
-    simp only [fixCount, fixCountBinds]; omega
-  constructor
-  · -- Part 1: Lowering preservation
-    intro env h_let
-    rw [lowerTotalExpr_eq_lowerTotal env body hfc_b]
-    rw [lowerTotalExpr_eq_lowerTotal env (.Let [(x, e, false)] body) hfc_let] at h_let
-    -- Decompose the let lowering
-    have hlower_let : lowerTotal env (.Let [(x, e, false)] body) =
-        (do let e' ← lowerTotal env e
-            let b' ← lowerTotal (x :: env) body
-            some (Term.Apply (Term.Lam 0 b') e')) := by
-      rw [lowerTotal.eq_11, Moist.MIR.lowerTotalLet.eq_2, Moist.MIR.lowerTotalLet.eq_1]
-    rw [hlower_let] at h_let
-    -- The let lowers, so both lowerTotal env e and lowerTotal (x :: env) body succeed
-    cases he : lowerTotal env e with
-    | none => simp [he] at h_let
-    | some _ =>
-      cases hbx : lowerTotal (x :: env) body with
-      | none => simp [he, hbx] at h_let
-      | some _ => exact lowerTotal_body_of_extended hsc.unused (by simp [hbx])
-  · -- Part 2: Behavioral equivalence (∀ d, MIROpenEq d LHS RHS)
-    intro d k env hlen
-    rw [lowerTotalExpr_eq_lowerTotal env (.Let [(x, e, false)] body) hfc_let,
-        lowerTotalExpr_eq_lowerTotal env body hfc_b]
-    -- Decompose the let lowering
-    have hlower_let : lowerTotal env (.Let [(x, e, false)] body) =
-        (do let e' ← lowerTotal env e
-            let b' ← lowerTotal (x :: env) body
-            some (Term.Apply (Term.Lam 0 b') e')) := by
-      rw [lowerTotal.eq_11, Moist.MIR.lowerTotalLet.eq_2, Moist.MIR.lowerTotalLet.eq_1]
-    cases hb : lowerTotal env body with
-    | none =>
-      -- body doesn't lower → match gives True for any LHS result
-      rw [hlower_let]; simp only [Option.bind_eq_bind]; split <;> trivial
-    | some body_t =>
-      -- body_x = renameTerm (shiftRename 1) body_t
-      have hbx := lowerTotal_prepend_unused env x body hsc.unused body_t hb
-      cases he : lowerTotal env e with
-      | none =>
-        -- e doesn't lower → let doesn't lower → vacuous
-        rw [hlower_let]; simp [he]
-      | some rhs_t =>
-        -- Both lower successfully
-        rw [hlower_let]; simp [he, hbx]
-        -- Goal: OpenEqK k d (Apply (Lam 0 (renameTerm (shiftRename 1) body_t)) rhs_t) body_t
-        have hclosed : closedAt d body_t = true := by
-          have := lowerTotal_closedAt env body body_t hb; rw [hlen] at this; exact this
-        exact uplc_dead_let
-          (fun ρ hwf π => isPure_stack_ret e rhs_t env ρ hsc.safe he (hlen ▸ hwf) π)
-          hclosed
-
---------------------------------------------------------------------------------
 -- 7a. shiftByN: shift by arbitrary amount
 --------------------------------------------------------------------------------
 
@@ -1948,5 +1887,19 @@ theorem dead_let_multi_sound (binds : List (VarId × Expr × Bool)) (body : Expr
             have := lowerTotal_closedAt env body body_t hb; rw [hlen] at this; exact this
           exact uplc_dead_let_multi ((x, e, false) :: rest) body
             (AllDeadLetCond.cons hcond hsc_rest) env hlen let_t body_t hlet hb hclosed
+
+/-- Single-binding dead let elimination is a special case of the multi-binding version. -/
+theorem dead_let_sound (x : VarId) (e body : Expr)
+    (hsc : MIRDeadLetCond x e body) :
+    .Let [(x, e, false)] body ⊑ᴹ body := by
+  have hsc' : MIRDeadLetCond x e (.Let [] body) := {
+    unused := by simp [freeVars, freeVarsLet]; exact hsc.unused
+    safe := hsc.safe
+    fixFree := by
+      have h := hsc.fixFree
+      change fixCount e + fixCount (.Let [] body) = 0
+      simp only [fixCount, fixCountBinds] at h ⊢; omega
+  }
+  exact dead_let_multi_sound [(x, e, false)] body (AllDeadLetCond.cons hsc' AllDeadLetCond.nil)
 
 end Moist.VerifiedNewNew.DeadLet
