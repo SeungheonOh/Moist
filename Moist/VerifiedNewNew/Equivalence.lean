@@ -1007,7 +1007,7 @@ private theorem listRel_symm {R : α → α → Prop} (hR : ∀ a b, R a b → R
     | nil => simp [ListRel] at h
     | cons b bs => simp only [ListRel] at h ⊢; exact ⟨hR _ _ h.1, ih h.2⟩
 
-private theorem stackRelK_symm_of {V : Nat → CekValue → CekValue → Prop}
+theorem stackRelK_symm_of {V : Nat → CekValue → CekValue → Prop}
     (hV : ∀ k v₁ v₂, V k v₁ v₂ → V k v₂ v₁) {i : Nat} {π₁ π₂ : Stack}
     (h : StackRelK V i π₁ π₂) : StackRelK V i π₂ π₁ :=
   fun j hj v₁ v₂ hv => obsEqK_symm (h j hj v₂ v₁ (hV j v₁ v₂ hv))
@@ -1060,7 +1060,7 @@ theorem valueEqK_symm (k : Nat) (v₁ v₂ : CekValue)
     (h : ValueEqK k v₁ v₂) : ValueEqK k v₂ v₁ :=
   valueEqK_symm_le k k (Nat.le_refl k) v₁ v₂ h
 
-private theorem envEqK_symm {k d : Nat} {ρ₁ ρ₂ : CekEnv}
+theorem envEqK_symm {k d : Nat} {ρ₁ ρ₂ : CekEnv}
     (h : EnvEqK k d ρ₁ ρ₂) : EnvEqK k d ρ₂ ρ₁ := by
   intro n hn hnd; have h_n := h n hn hnd
   cases h₁ : ρ₁.lookup n <;> cases h₂ : ρ₂.lookup n <;> simp_all

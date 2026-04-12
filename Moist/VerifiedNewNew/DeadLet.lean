@@ -23,8 +23,6 @@ structure MIRDeadLetCond (x : VarId) (e body : Expr) : Prop where
   unused : (freeVars body).contains x = false
   safe : isPure e = true
   fixFree : fixCount e + fixCount body = 0
-  rhs_halts : ∀ env t, lowerTotal env e = some t →
-    ∀ (ρ : CekEnv) (π : Stack), ∃ v, Reaches (.compute π ρ t) (.ret π v)
 
 --------------------------------------------------------------------------------
 -- 1. Shift-extend lookup
@@ -551,19 +549,278 @@ mutual
 end
 
 --------------------------------------------------------------------------------
+-- 4b. isPure_stack_ret: pure expressions return to the caller's stack
+--------------------------------------------------------------------------------
+
+open Moist.MIR (envLookupT envLookupT_bound lowerTotalList lowerTotalLet
+                isPureList isPureBinds isForceable) in
+open Moist.CEK (expectedArgs ExpectedArgs ArgKind) in
+mutual
+  private theorem isPure_stack_ret (e : Expr) (t : Term) (env : List VarId) (ρ : CekEnv)
+      (hpure : isPure e = true) (hlower : lowerTotal env e = some t)
+      (hwf : WellSizedEnv env.length ρ) (π : Stack) :
+      ∃ v, Reaches (.compute π ρ t) (.ret π v) := by
+    match e with
+    -- Excluded by isPure = false
+    | .Error => exact absurd hpure (by unfold isPure; decide)
+    | .Fix _ _ => simp [lowerTotal] at hlower
+    | .Case _ _ => exact absurd hpure (by unfold isPure; decide)
+    | .App _ _ => exact absurd hpure (by unfold isPure; decide)
+    -- Value forms: 1 step each
+    | .Var x =>
+      simp only [lowerTotal.eq_1] at hlower
+      split at hlower
+      · rename_i idx hlook
+        injection hlower with hlower; subst hlower
+        have hbound := envLookupT_bound env x idx hlook
+        have ⟨v, hv⟩ := hwf (idx + 1) (by omega) (by omega)
+        exact ⟨v, 1, by simp [steps, step, hv]⟩
+      · simp at hlower
+    | .Lit (c, ty) =>
+      simp [lowerTotal] at hlower; subst hlower
+      exact ⟨.VCon c, 1, rfl⟩
+    | .Builtin b =>
+      simp [lowerTotal] at hlower; subst hlower
+      exact ⟨.VBuiltin b [] (expectedArgs b), 1, rfl⟩
+    | .Lam x body =>
+      simp only [lowerTotal.eq_5, Option.bind_eq_bind, Option.bind_eq_some_iff] at hlower
+      obtain ⟨body', _, heq⟩ := hlower
+      injection heq with heq; subst heq
+      exact ⟨.VLam body' ρ, 1, rfl⟩
+    | .Delay inner =>
+      simp only [lowerTotal.eq_8, Option.bind_eq_bind, Option.bind_eq_some_iff] at hlower
+      obtain ⟨inner', _, heq⟩ := hlower
+      injection heq with heq; subst heq
+      exact ⟨.VDelay inner' ρ, 1, rfl⟩
+    -- Force (Delay body): 3 steps + IH
+    | .Force (.Delay body) =>
+      have hpb : isPure body = true := by
+        change isPure (.Force (.Delay body)) = true at hpure
+        simp only [isPure] at hpure; exact hpure
+      simp only [lowerTotal.eq_7, Option.bind_eq_bind, Option.bind_eq_some_iff] at hlower
+      obtain ⟨inner', hinner, heq⟩ := hlower
+      injection heq with heq; subst heq
+      simp only [lowerTotal.eq_8, Option.bind_eq_bind, Option.bind_eq_some_iff] at hinner
+      obtain ⟨body', hbody, heq⟩ := hinner
+      injection heq with heq; subst heq
+      have ⟨v, n, hn⟩ := isPure_stack_ret body body' env ρ hpb hbody hwf π
+      exact ⟨v, n + 3, by
+        rw [show n + 3 = 3 + n from by omega, steps_trans 3]
+        simp [steps, step]; exact hn⟩
+    -- Force (Builtin b): single type-force
+    | .Force (.Builtin b) =>
+      simp only [lowerTotal.eq_7, Option.bind_eq_bind, Option.bind_eq_some_iff] at hlower
+      obtain ⟨inner', hinner, heq⟩ := hlower
+      injection heq with heq; subst heq
+      simp [lowerTotal] at hinner; subst hinner
+      have hhead : ((expectedArgs b).head == .argQ) = true := by
+        simp only [isPure, isForceable, Bool.and_true] at hpure; exact hpure
+      cases hea : expectedArgs b with
+      | more k rest =>
+        cases k with
+        | argQ =>
+          exact ⟨.VBuiltin b [] rest, 3, by
+            simp [steps, step, hea, ExpectedArgs.head, ExpectedArgs.tail]⟩
+        | argV =>
+          exfalso
+          have : (ExpectedArgs.more ArgKind.argV rest).head = ArgKind.argV := rfl
+          rw [hea, this] at hhead
+          exact absurd hhead (by native_decide)
+      | one k =>
+        cases k with
+        | argQ =>
+          exfalso; cases b <;> (simp [expectedArgs] at hea; try exact absurd hea (by native_decide))
+        | argV =>
+          exact absurd hhead (by rw [hea]; native_decide)
+    -- Force (Force (Builtin b)): double type-force
+    | .Force (.Force (.Builtin b)) =>
+      simp [lowerTotal] at hlower; subst hlower
+      have hfc : isForceable (.Force (.Builtin b)) = true := by
+        simp only [isPure, Bool.and_eq_true] at hpure; exact hpure.1
+      have hfc' : (match expectedArgs b with
+          | .more .argQ rest => rest.head == .argQ | _ => false) = true := by
+        simp only [isForceable] at hfc; exact hfc
+      cases hea : expectedArgs b with
+      | more k rest =>
+        cases k with
+        | argQ =>
+          rw [hea] at hfc'; simp at hfc'
+          cases hrest : rest with
+          | more k2 rest2 =>
+            cases k2 with
+            | argQ =>
+              exact ⟨.VBuiltin b [] rest2, 5, by
+                simp [steps, step, hea, hrest, ExpectedArgs.head, ExpectedArgs.tail]⟩
+            | argV =>
+              exfalso
+              have : (ExpectedArgs.more ArgKind.argV rest2).head = ArgKind.argV := rfl
+              rw [hrest, this] at hfc'
+              exact absurd hfc' (by native_decide)
+          | one k2 =>
+            cases k2 with
+            | argQ =>
+              exfalso; rw [hrest] at hea
+              cases b <;> (simp [expectedArgs] at hea; try exact absurd hea (by native_decide))
+            | argV =>
+              rw [hrest] at hfc'
+              have : (ExpectedArgs.one ArgKind.argV).head = ArgKind.argV := rfl
+              rw [this] at hfc'; exact absurd hfc' (by native_decide)
+        | argV => rw [hea] at hfc'; simp at hfc'
+      | one _ => rw [hea] at hfc'; simp at hfc'
+    -- Force of other forms: excluded by isPure/isForceable = false
+    | .Force (.Var _) => exact absurd hpure (by unfold isPure isForceable; simp)
+    | .Force (.Lit _) => exact absurd hpure (by unfold isPure isForceable; simp)
+    | .Force (.Lam _ _) => exact absurd hpure (by unfold isPure isForceable; simp)
+    | .Force (.Fix _ _) => exact absurd hpure (by unfold isPure isForceable; simp)
+    | .Force (.App _ _) => exact absurd hpure (by unfold isPure isForceable; simp)
+    | .Force (.Constr _ _) => exact absurd hpure (by unfold isPure isForceable; simp)
+    | .Force (.Case _ _) => exact absurd hpure (by unfold isPure isForceable; simp)
+    | .Force (.Let _ _) => exact absurd hpure (by unfold isPure isForceable; simp)
+    | .Force .Error => exact absurd hpure (by unfold isPure isForceable; simp)
+    | .Force (.Force (.Var _)) => exact absurd hpure (by unfold isPure isForceable; simp)
+    | .Force (.Force (.Lit _)) => exact absurd hpure (by unfold isPure isForceable; simp)
+    | .Force (.Force (.Lam _ _)) => exact absurd hpure (by unfold isPure isForceable; simp)
+    | .Force (.Force (.Fix _ _)) => exact absurd hpure (by unfold isPure isForceable; simp)
+    | .Force (.Force (.App _ _)) => exact absurd hpure (by unfold isPure isForceable; simp)
+    | .Force (.Force (.Constr _ _)) => exact absurd hpure (by unfold isPure isForceable; simp)
+    | .Force (.Force (.Case _ _)) => exact absurd hpure (by unfold isPure isForceable; simp)
+    | .Force (.Force (.Let _ _)) => exact absurd hpure (by unfold isPure isForceable; simp)
+    | .Force (.Force .Error) => exact absurd hpure (by unfold isPure isForceable; simp)
+    | .Force (.Force (.Delay _)) => exact absurd hpure (by unfold isPure isForceable; simp)
+    | .Force (.Force (.Force _)) => exact absurd hpure (by unfold isPure isForceable; simp)
+    -- Constr with pure args
+    | .Constr tag args =>
+      have hpure' : isPureList args = true := by
+        change isPure (.Constr tag args) = true at hpure
+        simp only [isPure] at hpure; exact hpure
+      simp only [lowerTotal.eq_9, Option.bind_eq_bind, Option.bind_eq_some_iff] at hlower
+      obtain ⟨args', hargs, heq⟩ := hlower
+      injection heq with heq; subst heq
+      exact constr_stack_ret args args' env ρ tag hpure' hargs hwf π
+    -- Let with pure bindings and body
+    | .Let binds body =>
+      have hpure' : isPureBinds binds = true ∧ isPure body = true := by
+        change isPure (.Let binds body) = true at hpure
+        simp only [isPure, Bool.and_eq_true] at hpure; exact hpure
+      simp only [lowerTotal.eq_11] at hlower
+      exact isPureBinds_stack_ret binds body t env ρ hpure'.1 hpure'.2 hlower hwf π
+  termination_by sizeOf e
+
+  private theorem constr_field_stack_ret (ρ : CekEnv) (tag : Nat)
+      (done : List CekValue) (v : CekValue)
+      (remaining : List Term) (remainingE : List Expr)
+      (env : List VarId) (π : Stack)
+      (hpure : isPureList remainingE = true)
+      (hlower : lowerTotalList env remainingE = some remaining)
+      (hwf : WellSizedEnv env.length ρ) :
+      ∃ vfinal, Reaches (.ret (.constrField tag done remaining ρ :: π) v) (.ret π vfinal) := by
+    match remainingE with
+    | [] =>
+      simp [lowerTotalList] at hlower; subst hlower
+      exact ⟨.VConstr tag ((v :: done).reverse), 1, by simp [steps, step]⟩
+    | re :: restE =>
+      simp only [lowerTotalList.eq_2, Option.bind_eq_bind, Option.bind_eq_some_iff] at hlower
+      obtain ⟨t, ht, ts, hts, heq⟩ := hlower
+      injection heq with heq; subst heq
+      have hpure' : isPure re = true ∧ isPureList restE = true := by
+        simp only [isPureList, Bool.and_eq_true] at hpure; exact hpure
+      have ⟨v', n', hn'⟩ := isPure_stack_ret re t env ρ hpure'.1 ht hwf
+        (.constrField tag (v :: done) ts ρ :: π)
+      have ⟨vfinal, m', hm'⟩ := constr_field_stack_ret ρ tag (v :: done) v'
+        ts restE env π hpure'.2 hts hwf
+      exact ⟨vfinal, 1 + n' + m', by
+        rw [show 1 + n' + m' = 1 + (n' + m') from by omega, steps_trans 1]
+        simp [steps, step]
+        rw [steps_trans n', hn', hm']⟩
+  termination_by sizeOf remainingE
+
+  private theorem constr_stack_ret (args : List Expr) (args' : List Term)
+      (env : List VarId) (ρ : CekEnv) (tag : Nat)
+      (hpure : isPureList args = true)
+      (hlower : lowerTotalList env args = some args')
+      (hwf : WellSizedEnv env.length ρ) (π : Stack) :
+      ∃ v, Reaches (.compute π ρ (.Constr tag args')) (.ret π v) := by
+    match args with
+    | [] =>
+      simp [lowerTotalList] at hlower; subst hlower
+      exact ⟨.VConstr tag [], 1, by simp [steps, step]⟩
+    | a :: rest =>
+      simp only [lowerTotalList.eq_2, Option.bind_eq_bind, Option.bind_eq_some_iff] at hlower
+      obtain ⟨t, ht, ts, hts, heq⟩ := hlower
+      injection heq with heq; subst heq
+      have hpure' : isPure a = true ∧ isPureList rest = true := by
+        simp only [isPureList, Bool.and_eq_true] at hpure; exact hpure
+      have ⟨v, n, hn⟩ := isPure_stack_ret a t env ρ hpure'.1 ht hwf
+        (.constrField tag [] ts ρ :: π)
+      have ⟨vfinal, m, hm⟩ := constr_field_stack_ret ρ tag [] v ts rest env π
+        hpure'.2 hts hwf
+      exact ⟨vfinal, 1 + n + m, by
+        rw [show 1 + n + m = 1 + (n + m) from by omega, steps_trans 1]
+        simp [steps, step]
+        rw [steps_trans n, hn, hm]⟩
+  termination_by sizeOf args
+
+  private theorem isPureBinds_stack_ret
+      (binds : List (VarId × Expr × Bool)) (body : Expr)
+      (t : Term) (env : List VarId) (ρ : CekEnv)
+      (hpureBinds : isPureBinds binds = true) (hpureBody : isPure body = true)
+      (hlower : lowerTotalLet env binds body = some t)
+      (hwf : WellSizedEnv env.length ρ) (π : Stack) :
+      ∃ v, Reaches (.compute π ρ t) (.ret π v) := by
+    match binds with
+    | [] =>
+      simp [lowerTotalLet] at hlower
+      exact isPure_stack_ret body t env ρ hpureBody hlower hwf π
+    | (x, rhs, _) :: rest =>
+      have hpure' : isPure rhs = true ∧ isPureBinds rest = true := by
+        change isPureBinds ((x, rhs, _) :: rest) = true at hpureBinds
+        simp only [isPureBinds, Bool.and_eq_true] at hpureBinds; exact hpureBinds
+      simp only [lowerTotalLet.eq_2, Option.bind_eq_bind, Option.bind_eq_some_iff] at hlower
+      obtain ⟨rhs', hrhs_lower, rest', hrest_lower, heq⟩ := hlower
+      injection heq with heq; subst heq
+      -- t = Apply (Lam 0 rest') rhs'
+      -- Steps:
+      --   compute π ρ (Apply (Lam 0 rest') rhs')
+      --   → compute (arg rhs' ρ :: π) ρ (Lam 0 rest')        [1 step]
+      --   → ret (arg rhs' ρ :: π) (VLam rest' ρ)               [1 step]
+      --   → compute (funV (VLam rest' ρ) :: π) ρ rhs'          [1 step]
+      --   → (by IH on rhs) ret (funV (VLam rest' ρ) :: π) vrhs [n steps]
+      --   → compute π (ρ.extend vrhs) rest'                    [1 step]
+      --   → (by IH on rest body) ret π v                       [m steps]
+      have ⟨vrhs, nrhs, hnrhs⟩ := isPure_stack_ret rhs rhs' env ρ hpure'.1 hrhs_lower hwf
+        (.funV (.VLam rest' ρ) :: π)
+      have ⟨vrest, mrest, hmrest⟩ :=
+        isPureBinds_stack_ret rest body rest' (x :: env) (ρ.extend vrhs)
+          hpure'.2 hpureBody hrest_lower (wellSizedEnv_extend hwf vrhs) π
+      exact ⟨vrest, 3 + nrhs + 1 + mrest, by
+        rw [show 3 + nrhs + 1 + mrest = 3 + (nrhs + (mrest + 1)) from by omega,
+            steps_trans 3,
+            show steps 3 (.compute π ρ (.Apply (.Lam 0 rest') rhs')) =
+              .compute (.funV (.VLam rest' ρ) :: π) ρ rhs' from by simp [steps, step],
+            steps_trans nrhs, hnrhs,
+            show mrest + 1 = 1 + mrest from by omega,
+            steps_trans 1,
+            show steps 1 (.ret (.funV (.VLam rest' ρ) :: π) vrhs) =
+              .compute π (ρ.extend vrhs) rest' from rfl,
+            hmrest]⟩
+  termination_by sizeOf binds + sizeOf body
+end
+
+--------------------------------------------------------------------------------
 -- 5. uplc_dead_let
 --------------------------------------------------------------------------------
 
 theorem uplc_dead_let {k d : Nat} {t_body t_rhs : Term}
-    (hpure_rhs : ∀ (ρ : CekEnv) (π : Stack),
-      ∃ v, Reaches (.compute π ρ t_rhs) (.ret π v))
+    (hpure_rhs : ∀ (ρ : CekEnv), WellSizedEnv d ρ →
+      ∀ (π : Stack), ∃ v, Reaches (.compute π ρ t_rhs) (.ret π v))
     (hclosed : closedAt d t_body = true) :
-    OpenEqK k d
-      (.Apply (.Lam 0 (Moist.Verified.renameTerm (Moist.Verified.shiftRename 1) t_body)) t_rhs)
-      t_body := by
-  intro j hj ρ₁ ρ₂ henv i hi π₁ π₂ hπ
+    ∀ j ≤ k, ∀ ρ₁ ρ₂, WellSizedEnv d ρ₁ → WellSizedEnv d ρ₂ →
+      EnvEqK j d ρ₁ ρ₂ → BehEqK ValueEqK j ρ₁ ρ₂
+        (.Apply (.Lam 0 (Moist.Verified.renameTerm (Moist.Verified.shiftRename 1) t_body)) t_rhs)
+        t_body := by
+  intro j hj ρ₁ ρ₂ hw₁ _hw₂ henv i hi π₁ π₂ hπ
   let shifted := Moist.Verified.renameTerm (Moist.Verified.shiftRename 1) t_body
-  obtain ⟨v_rhs, m_rhs, hm_rhs⟩ := hpure_rhs ρ₁ (.funV (.VLam shifted ρ₁) :: π₁)
+  obtain ⟨v_rhs, m_rhs, hm_rhs⟩ := hpure_rhs ρ₁ hw₁ (.funV (.VLam shifted ρ₁) :: π₁)
   -- Compute: Apply (Lam 0 shifted) t_rhs
   --   step 1: compute (.arg t_rhs ρ₁ :: π₁) ρ₁ (Lam 0 shifted)
   --   step 2: ret (.arg t_rhs ρ₁ :: π₁) (VLam shifted ρ₁)
@@ -746,7 +1003,7 @@ theorem dead_let_sound (x : VarId) (e body : Expr)
         have hclosed : closedAt d body_t = true := by
           have := lowerTotal_closedAt env body body_t hb; rw [hlen] at this; exact this
         exact uplc_dead_let
-          (fun ρ π => hsc.rhs_halts env rhs_t he ρ π)
+          (fun ρ hwf π => isPure_stack_ret e rhs_t env ρ hsc.safe he (hlen ▸ hwf) π)
           hclosed
 
 end Moist.VerifiedNewNew.DeadLet
