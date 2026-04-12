@@ -18,15 +18,24 @@ def steps : Nat → State → State
   | n + 1, s => steps n (step s)
 
 def Reaches (s s' : State) : Prop := ∃ n : Nat, steps n s = s'
-def ObsEq (c₁ c₂ : State) : Prop :=
-  (∃ v₁, Reaches c₁ (.halt v₁)) ↔ (∃ v₂, Reaches c₂ (.halt v₂))
 
-/-- Bounded observation: if one side halts within k steps, the other halts (unboundedly).
-    At k = 0, for non-halt states this is vacuously true.
-    Each machine step consumes one unit of fuel. -/
-def ObsEqK (k : Nat) (s₁ s₂ : State) : Prop :=
+/-- Full observational equivalence: both halt AND error behavior preserved. -/
+def ObsEq (c₁ c₂ : State) : Prop :=
+  ((∃ v₁, Reaches c₁ (.halt v₁)) ↔ (∃ v₂, Reaches c₂ (.halt v₂))) ∧
+  (Reaches c₁ .error ↔ Reaches c₂ .error)
+
+/-- One-way step-indexed observation: halt preservation within k steps and
+    error preservation within k steps (including n = 0, i.e. `s₁ = .error`).
+    Building block for ObsEqK (two-way) and
+    Contextual.SoundnessRefines.ObsRefinesK. -/
+def ObsRefinesK (k : Nat) (s₁ s₂ : State) : Prop :=
   (∀ v, (∃ n ≤ k, steps n s₁ = .halt v) → ∃ v', Reaches s₂ (.halt v')) ∧
-  (∀ v, (∃ n ≤ k, steps n s₂ = .halt v) → ∃ v', Reaches s₁ (.halt v'))
+  (∀ n ≤ k, steps n s₁ = .error → Reaches s₂ .error)
+
+/-- Bounded observation: both halt (within k steps) and error (within k
+    positive steps) behavior preserved in both directions. -/
+def ObsEqK (k : Nat) (s₁ s₂ : State) : Prop :=
+  ObsRefinesK k s₁ s₂ ∧ ObsRefinesK k s₂ s₁
 
 --------------------------------------------------------------------------------
 -- 2. LIFTING OPERATORS (Kripke-Monotone with bounded ObsEqK)
@@ -49,8 +58,16 @@ def ListRel (R : α → α → Prop) : List α → List α → Prop
   | a :: as, b :: bs => R a b ∧ ListRel R as bs
   | _, _ => False
 
+/-- Step-indexed value relation. At level 0 we enforce shape matching and
+    VCon content equality — otherwise `evalBuiltin_compat` at k=0 would not
+    hold, because level-0 args carrying no information would fail to force
+    matching `extractConsts`/`evalBuiltinConst` outputs on both sides. -/
 def ValueEqK : Nat → CekValue → CekValue → Prop
-  | 0, _, _ => True
+  | 0, .VCon c₁, .VCon c₂ => c₁ = c₂
+  | 0, .VLam _ _, .VLam _ _ => True
+  | 0, .VDelay _ _, .VDelay _ _ => True
+  | 0, .VConstr tag₁ _, .VConstr tag₂ _ => tag₁ = tag₂
+  | 0, .VBuiltin b₁ _ exp₁, .VBuiltin b₂ _ exp₂ => b₁ = b₂ ∧ exp₁ = exp₂
   | _ + 1, .VCon c₁, .VCon c₂ => c₁ = c₂
   | k + 1, .VLam b₁ ρ₁, .VLam b₂ ρ₂ =>
       ∀ j ≤ k, ∀ arg₁ arg₂, ValueEqK j arg₁ arg₂ →
@@ -88,49 +105,206 @@ def OpenEq (d : Nat) (t₁ t₂ : Term) : Prop := ∀ k, OpenEqK k d t₁ t₂
 -- 5. INFRASTRUCTURE
 --------------------------------------------------------------------------------
 
-/-- ObsEqK is monotone: fewer steps to check ⇒ easier to satisfy. -/
-theorem obsEqK_mono {j k : Nat} (hjk : j ≤ k) {s₁ s₂ : State}
-    (h : ObsEqK k s₁ s₂) : ObsEqK j s₁ s₂ :=
-  ⟨fun v ⟨n, hn, hs⟩ => h.1 v ⟨n, Nat.le_trans hn hjk, hs⟩,
-   fun v ⟨n, hn, hs⟩ => h.2 v ⟨n, Nat.le_trans hn hjk, hs⟩⟩
-
-/-- Stepping consumes one fuel unit. For non-halt states:
-    ObsEqK k (step s₁) (step s₂) → ObsEqK (k+1) s₁ s₂ -/
-theorem obsEqK_of_step {s₁ s₂ : State}
-    (h₁ : ∀ v, s₁ ≠ .halt v) (h₂ : ∀ v, s₂ ≠ .halt v)
-    (h : ObsEqK k (step s₁) (step s₂)) : ObsEqK (k+1) s₁ s₂ := by
-  constructor
-  · intro v ⟨n, hn, hs⟩
-    match n with
-    | 0 => exact absurd hs (h₁ v)
-    | m + 1 =>
-      have := h.1 v ⟨m, by omega, hs⟩
-      obtain ⟨v', m', hm'⟩ := this
-      exact ⟨v', m' + 1, hm'⟩
-  · intro v ⟨n, hn, hs⟩
-    match n with
-    | 0 => exact absurd hs (h₂ v)
-    | m + 1 =>
-      have := h.2 v ⟨m, by omega, hs⟩
-      obtain ⟨v', m', hm'⟩ := this
-      exact ⟨v', m' + 1, hm'⟩
-
 theorem steps_error : ∀ n, steps n .error = .error := by
   intro n; induction n with
   | zero => rfl
   | succ n ih => simp [steps, step, ih]
 
-theorem obsEqK_error (k : Nat) : ObsEqK k .error .error := by
-  constructor <;> intro v ⟨n, _, hs⟩ <;> exact absurd (steps_error n ▸ hs) State.noConfusion
+theorem steps_halt : ∀ n (v : CekValue), steps n (.halt v) = .halt v := by
+  intro n v; induction n with
+  | zero => rfl
+  | succ n ih => simp [steps, step, ih]
 
-/-- ObsEqK 0 is vacuously true for any non-halt states (compute, ret, error). -/
+/-- Helper: compute states are not halt. -/
+theorem compute_ne_halt {π : Stack} {ρ : CekEnv} {t : Term} :
+    ∀ v, (State.compute π ρ t : State) ≠ .halt v :=
+  fun _ h => by cases h
+
+/-- Helper: compute states are not error. -/
+theorem compute_ne_error {π : Stack} {ρ : CekEnv} {t : Term} :
+    (State.compute π ρ t : State) ≠ .error :=
+  fun h => by cases h
+
+/-- Helper: ret states are not halt. -/
+theorem ret_ne_halt {π : Stack} {v : CekValue} :
+    ∀ v', (State.ret π v : State) ≠ .halt v' :=
+  fun _ h => by cases h
+
+/-- Helper: ret states are not error. -/
+theorem ret_ne_error {π : Stack} {v : CekValue} :
+    (State.ret π v : State) ≠ .error :=
+  fun h => by cases h
+
+/-- `ObsRefinesK` is monotone in the step index. -/
+theorem obsRefinesK_mono {j k : Nat} (hjk : j ≤ k) {s₁ s₂ : State}
+    (h : ObsRefinesK k s₁ s₂) : ObsRefinesK j s₁ s₂ :=
+  ⟨fun v ⟨n, hn, hs⟩ => h.1 v ⟨n, Nat.le_trans hn hjk, hs⟩,
+   fun n hnj hs => h.2 n (Nat.le_trans hnj hjk) hs⟩
+
+/-- `ObsRefinesK k .error .error` is trivially true. -/
+theorem obsRefinesK_error_error (k : Nat) : ObsRefinesK k (.error : State) .error := by
+  refine ⟨?_, ?_⟩
+  · intro v ⟨n, _, hs⟩
+    rw [steps_error n] at hs
+    exact absurd hs State.noConfusion
+  · intro _ _ _
+    exact ⟨0, rfl⟩
+
+/-- Halt states refine each other trivially. -/
+theorem obsRefinesK_halt_halt (k : Nat) (v_l v_r : CekValue) :
+    ObsRefinesK k (.halt v_l) (.halt v_r) := by
+  refine ⟨?_, ?_⟩
+  · intro v ⟨n, _, hs⟩
+    rw [steps_halt n v_l] at hs
+    cases hs
+    exact ⟨v_r, 0, rfl⟩
+  · intro n _ hs
+    rw [steps_halt n v_l] at hs
+    exact absurd hs State.noConfusion
+
+/-- Zero-step refinement for `ObsRefinesK 0` when LHS is neither halt nor error. -/
+theorem obsRefinesK_zero_nonhalt {s₁ s₂ : State}
+    (h₁ : ∀ v, s₁ ≠ .halt v) (h_err : s₁ ≠ .error) : ObsRefinesK 0 s₁ s₂ := by
+  refine ⟨?_, ?_⟩
+  · intro v ⟨n, hn, hs⟩
+    have : n = 0 := Nat.le_zero.mp hn
+    subst this; simp only [steps] at hs
+    exact absurd hs (h₁ v)
+  · intro n hnk hs
+    have : n = 0 := Nat.le_zero.mp hnk
+    subst this; simp only [steps] at hs
+    exact absurd hs h_err
+
+/-- Peel one deterministic step from both sides (one-way).
+
+    The `h_err` hypothesis is needed for the `n = 0` sub-case of the error
+    clause: at `n = 0` we would have `s₁ = .error`, and `ObsRefinesK k (step s₁)
+    (step s₂)` gives us no information about `s₂`'s error behavior in that
+    case. In practice call sites peel steps from compute/ret states, so
+    `h_err` is immediate via `State.noConfusion`. -/
+theorem obsRefinesK_of_step {s₁ s₂ : State} {k : Nat}
+    (h₁ : ∀ v, s₁ ≠ .halt v) (_h₂ : ∀ v, s₂ ≠ .halt v)
+    (h_err : s₁ ≠ .error)
+    (h : ObsRefinesK k (step s₁) (step s₂)) :
+    ObsRefinesK (k + 1) s₁ s₂ := by
+  refine ⟨?_, ?_⟩
+  · intro v ⟨n, hn, hs⟩
+    match n with
+    | 0 => exact absurd hs (h₁ v)
+    | n + 1 =>
+      have hstep : steps n (step s₁) = .halt v := by simp only [steps] at hs; exact hs
+      obtain ⟨v', m, hm⟩ := h.1 v ⟨n, Nat.le_of_succ_le_succ hn, hstep⟩
+      exact ⟨v', m + 1, by simp only [steps]; exact hm⟩
+  · intro n hnk hs
+    match n with
+    | 0 => simp only [steps] at hs; exact absurd hs h_err
+    | n' + 1 =>
+      have hstep : steps n' (step s₁) = .error := by simp only [steps] at hs; exact hs
+      obtain ⟨m, hm⟩ := h.2 n' (by omega) hstep
+      exact ⟨m + 1, by simp only [steps]; exact hm⟩
+
+/-- ObsEqK is monotone: fewer steps to check ⇒ easier to satisfy. -/
+theorem obsEqK_mono {j k : Nat} (hjk : j ≤ k) {s₁ s₂ : State}
+    (h : ObsEqK k s₁ s₂) : ObsEqK j s₁ s₂ :=
+  ⟨obsRefinesK_mono hjk h.1, obsRefinesK_mono hjk h.2⟩
+
+/-- Stepping consumes one fuel unit (two-way). -/
+theorem obsEqK_of_step {s₁ s₂ : State}
+    (h₁ : ∀ v, s₁ ≠ .halt v) (h₂ : ∀ v, s₂ ≠ .halt v)
+    (he₁ : s₁ ≠ .error) (he₂ : s₂ ≠ .error)
+    (h : ObsEqK k (step s₁) (step s₂)) : ObsEqK (k+1) s₁ s₂ :=
+  ⟨obsRefinesK_of_step h₁ h₂ he₁ h.1,
+   obsRefinesK_of_step h₂ h₁ he₂ h.2⟩
+
+theorem obsEqK_error (k : Nat) : ObsEqK k .error .error :=
+  ⟨obsRefinesK_error_error k, obsRefinesK_error_error k⟩
+
+/-- ObsEqK 0 is vacuously true for states that are neither halt nor error
+    (i.e. compute or ret). -/
 theorem obsEqK_zero_nonhalt {s₁ s₂ : State}
-    (h₁ : ∀ v, s₁ ≠ .halt v) (h₂ : ∀ v, s₂ ≠ .halt v) : ObsEqK 0 s₁ s₂ := by
-  refine ⟨fun v ⟨n, hn, hs⟩ => ?_, fun v ⟨n, hn, hs⟩ => ?_⟩
-  · have hn0 : n = 0 := by omega
-    subst hn0; simp [steps] at hs; exact absurd hs (h₁ v)
-  · have hn0 : n = 0 := by omega
-    subst hn0; simp [steps] at hs; exact absurd hs (h₂ v)
+    (h₁ : ∀ v, s₁ ≠ .halt v) (h₂ : ∀ v, s₂ ≠ .halt v)
+    (he₁ : s₁ ≠ .error) (he₂ : s₂ ≠ .error) : ObsEqK 0 s₁ s₂ :=
+  ⟨obsRefinesK_zero_nonhalt h₁ he₁, obsRefinesK_zero_nonhalt h₂ he₂⟩
+
+-- ── Concretized wrappers to avoid state-metavariable elaboration issues ──
+
+/-- ObsEqK 0 at compute-compute states. -/
+theorem obsEqK_zero_compute {π₁ : Stack} {ρ₁ : CekEnv} {t₁ : Term}
+    {π₂ : Stack} {ρ₂ : CekEnv} {t₂ : Term} :
+    ObsEqK 0 (.compute π₁ ρ₁ t₁) (.compute π₂ ρ₂ t₂) :=
+  obsEqK_zero_nonhalt (fun _ h => by cases h) (fun _ h => by cases h)
+                      (fun h => by cases h) (fun h => by cases h)
+
+/-- ObsEqK 0 at ret-ret states. -/
+theorem obsEqK_zero_ret {π₁ : Stack} {v₁ : CekValue}
+    {π₂ : Stack} {v₂ : CekValue} :
+    ObsEqK 0 (.ret π₁ v₁) (.ret π₂ v₂) :=
+  obsEqK_zero_nonhalt (fun _ h => by cases h) (fun _ h => by cases h)
+                      (fun h => by cases h) (fun h => by cases h)
+
+/-- Peel a step at compute-compute states. -/
+theorem obsEqK_of_step_compute {k : Nat}
+    {π₁ : Stack} {ρ₁ : CekEnv} {t₁ : Term}
+    {π₂ : Stack} {ρ₂ : CekEnv} {t₂ : Term}
+    (h : ObsEqK k (step (.compute π₁ ρ₁ t₁)) (step (.compute π₂ ρ₂ t₂))) :
+    ObsEqK (k+1) (.compute π₁ ρ₁ t₁) (.compute π₂ ρ₂ t₂) :=
+  obsEqK_of_step (fun _ h => by cases h) (fun _ h => by cases h)
+                 (fun h => by cases h) (fun h => by cases h) h
+
+/-- Peel a step at ret-ret states. -/
+theorem obsEqK_of_step_ret {k : Nat}
+    {π₁ : Stack} {v₁ : CekValue}
+    {π₂ : Stack} {v₂ : CekValue}
+    (h : ObsEqK k (step (.ret π₁ v₁)) (step (.ret π₂ v₂))) :
+    ObsEqK (k+1) (.ret π₁ v₁) (.ret π₂ v₂) :=
+  obsEqK_of_step (fun _ h => by cases h) (fun _ h => by cases h)
+                 (fun h => by cases h) (fun h => by cases h) h
+
+/-- ObsRefinesK 0 at compute-compute states. -/
+theorem obsRefinesK_zero_compute {π₁ : Stack} {ρ₁ : CekEnv} {t₁ : Term}
+    {π₂ : Stack} {ρ₂ : CekEnv} {t₂ : Term} :
+    ObsRefinesK 0 (.compute π₁ ρ₁ t₁) (.compute π₂ ρ₂ t₂) :=
+  obsRefinesK_zero_nonhalt (fun _ h => by cases h) (fun h => by cases h)
+
+/-- ObsRefinesK 0 at ret-ret states. -/
+theorem obsRefinesK_zero_ret {π₁ : Stack} {v₁ : CekValue}
+    {π₂ : Stack} {v₂ : CekValue} :
+    ObsRefinesK 0 (.ret π₁ v₁) (.ret π₂ v₂) :=
+  obsRefinesK_zero_nonhalt (fun _ h => by cases h) (fun h => by cases h)
+
+/-- Peel a step on ObsRefinesK at compute-compute states. -/
+theorem obsRefinesK_of_step_compute {k : Nat}
+    {π₁ : Stack} {ρ₁ : CekEnv} {t₁ : Term}
+    {π₂ : Stack} {ρ₂ : CekEnv} {t₂ : Term}
+    (h : ObsRefinesK k (step (.compute π₁ ρ₁ t₁)) (step (.compute π₂ ρ₂ t₂))) :
+    ObsRefinesK (k+1) (.compute π₁ ρ₁ t₁) (.compute π₂ ρ₂ t₂) :=
+  obsRefinesK_of_step (fun _ h => by cases h) (fun _ h => by cases h)
+                      (fun h => by cases h) h
+
+/-- Peel a step on ObsRefinesK at ret-ret states. -/
+theorem obsRefinesK_of_step_ret {k : Nat}
+    {π₁ : Stack} {v₁ : CekValue}
+    {π₂ : Stack} {v₂ : CekValue}
+    (h : ObsRefinesK k (step (.ret π₁ v₁)) (step (.ret π₂ v₂))) :
+    ObsRefinesK (k+1) (.ret π₁ v₁) (.ret π₂ v₂) :=
+  obsRefinesK_of_step (fun _ h => by cases h) (fun _ h => by cases h)
+                      (fun h => by cases h) h
+
+/-- Dispatch wrapper: use in compat_* lemmas where the state could be compute
+    or ret. Relies on `first` to select the appropriate specialized lemma. -/
+macro "obsEqK_zero_nonhalt_auto" : tactic =>
+  `(tactic| first | exact obsEqK_zero_compute | exact obsEqK_zero_ret)
+
+macro "obsEqK_of_step_auto" : tactic =>
+  `(tactic| first | refine obsEqK_of_step_compute ?_
+                  | refine obsEqK_of_step_ret ?_)
+
+macro "obsRefinesK_zero_nonhalt_auto" : tactic =>
+  `(tactic| first | exact obsRefinesK_zero_compute | exact obsRefinesK_zero_ret)
+
+macro "obsRefinesK_of_step_auto" : tactic =>
+  `(tactic| first | refine obsRefinesK_of_step_compute ?_
+                  | refine obsRefinesK_of_step_ret ?_)
 
 theorem stackRelK_mono {V : Nat → CekValue → CekValue → Prop} {i k : Nat}
     (hik : i ≤ k) {π₁ π₂ : Stack} (h : StackRelK V k π₁ π₂) : StackRelK V i π₁ π₂ :=
@@ -154,34 +328,38 @@ private theorem valueEqK_mono_le (k : Nat) :
     subst hj0; exact h
   | succ k ih =>
     intro j hj v₁ v₂ h
-    match j with
-    | 0 => simp only [ValueEqK.eq_1]
-    | j' + 1 =>
-      match v₁, v₂ with
-      | .VCon _, .VCon _ => simp only [ValueEqK] at h ⊢; exact h
-      | .VLam _ _, .VLam _ _ =>
-        simp only [ValueEqK] at h ⊢
-        intro i' hi' a₁ a₂ ha ib hib π₁ π₂ hπ
-        exact h i' (by omega) a₁ a₂ ha ib hib π₁ π₂ hπ
-      | .VDelay _ _, .VDelay _ _ =>
-        simp only [ValueEqK] at h ⊢
-        intro i' hi' ib hib π₁ π₂ hπ
-        exact h i' (by omega) ib hib π₁ π₂ hπ
-      | .VConstr _ _, .VConstr _ _ =>
-        simp only [ValueEqK] at h ⊢
-        exact ⟨h.1, listRel_mono (fun a b hab => ih j' (by omega) a b hab) h.2⟩
-      | .VBuiltin _ _ _, .VBuiltin _ _ _ =>
-        simp only [ValueEqK] at h ⊢
-        exact ⟨h.1, h.2.1, listRel_mono (fun a b hab => ih j' (by omega) a b hab) h.2.2⟩
-      | .VCon _, .VLam _ _ | .VCon _, .VDelay _ _ | .VCon _, .VConstr _ _
-      | .VCon _, .VBuiltin _ _ _ | .VLam _ _, .VCon _ | .VLam _ _, .VDelay _ _
-      | .VLam _ _, .VConstr _ _ | .VLam _ _, .VBuiltin _ _ _
-      | .VDelay _ _, .VCon _ | .VDelay _ _, .VLam _ _ | .VDelay _ _, .VConstr _ _
-      | .VDelay _ _, .VBuiltin _ _ _ | .VConstr _ _, .VCon _
-      | .VConstr _ _, .VLam _ _ | .VConstr _ _, .VDelay _ _
-      | .VConstr _ _, .VBuiltin _ _ _ | .VBuiltin _ _ _, .VCon _
-      | .VBuiltin _ _ _, .VLam _ _ | .VBuiltin _ _ _, .VDelay _ _
-      | .VBuiltin _ _ _, .VConstr _ _ => simp only [ValueEqK] at h
+    match j, v₁, v₂ with
+    | 0, .VCon _, .VCon _ => simp only [ValueEqK] at h ⊢; exact h
+    | 0, .VLam _ _, .VLam _ _ => simp only [ValueEqK]
+    | 0, .VDelay _ _, .VDelay _ _ => simp only [ValueEqK]
+    | 0, .VConstr _ _, .VConstr _ _ =>
+      simp only [ValueEqK] at h ⊢; exact h.1
+    | 0, .VBuiltin _ _ _, .VBuiltin _ _ _ =>
+      simp only [ValueEqK] at h ⊢; exact ⟨h.1, h.2.1⟩
+    | j' + 1, .VCon _, .VCon _ => simp only [ValueEqK] at h ⊢; exact h
+    | j' + 1, .VLam _ _, .VLam _ _ =>
+      simp only [ValueEqK] at h ⊢
+      intro i' hi' a₁ a₂ ha ib hib π₁ π₂ hπ
+      exact h i' (by omega) a₁ a₂ ha ib hib π₁ π₂ hπ
+    | j' + 1, .VDelay _ _, .VDelay _ _ =>
+      simp only [ValueEqK] at h ⊢
+      intro i' hi' ib hib π₁ π₂ hπ
+      exact h i' (by omega) ib hib π₁ π₂ hπ
+    | j' + 1, .VConstr _ _, .VConstr _ _ =>
+      simp only [ValueEqK] at h ⊢
+      exact ⟨h.1, listRel_mono (fun a b hab => ih j' (by omega) a b hab) h.2⟩
+    | j' + 1, .VBuiltin _ _ _, .VBuiltin _ _ _ =>
+      simp only [ValueEqK] at h ⊢
+      exact ⟨h.1, h.2.1, listRel_mono (fun a b hab => ih j' (by omega) a b hab) h.2.2⟩
+    | _, .VCon _, .VLam _ _ | _, .VCon _, .VDelay _ _ | _, .VCon _, .VConstr _ _
+    | _, .VCon _, .VBuiltin _ _ _ | _, .VLam _ _, .VCon _ | _, .VLam _ _, .VDelay _ _
+    | _, .VLam _ _, .VConstr _ _ | _, .VLam _ _, .VBuiltin _ _ _
+    | _, .VDelay _ _, .VCon _ | _, .VDelay _ _, .VLam _ _ | _, .VDelay _ _, .VConstr _ _
+    | _, .VDelay _ _, .VBuiltin _ _ _ | _, .VConstr _ _, .VCon _
+    | _, .VConstr _ _, .VLam _ _ | _, .VConstr _ _, .VDelay _ _
+    | _, .VConstr _ _, .VBuiltin _ _ _ | _, .VBuiltin _ _ _, .VCon _
+    | _, .VBuiltin _ _ _, .VLam _ _ | _, .VBuiltin _ _ _, .VDelay _ _
+    | _, .VBuiltin _ _ _, .VConstr _ _ => simp only [ValueEqK] at h
 
 theorem valueEqK_mono {j k : Nat} (hjk : j ≤ k) (v₁ v₂ : CekValue)
     (h : ValueEqK k v₁ v₂) : ValueEqK j v₁ v₂ :=
@@ -208,9 +386,9 @@ theorem envEqK_extend {k d : Nat} {ρ₁ ρ₂ : CekEnv} {v₁ v₂ : CekValue}
       -- Goal: match ρ₁.lookup (n'+1), ρ₂.lookup (n'+1) with ...
       exact henv (n'+1) (by omega) (by omega)
 
-/-- At k ≥ 1, VCon values in ListRel have equal constants, so extractConsts gives the same list. -/
+/-- VCon values in ListRel have equal constants, so extractConsts gives the same list. -/
 private theorem extractConsts_eq {k : Nat} {args₁ args₂ : List CekValue}
-    (hargs : ListRel (ValueEqK (k+1)) args₁ args₂) :
+    (hargs : ListRel (ValueEqK k) args₁ args₂) :
     extractConsts args₁ = extractConsts args₂ := by
   induction args₁ generalizing args₂ with
   | nil => cases args₂ <;> simp_all [ListRel, extractConsts]
@@ -222,7 +400,11 @@ private theorem extractConsts_eq {k : Nat} {args₁ args₂ : List CekValue}
       obtain ⟨ha, has⟩ := hargs
       match a₁, a₂ with
       | .VCon c₁, .VCon c₂ =>
-        simp only [ValueEqK] at ha; subst ha
+        have heq : c₁ = c₂ := by
+          cases k with
+          | zero => simp only [ValueEqK] at ha; exact ha
+          | succ => simp only [ValueEqK] at ha; exact ha
+        subst heq
         simp only [extractConsts]; rw [ih has]
       | .VLam _ _, .VLam _ _ => simp [extractConsts]
       | .VDelay _ _, .VDelay _ _ => simp [extractConsts]
@@ -251,18 +433,21 @@ private theorem listRel_nil_inv {R : α → α → Prop} {l₂ : List α}
   cases l₂ with | nil => rfl | cons => exact absurd h id
 
 private theorem valueEqK_vcon_inv {k : Nat} {c : Const} {v : CekValue}
-    (h : ValueEqK (k + 1) (.VCon c) v) : v = .VCon c := by
-  match v with
-  | .VCon c' => simp only [ValueEqK] at h; cases h; rfl
-  | .VLam _ _ | .VDelay _ _ | .VConstr _ _ | .VBuiltin _ _ _ =>
+    (h : ValueEqK k (.VCon c) v) : v = .VCon c := by
+  match k, v with
+  | 0, .VCon c' => simp only [ValueEqK] at h; cases h; rfl
+  | 0, .VLam _ _ | 0, .VDelay _ _ | 0, .VConstr _ _ | 0, .VBuiltin _ _ _ =>
+    simp only [ValueEqK] at h
+  | _ + 1, .VCon c' => simp only [ValueEqK] at h; cases h; rfl
+  | _ + 1, .VLam _ _ | _ + 1, .VDelay _ _ | _ + 1, .VConstr _ _ | _ + 1, .VBuiltin _ _ _ =>
     simp only [ValueEqK] at h
 
 set_option maxHeartbeats 6400000 in
 private theorem evalBuiltinPassThrough_compat {k : Nat} {b : BuiltinFun}
     {args₁ args₂ : List CekValue}
-    (hargs : ListRel (ValueEqK (k+1)) args₁ args₂) :
+    (hargs : ListRel (ValueEqK k) args₁ args₂) :
     match evalBuiltinPassThrough b args₁, evalBuiltinPassThrough b args₂ with
-    | some v₁, some v₂ => ValueEqK (k+1) v₁ v₂
+    | some v₁, some v₂ => ValueEqK k v₁ v₂
     | none, none => True
     | _, _ => False := by
   -- Non-pass-through builtins: both sides return none.
@@ -452,7 +637,9 @@ private theorem evalBuiltinPassThrough_compat {k : Nat} {b : BuiltinFun}
         rename_i tail₁
         match b₁, b₂ with
         | .VCon c₁, .VCon c₂ =>
-          simp only [ValueEqK] at hb; subst hb; simp [ValueEqK]
+          have hbeq : c₁ = c₂ := by cases k <;> (simp only [ValueEqK] at hb; exact hb)
+          subst hbeq
+          cases k <;> simp [ValueEqK]
         | .VLam _ _, .VLam _ _ | .VDelay _ _, .VDelay _ _
         | .VConstr _ _, .VConstr _ _ | .VBuiltin _ _ _, .VBuiltin _ _ _ => trivial
         | .VCon _, .VLam _ _ | .VCon _, .VDelay _ _
@@ -481,12 +668,12 @@ private theorem evalBuiltinPassThrough_compat {k : Nat} {b : BuiltinFun}
     rw [evalBuiltinPassThrough_none_of_not_passthrough b args₁ hb_not,
         evalBuiltinPassThrough_none_of_not_passthrough b args₂ hb_not]; trivial
 
-/-- At k ≥ 1, evalBuiltin with related args gives related outputs. -/
+/-- evalBuiltin with related args gives related outputs. -/
 private theorem evalBuiltin_rel {k : Nat} {b : BuiltinFun}
     {args₁ args₂ : List CekValue}
-    (hargs : ListRel (ValueEqK (k+1)) args₁ args₂) :
+    (hargs : ListRel (ValueEqK k) args₁ args₂) :
     match evalBuiltin b args₁, evalBuiltin b args₂ with
-    | some v₁, some v₂ => ValueEqK (k+1) v₁ v₂
+    | some v₁, some v₂ => ValueEqK k v₁ v₂
     | none, none => True
     | _, _ => False := by
   have h_ext := extractConsts_eq hargs
@@ -502,7 +689,7 @@ private theorem evalBuiltin_rel {k : Nat} {b : BuiltinFun}
       simp only []
       cases evalBuiltinConst b consts with
       | none => simp
-      | some c => simp [ValueEqK]
+      | some c => cases k <;> simp [ValueEqK]
   · exact absurd h_pt id
   · exact absurd h_pt id
   · exact h_pt
@@ -514,21 +701,13 @@ theorem evalBuiltin_compat {k : Nat} {b : BuiltinFun}
     ObsEqK k
       (match evalBuiltin b args₁ with | some v => State.ret π₁ v | none => .error)
       (match evalBuiltin b args₂ with | some v => State.ret π₂ v | none => .error) := by
-  match k with
-  | 0 =>
-    refine ⟨fun v ⟨n, hn, hs⟩ => ?_, fun v ⟨n, hn, hs⟩ => ?_⟩ <;> {
-      have hn0 : n = 0 := by omega
-      subst hn0; simp only [steps] at hs
-      split at hs <;> exact absurd hs State.noConfusion
-    }
-  | m + 1 =>
-    have h_rel := evalBuiltin_rel (b := b) hargs
-    revert h_rel
-    cases evalBuiltin b args₁ <;> cases evalBuiltin b args₂ <;> intro h_rel
-    · exact obsEqK_error _
-    · exact absurd h_rel id
-    · exact absurd h_rel id
-    · exact hπ (m+1) (Nat.le_refl _) _ _ h_rel
+  have h_rel := evalBuiltin_rel (b := b) hargs
+  revert h_rel
+  cases evalBuiltin b args₁ <;> cases evalBuiltin b args₂ <;> intro h_rel
+  · exact obsEqK_error _
+  · exact absurd h_rel id
+  · exact absurd h_rel id
+  · exact hπ k (Nat.le_refl _) _ _ h_rel
 
 --------------------------------------------------------------------------------
 -- 6. CONGRUENCE: compat_app_k (FULLY PROVED modulo evalBuiltin_compat)
@@ -540,25 +719,25 @@ theorem compat_app_k {k d : Nat} {f₁ f₂ a₁ a₂ : Term} :
   intro hf ha j hj ρ₁ ρ₂ henv i hi π₁ π₂ hπ
   -- ── Level 0: Apply step (consumes 1 fuel) ──
   match i with
-  | 0 => exact obsEqK_zero_nonhalt (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+  | 0 => obsEqK_zero_nonhalt_auto
   | i' + 1 =>
-  apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+  obsEqK_of_step_auto
   simp only [step]
   apply hf (i'+1) (by omega) ρ₁ ρ₂ (envEqK_mono (by omega) henv) i' (by omega)
   -- ── Level 1: arg frame StackRelK (ret consumes 1 fuel) ──
   intro i₁ hi₁ v₁ v₂ hv
   match i₁ with
-  | 0 => exact obsEqK_zero_nonhalt (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+  | 0 => obsEqK_zero_nonhalt_auto
   | m₁ + 1 =>
-  apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+  obsEqK_of_step_auto
   simp only [step]
   apply ha (m₁+1) (by omega) ρ₁ ρ₂ (envEqK_mono (by omega) henv) m₁ (by omega)
   -- ── Level 2: funV frame StackRelK (ret consumes 1 fuel) ──
   intro i₂ hi₂ w₁ w₂ hw
   match i₂ with
-  | 0 => exact obsEqK_zero_nonhalt (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+  | 0 => obsEqK_zero_nonhalt_auto
   | m₂ + 1 =>
-  apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+  obsEqK_of_step_auto
   -- ── Constructor dispatch on v₁, v₂ ──
   match v₁, v₂ with
   | .VLam body₁ ρ₁', .VLam body₂ ρ₂' =>
@@ -606,9 +785,9 @@ theorem compat_lam_k {k d : Nat} {name : Nat} {body₁ body₂ : Term} :
     OpenEqK k d (.Lam name body₁) (.Lam name body₂) := by
   intro hbody j hj ρ₁ ρ₂ henv i hi π₁ π₂ hπ
   match i with
-  | 0 => exact obsEqK_zero_nonhalt (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+  | 0 => obsEqK_zero_nonhalt_auto
   | i' + 1 =>
-  apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+  obsEqK_of_step_auto
   simp only [step]
   -- Goal: ObsEqK i' (.ret π₁ (.VLam body₁ ρ₁)) (.ret π₂ (.VLam body₂ ρ₂))
   -- Build ValueEqK for the closures, then use hπ + obsEqK_mono
@@ -627,9 +806,9 @@ theorem compat_delay_k {k d : Nat} {body₁ body₂ : Term} :
     OpenEqK k d (.Delay body₁) (.Delay body₂) := by
   intro hbody j hj ρ₁ ρ₂ henv i hi π₁ π₂ hπ
   match i with
-  | 0 => exact obsEqK_zero_nonhalt (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+  | 0 => obsEqK_zero_nonhalt_auto
   | i' + 1 =>
-  apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+  obsEqK_of_step_auto
   simp only [step]
   have hval : ValueEqK i' (.VDelay body₁ ρ₁) (.VDelay body₂ ρ₂) := by
     cases i' with
@@ -645,18 +824,18 @@ theorem compat_force_k {k d : Nat} {t₁ t₂ : Term} :
   intro ht j hj ρ₁ ρ₂ henv i hi π₁ π₂ hπ
   -- ── Level 0: Force step (consumes 1 fuel) ──
   match i with
-  | 0 => exact obsEqK_zero_nonhalt (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+  | 0 => obsEqK_zero_nonhalt_auto
   | i' + 1 =>
-  apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+  obsEqK_of_step_auto
   simp only [step]
   -- Goal: ObsEqK i' (.compute (.force :: π₁) ρ₁ t₁) (.compute (.force :: π₂) ρ₂ t₂)
   apply ht (i'+1) (by omega) ρ₁ ρ₂ (envEqK_mono (by omega) henv) i' (by omega)
   -- ── Build StackRelK for the force frame ──
   intro j' hj' v₁ v₂ hv
   match j' with
-  | 0 => exact obsEqK_zero_nonhalt (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+  | 0 => obsEqK_zero_nonhalt_auto
   | m + 1 =>
-  apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+  obsEqK_of_step_auto
   -- ── Dispatch on the forced value ──
   match v₁, v₂ with
   | .VDelay body₁ ρ₁', .VDelay body₂ ρ₂' =>
@@ -733,9 +912,9 @@ private theorem constrField_stackRelK {d tag k : Nat}
     | nil =>
     intro j hj done₁ done₂ π₁ π₂ henv hdone hπ j' hj' v₁ v₂ hv
     match j' with
-    | 0 => exact obsEqK_zero_nonhalt (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+    | 0 => obsEqK_zero_nonhalt_auto
     | n + 1 =>
-    apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+    obsEqK_of_step_auto
     simp only [step]
     have hrev : ListRel (ValueEqK n) ((v₁ :: done₁).reverse) ((v₂ :: done₂).reverse) := by
       simp only [List.reverse_cons]
@@ -756,9 +935,9 @@ private theorem constrField_stackRelK {d tag k : Nat}
     have hfs : ListRel (fun t₁ t₂ => OpenEqK (k+1) d t₁ t₂) ms₁' ms₂' := hfields.2
     intro j hj done₁ done₂ π₁ π₂ henv hdone hπ j' hj' v₁ v₂ hv
     match j' with
-    | 0 => exact obsEqK_zero_nonhalt (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+    | 0 => obsEqK_zero_nonhalt_auto
     | n + 1 =>
-    apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+    obsEqK_of_step_auto
     simp only [step]
     apply hm (n + 1) (by omega) ρ₁ ρ₂ (envEqK_mono (by omega) henv) n (by omega)
     exact ih hfs (by omega : n ≤ k)
@@ -774,9 +953,9 @@ theorem compat_constr_k {k d : Nat} {tag : Nat} {m₁ m₂ : Term} {ms₁ ms₂ 
     OpenEqK k d (.Constr tag (m₁ :: ms₁)) (.Constr tag (m₂ :: ms₂)) := by
   intro hm hfields j hj ρ₁ ρ₂ henv i hi π₁ π₂ hπ
   match i with
-  | 0 => exact obsEqK_zero_nonhalt (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+  | 0 => obsEqK_zero_nonhalt_auto
   | i' + 1 =>
-  apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+  obsEqK_of_step_auto
   simp only [step]
   apply hm (i'+1) (by omega) ρ₁ ρ₂ (envEqK_mono (by omega) henv) i' (by omega)
   exact constrField_stackRelK hfields (by omega : i' ≤ k)
@@ -866,9 +1045,9 @@ theorem applyArgFrames_stackRelK {j : Nat}
     -- StackRelK for (.applyArg v₁ :: rest₁) (.applyArg v₂ :: rest₂)
     intro j' hj' w₁ w₂ hw
     match j' with
-    | 0 => exact obsEqK_zero_nonhalt (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+    | 0 => obsEqK_zero_nonhalt_auto
     | n + 1 =>
-    apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+    obsEqK_of_step_auto
     -- Dispatch on the returned function w₁, w₂
     match w₁, w₂ with
     | .VLam body₁ ρ₁', .VLam body₂ ρ₂' =>
@@ -917,17 +1096,17 @@ theorem compat_case_k {k d : Nat} {scrut₁ scrut₂ : Term} {alts₁ alts₂ : 
     OpenEqK k d (.Case scrut₁ alts₁) (.Case scrut₂ alts₂) := by
   intro hscrut j hj ρ₁ ρ₂ henv i hi π₁ π₂ hπ
   match i with
-  | 0 => exact obsEqK_zero_nonhalt (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+  | 0 => obsEqK_zero_nonhalt_auto
   | i' + 1 =>
-  apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+  obsEqK_of_step_auto
   simp only [step]
   apply hscrut (i'+1) (by omega) ρ₁ ρ₂ (envEqK_mono (by omega) henv) i' (by omega)
   -- StackRelK for caseScrutinee alts₁ ρ₁ :: π₁ vs caseScrutinee alts₂ ρ₂ :: π₂
   intro j' hj' v₁ v₂ hv
   match j' with
-  | 0 => exact obsEqK_zero_nonhalt (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+  | 0 => obsEqK_zero_nonhalt_auto
   | n + 1 =>
-  apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+  obsEqK_of_step_auto
   have hlen : alts₁.length = alts₂.length := listRel_length halts
   match v₁, v₂ with
   | .VConstr tag₁ fields₁, .VConstr tag₂ fields₂ =>
@@ -1074,9 +1253,25 @@ private theorem valueEqK_symm_le (k : Nat) :
     ∀ j, j ≤ k → ∀ v₁ v₂, ValueEqK j v₁ v₂ → ValueEqK j v₂ v₁ := by
   induction k with
   | zero =>
-    intro j hj v₁ v₂ _
+    intro j hj v₁ v₂ h
     have hj0 : j = 0 := by omega
-    subst hj0; exact (ValueEqK.eq_1 v₂ v₁).mpr trivial
+    subst hj0
+    match v₁, v₂ with
+    | .VCon _, .VCon _ => simp only [ValueEqK] at h ⊢; exact h.symm
+    | .VLam _ _, .VLam _ _ => simp only [ValueEqK]
+    | .VDelay _ _, .VDelay _ _ => simp only [ValueEqK]
+    | .VConstr _ _, .VConstr _ _ => simp only [ValueEqK] at h ⊢; exact h.symm
+    | .VBuiltin _ _ _, .VBuiltin _ _ _ =>
+      simp only [ValueEqK] at h ⊢; exact ⟨h.1.symm, h.2.symm⟩
+    | .VCon _, .VLam _ _ | .VCon _, .VDelay _ _ | .VCon _, .VConstr _ _
+    | .VCon _, .VBuiltin _ _ _ | .VLam _ _, .VCon _ | .VLam _ _, .VDelay _ _
+    | .VLam _ _, .VConstr _ _ | .VLam _ _, .VBuiltin _ _ _
+    | .VDelay _ _, .VCon _ | .VDelay _ _, .VLam _ _ | .VDelay _ _, .VConstr _ _
+    | .VDelay _ _, .VBuiltin _ _ _ | .VConstr _ _, .VCon _
+    | .VConstr _ _, .VLam _ _ | .VConstr _ _, .VDelay _ _
+    | .VConstr _ _, .VBuiltin _ _ _ | .VBuiltin _ _ _, .VCon _
+    | .VBuiltin _ _ _, .VLam _ _ | .VBuiltin _ _ _, .VDelay _ _
+    | .VBuiltin _ _ _, .VConstr _ _ => simp only [ValueEqK] at h
   | succ k ih =>
     intro j hj v₁ v₂ h
     by_cases hjk : j ≤ k
@@ -1151,12 +1346,14 @@ def openEq_refl (d : Nat) (t : Term) (ht : closedAt d t = true) : OpenEq d t t :
     match fields with
     | [] =>
       match i with
-      | 0 => exact obsEqK_zero_nonhalt (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+      | 0 => obsEqK_zero_nonhalt_auto
       | i' + 1 =>
-        apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+        obsEqK_of_step_auto
         simp only [step]
         have : ValueEqK i' (.VConstr tag []) (.VConstr tag []) := by
-          cases i' with | zero => simp only [ValueEqK.eq_1] | succ => simp [ValueEqK, ListRel]
+          cases i' with
+          | zero => simp only [ValueEqK]
+          | succ => simp [ValueEqK, ListRel]
         exact hπ i' (by omega) _ _ this
     | m :: ms =>
       simp [closedAt] at ht
@@ -1173,32 +1370,34 @@ def openEq_refl (d : Nat) (t : Term) (ht : closedAt d t = true) : OpenEq d t t :
       j (Nat.le_refl _) ρ₁ ρ₂ henv i hi π₁ π₂ hπ
   | .Error =>
     match i with
-    | 0 => exact obsEqK_zero_nonhalt (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+    | 0 => obsEqK_zero_nonhalt_auto
     | i' + 1 =>
-      apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+      obsEqK_of_step_auto
       simp [step]; exact obsEqK_error _
   | .Constant c =>
     match i with
-    | 0 => exact obsEqK_zero_nonhalt (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+    | 0 => obsEqK_zero_nonhalt_auto
     | i' + 1 =>
-      apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+      obsEqK_of_step_auto
       simp only [step]
       exact hπ i' (by omega) _ _ (by cases i' with
-        | zero => simp only [ValueEqK.eq_1] | succ => simp only [ValueEqK])
+        | zero => simp only [ValueEqK]
+        | succ => simp only [ValueEqK])
   | .Builtin b =>
     match i with
-    | 0 => exact obsEqK_zero_nonhalt (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+    | 0 => obsEqK_zero_nonhalt_auto
     | i' + 1 =>
-      apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+      obsEqK_of_step_auto
       simp only [step]
       exact hπ i' (by omega) _ _ (by cases i' with
-        | zero => simp only [ValueEqK.eq_1] | succ => simp [ValueEqK, ListRel])
+        | zero => simp only [ValueEqK]; exact ⟨trivial, trivial⟩
+        | succ => simp [ValueEqK, ListRel])
   | .Var n =>
     match i with
-    | 0 => exact obsEqK_zero_nonhalt (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+    | 0 => obsEqK_zero_nonhalt_auto
     | i' + 1 =>
       simp [closedAt] at ht
-      apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+      obsEqK_of_step_auto
       simp only [step]
       by_cases hn : n = 0
       · subst hn
@@ -1214,13 +1413,13 @@ def openEq_refl (d : Nat) (t : Term) (ht : closedAt d t = true) : OpenEq d t t :
         · exact hπ i' (by omega) _ _ (valueEqK_mono (by omega : i' ≤ j) _ _ h_n)
   | .Lam _ body =>
     match i with
-    | 0 => exact obsEqK_zero_nonhalt (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+    | 0 => obsEqK_zero_nonhalt_auto
     | i' + 1 =>
       simp [closedAt] at ht
-      apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+      obsEqK_of_step_auto
       simp only [step]
       exact hπ i' (by omega) _ _ (by cases i' with
-        | zero => simp only [ValueEqK.eq_1]
+        | zero => simp only [ValueEqK]
         | succ m =>
           simp only [ValueEqK]
           intro j' hj' arg₁ arg₂ hargs ib hib π₁' π₂' hπ'
@@ -1229,13 +1428,13 @@ def openEq_refl (d : Nat) (t : Term) (ht : closedAt d t = true) : OpenEq d t t :
             ib hib π₁' π₂' hπ')
   | .Delay body =>
     match i with
-    | 0 => exact obsEqK_zero_nonhalt (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+    | 0 => obsEqK_zero_nonhalt_auto
     | i' + 1 =>
       simp [closedAt] at ht
-      apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+      obsEqK_of_step_auto
       simp only [step]
       exact hπ i' (by omega) _ _ (by cases i' with
-        | zero => simp only [ValueEqK.eq_1]
+        | zero => simp only [ValueEqK]
         | succ m =>
           simp only [ValueEqK]
           intro j' hj' ib hib π₁' π₂' hπ'

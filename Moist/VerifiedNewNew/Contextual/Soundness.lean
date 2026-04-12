@@ -105,15 +105,19 @@ theorem steps_halt (n : Nat) (v : CekValue) : steps n (.halt v) = .halt v := by
     step 0). -/
 theorem obsEqK_halt (k : Nat) (v_l v_r : CekValue) :
     ObsEqK k (.halt v_l) (.halt v_r) := by
-  refine ⟨?_, ?_⟩
+  refine ⟨⟨?_, ?_⟩, ⟨?_, ?_⟩⟩
   · rintro v ⟨n, _, hs⟩
-    rw [steps_halt n v_l] at hs
-    cases hs
+    rw [steps_halt n v_l] at hs; cases hs
     exact ⟨v_r, 0, rfl⟩
+  · rintro n _ hs
+    rw [steps_halt n v_l] at hs
+    exact absurd hs State.noConfusion
   · rintro v ⟨n, _, hs⟩
-    rw [steps_halt n v_r] at hs
-    cases hs
+    rw [steps_halt n v_r] at hs; cases hs
     exact ⟨v_l, 0, rfl⟩
+  · rintro n _ hs
+    rw [steps_halt n v_r] at hs
+    exact absurd hs State.noConfusion
 
 --------------------------------------------------------------------------------
 -- 3. The `term_obsEq` semantic bridge (Phase 4 main theorem)
@@ -146,7 +150,8 @@ theorem atLeastEnvEqK_symm {k : Nat} {ρ_l ρ_r : CekEnv}
 /-- `constrField` frame `StackRelK` constructor. Mirrors `constrField_stackRelK`
     from `Equivalence.lean` but parameterized over a `term_obsEq` IH that handles
     the head term evaluation at smaller levels. -/
-private theorem constrField_helper {t₁ t₂ : Term} (_h_open : OpenEq 0 t₁ t₂)
+private theorem constrField_helper {d : Nat} {t₁ t₂ : Term}
+    (_h_open : OpenEq d t₁ t₂)
     {tag : Nat} {k : Nat}
     (ih_te : ∀ i ≤ k, ∀ {ρ_l ρ_r : CekEnv} {π_l π_r : Stack} {tm_l tm_r : Term},
       AtLeastEnvEqK i ρ_l ρ_r → StackRelK ValueEqK i π_l π_r →
@@ -169,9 +174,9 @@ private theorem constrField_helper {t₁ t₂ : Term} (_h_open : OpenEq 0 t₁ t
       intro j' hj'_j v_l v_r hv
       match j' with
       | 0 =>
-        exact obsEqK_zero_nonhalt (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+        obsEqK_zero_nonhalt_auto
       | n + 1 =>
-        apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+        obsEqK_of_step_auto
         simp only [step]
         have hrev : ListRel (ValueEqK n) ((v_l :: done_l).reverse) ((v_r :: done_r).reverse) := by
           simp only [List.reverse_cons]
@@ -193,9 +198,9 @@ private theorem constrField_helper {t₁ t₂ : Term} (_h_open : OpenEq 0 t₁ t
       intro j' hj'_j v_l v_r hv
       match j' with
       | 0 =>
-        exact obsEqK_zero_nonhalt (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+        obsEqK_zero_nonhalt_auto
       | n + 1 =>
-        apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+        obsEqK_of_step_auto
         simp only [step]
         apply ih_te n (by omega) (atLeastEnvEqK_mono (by omega) hρ) ?_ hm
         exact ih_ms hms_rest (by omega : n ≤ k) (atLeastEnvEqK_mono (by omega) hρ)
@@ -204,7 +209,7 @@ private theorem constrField_helper {t₁ t₂ : Term} (_h_open : OpenEq 0 t₁ t
              listRel_mono (fun a b h => valueEqK_mono (by omega) a b h) h_done⟩)
           (stackRelK_mono (by omega) hπ)
 
-theorem term_obsEq {t₁ t₂ : Term} (h_open : OpenEq 0 t₁ t₂) :
+theorem term_obsEq {d : Nat} {t₁ t₂ : Term} (h_open : OpenEq d t₁ t₂) :
     ∀ (k : Nat) (i : Nat), i ≤ k →
       ∀ {ρ_l ρ_r : CekEnv} {π_l π_r : Stack} {tm_l tm_r : Term},
         AtLeastEnvEqK i ρ_l ρ_r →
@@ -218,7 +223,7 @@ theorem term_obsEq {t₁ t₂ : Term} (h_open : OpenEq 0 t₁ t₂) :
     have hi0 : i = 0 := Nat.le_zero.mp hi
     subst hi0
     intros _ _ _ _ _ _ _ _ _
-    exact obsEqK_zero_nonhalt (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+    obsEqK_zero_nonhalt_auto
   | succ m ih =>
     intro i hi
     by_cases hi_m : i ≤ m
@@ -243,7 +248,7 @@ theorem term_obsEq {t₁ t₂ : Term} (h_open : OpenEq 0 t₁ t₂) :
           (stackRelK_symm_of (fun k' => valueEqK_symm k') hπ)
       | varRefl n =>
         -- compute → ret with lookup result, or error
-        apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+        obsEqK_of_step_auto
         simp only [step]
         by_cases hn : n = 0
         · subst hn
@@ -268,7 +273,7 @@ theorem term_obsEq {t₁ t₂ : Term} (h_open : OpenEq 0 t₁ t₂) :
                 (valueEqK_mono (Nat.le_succ m) v_l v_r hlk)
       | constRefl c =>
         -- compute → ret π (VCon c.fst); both sides identical
-        apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+        obsEqK_of_step_auto
         simp only [step]
         obtain ⟨k, _⟩ := c
         -- Use stack relation at j = m with ValueEqK m of VCon (reflexive).
@@ -277,19 +282,19 @@ theorem term_obsEq {t₁ t₂ : Term} (h_open : OpenEq 0 t₁ t₂) :
         | zero => simp only [ValueEqK]
         | succ _ => simp only [ValueEqK]
       | builtinRefl b =>
-        apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+        obsEqK_of_step_auto
         simp only [step]
         apply hπ m (Nat.le_succ m) (.VBuiltin b [] (expectedArgs b)) _
         cases m with
-        | zero => simp only [ValueEqK]
+        | zero => simp only [ValueEqK]; exact ⟨trivial, trivial⟩
         | succ _ => simp only [ValueEqK, ListRel]; exact ⟨trivial, trivial, trivial⟩
       | errorRefl =>
-        apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+        obsEqK_of_step_auto
         simp only [step]
         exact obsEqK_error _
       | lam hb =>
         -- compute (.Lam x b) → ret π (VLam b ρ)
-        apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+        obsEqK_of_step_auto
         simp only [step]
         -- Stack relation at j = m gives ObsEqK m of .ret if values are ValueEqK m.
         apply hπ m (Nat.le_succ m)
@@ -312,16 +317,16 @@ theorem term_obsEq {t₁ t₂ : Term} (h_open : OpenEq 0 t₁ t₂) :
           · exact hb
       | apply hf ha =>
         -- compute (Apply f a) → compute (.arg a ρ :: π) ρ f
-        apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+        obsEqK_of_step_auto
         simp only [step]
         apply ih m (Nat.le_refl m) (atLeastEnvEqK_mono (Nat.le_succ m) hρ) ?_ hf
         -- StackRelK m of (.arg a_l ρ_l :: π_l) (.arg a_r ρ_r :: π_r)
         intro j hj_m vf_l vf_r hvf
         match j with
         | 0 =>
-          exact obsEqK_zero_nonhalt (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+          obsEqK_zero_nonhalt_auto
         | j' + 1 =>
-          apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+          obsEqK_of_step_auto
           simp only [step]
           -- Stepped to compute (.funV vf :: π) ρ a. Use ih at level j'.
           apply ih j' (by omega) (atLeastEnvEqK_mono (by omega) hρ) ?_ ha
@@ -329,9 +334,9 @@ theorem term_obsEq {t₁ t₂ : Term} (h_open : OpenEq 0 t₁ t₂) :
           intro j'' hj''_j' w_l w_r hw
           match j'' with
           | 0 =>
-            exact obsEqK_zero_nonhalt (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+            obsEqK_zero_nonhalt_auto
           | j''' + 1 =>
-            apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+            obsEqK_of_step_auto
             -- Dispatch on vf
             match vf_l, vf_r with
             | .VCon _, .VCon _ => simp only [step]; exact obsEqK_error _
@@ -385,7 +390,7 @@ theorem term_obsEq {t₁ t₂ : Term} (h_open : OpenEq 0 t₁ t₂) :
             | .VBuiltin _ _ _, .VConstr _ _ => simp only [ValueEqK] at hvf
       | force he =>
         -- compute (.Force e) → compute (.force :: π) ρ e
-        apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+        obsEqK_of_step_auto
         simp only [step]
         -- Apply ih m at the new compute state. Need StackRelK m of (.force :: π).
         apply ih m (Nat.le_refl m) (atLeastEnvEqK_mono (Nat.le_succ m) hρ) ?_ he
@@ -393,9 +398,9 @@ theorem term_obsEq {t₁ t₂ : Term} (h_open : OpenEq 0 t₁ t₂) :
         intro j hj_m vf_l vf_r hvf
         match j with
         | 0 =>
-          exact obsEqK_zero_nonhalt (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+          obsEqK_zero_nonhalt_auto
         | j' + 1 =>
-          apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+          obsEqK_of_step_auto
           -- Dispatch on vf_l/vf_r via ValueEqK (j'+1)
           match vf_l, vf_r with
           | .VCon _, .VCon _ => simp only [step]; exact obsEqK_error _
@@ -436,7 +441,7 @@ theorem term_obsEq {t₁ t₂ : Term} (h_open : OpenEq 0 t₁ t₂) :
           | .VBuiltin _ _ _, .VConstr _ _ => simp only [ValueEqK] at hvf
       | delay hb =>
         -- compute (.Delay b) → ret π (VDelay b ρ)
-        apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+        obsEqK_of_step_auto
         simp only [step]
         apply hπ m (Nat.le_succ m)
         -- ValueEqK m (VDelay b_l ρ_l) (VDelay b_r ρ_r)
@@ -453,7 +458,7 @@ theorem term_obsEq {t₁ t₂ : Term} (h_open : OpenEq 0 t₁ t₂) :
         cases hms with
         | nil =>
           -- compute (Constr tag []) → ret π (VConstr tag [])
-          apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+          obsEqK_of_step_auto
           simp only [step]
           apply hπ m (Nat.le_succ m) (.VConstr _ []) (.VConstr _ [])
           cases m with
@@ -462,7 +467,7 @@ theorem term_obsEq {t₁ t₂ : Term} (h_open : OpenEq 0 t₁ t₂) :
         | cons hm hms_rest =>
           -- compute (Constr tag (m :: ms_rest))
           -- → compute (.constrField tag [] ms_rest ρ :: π) ρ m
-          apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+          obsEqK_of_step_auto
           simp only [step]
           apply ih m (Nat.le_refl m) (atLeastEnvEqK_mono (Nat.le_succ m) hρ) ?_ hm
           -- Need StackRelK m of new constrField stack via constrField_helper
@@ -473,16 +478,16 @@ theorem term_obsEq {t₁ t₂ : Term} (h_open : OpenEq 0 t₁ t₂) :
       | case hs has =>
         rename_i as_l as_r
         -- compute (.Case scrut alts) → compute (.caseScrutinee alts ρ :: π) ρ scrut
-        apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+        obsEqK_of_step_auto
         simp only [step]
         apply ih m (Nat.le_refl m) (atLeastEnvEqK_mono (Nat.le_succ m) hρ) ?_ hs
         -- StackRelK m of (.caseScrutinee as_l ρ_l :: π_l) (.caseScrutinee as_r ρ_r :: π_r)
         intro j hj_m vf_l vf_r hvf
         match j with
         | 0 =>
-          exact obsEqK_zero_nonhalt (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+          obsEqK_zero_nonhalt_auto
         | j' + 1 =>
-          apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+          obsEqK_of_step_auto
           match vf_l, vf_r with
           | .VConstr tag_l fields_l, .VConstr tag_r fields_r =>
             simp only [step]
@@ -563,30 +568,50 @@ theorem stackRelK_nil (k : Nat) : StackRelK ValueEqK k [] [] := by
   intro j _ v_l v_r _
   cases j with
   | zero =>
-    exact obsEqK_zero_nonhalt (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+    obsEqK_zero_nonhalt_auto
   | succ j' =>
-    apply obsEqK_of_step (fun _ => State.noConfusion) (fun _ => State.noConfusion)
+    obsEqK_of_step_auto
     simp only [step]
     exact obsEqK_halt j' v_l v_r
 
+/-- Helper: instantiate `term_obsEq` at level `n` for an empty-state fill. -/
+private theorem term_obsEq_at {d : Nat} {t₁ t₂ : Term}
+    (h_open : OpenEq d t₁ t₂) (C : Context) (n : Nat) :
+    ObsEqK n (.compute [] .nil (fill C t₁)) (.compute [] .nil (fill C t₂)) :=
+  term_obsEq h_open n n (Nat.le_refl _)
+    (atLeastEnvEqK_nil n) (stackRelK_nil n) (fill_termSubst C t₁ t₂)
+
 /-- The open-context soundness theorem: `OpenEq 0 t₁ t₂` implies that for any
     context `C`, the empty-state CEK runs of `fill C t₁` and `fill C t₂` are
-    observationally equivalent. -/
+    observationally equivalent (halt and error behavior both preserved). -/
 theorem soundness {t₁ t₂ : Term} (h_open : OpenEq 0 t₁ t₂) :
     ∀ (C : Context),
       ObsEq (.compute [] .nil (fill C t₁)) (.compute [] .nil (fill C t₂)) := by
   intro C
-  refine ⟨?_, ?_⟩
+  refine ⟨⟨?_, ?_⟩, ?_, ?_⟩
   · rintro ⟨v, n, hs⟩
-    -- Use term_obsEq at level n with the initial state.
-    have h_obs : ObsEqK n (.compute [] .nil (fill C t₁)) (.compute [] .nil (fill C t₂)) :=
-      term_obsEq h_open n n (Nat.le_refl _)
-        (atLeastEnvEqK_nil n) (stackRelK_nil n) (fill_termSubst C t₁ t₂)
-    exact h_obs.1 v ⟨n, Nat.le_refl _, hs⟩
+    exact (term_obsEq_at h_open C n).1.1 v ⟨n, Nat.le_refl _, hs⟩
   · rintro ⟨v, n, hs⟩
-    have h_obs : ObsEqK n (.compute [] .nil (fill C t₁)) (.compute [] .nil (fill C t₂)) :=
-      term_obsEq h_open n n (Nat.le_refl _)
-        (atLeastEnvEqK_nil n) (stackRelK_nil n) (fill_termSubst C t₁ t₂)
-    exact h_obs.2 v ⟨n, Nat.le_refl _, hs⟩
+    exact (term_obsEq_at h_open C n).2.1 v ⟨n, Nat.le_refl _, hs⟩
+  · rintro ⟨n, hs⟩
+    exact (term_obsEq_at h_open C n).1.2 n (Nat.le_refl _) hs
+  · rintro ⟨n, hs⟩
+    exact (term_obsEq_at h_open C n).2.2 n (Nat.le_refl _) hs
+
+/-- Depth-indexed variant: `OpenEq d t₁ t₂` at any `d` still gives `ObsEq` on
+    the empty-state runs of any context fill. -/
+theorem soundness_d {d : Nat} {t₁ t₂ : Term} (h_open : OpenEq d t₁ t₂) :
+    ∀ (C : Context),
+      ObsEq (.compute [] .nil (fill C t₁)) (.compute [] .nil (fill C t₂)) := by
+  intro C
+  refine ⟨⟨?_, ?_⟩, ?_, ?_⟩
+  · rintro ⟨v, n, hs⟩
+    exact (term_obsEq_at h_open C n).1.1 v ⟨n, Nat.le_refl _, hs⟩
+  · rintro ⟨v, n, hs⟩
+    exact (term_obsEq_at h_open C n).2.1 v ⟨n, Nat.le_refl _, hs⟩
+  · rintro ⟨n, hs⟩
+    exact (term_obsEq_at h_open C n).1.2 n (Nat.le_refl _) hs
+  · rintro ⟨n, hs⟩
+    exact (term_obsEq_at h_open C n).2.2 n (Nat.le_refl _) hs
 
 end Moist.VerifiedNewNew.Contextual.Soundness

@@ -107,19 +107,19 @@ def CtxEq (t₁ t₂ : Term) : Prop :=
 
 /--
   The Transitivity of Contextual Equivalence.
-  Because it operates purely on syntax and logical bi-implication, this is a free theorem.
+  `ObsEq` is a conjunction of a halt-Iff and an error-Iff, so trans chains both.
 -/
 theorem ctxEq_trans {t₁ t₂ t₃ : Term} :
   CtxEq t₁ t₂ → CtxEq t₂ t₃ → CtxEq t₁ t₃ := by
   intro h1 h2 C
-  exact Iff.trans (h1 C) (h2 C)
+  exact ⟨Iff.trans (h1 C).1 (h2 C).1, Iff.trans (h1 C).2 (h2 C).2⟩
 
-/-- Reflexivity of `CtxEq`. Both sides are syntactically equal, so `Iff.rfl`. -/
-theorem ctxEq_refl (t : Term) : CtxEq t t := fun _ => Iff.rfl
+/-- Reflexivity of `CtxEq`. Both halt and error Iffs are `Iff.rfl`. -/
+theorem ctxEq_refl (t : Term) : CtxEq t t := fun _ => ⟨Iff.rfl, Iff.rfl⟩
 
 /-- Symmetry of `CtxEq`. -/
 theorem ctxEq_symm {t₁ t₂ : Term} (h : CtxEq t₁ t₂) : CtxEq t₂ t₁ :=
-  fun C => (h C).symm
+  fun C => ⟨(h C).1.symm, (h C).2.symm⟩
 
 --------------------------------------------------------------------------------
 -- 4. CONTEXT COMPOSITION (plumbing for congruence theorems)
@@ -360,10 +360,11 @@ theorem ctxEq_case {scrut₁ scrut₂ : Term} {alts₁ alts₂ : List Term}
 -- by `ctxRefines_antisymm` (CtxRefines both ways ↔ CtxEq).
 --------------------------------------------------------------------------------
 
-/-- Observational refinement: if `c₁` may converge, so does `c₂`. The
-    `→`-only sibling of `ObsEq`. -/
+/-- Observational refinement: `c₂` refines `c₁`'s halt AND error behavior.
+    This prevents unsound transforms like `Let x = Error in 10 ⊑ 10`. -/
 def ObsRefines (c₁ c₂ : State) : Prop :=
-  (∃ v₁, Reaches c₁ (.halt v₁)) → (∃ v₂, Reaches c₂ (.halt v₂))
+  ((∃ v₁, Reaches c₁ (.halt v₁)) → (∃ v₂, Reaches c₂ (.halt v₂))) ∧
+  (Reaches c₁ .error → Reaches c₂ .error)
 
 /-- Contextual refinement: in any context, if `t₁` converges, so does `t₂`. -/
 def CtxRefines (t₁ t₂ : Term) : Prop :=
@@ -373,31 +374,32 @@ def CtxRefines (t₁ t₂ : Term) : Prop :=
 
 @[inherit_doc] scoped infix:50 " ⊑Ctx " => CtxRefines
 
-/-- Reflexivity: refinement is the identity implication. -/
+/-- Reflexivity: refinement is the identity implication on both halt and error. -/
 theorem ctxRefines_refl (t : Term) : CtxRefines t t :=
-  fun _ h => h
+  fun _ => ⟨fun h => h, fun h => h⟩
 
-/-- Transitivity: implication composition. -/
+/-- Transitivity: implication composition on both clauses. -/
 theorem ctxRefines_trans {t₁ t₂ t₃ : Term} :
     CtxRefines t₁ t₂ → CtxRefines t₂ t₃ → CtxRefines t₁ t₃ := by
-  intro h12 h23 C h_t1
-  exact h23 C (h12 C h_t1)
+  intro h12 h23 C
+  exact ⟨fun h_t1 => (h23 C).1 ((h12 C).1 h_t1),
+         fun h_t1 => (h23 C).2 ((h12 C).2 h_t1)⟩
 
 /-- Equivalence subsumes refinement (forward direction). -/
 theorem CtxEq.toCtxRefines {t₁ t₂ : Term} (h : CtxEq t₁ t₂) :
     CtxRefines t₁ t₂ :=
-  fun C => (h C).mp
+  fun C => ⟨(h C).1.mp, (h C).2.mp⟩
 
 /-- Equivalence subsumes refinement (backward direction). -/
 theorem CtxEq.toCtxRefines_symm {t₁ t₂ : Term} (h : CtxEq t₁ t₂) :
     CtxRefines t₂ t₁ :=
-  fun C => (h C).mpr
+  fun C => ⟨(h C).1.mpr, (h C).2.mpr⟩
 
 /-- Antisymmetry: bidirectional refinement gives equivalence. -/
 theorem ctxRefines_antisymm {t₁ t₂ : Term} :
     CtxRefines t₁ t₂ → CtxRefines t₂ t₁ → CtxEq t₁ t₂ := by
   intro h12 h21 C
-  exact ⟨h12 C, h21 C⟩
+  exact ⟨⟨(h12 C).1, (h21 C).1⟩, ⟨(h12 C).2, (h21 C).2⟩⟩
 
 /-- Generic single-subterm extension for `CtxRefines`. Mirrors `ctxEq_extend`. -/
 private theorem ctxRefines_extend
