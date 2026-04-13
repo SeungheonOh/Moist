@@ -1,4 +1,4 @@
-import Moist.VerifiedNewNew.Contextual
+import Moist.Verified.Contextual
 
 /-! # Locality bisimulation for CEK closed-term evaluation
 
@@ -13,18 +13,18 @@ on positions past the current closedness bound. Used by
 `SoundnessRefines.lean` to downward-weaken `OpenRefines d` via env
 padding (see "per-side padding" in the module's public interface).
 
-All machinery is re-implemented within `Moist.VerifiedNewNew.*` — no
+All machinery is re-implemented within `Moist.Verified.*` — no
 imports from `Moist.Verified.Bisim` — so we stay on
 `Equivalence.steps` throughout.
 -/
 
-namespace Moist.VerifiedNewNew.Contextual.BisimRef
+namespace Moist.Verified.Contextual.BisimRef
 
 open Moist.CEK
 open Moist.Plutus.Term
-open Moist.VerifiedNewNew (closedAt closedAtList)
-open Moist.VerifiedNewNew.Equivalence
-open Moist.VerifiedNewNew.Contextual
+open Moist.Verified (closedAt closedAtList)
+open Moist.Verified.Equivalence
+open Moist.Verified.Contextual
 
 --------------------------------------------------------------------------------
 -- 1. Mutual bisim relations
@@ -290,18 +290,18 @@ theorem localValueList_to_applyArg_stack : ∀ (fs₁ : List CekValue)
 /-- `closedAtList d alts → alts[n]? = some alt → closedAt d alt`.
     Extraction of per-element closedness from list closedness. -/
 theorem closedAtList_get : ∀ (d : Nat) (alts : List Term) (n : Nat) (alt : Term),
-    Moist.VerifiedNewNew.closedAtList d alts = true →
+    Moist.Verified.closedAtList d alts = true →
     alts[n]? = some alt →
-    Moist.VerifiedNewNew.closedAt d alt = true
+    Moist.Verified.closedAt d alt = true
   | _, [], _, _, _, h => by simp at h
   | d, a :: rest, 0, _, h_cl, h_get => by
     simp only [List.getElem?_cons_zero, Option.some.injEq] at h_get
     subst h_get
-    simp only [Moist.VerifiedNewNew.closedAtList, Bool.and_eq_true] at h_cl
+    simp only [Moist.Verified.closedAtList, Bool.and_eq_true] at h_cl
     exact h_cl.1
   | d, _ :: rest, n + 1, alt, h_cl, h_get => by
     simp only [List.getElem?_cons_succ] at h_get
-    simp only [Moist.VerifiedNewNew.closedAtList, Bool.and_eq_true] at h_cl
+    simp only [Moist.Verified.closedAtList, Bool.and_eq_true] at h_cl
     exact closedAtList_get d rest n alt h_cl.2 h_get
 
 --------------------------------------------------------------------------------
@@ -875,7 +875,7 @@ theorem step_preserves : ∀ {s₁ s₂ : State},
         exact LocalState.error
       · have hpos : 0 < n := Nat.pos_of_ne_zero hn
         have h_n_le_k : n ≤ k := by
-          simp only [Moist.VerifiedNewNew.closedAt] at h_closed
+          simp only [Moist.Verified.closedAt] at h_closed
           exact of_decide_eq_true h_closed
         obtain ⟨v₁, v₂, hl₁, hl₂, h_v⟩ := localEnv_lookup k hρ hpos h_n_le_k
         show LocalState
@@ -892,25 +892,25 @@ theorem step_preserves : ∀ {s₁ s₂ : State},
       exact LocalState.ret (LocalValue.vbuiltin b (expectedArgs b) LocalValueList.nil) hπ
     | Lam _ body =>
       have h_len := localEnv_length k hρ
-      have h_body : Moist.VerifiedNewNew.closedAt (k + 1) body = true := by
-        simp only [Moist.VerifiedNewNew.closedAt] at h_closed; exact h_closed
+      have h_body : Moist.Verified.closedAt (k + 1) body = true := by
+        simp only [Moist.Verified.closedAt] at h_closed; exact h_closed
       show LocalState (.ret π₁ (.VLam body ρ₁)) (.ret π₂ (.VLam body ρ₂))
       exact LocalState.ret (LocalValue.vlam hρ h_len.1 h_len.2 h_body) hπ
     | Delay body =>
       have h_len := localEnv_length k hρ
-      have h_body : Moist.VerifiedNewNew.closedAt k body = true := by
-        simp only [Moist.VerifiedNewNew.closedAt] at h_closed; exact h_closed
+      have h_body : Moist.Verified.closedAt k body = true := by
+        simp only [Moist.Verified.closedAt] at h_closed; exact h_closed
       show LocalState (.ret π₁ (.VDelay body ρ₁)) (.ret π₂ (.VDelay body ρ₂))
       exact LocalState.ret (LocalValue.vdelay hρ h_len.1 h_len.2 h_body) hπ
     | Force e =>
-      have h_e : Moist.VerifiedNewNew.closedAt k e = true := by
-        simp only [Moist.VerifiedNewNew.closedAt] at h_closed; exact h_closed
+      have h_e : Moist.Verified.closedAt k e = true := by
+        simp only [Moist.Verified.closedAt] at h_closed; exact h_closed
       show LocalState (.compute (.force :: π₁) ρ₁ e) (.compute (.force :: π₂) ρ₂ e)
       exact LocalState.compute hρ h_e (LocalStack.cons LocalFrame.force hπ)
     | Apply f x =>
-      have h_fx : Moist.VerifiedNewNew.closedAt k f = true ∧
-                  Moist.VerifiedNewNew.closedAt k x = true := by
-        simp only [Moist.VerifiedNewNew.closedAt, Bool.and_eq_true] at h_closed; exact h_closed
+      have h_fx : Moist.Verified.closedAt k f = true ∧
+                  Moist.Verified.closedAt k x = true := by
+        simp only [Moist.Verified.closedAt, Bool.and_eq_true] at h_closed; exact h_closed
       have h_len := localEnv_length k hρ
       show LocalState (.compute (.arg x ρ₁ :: π₁) ρ₁ f)
                        (.compute (.arg x ρ₂ :: π₂) ρ₂ f)
@@ -922,9 +922,9 @@ theorem step_preserves : ∀ {s₁ s₂ : State},
         show LocalState (.ret π₁ (.VConstr tag [])) (.ret π₂ (.VConstr tag []))
         exact LocalState.ret (LocalValue.vconstr tag LocalValueList.nil) hπ
       | cons m ms =>
-        have h_mms : Moist.VerifiedNewNew.closedAt k m = true ∧
-                     Moist.VerifiedNewNew.closedAtList k ms = true := by
-          simp only [Moist.VerifiedNewNew.closedAt, Moist.VerifiedNewNew.closedAtList,
+        have h_mms : Moist.Verified.closedAt k m = true ∧
+                     Moist.Verified.closedAtList k ms = true := by
+          simp only [Moist.Verified.closedAt, Moist.Verified.closedAtList,
                      Bool.and_eq_true] at h_closed
           exact h_closed
         have h_len := localEnv_length k hρ
@@ -935,9 +935,9 @@ theorem step_preserves : ∀ {s₁ s₂ : State},
                   (LocalFrame.constrField tag LocalValueList.nil hρ h_len.1 h_len.2 h_mms.2)
                   hπ)
     | Case scrut alts =>
-      have h_sa : Moist.VerifiedNewNew.closedAt k scrut = true ∧
-                  Moist.VerifiedNewNew.closedAtList k alts = true := by
-        simp only [Moist.VerifiedNewNew.closedAt, Bool.and_eq_true] at h_closed; exact h_closed
+      have h_sa : Moist.Verified.closedAt k scrut = true ∧
+                  Moist.Verified.closedAtList k alts = true := by
+        simp only [Moist.Verified.closedAt, Bool.and_eq_true] at h_closed; exact h_closed
       have h_len := localEnv_length k hρ
       show LocalState (.compute (.caseScrutinee alts ρ₁ :: π₁) ρ₁ scrut)
                        (.compute (.caseScrutinee alts ρ₂ :: π₂) ρ₂ scrut)
@@ -1100,9 +1100,9 @@ theorem step_preserves : ∀ {s₁ s₂ : State},
               (localValueList_reverse _ (LocalValueList.cons h_v h_done))) h_rest
         | cons m ms =>
           -- step: .compute (.constrField tag (v :: done) ms ρ :: π) ρ m
-          have h_mms : Moist.VerifiedNewNew.closedAt k' m = true ∧
-                       Moist.VerifiedNewNew.closedAtList k' ms = true := by
-            simp only [Moist.VerifiedNewNew.closedAtList, Bool.and_eq_true] at h_todo
+          have h_mms : Moist.Verified.closedAt k' m = true ∧
+                       Moist.Verified.closedAtList k' ms = true := by
+            simp only [Moist.Verified.closedAtList, Bool.and_eq_true] at h_todo
             exact h_todo
           show LocalState (.compute (.constrField tag (v₁ :: done₁) ms ρ₁' :: π₁') ρ₁' m)
                            (.compute (.constrField tag (v₂ :: done₂) ms ρ₂' :: π₂') ρ₂' m)
@@ -1170,7 +1170,7 @@ theorem step_preserves : ∀ {s₁ s₂ : State},
 -- 11. Iterated step preservation and halt/error inversion
 --------------------------------------------------------------------------------
 
-open Moist.VerifiedNewNew.Equivalence (steps)
+open Moist.Verified.Equivalence (steps)
 
 /-- Iterated version of `step_preserves`: `LocalState` is preserved under
     any number of `step` calls. -/
@@ -1203,4 +1203,4 @@ theorem localState_error_inv : ∀ {s : State},
 theorem localState_error_inv' {s : State} (h : LocalState s .error) : s = .error :=
   localState_error_inv (localState_symm h)
 
-end Moist.VerifiedNewNew.Contextual.BisimRef
+end Moist.Verified.Contextual.BisimRef

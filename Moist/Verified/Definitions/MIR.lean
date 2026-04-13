@@ -1,8 +1,8 @@
 import Moist.MIR.Expr
 import Moist.MIR.LowerTotal
-import Moist.VerifiedNewNew.Definitions
-import Moist.VerifiedNewNew.Definitions.Contextual
-import Moist.VerifiedNewNew.Definitions.StepIndexed
+import Moist.Verified.Definitions
+import Moist.Verified.Definitions.Contextual
+import Moist.Verified.Definitions.StepIndexed
 
 /-! # MIR-level relations
 
@@ -14,13 +14,13 @@ import Moist.VerifiedNewNew.Definitions.StepIndexed
   built on the UPLC contextual tower via `lowerTotalExpr`.
 -/
 
-namespace Moist.VerifiedNewNew.MIR
+namespace Moist.Verified.MIR
 
 open Moist.CEK
 open Moist.Plutus.Term (Term)
 open Moist.MIR (Expr VarId lowerTotalExpr)
-open Moist.VerifiedNewNew.Contextual (CtxEq CtxRefines)
-open Moist.VerifiedNewNew.Contextual.SoundnessRefines
+open Moist.Verified.Contextual (CtxEq CtxRefines)
+open Moist.Verified.Contextual.SoundnessRefines
   (BehRefinesK ValueRefinesK EnvRefinesK)
 
 /-! ## MIR open refinement (step-indexed via the Refines tower) -/
@@ -80,4 +80,4 @@ def MIRCtxRefines (m₁ m₂ : Expr) : Prop :=
 
 scoped infix:50 " ⊑Ctxᴹ " => MIRCtxRefines
 
-end Moist.VerifiedNewNew.MIR
+end Moist.Verified.MIR

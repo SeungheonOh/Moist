@@ -1,18 +1,18 @@
 import Moist.CEK.Machine
 import Moist.CEK.Readback
 import Moist.Plutus.Term
-import Moist.VerifiedNewNew.Definitions
-import Moist.VerifiedNewNew.Rename
+import Moist.Verified.Definitions
+import Moist.Verified.ClosedAt
 
 /-! # Step-indexed logical-relation definitions
 
 The two parallel towers:
 
-* **Eq tower** (`Moist.VerifiedNewNew.Equivalence` namespace):
+* **Eq tower** (`Moist.Verified.Equivalence` namespace):
   `ObsRefinesK`, `ObsEqK`, `StackRelK`, `BehEqK`, `ValueEqK`, `EnvEqK`,
   `OpenEqK`, `OpenEq`.
 
-* **Refines tower** (`Moist.VerifiedNewNew.Contextual.SoundnessRefines`
+* **Refines tower** (`Moist.Verified.Contextual.SoundnessRefines`
   namespace): `ValueRefinesK`, `StackRefK`, `BehRefinesK`, `EnvRefinesK`,
   `OpenRefinesK`, `OpenRefines`.
 
@@ -21,7 +21,7 @@ one-directional halt/error statement on a pair of CEK states) and lives in
 the Eq tower's namespace since the Eq tower was defined first.
 -/
 
-namespace Moist.VerifiedNewNew.Equivalence
+namespace Moist.Verified.Equivalence
 
 open Moist.CEK
 open Moist.Plutus.Term
@@ -100,13 +100,13 @@ def OpenEqK (k d : Nat) (t₁ t₂ : Term) : Prop :=
 
 def OpenEq (d : Nat) (t₁ t₂ : Term) : Prop := ∀ k, OpenEqK k d t₁ t₂
 
-end Moist.VerifiedNewNew.Equivalence
+end Moist.Verified.Equivalence
 
-namespace Moist.VerifiedNewNew.Contextual.SoundnessRefines
+namespace Moist.Verified.Contextual.SoundnessRefines
 
 open Moist.CEK
 open Moist.Plutus.Term
-open Moist.VerifiedNewNew.Equivalence
+open Moist.Verified.Equivalence
 
 /-! ## ValueRefinesK — `ValueEqK` recast with `ObsRefinesK` outputs
 
@@ -169,4 +169,4 @@ def OpenRefinesK (k d : Nat) (t₁ t₂ : Term) : Prop :=
 /-- Unidirectional open term relation at unbounded step index. -/
 def OpenRefines (d : Nat) (t₁ t₂ : Term) : Prop := ∀ k, OpenRefinesK k d t₁ t₂
 
-end Moist.VerifiedNewNew.Contextual.SoundnessRefines
+end Moist.Verified.Contextual.SoundnessRefines

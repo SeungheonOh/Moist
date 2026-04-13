@@ -8,6 +8,9 @@ import Moist.MIR.ANF
 import Moist.MIR.Lower
 import Moist.MIR.Optimize
 import Moist.Verified.Semantics
+import Moist.Verified.DCESoundness
+import Moist.Verified.Contextual.Congruence
+import Moist.Verified.MIR.Congruence
 import Moist.CEK.Machine
 import Moist.Plutus.Pretty
 import Moist.Plutus.PrettyHuman

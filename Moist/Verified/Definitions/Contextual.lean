@@ -1,21 +1,21 @@
 import Moist.CEK.Machine
 import Moist.CEK.Readback
 import Moist.Plutus.Term
-import Moist.VerifiedNewNew.Definitions
-import Moist.VerifiedNewNew.Rename
+import Moist.Verified.Definitions
+import Moist.Verified.ClosedAt
 
 /-! # Contextual-tower definitions
 
 * `ObsEq` / `ObsRefines` — observational equivalence / refinement of
   closed CEK states. (`ObsEq` is retained in the legacy
-  `Moist.VerifiedNewNew.Equivalence` namespace for historical compatibility;
+  `Moist.Verified.Equivalence` namespace for historical compatibility;
   `ObsRefines` lives in the `Contextual` namespace.)
 * `Context` / `fill` / `Context.binders` / `Context.closedAt` /
   `Context.compose` — program contexts and their operations.
 * `CtxEq` / `CtxRefines` — contextual equivalence / refinement.
 -/
 
-namespace Moist.VerifiedNewNew.Equivalence
+namespace Moist.Verified.Equivalence
 
 open Moist.CEK
 open Moist.Plutus.Term
@@ -28,14 +28,14 @@ structure ObsEq (c₁ c₂ : State) : Prop where
   halt : (∃ v₁, Reaches c₁ (.halt v₁)) ↔ (∃ v₂, Reaches c₂ (.halt v₂))
   error : Reaches c₁ .error ↔ Reaches c₂ .error
 
-end Moist.VerifiedNewNew.Equivalence
+end Moist.Verified.Equivalence
 
-namespace Moist.VerifiedNewNew.Contextual
+namespace Moist.Verified.Contextual
 
 open Moist.CEK
 open Moist.Plutus.Term
-open Moist.VerifiedNewNew (closedAt closedAtList)
-open Moist.VerifiedNewNew.Equivalence
+open Moist.Verified (closedAt closedAtList)
+open Moist.Verified.Equivalence
 
 /-! ## Syntactic contexts -/
 
@@ -89,19 +89,19 @@ def Context.binders : Context → Nat
 def Context.closedAt : Nat → Context → Bool
   | _, .Hole => true
   | d, .Lam _ C => Context.closedAt (d + 1) C
-  | d, .AppLeft C e => Context.closedAt d C && Moist.VerifiedNewNew.closedAt d e
-  | d, .AppRight e C => Moist.VerifiedNewNew.closedAt d e && Context.closedAt d C
+  | d, .AppLeft C e => Context.closedAt d C && Moist.Verified.closedAt d e
+  | d, .AppRight e C => Moist.Verified.closedAt d e && Context.closedAt d C
   | d, .Delay C => Context.closedAt d C
   | d, .Force C => Context.closedAt d C
   | d, .Constr _ lefts C rights =>
-      Moist.VerifiedNewNew.closedAtList d lefts && Context.closedAt d C
-        && Moist.VerifiedNewNew.closedAtList d rights
+      Moist.Verified.closedAtList d lefts && Context.closedAt d C
+        && Moist.Verified.closedAtList d rights
   | d, .Case C alts =>
-      Context.closedAt d C && Moist.VerifiedNewNew.closedAtList d alts
+      Context.closedAt d C && Moist.Verified.closedAtList d alts
   | d, .CaseAlt scrut lefts C rights =>
-      Moist.VerifiedNewNew.closedAt d scrut
-        && Moist.VerifiedNewNew.closedAtList d lefts && Context.closedAt d C
-        && Moist.VerifiedNewNew.closedAtList d rights
+      Moist.Verified.closedAt d scrut
+        && Moist.Verified.closedAtList d lefts && Context.closedAt d C
+        && Moist.Verified.closedAtList d rights
 
 /-- Plug `inner` into the hole of `outer`. Standard context composition. -/
 def Context.compose : Context → Context → Context
@@ -164,4 +164,4 @@ def CtxRefines (t₁ t₂ : Term) : Prop :=
 
 @[inherit_doc] scoped infix:50 " ⊑Ctx " => CtxRefines
 
-end Moist.VerifiedNewNew.Contextual
+end Moist.Verified.Contextual

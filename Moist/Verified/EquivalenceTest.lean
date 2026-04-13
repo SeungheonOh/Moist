@@ -1,4 +1,4 @@
-import Moist.VerifiedNewNew.Equivalence
+import Moist.Verified.Equivalence
 import Moist.CEK.DecidableEq
 
 /-! # Cross-term OpenEq proofs

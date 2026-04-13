@@ -1,4 +1,4 @@
-import Moist.VerifiedNewNew.MIR
+import Moist.Verified.MIR
 import Moist.CEK.DecidableEq
 
 /-! # MIR-Level Refinement Tests
@@ -7,13 +7,13 @@ Manual proofs that concrete MIR-to-MIR transformations are correct
 refinements under the biorthogonal logical relation.
 -/
 
-namespace Moist.VerifiedNewNew.MIRTest
+namespace Moist.Verified.MIRTest
 
 open Moist.CEK
 open Moist.MIR (Expr VarId lowerTotalExpr lowerTotal expandFix fixCount)
 open Moist.Plutus.Term (Term Const BuiltinFun BuiltinType AtomicType)
-open Moist.VerifiedNewNew.MIR
-open Moist.VerifiedNewNew.Equivalence
+open Moist.Verified.MIR
+open Moist.Verified.Equivalence
 
 -- ── Abbreviations ──
 
@@ -77,4 +77,4 @@ theorem delay_const_fold_under_lam :
                (mirLam x (mirLam y (.Delay (intLit 4)))) := by
   sorry
 
-end Moist.VerifiedNewNew.MIRTest
+end Moist.Verified.MIRTest

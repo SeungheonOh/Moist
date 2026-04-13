@@ -1,11 +1,11 @@
-import Moist.VerifiedNewNew.Equivalence
-import Moist.VerifiedNewNew.Rename
-import Moist.VerifiedNewNew.Contextual
-import Moist.VerifiedNewNew.Contextual.Congruence
-import Moist.VerifiedNewNew.Contextual.Soundness
-import Moist.VerifiedNewNew.Contextual.SoundnessRefines
-import Moist.VerifiedNewNew.DeadLet
-import Moist.VerifiedNewNew.Definitions.MIR
+import Moist.Verified.Equivalence
+import Moist.Verified.ClosedAt
+import Moist.Verified.Contextual
+import Moist.Verified.Contextual.Congruence
+import Moist.Verified.Contextual.Soundness
+import Moist.Verified.Contextual.SoundnessRefines
+import Moist.Verified.DeadLet
+import Moist.Verified.Definitions.MIR
 import Moist.MIR.LowerTotal
 
 /-! # MIR-Level Equivalence and Refinement
@@ -22,12 +22,12 @@ arbitrary depth — giving a clean `MIRRefines → MIRCtxRefines` bridge
 via `mirRefines_to_mirCtxRefines` (defined below in section 5).
 -/
 
-namespace Moist.VerifiedNewNew.MIR
+namespace Moist.Verified.MIR
 
 open Moist.CEK
 open Moist.MIR (Expr VarId lowerTotalExpr)
-open Moist.VerifiedNewNew (closedAt)
-open Moist.VerifiedNewNew.Contextual
+open Moist.Verified (closedAt)
+open Moist.Verified.Contextual
   (Context fill closedAt_mono fill_closedAt_iff ObsRefines
    CtxEq CtxRefines
    ctxEq_refl ctxEq_symm ctxEq_trans ctxRefines_refl ctxRefines_trans
@@ -36,9 +36,9 @@ open Moist.VerifiedNewNew.Contextual
    ctxRefines_lam ctxRefines_delay ctxRefines_force ctxRefines_app
    ctxRefines_constr_one ctxRefines_constr ctxRefines_case_scrut
    ctxRefines_case_one_alt ctxRefines_case)
-open Moist.VerifiedNewNew.Equivalence (ObsEq ListRel)
-open Moist.VerifiedNewNew.Contextual.Soundness (soundness)
-open Moist.VerifiedNewNew.Contextual.SoundnessRefines
+open Moist.Verified.Equivalence (ObsEq ListRel)
+open Moist.Verified.Contextual.Soundness (soundness)
+open Moist.Verified.Contextual.SoundnessRefines
   (EnvRefinesK BehRefinesK ValueRefinesK StackRefK OpenRefinesK OpenRefines
    soundness_refines obsRefines_of_openRefines)
 
@@ -48,13 +48,13 @@ open Moist.VerifiedNewNew.Contextual.SoundnessRefines
 private theorem lowerTotalExpr_closedAt {env : List VarId} {e : Expr} {t : Moist.Plutus.Term.Term}
     (h : lowerTotalExpr env e = some t) : closedAt env.length t = true := by
   simp only [Moist.MIR.lowerTotalExpr] at h
-  exact Moist.VerifiedNewNew.DeadLet.lowerTotal_closedAt env (Moist.MIR.expandFix e) t h
+  exact Moist.Verified.DeadLet.lowerTotal_closedAt env (Moist.MIR.expandFix e) t h
 
 --------------------------------------------------------------------------------
 -- 1. LIFTING `OpenRefines` TO MIR
 --
 -- The relations `MIROpenRefK`, `MIROpenRef`, `MIRRefines` are now defined
--- in `Moist.VerifiedNewNew.Definitions.MIR`. Basic properties stay here.
+-- in `Moist.Verified.Definitions.MIR`. Basic properties stay here.
 --------------------------------------------------------------------------------
 
 private theorem mirOpenRefK_lower {k d : Nat} {m₁ m₂ : Expr} {env : List VarId}
@@ -77,7 +77,7 @@ theorem mirOpenRefK_mono {j k d : Nat} {m₁ m₂ : Expr}
 -- 2. CONTEXTUAL EQUIVALENCE & REFINEMENT
 --
 -- `MIRCtxEq` and `MIRCtxRefines` are defined in
--- `Moist.VerifiedNewNew.Definitions.MIR`. Their theorems stay here.
+-- `Moist.Verified.Definitions.MIR`. Their theorems stay here.
 --------------------------------------------------------------------------------
 
 --------------------------------------------------------------------------------
@@ -277,7 +277,7 @@ theorem mirRefines_to_mirCtxRefines {m₁ m₂ : Expr} (h : MIRRefines m₁ m₂
 -- 6. Helpers for MIR-level congruences
 --
 -- The congruence theorems themselves (`mirCtxEq_*`, `mirCtxRefines_*`) now
--- live in `Moist.VerifiedNewNew.MIR.Congruence`. What stays here are the
+-- live in `Moist.Verified.MIR.Congruence`. What stays here are the
 -- `lowerTotalExpr` compositional decomposition lemmas, the `toCtxEq` /
 -- `toCtxRefines` projections, and the list-level helpers (all shared
 -- scaffolding used by the congruence file and by other downstream
@@ -347,7 +347,7 @@ theorem MIRCtxEq.toIff {m₁ m₂ : Expr} (env : List VarId) (h : MIRCtxEq m₁ 
   (h env).1
 
 /-! ### 6c. Unary / binary constructor congruences for `MIRCtxEq`
-    → moved to `Moist.VerifiedNewNew.MIR.Congruence`. -/
+    → moved to `Moist.Verified.MIR.Congruence`. -/
 
 /-! ### 6d. List-level helpers for Constr/Case congruences -/
 
@@ -470,7 +470,7 @@ theorem lowerTotalExpr_case_of_list (env : List VarId) (scrut : Expr)
   rw [lowerTotalExpr_case]; rfl
 
 /-! Constr / Case congruences for `MIRCtxEq` have been moved to
-    `Moist.VerifiedNewNew.MIR.Congruence`. -/
+    `Moist.Verified.MIR.Congruence`. -/
 
 --------------------------------------------------------------------------------
 -- 7. MIR-level congruences for `MIRCtxRefines`
@@ -501,7 +501,7 @@ theorem MIRCtxRefines.toImp {m₁ m₂ : Expr} (env : List VarId) (h : MIRCtxRef
   (h env).1
 
 /-! ### 7b. Unary / binary constructor congruences for `MIRCtxRefines`
-    → moved to `Moist.VerifiedNewNew.MIR.Congruence`. -/
+    → moved to `Moist.Verified.MIR.Congruence`. -/
 
 /-! ### 7c. List-level helpers for Constr/Case congruences for Refines -/
 
@@ -570,6 +570,6 @@ theorem listRel_mirCtxRefines_toListCtxRefines :
                      listRel_mirCtxRefines_toListCtxRefines htail hlow_es₁ hlow_es₂⟩
 
 /-! ### 7d. Constr / Case / Fix-Lam congruences for `MIRCtxRefines`
-    → moved to `Moist.VerifiedNewNew.MIR.Congruence`. -/
+    → moved to `Moist.Verified.MIR.Congruence`. -/
 
-end Moist.VerifiedNewNew.MIR
+end Moist.Verified.MIR

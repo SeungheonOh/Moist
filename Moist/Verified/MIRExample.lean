@@ -1,15 +1,15 @@
-import Moist.VerifiedNewNew.DeadLetRefines
+import Moist.Verified.DeadLetRefines
 
 /-! # MIR Dead Let Elimination Examples
 
 Concrete examples of dead-let elimination proved via `dead_let_mirRefines`.
 -/
 
-namespace Moist.VerifiedNewNew.MIRExample
+namespace Moist.Verified.MIRExample
 
 open Moist.MIR (Expr VarId freeVars)
-open Moist.VerifiedNewNew.MIR
-open Moist.VerifiedNewNew.DeadLetRefines
+open Moist.Verified.MIR
+open Moist.Verified.DeadLetRefines
 
 private def a : VarId := { uid := 0, hint := "a" }
 private def x : VarId := { uid := 1, hint := "x" }
@@ -24,4 +24,4 @@ theorem let_x_10_in_a_refines_a :
       .Var { uid := 0 } :=
   dead_let_mirRefines (by native_decide) (by native_decide)
 
-end Moist.VerifiedNewNew.MIRExample
+end Moist.Verified.MIRExample

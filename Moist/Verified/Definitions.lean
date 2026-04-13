@@ -2,7 +2,7 @@ import Moist.CEK.Machine
 import Moist.CEK.Readback
 import Moist.Plutus.Term
 
-/-! # Core semantic primitives shared across all VerifiedNewNew modules
+/-! # Core semantic primitives shared across all Verified modules
 
 This file hosts the three primitive definitions used everywhere:
 
@@ -10,12 +10,12 @@ This file hosts the three primitive definitions used everywhere:
 * `Reaches` — unbounded reachability on CEK states.
 * `ListRel` — pointwise lift of a binary relation to lists.
 
-Namespace `Moist.VerifiedNewNew.Equivalence` is retained for historical
-compatibility — callers doing `open Moist.VerifiedNewNew.Equivalence` still
+Namespace `Moist.Verified.Equivalence` is retained for historical
+compatibility — callers doing `open Moist.Verified.Equivalence` still
 find these names.
 -/
 
-namespace Moist.VerifiedNewNew.Equivalence
+namespace Moist.Verified.Equivalence
 
 open Moist.CEK
 open Moist.Plutus.Term
@@ -34,4 +34,4 @@ def ListRel (R : α → α → Prop) : List α → List α → Prop
   | a :: as, b :: bs => R a b ∧ ListRel R as bs
   | _, _ => False
 
-end Moist.VerifiedNewNew.Equivalence
+end Moist.Verified.Equivalence

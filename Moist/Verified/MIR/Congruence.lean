@@ -1,4 +1,4 @@
-import Moist.VerifiedNewNew.MIR
+import Moist.Verified.MIR
 
 /-! # MIR-level congruence lemmas for `MIRCtxEq` / `MIRCtxRefines`
 
@@ -7,17 +7,17 @@ version) for a MIR constructor `F`. Every proof decomposes `lowerTotalExpr`
 over the MIR constructor, then invokes the corresponding UPLC-level
 `ctxEq_*` / `ctxRefines_*` congruence.
 
-Split out of `Moist.VerifiedNewNew.MIR` so the main module can focus on
+Split out of `Moist.Verified.MIR` so the main module can focus on
 the lifting scaffolding (`MIRRefines → MIRCtxRefines`, reflexivity,
 transitivity, the `toCtxEq` / `toCtxRefines` projections, and the
 `MIRCtxEq ↔ MIRCtxRefines`-bidirectional bridge). -/
 
-namespace Moist.VerifiedNewNew.MIR
+namespace Moist.Verified.MIR
 
 open Moist.CEK
 open Moist.MIR (Expr VarId lowerTotalExpr)
-open Moist.VerifiedNewNew (closedAt)
-open Moist.VerifiedNewNew.Contextual
+open Moist.Verified (closedAt)
+open Moist.Verified.Contextual
   (Context fill closedAt_mono fill_closedAt_iff ObsRefines
    CtxEq CtxRefines
    ctxEq_refl ctxEq_symm ctxEq_trans ctxRefines_refl ctxRefines_trans
@@ -26,7 +26,7 @@ open Moist.VerifiedNewNew.Contextual
    ctxRefines_lam ctxRefines_delay ctxRefines_force ctxRefines_app
    ctxRefines_constr_one ctxRefines_constr ctxRefines_case_scrut
    ctxRefines_case_one_alt ctxRefines_case)
-open Moist.VerifiedNewNew.Equivalence (ObsEq ListRel)
+open Moist.Verified.Equivalence (ObsEq ListRel)
 
 --------------------------------------------------------------------------------
 -- 6c. Unary / binary congruences for `MIRCtxEq`
@@ -600,4 +600,4 @@ theorem mirCtxRefines_fix_lam {f x : VarId} {body₁ body₂ : Expr}
           ctxRefines_refl _
         exact ctxRefines_app h_z_refl h_lam_outer
 
-end Moist.VerifiedNewNew.MIR
+end Moist.Verified.MIR

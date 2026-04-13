@@ -1,5 +1,5 @@
-import Moist.VerifiedNewNew.Contextual.Subst
-import Moist.VerifiedNewNew.Contextual.BisimRef
+import Moist.Verified.Contextual.Subst
+import Moist.Verified.Contextual.BisimRef
 
 /-! # Open-context CtxEq soundness via the `term_obsEq` semantic bridge
 
@@ -37,13 +37,13 @@ already in `ValueEqK` form, and the only `ValueSubst` that ever appears is
 the trivially-`ValueEqK`-empty one for the initial state's empty env.
 -/
 
-namespace Moist.VerifiedNewNew.Contextual.Soundness
+namespace Moist.Verified.Contextual.Soundness
 
 open Moist.CEK
 open Moist.Plutus.Term
-open Moist.VerifiedNewNew.Equivalence
-open Moist.VerifiedNewNew.Contextual
-open Moist.VerifiedNewNew.Contextual.Subst
+open Moist.Verified.Equivalence
+open Moist.Verified.Contextual
+open Moist.Verified.Contextual.Subst
 
 --------------------------------------------------------------------------------
 -- 1. AtLeastEnvEqK — a `EnvEqK k ∞` style env relation
@@ -607,7 +607,7 @@ theorem term_obsEq {d : Nat} {t₁ t₂ : Term} (h_open : OpenEq d t₁ t₂) :
 --      `closedAt 0`, so its behavior is insensitive to env contents.
 --------------------------------------------------------------------------------
 
-open Moist.VerifiedNewNew.Contextual.BisimRef
+open Moist.Verified.Contextual.BisimRef
 
 /-- Empty stack is `StackRelK`-related to itself at any level. The `.ret []`
     state is non-halt itself and steps to `.halt`, so the obsEqK condition is
@@ -784,4 +784,4 @@ theorem soundness_d {d : Nat} {t₁ t₂ : Term} (h_open : OpenEq d t₁ t₂) :
     CtxEq t₁ t₂ :=
   soundness h_open
 
-end Moist.VerifiedNewNew.Contextual.Soundness
+end Moist.Verified.Contextual.Soundness

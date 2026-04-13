@@ -1,6 +1,6 @@
-import Moist.VerifiedNewNew.MIR
-import Moist.VerifiedNewNew.MIR.Congruence
-import Moist.VerifiedNewNew.DeadLetRefines
+import Moist.Verified.MIR
+import Moist.Verified.MIR.Congruence
+import Moist.Verified.DeadLetRefines
 import Moist.MIR.Optimize.DCE
 
 /-! # Soundness of MIR Dead Code Elimination
@@ -26,7 +26,7 @@ case uses:
   3. Collapsed an empty-binding `Let` into its body.
 -/
 
-namespace Moist.VerifiedNewNew.MIR
+namespace Moist.Verified.MIR
 
 open Moist.CEK
 open Moist.Plutus.Term (Term)
@@ -35,14 +35,14 @@ open Moist.MIR
    isPure isPureBinds freeVars
    lowerTotalExpr lowerTotal lowerTotalLet
    lowerTotal_prepend_unused)
-open Moist.VerifiedNewNew (closedAt)
-open Moist.VerifiedNewNew.Contextual
+open Moist.Verified (closedAt)
+open Moist.Verified.Contextual
   (Context fill ObsRefines CtxRefines
    closedAt_mono
    ctxRefines_refl ctxRefines_trans
    ctxRefines_lam ctxRefines_app
    fill_closedAt_iff)
-open Moist.VerifiedNewNew.Equivalence (ListRel)
+open Moist.Verified.Equivalence (ListRel)
 
 --------------------------------------------------------------------------------
 -- 1. closedAt_shiftRename_unshift: inverse of the shift lemma for closedAt
@@ -107,14 +107,14 @@ termination_by _ _ t => sizeOf t
 private theorem closedAtList_shiftRename_unshift :
     ∀ (k c : Nat) (ts : List Term),
       1 ≤ c → c ≤ k + 1 →
-      Moist.VerifiedNewNew.closedAtList (k + 1)
+      Moist.Verified.closedAtList (k + 1)
         (Moist.Verified.renameTermList (Moist.Verified.shiftRename c) ts) = true →
-      Moist.VerifiedNewNew.closedAtList k ts = true
-  | _, _, [], _, _, _ => by simp [Moist.VerifiedNewNew.closedAtList]
+      Moist.Verified.closedAtList k ts = true
+  | _, _, [], _, _, _ => by simp [Moist.Verified.closedAtList]
   | k, c, t :: rest, hc1, hc, h => by
-    simp only [Moist.Verified.renameTermList, Moist.VerifiedNewNew.closedAtList,
+    simp only [Moist.Verified.renameTermList, Moist.Verified.closedAtList,
       Bool.and_eq_true] at h
-    simp only [Moist.VerifiedNewNew.closedAtList, Bool.and_eq_true]
+    simp only [Moist.Verified.closedAtList, Bool.and_eq_true]
     exact ⟨closedAt_shiftRename_unshift k c t hc1 hc h.1,
            closedAtList_shiftRename_unshift k c rest hc1 hc h.2⟩
 termination_by _ _ ts => sizeOf ts
@@ -354,7 +354,7 @@ private theorem dead_let_mirCtxRefines {x : VarId} {e body : Expr}
     (hsafe : Moist.MIR.isPure e = true) :
     MIRCtxRefines (.Let [(x, e, false)] body) body := by
   refine mirRefines_to_mirCtxRefines
-    (Moist.VerifiedNewNew.DeadLetRefines.dead_let_mirRefines hunused hsafe) ?_
+    (Moist.Verified.DeadLetRefines.dead_let_mirRefines hunused hsafe) ?_
   intro env k t₁ t₂ hlow₁ hlow₂ hclosed
   -- Unfold lowerTotalExpr on both sides through expandFix
   have hlet_eq : lowerTotalExpr env (.Let [(x, e, false)] body) =
@@ -722,4 +722,4 @@ theorem dceBinds_listRel : ∀ (bs : List (VarId × Expr × Bool)),
 
 end
 
-end Moist.VerifiedNewNew.MIR
+end Moist.Verified.MIR

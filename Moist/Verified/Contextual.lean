@@ -1,22 +1,22 @@
 import Moist.CEK.Machine
 import Moist.CEK.Readback
 import Moist.Plutus.Term
-import Moist.VerifiedNewNew.Equivalence
-import Moist.VerifiedNewNew.Definitions.Contextual
+import Moist.Verified.Equivalence
+import Moist.Verified.Definitions.Contextual
 
-namespace Moist.VerifiedNewNew.Contextual
+namespace Moist.Verified.Contextual
 
 open Moist.CEK
 open Moist.Plutus.Term
-open Moist.VerifiedNewNew (closedAt closedAtList)
-open Moist.VerifiedNewNew.Equivalence
+open Moist.Verified (closedAt closedAtList)
+open Moist.Verified.Equivalence
 
 --------------------------------------------------------------------------------
 -- Theorems.
 --
 -- Core definitions (`Context`, `fill`, `Context.binders`, `Context.closedAt`,
 -- `Context.compose`, `CtxEq`, `ObsRefines`, `CtxRefines`) now live in
--- `Moist.VerifiedNewNew.Definitions.Contextual`. This file hosts the
+-- `Moist.Verified.Definitions.Contextual`. This file hosts the
 -- theorems about them.
 --------------------------------------------------------------------------------
 
@@ -53,7 +53,7 @@ theorem ctxEq_symm {t₁ t₂ : Term} (h : CtxEq t₁ t₂) : CtxEq t₂ t₁ :=
 -- 4. CONTEXT COMPOSITION (plumbing for congruence theorems)
 --
 -- `Context.compose` itself is now defined in
--- `Moist.VerifiedNewNew.Definitions.Contextual`; theorems about it stay here.
+-- `Moist.Verified.Definitions.Contextual`; theorems about it stay here.
 --------------------------------------------------------------------------------
 
 /-- The composition law: filling a composed context equals filling outer with the
@@ -155,7 +155,7 @@ theorem closedAtList_append (d : Nat) (xs ys : List Term) :
 
 mutual
   /-- Monotonicity of `closedAt`: a term closed at depth `d` is also closed
-      at any larger depth. Re-established for `Moist.VerifiedNewNew.closedAt`
+      at any larger depth. Re-established for `Moist.Verified.closedAt`
       after its removal from the old Contextual chain (see PathA postmortem). -/
   theorem closedAt_mono {d d' : Nat} {t : Term} (h : closedAt d t = true) (hle : d ≤ d') :
       closedAt d' t = true := by
@@ -298,8 +298,8 @@ theorem fill_closedAt_iff (C : Context) (t : Term) :
 --------------------------------------------------------------------------------
 -- 5. CONGRUENCE THEOREMS FOR CtxEq
 --
--- Moved to `Moist.VerifiedNewNew.Contextual.Congruence`. That module reopens
--- the `Moist.VerifiedNewNew.Contextual` namespace, so the names are accessed
+-- Moved to `Moist.Verified.Contextual.Congruence`. That module reopens
+-- the `Moist.Verified.Contextual` namespace, so the names are accessed
 -- as `Contextual.ctxEq_lam` etc. just like before.
 --------------------------------------------------------------------------------
 
@@ -311,7 +311,7 @@ theorem fill_closedAt_iff (C : Context) (t : Term) :
 -- by `ctxRefines_antisymm` (CtxRefines both ways ↔ CtxEq).
 --
 -- `ObsRefines` and `CtxRefines` themselves are defined in
--- `Moist.VerifiedNewNew.Definitions.Contextual`; theorems stay here.
+-- `Moist.Verified.Definitions.Contextual`; theorems stay here.
 --------------------------------------------------------------------------------
 
 /-- Reflexivity: refinement is the identity implication on both halt and error. -/
@@ -366,7 +366,7 @@ theorem ctxRefines_antisymm {t₁ t₂ : Term} :
 --------------------------------------------------------------------------------
 -- CONGRUENCE THEOREMS FOR CtxRefines
 --
--- Moved to `Moist.VerifiedNewNew.Contextual.Congruence` (same file as the
+-- Moved to `Moist.Verified.Contextual.Congruence` (same file as the
 -- `CtxEq` congruences).
 --------------------------------------------------------------------------------
 
@@ -381,9 +381,9 @@ theorem soundness {t₁ t₂ : Term} (h_open : OpenEq 0 t₁ t₂) :
       ObsEq (.compute [] .nil (fill C t₁)) (.compute [] .nil (fill C t₂))
 ```
 
-lives in `Moist.VerifiedNewNew.Contextual.Soundness` and bridges directly
+lives in `Moist.Verified.Contextual.Soundness` and bridges directly
 from the semantic `OpenEq` into the new open-context `CtxEq` above. Import
 that module to use it.
 -/
 
-end Moist.VerifiedNewNew.Contextual
+end Moist.Verified.Contextual

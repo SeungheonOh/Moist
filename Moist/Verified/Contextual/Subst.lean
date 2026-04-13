@@ -1,8 +1,8 @@
 import Moist.CEK.Machine
 import Moist.CEK.Readback
 import Moist.Plutus.Term
-import Moist.VerifiedNewNew.Equivalence
-import Moist.VerifiedNewNew.Contextual
+import Moist.Verified.Equivalence
+import Moist.Verified.Contextual
 
 /-! # Syntactic substitution congruence on the CEK universe
 
@@ -17,11 +17,11 @@ The relation will then be used (Phases 2–5) to prove the open-context version
 of `soundness` for `CtxEq` without going through `openEq_contextual_closure`.
 -/
 
-namespace Moist.VerifiedNewNew.Contextual.Subst
+namespace Moist.Verified.Contextual.Subst
 
 open Moist.CEK
 open Moist.Plutus.Term
-open Moist.VerifiedNewNew.Equivalence
+open Moist.Verified.Equivalence
 
 --------------------------------------------------------------------------------
 -- 1. TermSubst
@@ -293,7 +293,7 @@ def StateSubst.symm {t₁ t₂ : Term} :
 -- terms (and two whole CEK initial states) that are `Subst`-related.
 --------------------------------------------------------------------------------
 
-open Moist.VerifiedNewNew.Contextual (Context fill)
+open Moist.Verified.Contextual (Context fill)
 
 /-- Filling a context's hole with `t₁` vs `t₂` yields `TermSubst`-related
     terms. Proven by induction on the context. -/
@@ -439,4 +439,4 @@ theorem termListSubst_length_eq {t₁ t₂ : Term} :
   | _, _, .nil => rfl
   | _, _, .cons _ ht => by simp [termListSubst_length_eq ht]
 
-end Moist.VerifiedNewNew.Contextual.Subst
+end Moist.Verified.Contextual.Subst

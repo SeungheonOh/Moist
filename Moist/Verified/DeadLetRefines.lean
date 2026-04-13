@@ -1,6 +1,6 @@
-import Moist.VerifiedNewNew.DeadLet
-import Moist.VerifiedNewNew.MIR
-import Moist.VerifiedNewNew.Contextual.SoundnessRefines
+import Moist.Verified.DeadLet
+import Moist.Verified.MIR
+import Moist.Verified.Contextual.SoundnessRefines
 import Moist.Verified.Purity
 import Moist.Verified.StepLift
 
@@ -29,13 +29,13 @@ from `DeadLet.lean`'s internal private helpers — everything is
 reproven at the unidirectional level.
 -/
 
-namespace Moist.VerifiedNewNew.DeadLetRefines
+namespace Moist.Verified.DeadLetRefines
 
 open Moist.CEK
 open Moist.Plutus.Term
-open Moist.VerifiedNewNew
-open Moist.VerifiedNewNew.Equivalence
-open Moist.VerifiedNewNew.Contextual.SoundnessRefines
+open Moist.Verified
+open Moist.Verified.Equivalence
+open Moist.Verified.Contextual.SoundnessRefines
 
 --------------------------------------------------------------------------------
 -- 1. ShiftEnvRefK — unidirectional analogue of `DeadLet.ShiftEnvEqK`
@@ -63,7 +63,7 @@ theorem shiftEnvRefK_mono {c j k d : Nat} (hjk : j ≤ k) {ρ₁ ρ₂ : CekEnv}
 theorem envRefinesK_to_shiftEnvRefK {k d : Nat} {ρ₁ ρ₂ : CekEnv} {w : CekValue}
     (h : EnvRefinesK k d ρ₁ ρ₂) : ShiftEnvRefK 1 k d (ρ₁.extend w) ρ₂ := by
   intro n hn hnd
-  have heq := Moist.VerifiedNewNew.DeadLet.extend_lookup_shift ρ₁ w n
+  have heq := Moist.Verified.DeadLet.extend_lookup_shift ρ₁ w n
   have henv := h n hn hnd
   cases h₁ : ρ₁.lookup n <;> cases h₂ : ρ₂.lookup n <;> simp_all
 
@@ -1059,19 +1059,19 @@ private theorem halt_descends_to_baseπ {baseπ : Stack} :
 -- stacks via `Moist.Verified.StepLift.steps_liftState`.
 --
 -- Complicating factor: `Moist.Verified.Semantics.steps` and
--- `Moist.VerifiedNewNew.Equivalence.steps` are two *syntactically distinct*
+-- `Moist.Verified.Equivalence.steps` are two *syntactically distinct*
 -- copies of the iterated CEK step. A small bridge lemma `vstep_eq` proves
 -- them equal by induction so we can freely convert between them.
 --------------------------------------------------------------------------------
 
 /-- The two `steps` definitions (`Verified.Semantics` and
-    `VerifiedNewNew.Equivalence`) both iterate `Moist.CEK.step`; they are
+    `Verified.Equivalence`) both iterate `Moist.CEK.step`; they are
     propositionally equal by an induction on the step count. -/
 private theorem vstep_eq : ∀ (n : Nat) (s : State),
-    Moist.VerifiedNewNew.Equivalence.steps n s = Moist.Verified.Semantics.steps n s
+    Moist.Verified.Equivalence.steps n s = Moist.Verified.Semantics.steps n s
   | 0, _ => rfl
   | n + 1, s => by
-    show Moist.VerifiedNewNew.Equivalence.steps n (step s) =
+    show Moist.Verified.Equivalence.steps n (step s) =
          Moist.Verified.Semantics.steps n (step s)
     exact vstep_eq n (step s)
 
@@ -1140,7 +1140,7 @@ theorem dead_let_pure_stack_poly
         (Moist.Verified.Semantics.steps K (.compute [] ρ t)) :=
     Moist.Verified.StepLift.steps_liftState π K (.compute [] ρ t) hK_min
   rw [h_lift_K] at h_steps_K
-  -- Translate to `VerifiedNewNew.Equivalence.steps`.
+  -- Translate to `Verified.Equivalence.steps`.
   have h_reach_ret : steps K (.compute π ρ t) = .ret π v_ret := by
     rw [vstep_eq, h_lift_start]; exact h_steps_K
   refine ⟨K, v_ret, h_reach_ret, ?_⟩
@@ -1346,8 +1346,8 @@ theorem uplc_dead_let_refines {d : Nat} {t_body : Term} (t_rhs : Term)
 -- hypotheses into the expanded form.
 --------------------------------------------------------------------------------
 
-open Moist.VerifiedNewNew.MIR
-open Moist.VerifiedNewNew.DeadLet (lowerTotal_closedAt)
+open Moist.Verified.MIR
+open Moist.Verified.DeadLet (lowerTotal_closedAt)
 open Moist.MIR (Expr VarId lowerTotalExpr lowerTotal
   lowerTotal_prepend_unused lowerTotal_prepend_unused_none
   freeVars)
@@ -1430,4 +1430,4 @@ theorem dead_let_mirRefines {x : VarId} {e body : Expr}
           exact dead_let_pure_stack_poly env (Moist.MIR.expandFix e) hsafe' he hwf_v
         exact uplc_dead_let_refines e_t hclosed h_rhs_halts k j hj ρ₁ ρ₂ henv i hi π₁ π₂ hπ
 
-end Moist.VerifiedNewNew.DeadLetRefines
+end Moist.Verified.DeadLetRefines

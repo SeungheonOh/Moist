@@ -1,24 +1,24 @@
 import Moist.CEK.Machine
 import Moist.CEK.Readback
-import Moist.VerifiedNewNew.Rename
-import Moist.VerifiedNewNew.Definitions
-import Moist.VerifiedNewNew.Definitions.Contextual
-import Moist.VerifiedNewNew.Definitions.StepIndexed
+import Moist.Verified.ClosedAt
+import Moist.Verified.Definitions
+import Moist.Verified.Definitions.Contextual
+import Moist.Verified.Definitions.StepIndexed
 import Moist.CEK.DecidableEq
 
-namespace Moist.VerifiedNewNew.Equivalence
+namespace Moist.Verified.Equivalence
 
 open Moist.CEK
 open Moist.Plutus.Term
-open Moist.VerifiedNewNew (closedAt closedAtList)
+open Moist.Verified (closedAt closedAtList)
 
 --------------------------------------------------------------------------------
 -- Theorems.
 --
 -- All core definitions (`steps`, `Reaches`, `ListRel`, `ObsEq`, `ObsEqK`,
 -- `ObsRefinesK`, `ValueEqK`, `EnvEqK`, `OpenEqK`, `OpenEq`, `BehEqK`,
--- `StackRelK`) now live in `Moist.VerifiedNewNew.Definitions` and
--- `Moist.VerifiedNewNew.Definitions.{Contextual,StepIndexed}`. This file
+-- `StackRelK`) now live in `Moist.Verified.Definitions` and
+-- `Moist.Verified.Definitions.{Contextual,StepIndexed}`. This file
 -- only hosts the theorems about them.
 --------------------------------------------------------------------------------
 
@@ -1377,4 +1377,4 @@ theorem openEq_symm {d : Nat} {t₁ t₂ : Term} (h : OpenEq d t₁ t₂) : Open
 -- theorem openEq_trans (d : Nat) (t₁ t₂ t₃ : Term) :
 --     OpenEq d t₁ t₂ → OpenEq d t₂ t₃ → OpenEq d t₁ t₃ := sorry
 
-end Moist.VerifiedNewNew.Equivalence
+end Moist.Verified.Equivalence
