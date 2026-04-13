@@ -30,7 +30,10 @@ open Moist.VerifiedNewNew.Contextual
    CtxEq CtxRefines
    ctxEq_refl ctxEq_symm ctxEq_trans ctxRefines_refl ctxRefines_trans
    ctxEq_lam ctxEq_delay ctxEq_force ctxEq_app
-   ctxEq_constr_one ctxEq_constr ctxEq_case_scrut ctxEq_case_one_alt ctxEq_case)
+   ctxEq_constr_one ctxEq_constr ctxEq_case_scrut ctxEq_case_one_alt ctxEq_case
+   ctxRefines_lam ctxRefines_delay ctxRefines_force ctxRefines_app
+   ctxRefines_constr_one ctxRefines_constr ctxRefines_case_scrut
+   ctxRefines_case_one_alt ctxRefines_case)
 open Moist.VerifiedNewNew.Equivalence (ObsEq ListRel)
 open Moist.VerifiedNewNew.Contextual.Soundness (soundness)
 open Moist.VerifiedNewNew.Contextual.SoundnessRefines
@@ -830,5 +833,277 @@ theorem mirCtxEq_case {scrut₁ scrut₂ : Expr} {alts₁ alts₂ : List Expr}
             have hlist_ctx : ListRel CtxEq t_a₁ t_a₂ :=
               listRel_mirCtxEq_toListCtxEq halts h_a₁ h_a₂
             exact ctxEq_case (hscrut.toCtxEq h_s₁ h_s₂) hlist_ctx
+
+--------------------------------------------------------------------------------
+-- 7. MIR-level congruences for `MIRCtxRefines`
+--
+-- Direct ports of the `MIRCtxEq` congruences with `CtxEq` → `CtxRefines`.
+-- The new `CtxRefines` bundles closedness preservation in its conclusion,
+-- so each congruence proof just relies on the corresponding UPLC-level
+-- `ctxRefines_*` congruence from `Contextual.lean`.
+--------------------------------------------------------------------------------
+
+/-! ### 7a. Projections from `MIRCtxRefines` -/
+
+/-- Extract `CtxRefines` on the lowered UPLC terms from `MIRCtxRefines` at
+    a specific env, given that both sides lower successfully. -/
+theorem MIRCtxRefines.toCtxRefines {m₁ m₂ : Expr} {env : List VarId}
+    {t₁ t₂ : Moist.Plutus.Term.Term}
+    (h : MIRCtxRefines m₁ m₂)
+    (hlow₁ : lowerTotalExpr env m₁ = some t₁)
+    (hlow₂ : lowerTotalExpr env m₂ = some t₂) : CtxRefines t₁ t₂ := by
+  have ⟨_, hctx⟩ := h env
+  rw [hlow₁, hlow₂] at hctx
+  exact hctx
+
+/-- Extract the compile-status implication from `MIRCtxRefines` at a
+    specific env. -/
+theorem MIRCtxRefines.toImp {m₁ m₂ : Expr} (env : List VarId) (h : MIRCtxRefines m₁ m₂) :
+    (lowerTotalExpr env m₁).isSome → (lowerTotalExpr env m₂).isSome :=
+  (h env).1
+
+/-! ### 7b. Unary / binary constructor congruences -/
+
+/-- Force congruence for `MIRCtxRefines`. -/
+theorem mirCtxRefines_force {t₁ t₂ : Expr} (h : MIRCtxRefines t₁ t₂) :
+    MIRCtxRefines (.Force t₁) (.Force t₂) := by
+  intro env
+  refine ⟨?_, ?_⟩
+  · rw [lowerTotalExpr_force, lowerTotalExpr_force]
+    simp only [Option.isSome_map]
+    exact h.toImp env
+  · rw [lowerTotalExpr_force, lowerTotalExpr_force]
+    cases hlow₁ : lowerTotalExpr env t₁ with
+    | none => simp [Option.map]
+    | some u₁ =>
+      cases hlow₂ : lowerTotalExpr env t₂ with
+      | none => simp only [Option.map_some, Option.map_none]
+      | some u₂ =>
+        simp only [Option.map_some]
+        exact ctxRefines_force (h.toCtxRefines hlow₁ hlow₂)
+
+/-- Delay congruence for `MIRCtxRefines`. -/
+theorem mirCtxRefines_delay {t₁ t₂ : Expr} (h : MIRCtxRefines t₁ t₂) :
+    MIRCtxRefines (.Delay t₁) (.Delay t₂) := by
+  intro env
+  refine ⟨?_, ?_⟩
+  · rw [lowerTotalExpr_delay, lowerTotalExpr_delay]
+    simp only [Option.isSome_map]
+    exact h.toImp env
+  · rw [lowerTotalExpr_delay, lowerTotalExpr_delay]
+    cases hlow₁ : lowerTotalExpr env t₁ with
+    | none => simp [Option.map]
+    | some u₁ =>
+      cases hlow₂ : lowerTotalExpr env t₂ with
+      | none => simp only [Option.map_some, Option.map_none]
+      | some u₂ =>
+        simp only [Option.map_some]
+        exact ctxRefines_delay (h.toCtxRefines hlow₁ hlow₂)
+
+/-- Lambda congruence for `MIRCtxRefines`. -/
+theorem mirCtxRefines_lam {x : VarId} {body₁ body₂ : Expr} (h : MIRCtxRefines body₁ body₂) :
+    MIRCtxRefines (.Lam x body₁) (.Lam x body₂) := by
+  intro env
+  refine ⟨?_, ?_⟩
+  · rw [lowerTotalExpr_lam, lowerTotalExpr_lam]
+    simp only [Option.isSome_map]
+    exact h.toImp (x :: env)
+  · rw [lowerTotalExpr_lam, lowerTotalExpr_lam]
+    cases hlow₁ : lowerTotalExpr (x :: env) body₁ with
+    | none => simp [Option.map]
+    | some u₁ =>
+      cases hlow₂ : lowerTotalExpr (x :: env) body₂ with
+      | none => simp only [Option.map_some, Option.map_none]
+      | some u₂ =>
+        simp only [Option.map_some]
+        exact ctxRefines_lam 0 (h.toCtxRefines hlow₁ hlow₂)
+
+/-- Application congruence for `MIRCtxRefines`. -/
+theorem mirCtxRefines_app {f₁ f₂ a₁ a₂ : Expr}
+    (hf : MIRCtxRefines f₁ f₂) (ha : MIRCtxRefines a₁ a₂) :
+    MIRCtxRefines (.App f₁ a₁) (.App f₂ a₂) := by
+  intro env
+  refine ⟨?_, ?_⟩
+  · rw [lowerTotalExpr_app, lowerTotalExpr_app]
+    cases hlow_f₁ : lowerTotalExpr env f₁ with
+    | none => simp
+    | some t_f₁ =>
+      have hsome_f₂ : (lowerTotalExpr env f₂).isSome :=
+        hf.toImp env (by rw [hlow_f₁]; rfl)
+      cases hlow_f₂ : lowerTotalExpr env f₂ with
+      | none => rw [hlow_f₂] at hsome_f₂; exact absurd hsome_f₂ (by simp)
+      | some t_f₂ =>
+        cases hlow_a₁ : lowerTotalExpr env a₁ with
+        | none => simp
+        | some t_a₁ =>
+          have hsome_a₂ : (lowerTotalExpr env a₂).isSome :=
+            ha.toImp env (by rw [hlow_a₁]; rfl)
+          cases hlow_a₂ : lowerTotalExpr env a₂ with
+          | none => rw [hlow_a₂] at hsome_a₂; exact absurd hsome_a₂ (by simp)
+          | some t_a₂ => simp
+  · rw [lowerTotalExpr_app, lowerTotalExpr_app]
+    cases hlow_f₁ : lowerTotalExpr env f₁ with
+    | none => simp
+    | some tf₁ =>
+      cases hlow_f₂ : lowerTotalExpr env f₂ with
+      | none => simp
+      | some tf₂ =>
+        cases hlow_a₁ : lowerTotalExpr env a₁ with
+        | none => simp
+        | some ta₁ =>
+          cases hlow_a₂ : lowerTotalExpr env a₂ with
+          | none => simp
+          | some ta₂ =>
+            show CtxRefines (.Apply tf₁ ta₁) (.Apply tf₂ ta₂)
+            exact ctxRefines_app (hf.toCtxRefines hlow_f₁ hlow_f₂)
+                                 (ha.toCtxRefines hlow_a₁ hlow_a₂)
+
+/-! ### 7c. List-level helpers for Constr/Case congruences for Refines -/
+
+/-- `MIRCtxRefines`-related lists have matching `lowerTotalExprList` success
+    (forward direction). -/
+theorem listRel_mirCtxRefines_isSome_imp :
+    ∀ {args₁ args₂ : List Expr},
+      ListRel MIRCtxRefines args₁ args₂ →
+      ∀ env, (lowerTotalExprList env args₁).isSome →
+             (lowerTotalExprList env args₂).isSome
+  | [], [], _, _, _ => by simp [lowerTotalExprList_nil]
+  | _ :: _, [], h, _, _ => absurd h id
+  | [], _ :: _, h, _, _ => absurd h id
+  | e₁ :: es₁, e₂ :: es₂, ⟨hhead, htail⟩, env, h_some => by
+      rw [lowerTotalExprList_cons] at h_some ⊢
+      cases hlow_e₁ : lowerTotalExpr env e₁ with
+      | none => rw [hlow_e₁] at h_some; simp at h_some
+      | some t₁ =>
+        have hsome₂ : (lowerTotalExpr env e₂).isSome :=
+          hhead.toImp env (by rw [hlow_e₁]; rfl)
+        cases hlow_e₂ : lowerTotalExpr env e₂ with
+        | none => rw [hlow_e₂] at hsome₂; exact absurd hsome₂ (by simp)
+        | some t₂ =>
+          cases hlow_es₁ : lowerTotalExprList env es₁ with
+          | none => rw [hlow_e₁, hlow_es₁] at h_some; simp at h_some
+          | some ts₁ =>
+            have hts₂ : (lowerTotalExprList env es₂).isSome :=
+              listRel_mirCtxRefines_isSome_imp htail env (by rw [hlow_es₁]; rfl)
+            cases hlow_es₂ : lowerTotalExprList env es₂ with
+            | none => rw [hlow_es₂] at hts₂; exact absurd hts₂ (by simp)
+            | some ts₂ => simp
+
+/-- From `ListRel MIRCtxRefines args₁ args₂` and both lists lowering, get
+    `ListRel CtxRefines` on the lowered lists. -/
+theorem listRel_mirCtxRefines_toListCtxRefines :
+    ∀ {args₁ args₂ : List Expr} {env : List VarId}
+      {ts₁ ts₂ : List Moist.Plutus.Term.Term},
+      ListRel MIRCtxRefines args₁ args₂ →
+      lowerTotalExprList env args₁ = some ts₁ →
+      lowerTotalExprList env args₂ = some ts₂ →
+      ListRel CtxRefines ts₁ ts₂
+  | [], [], env, ts₁, ts₂, _, hlow₁, hlow₂ => by
+      simp only [lowerTotalExprList_nil, Option.some.injEq] at hlow₁ hlow₂
+      subst hlow₁; subst hlow₂
+      exact True.intro
+  | _ :: _, [], _, _, _, h, _, _ => absurd h id
+  | [], _ :: _, _, _, _, h, _, _ => absurd h id
+  | e₁ :: es₁, e₂ :: es₂, env, ts₁, ts₂, ⟨hhead, htail⟩, hlow₁, hlow₂ => by
+      rw [lowerTotalExprList_cons] at hlow₁ hlow₂
+      cases hlow_e₁ : lowerTotalExpr env e₁ with
+      | none => rw [hlow_e₁] at hlow₁; simp at hlow₁
+      | some t_e₁ =>
+        cases hlow_es₁ : lowerTotalExprList env es₁ with
+        | none => rw [hlow_e₁, hlow_es₁] at hlow₁; simp at hlow₁
+        | some t_es₁ =>
+          cases hlow_e₂ : lowerTotalExpr env e₂ with
+          | none => rw [hlow_e₂] at hlow₂; simp at hlow₂
+          | some t_e₂ =>
+            cases hlow_es₂ : lowerTotalExprList env es₂ with
+            | none => rw [hlow_e₂, hlow_es₂] at hlow₂; simp at hlow₂
+            | some t_es₂ =>
+              rw [hlow_e₁, hlow_es₁] at hlow₁
+              rw [hlow_e₂, hlow_es₂] at hlow₂
+              cases hlow₁; cases hlow₂
+              exact ⟨hhead.toCtxRefines hlow_e₁ hlow_e₂,
+                     listRel_mirCtxRefines_toListCtxRefines htail hlow_es₁ hlow_es₂⟩
+
+/-! ### 7d. Constr / Case congruences for `MIRCtxRefines` -/
+
+/-- Constr congruence for `MIRCtxRefines`. -/
+theorem mirCtxRefines_constr {tag : Nat} {m₁ m₂ : Expr} {ms₁ ms₂ : List Expr}
+    (hm : MIRCtxRefines m₁ m₂) (hms : ListRel MIRCtxRefines ms₁ ms₂) :
+    MIRCtxRefines (.Constr tag (m₁ :: ms₁)) (.Constr tag (m₂ :: ms₂)) := by
+  intro env
+  have hrel : ListRel MIRCtxRefines (m₁ :: ms₁) (m₂ :: ms₂) := ⟨hm, hms⟩
+  have hlist_imp := listRel_mirCtxRefines_isSome_imp hrel env
+  refine ⟨?_, ?_⟩
+  · rw [lowerTotalExpr_constr_of_list, lowerTotalExpr_constr_of_list]
+    simp only [Option.isSome_map]
+    exact hlist_imp
+  · rw [lowerTotalExpr_constr_of_list, lowerTotalExpr_constr_of_list]
+    cases hlow₁ : lowerTotalExprList env (m₁ :: ms₁) with
+    | none => simp
+    | some ts₁ =>
+      cases hlow₂ : lowerTotalExprList env (m₂ :: ms₂) with
+      | none => simp
+      | some ts₂ =>
+        show CtxRefines (.Constr tag ts₁) (.Constr tag ts₂)
+        rw [lowerTotalExprList_cons] at hlow₁ hlow₂
+        cases ht_m₁ : lowerTotalExpr env m₁ with
+        | none => rw [ht_m₁] at hlow₁; simp at hlow₁
+        | some t_m₁ =>
+          cases ht_ms₁ : lowerTotalExprList env ms₁ with
+          | none => rw [ht_m₁, ht_ms₁] at hlow₁; simp at hlow₁
+          | some t_ms₁ =>
+            cases ht_m₂ : lowerTotalExpr env m₂ with
+            | none => rw [ht_m₂] at hlow₂; simp at hlow₂
+            | some t_m₂ =>
+              cases ht_ms₂ : lowerTotalExprList env ms₂ with
+              | none => rw [ht_m₂, ht_ms₂] at hlow₂; simp at hlow₂
+              | some t_ms₂ =>
+                rw [ht_m₁, ht_ms₁] at hlow₁
+                rw [ht_m₂, ht_ms₂] at hlow₂
+                cases hlow₁; cases hlow₂
+                exact ctxRefines_constr (hm.toCtxRefines ht_m₁ ht_m₂)
+                  (listRel_mirCtxRefines_toListCtxRefines hms ht_ms₁ ht_ms₂)
+
+/-- General Case congruence for `MIRCtxRefines`. -/
+theorem mirCtxRefines_case {scrut₁ scrut₂ : Expr} {alts₁ alts₂ : List Expr}
+    (hscrut : MIRCtxRefines scrut₁ scrut₂)
+    (halts : ListRel MIRCtxRefines alts₁ alts₂) :
+    MIRCtxRefines (.Case scrut₁ alts₁) (.Case scrut₂ alts₂) := by
+  intro env
+  refine ⟨?_, ?_⟩
+  · rw [lowerTotalExpr_case_of_list, lowerTotalExpr_case_of_list]
+    have h_scrut_imp := hscrut.toImp env
+    have h_alts_imp := listRel_mirCtxRefines_isSome_imp halts env
+    cases h_s₁ : lowerTotalExpr env scrut₁ with
+    | none => simp
+    | some _ =>
+      have : (lowerTotalExpr env scrut₂).isSome := h_scrut_imp (by rw [h_s₁]; rfl)
+      cases h_s₂ : lowerTotalExpr env scrut₂ with
+      | none => rw [h_s₂] at this; exact absurd this (by simp)
+      | some _ =>
+        cases h_a₁ : lowerTotalExprList env alts₁ with
+        | none => simp
+        | some _ =>
+          have : (lowerTotalExprList env alts₂).isSome := h_alts_imp (by rw [h_a₁]; rfl)
+          cases h_a₂ : lowerTotalExprList env alts₂ with
+          | none => rw [h_a₂] at this; exact absurd this (by simp)
+          | some _ => simp
+  · rw [lowerTotalExpr_case_of_list, lowerTotalExpr_case_of_list]
+    cases h_s₁ : lowerTotalExpr env scrut₁ with
+    | none => simp
+    | some ts₁ =>
+      cases h_s₂ : lowerTotalExpr env scrut₂ with
+      | none => simp
+      | some ts₂ =>
+        cases h_a₁ : lowerTotalExprList env alts₁ with
+        | none => simp
+        | some t_a₁ =>
+          cases h_a₂ : lowerTotalExprList env alts₂ with
+          | none => simp
+          | some t_a₂ =>
+            show CtxRefines (.Case ts₁ t_a₁) (.Case ts₂ t_a₂)
+            have hlist_ctx : ListRel CtxRefines t_a₁ t_a₂ :=
+              listRel_mirCtxRefines_toListCtxRefines halts h_a₁ h_a₂
+            exact ctxRefines_case (hscrut.toCtxRefines h_s₁ h_s₂) hlist_ctx
 
 end Moist.VerifiedNewNew.MIR

@@ -67,7 +67,7 @@ in z
 /-- Scan bindings right-to-left, collecting those that are needed (or impure)
 and tracking whether any were eliminated. Returns `(surviving, eliminated)`
 where `eliminated` is `true` when at least one binding was dropped. -/
-private partial def filterBindings
+private def filterBindings
     : List (VarId × Expr × Bool) → VarSet → List (VarId × Expr × Bool) → Bool
     → List (VarId × Expr × Bool) × Bool
   | [], _, acc, elim => (acc, elim)
@@ -81,12 +81,21 @@ private partial def filterBindings
       -- free variables to the needed set so dependencies are preserved.
       filterBindings rest (needed.union (freeVars rhs)) ((v, rhs, er) :: acc) elim
 
+/-! ## Total definition of `dce`
+
+`dce` is defined mutually with `dceList` / `dceBinds` so the list
+recursions (at `.Constr`, `.Case`, and `.Let`'s per-binding
+simplification) are structural over the sub-expressions, making
+termination obvious to Lean. -/
+
+mutual
+
 /-- Eliminate unused pure `Let` bindings from `e`.
 
 Returns `(e', changed)` where `changed` is `true` when at least one
 binding was removed. See the module documentation for the full algorithm
 and examples. -/
-partial def dce (e : Expr) : Expr × Bool :=
+def dce (e : Expr) : Expr × Bool :=
   match e with
   | .Var _ | .Lit _ | .Builtin _ | .Error => (e, false)
 
@@ -112,34 +121,45 @@ partial def dce (e : Expr) : Expr × Bool :=
     (.Delay inner', ch)
 
   | .Constr tag args =>
-    let results := args.map dce
-    let args' := results.map Prod.fst
-    let ch := results.any Prod.snd
+    let (args', ch) := dceList args
     (.Constr tag args', ch)
 
   | .Case scrut alts =>
     let (scrut', ch1) := dce scrut
-    let results := alts.map dce
-    let alts' := results.map Prod.fst
-    let ch2 := results.any Prod.snd
+    let (alts', ch2) := dceList alts
     (.Case scrut' alts', ch1 || ch2)
 
   | .Let binds body =>
     -- Step 1: recursively simplify all RHSs and the body
-    let (binds', rhsChanged) := binds.foldl (init := ([], false))
-      fun (acc, ch) (v, rhs, er) =>
-        let (rhs', ch') := dce rhs
-        (acc ++ [(v, rhs', er)], ch || ch')
+    let (binds', rhsChanged) := dceBinds binds
     let (body', bodyChanged) := dce body
     -- Step 2: right-to-left scan with needed set.
-    -- We reverse the list, call filterBindings (which walks left-to-right
-    -- on the reversed list, effectively right-to-left on the original),
-    -- and the accumulator naturally ends up in the correct order.
     let needed := freeVars body'
     let (surviving, eliminated) := filterBindings binds'.reverse needed [] false
     let anyChanged := rhsChanged || bodyChanged || eliminated
     match surviving with
     | [] => (body', true)
-    | _ => (.Let surviving body', anyChanged)
+    | _ :: _ => (.Let surviving body', anyChanged)
+  termination_by sizeOf e
+
+/-- List-level DCE for `.Constr` / `.Case` sub-expression lists. -/
+def dceList : List Expr → List Expr × Bool
+  | [] => ([], false)
+  | e :: rest =>
+    let (e', ch1) := dce e
+    let (rest', ch2) := dceList rest
+    (e' :: rest', ch1 || ch2)
+  termination_by es => sizeOf es
+
+/-- Per-binding DCE for `.Let`'s RHS recursive simplification. -/
+def dceBinds : List (VarId × Expr × Bool) → List (VarId × Expr × Bool) × Bool
+  | [] => ([], false)
+  | (v, rhs, er) :: rest =>
+    let (rhs', ch1) := dce rhs
+    let (rest', ch2) := dceBinds rest
+    ((v, rhs', er) :: rest', ch1 || ch2)
+  termination_by bs => sizeOf bs
+
+end
 
 end Moist.MIR
