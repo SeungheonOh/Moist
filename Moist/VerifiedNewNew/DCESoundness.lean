@@ -1,4 +1,5 @@
 import Moist.VerifiedNewNew.MIR
+import Moist.VerifiedNewNew.MIR.Congruence
 import Moist.VerifiedNewNew.DeadLetRefines
 import Moist.MIR.Optimize.DCE
 

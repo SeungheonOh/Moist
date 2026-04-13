@@ -1,4 +1,5 @@
 import Moist.VerifiedNewNew.Contextual.Soundness
+import Moist.VerifiedNewNew.Definitions.StepIndexed
 
 /-! # Unidirectional open-context soundness (`OpenRefines d → CtxRefines`)
 
@@ -60,38 +61,11 @@ theorem obsRefinesK_error (k : Nat) : ObsRefinesK k (.error : State) .error :=
   obsRefinesK_error_error k
 
 --------------------------------------------------------------------------------
--- 2. ValueRefinesK — `ValueEqK` recast with `ObsRefinesK` outputs
+-- 2. ValueRefinesK monotonicity
+--
+-- `ValueRefinesK` itself is defined in
+-- `Moist.VerifiedNewNew.Definitions.StepIndexed`. Theorems about it stay here.
 --------------------------------------------------------------------------------
-
-/-- Unidirectional value relation. Mirrors `ValueEqK`'s structure but all
-    observation goals use `ObsRefinesK` instead of `ObsEqK`. Level 0 enforces
-    shape matching (and VCon content equality) so that error-preservation is
-    provable for `evalBuiltin_compat_refines` at k=0. -/
-def ValueRefinesK : Nat → CekValue → CekValue → Prop
-  | 0, .VCon c₁, .VCon c₂ => c₁ = c₂
-  | 0, .VLam _ _, .VLam _ _ => True
-  | 0, .VDelay _ _, .VDelay _ _ => True
-  | 0, .VConstr tag₁ _, .VConstr tag₂ _ => tag₁ = tag₂
-  | 0, .VBuiltin b₁ _ exp₁, .VBuiltin b₂ _ exp₂ => b₁ = b₂ ∧ exp₁ = exp₂
-  | _ + 1, .VCon c₁, .VCon c₂ => c₁ = c₂
-  | k + 1, .VLam b₁ ρ₁, .VLam b₂ ρ₂ =>
-      ∀ j ≤ k, ∀ arg₁ arg₂, ValueRefinesK j arg₁ arg₂ →
-        ∀ i ≤ j, ∀ π₁ π₂,
-          (∀ i' ≤ i, ∀ w₁ w₂, ValueRefinesK i' w₁ w₂ →
-            ObsRefinesK i' (.ret π₁ w₁) (.ret π₂ w₂)) →
-          ObsRefinesK i (.compute π₁ (ρ₁.extend arg₁) b₁)
-                        (.compute π₂ (ρ₂.extend arg₂) b₂)
-  | k + 1, .VDelay b₁ ρ₁, .VDelay b₂ ρ₂ =>
-      ∀ j ≤ k,
-        ∀ i ≤ j, ∀ π₁ π₂,
-          (∀ i' ≤ i, ∀ w₁ w₂, ValueRefinesK i' w₁ w₂ →
-            ObsRefinesK i' (.ret π₁ w₁) (.ret π₂ w₂)) →
-          ObsRefinesK i (.compute π₁ ρ₁ b₁) (.compute π₂ ρ₂ b₂)
-  | k + 1, .VConstr tag₁ fields₁, .VConstr tag₂ fields₂ =>
-      tag₁ = tag₂ ∧ ListRel (ValueRefinesK k) fields₁ fields₂
-  | k + 1, .VBuiltin b₁ args₁ exp₁, .VBuiltin b₂ args₂ exp₂ =>
-      b₁ = b₂ ∧ exp₁ = exp₂ ∧ ListRel (ValueRefinesK k) args₁ args₂
-  | _, _, _ => False
 
 private theorem valueRefinesK_mono_le (k : Nat) :
     ∀ j, j ≤ k → ∀ v₁ v₂, ValueRefinesK k v₁ v₂ → ValueRefinesK j v₁ v₂ := by
@@ -140,33 +114,12 @@ theorem valueRefinesK_mono {j k : Nat} (hjk : j ≤ k)
   valueRefinesK_mono_le k j hjk v₁ v₂ h
 
 --------------------------------------------------------------------------------
--- 3. StackRefK / BehRefinesK / OpenRefines / EnvRefinesK
+-- 3. Refines tower: theorems
+--
+-- `StackRefK`, `BehRefinesK`, `EnvRefinesK`, `OpenRefinesK`, `OpenRefines`
+-- are defined in `Moist.VerifiedNewNew.Definitions.StepIndexed`. Theorems
+-- about them (and the proof-local `AtLeastEnvRefinesK`) stay in this file.
 --------------------------------------------------------------------------------
-
-/-- Unidirectional stack relation. -/
-def StackRefK (V : Nat → CekValue → CekValue → Prop) (k : Nat) (π₁ π₂ : Stack) : Prop :=
-  ∀ j ≤ k, ∀ v₁ v₂, V j v₁ v₂ → ObsRefinesK j (.ret π₁ v₁) (.ret π₂ v₂)
-
-/-- Unidirectional behaviour relation. -/
-def BehRefinesK (V : Nat → CekValue → CekValue → Prop) (k : Nat)
-    (ρ₁ ρ₂ : CekEnv) (t₁ t₂ : Term) : Prop :=
-  ∀ j ≤ k, ∀ π₁ π₂, StackRefK V j π₁ π₂ →
-    ObsRefinesK j (.compute π₁ ρ₁ t₁) (.compute π₂ ρ₂ t₂)
-
-/-- Unidirectional env relation: mirrors the relaxed `EnvEqK` — strict
-    some/some match within `1..d` but no length equality. -/
-def EnvRefinesK (k d : Nat) (ρ₁ ρ₂ : CekEnv) : Prop :=
-  ∀ n, 0 < n → n ≤ d →
-    ∃ v₁ v₂, ρ₁.lookup n = some v₁ ∧
-             ρ₂.lookup n = some v₂ ∧
-             ValueRefinesK k v₁ v₂
-
-/-- Unidirectional open term relation at fixed step index. -/
-def OpenRefinesK (k d : Nat) (t₁ t₂ : Term) : Prop :=
-  ∀ j ≤ k, ∀ ρ₁ ρ₂, EnvRefinesK j d ρ₁ ρ₂ → BehRefinesK ValueRefinesK j ρ₁ ρ₂ t₁ t₂
-
-/-- Unidirectional open term relation at unbounded step index. -/
-def OpenRefines (d : Nat) (t₁ t₂ : Term) : Prop := ∀ k, OpenRefinesK k d t₁ t₂
 
 /-- **Strict** pointwise env relation: both envs have the same length and
     every position `1..length` is a `some` pair of `ValueRefinesK`-related
