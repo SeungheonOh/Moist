@@ -64,22 +64,19 @@ in z
 ```
 -/
 
-/-- Scan bindings right-to-left, collecting those that are needed (or impure)
-and tracking whether any were eliminated. Returns `(surviving, eliminated)`
-where `eliminated` is `true` when at least one binding was dropped. -/
-private def filterBindings
-    : List (VarId × Expr × Bool) → VarSet → List (VarId × Expr × Bool) → Bool
-    → List (VarId × Expr × Bool) × Bool
-  | [], _, acc, elim => (acc, elim)
-  | (v, rhs, er) :: rest, needed, acc, elim =>
-    if needed.contains v then
-      filterBindings rest (needed.union (freeVars rhs)) ((v, rhs, er) :: acc) elim
-    else if isPure rhs || er then
-      filterBindings rest needed acc true
+/-- Filter bindings by structural right-recursion: recurse on the tail,
+then decide whether to keep the head based on its variable's appearance
+in the simplified tail + body. A binding is dropped iff its variable does
+not appear in the simplified tail/body AND its rhs is pure. -/
+def filterBindings
+    : List (VarId × Expr × Bool) → Expr → List (VarId × Expr × Bool)
+  | [], _ => []
+  | (v, rhs, er) :: rest, body =>
+    let rest' := filterBindings rest body
+    if (freeVars (.Let rest' body)).contains v || !(isPure rhs) then
+      (v, rhs, er) :: rest'
     else
-      -- Impure, not needed: keep the binding (side effect) and add its
-      -- free variables to the needed set so dependencies are preserved.
-      filterBindings rest (needed.union (freeVars rhs)) ((v, rhs, er) :: acc) elim
+      rest'
 
 /-! ## Total definition of `dce`
 
@@ -133,10 +130,9 @@ def dce (e : Expr) : Expr × Bool :=
     -- Step 1: recursively simplify all RHSs and the body
     let (binds', rhsChanged) := dceBinds binds
     let (body', bodyChanged) := dce body
-    -- Step 2: right-to-left scan with needed set.
-    let needed := freeVars body'
-    let (surviving, eliminated) := filterBindings binds'.reverse needed [] false
-    let anyChanged := rhsChanged || bodyChanged || eliminated
+    -- Step 2: right-recursive filter, dropping pure dead bindings.
+    let surviving := filterBindings binds' body'
+    let anyChanged := rhsChanged || bodyChanged || (surviving.length != binds'.length)
     match surviving with
     | [] => (body', true)
     | _ :: _ => (.Let surviving body', anyChanged)
