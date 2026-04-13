@@ -287,6 +287,161 @@ theorem VarSet.erase_not_contains_imp' (s : VarSet) (y x : VarId)
     unfold VarSet.contains; rw [← Array.any_toList]; exact list_filter_any_false h hyx
   · right; rfl
 
+/-! ## VarSet forward (construction) lemmas for freshness -/
+
+private theorem VarSet.insert_not_contains_fwd (s : VarSet) (v x : VarId)
+    (hs : s.contains x = false) (hv : (v == x) = false) :
+    (s.insert v).contains x = false := by
+  unfold VarSet.insert
+  split
+  · exact hs
+  · unfold VarSet.contains
+    rw [← Array.any_toList, Array.toList_push, List.any_append,
+        List.any_cons, List.any_nil, Bool.or_false]
+    unfold VarSet.contains at hs
+    rw [← Array.any_toList] at hs
+    rw [hs, Bool.false_or]; exact hv
+
+private theorem VarSet.foldl_list_insert_not_contains_fwd :
+    ∀ (elems : List VarId) (acc : VarSet) (x : VarId),
+      acc.contains x = false → elems.any (· == x) = false →
+      (elems.foldl (fun a v => a.insert v) acc).contains x = false
+  | [], acc, _, hacc, _ => hacc
+  | v :: rest, acc, x, hacc, helems => by
+    simp only [List.foldl_cons]
+    simp only [List.any_cons, Bool.or_eq_false_iff] at helems
+    have hnext := VarSet.insert_not_contains_fwd acc v x hacc helems.1
+    exact VarSet.foldl_list_insert_not_contains_fwd rest _ x hnext helems.2
+
+theorem VarSet.union_not_contains_fwd (s1 s2 : VarSet) (x : VarId)
+    (h1 : s1.contains x = false) (h2 : s2.contains x = false) :
+    (s1.union s2).contains x = false := by
+  unfold VarSet.union
+  rw [← Array.foldl_toList]
+  apply VarSet.foldl_list_insert_not_contains_fwd _ _ _ h1
+  unfold VarSet.contains at h2
+  rwa [← Array.any_toList] at h2
+
+private theorem List.filter_any_false_of_any_false {xs : List VarId} {x : VarId} {p : VarId → Bool}
+    (h : xs.any (· == x) = false) : (xs.filter p).any (· == x) = false := by
+  induction xs with
+  | nil => rfl
+  | cons y ys ih =>
+    simp only [List.any_cons, Bool.or_eq_false_iff] at h
+    simp only [List.filter_cons]
+    by_cases hpy : p y = true
+    · simp only [hpy, ite_true, List.any_cons, Bool.or_eq_false_iff]
+      exact ⟨h.1, ih h.2⟩
+    · simp only [show p y = false from by cases hpyb : p y; rfl; exact absurd hpyb hpy]
+      exact ih h.2
+
+theorem VarSet.erase_not_contains_fwd (s : VarSet) (y x : VarId)
+    (hs : s.contains x = false) :
+    (s.erase y).contains x = false := by
+  unfold VarSet.erase VarSet.contains
+  rw [← Array.any_toList, Array.toList_filter]
+  unfold VarSet.contains at hs
+  rw [← Array.any_toList] at hs
+  exact List.filter_any_false_of_any_false hs
+
+theorem VarSet.empty_not_contains (x : VarId) : VarSet.empty.contains x = false := rfl
+
+/-! ## maxUidExpr freshness lemma
+
+Any variable whose uid strictly exceeds `maxUidExpr e` is not in `freeVars e`.
+This is the correctness statement for the "fresh variable from maxUid"
+construction used by `expandFix`. -/
+
+mutual
+  theorem maxUidExpr_fresh (e : Expr) (v : VarId) (h : v.uid > maxUidExpr e) :
+      (freeVars e).contains v = false := by
+    match e with
+    | .Var y =>
+      rw [freeVars]
+      rw [VarSet.singleton_contains']
+      show (y == v) = false
+      simp only [maxUidExpr] at h
+      rw [show (y == v) = decide (y.uid = v.uid) from rfl]
+      exact decide_eq_false (by omega)
+    | .Lit _ => rw [freeVars]; rfl
+    | .Builtin _ => rw [freeVars]; rfl
+    | .Error => rw [freeVars]; rfl
+    | .Lam x body =>
+      simp only [maxUidExpr] at h
+      have hbody : v.uid > maxUidExpr body := by omega
+      rw [freeVars]
+      exact VarSet.erase_not_contains_fwd _ _ _ (maxUidExpr_fresh body v hbody)
+    | .Fix f body =>
+      simp only [maxUidExpr] at h
+      have hbody : v.uid > maxUidExpr body := by omega
+      rw [freeVars]
+      exact VarSet.erase_not_contains_fwd _ _ _ (maxUidExpr_fresh body v hbody)
+    | .App f a =>
+      simp only [maxUidExpr] at h
+      have hf : v.uid > maxUidExpr f := by omega
+      have ha : v.uid > maxUidExpr a := by omega
+      rw [freeVars]
+      exact VarSet.union_not_contains_fwd _ _ _
+        (maxUidExpr_fresh f v hf) (maxUidExpr_fresh a v ha)
+    | .Force inner =>
+      simp only [maxUidExpr] at h
+      rw [freeVars]
+      exact maxUidExpr_fresh inner v h
+    | .Delay inner =>
+      simp only [maxUidExpr] at h
+      rw [freeVars]
+      exact maxUidExpr_fresh inner v h
+    | .Constr tag args =>
+      simp only [maxUidExpr] at h
+      rw [freeVars]
+      exact maxUidExprList_fresh args v h
+    | .Case scrut alts =>
+      simp only [maxUidExpr] at h
+      have hs : v.uid > maxUidExpr scrut := by omega
+      have ha : v.uid > maxUidExprList alts := by omega
+      rw [freeVars]
+      exact VarSet.union_not_contains_fwd _ _ _
+        (maxUidExpr_fresh scrut v hs) (maxUidExprList_fresh alts v ha)
+    | .Let binds body =>
+      simp only [maxUidExpr] at h
+      have hbinds : v.uid > maxUidExprBinds binds := by omega
+      have hbody : v.uid > maxUidExpr body := by omega
+      rw [freeVars]
+      exact maxUidExprLet_fresh binds body v hbinds hbody
+  termination_by sizeOf e
+
+  theorem maxUidExprList_fresh (es : List Expr) (v : VarId)
+      (h : v.uid > maxUidExprList es) :
+      (freeVarsList es).contains v = false := by
+    match es with
+    | [] => rw [freeVarsList]; rfl
+    | e :: rest =>
+      simp only [maxUidExprList] at h
+      have he : v.uid > maxUidExpr e := by omega
+      have hrest : v.uid > maxUidExprList rest := by omega
+      rw [freeVarsList]
+      exact VarSet.union_not_contains_fwd _ _ _
+        (maxUidExpr_fresh e v he) (maxUidExprList_fresh rest v hrest)
+  termination_by sizeOf es
+
+  theorem maxUidExprLet_fresh (binds : List (VarId × Expr × Bool)) (body : Expr) (v : VarId)
+      (hbinds : v.uid > maxUidExprBinds binds) (hbody : v.uid > maxUidExpr body) :
+      (freeVarsLet binds body).contains v = false := by
+    match binds with
+    | [] =>
+      rw [freeVarsLet]
+      exact maxUidExpr_fresh body v hbody
+    | (x, rhs, er) :: rest =>
+      simp only [maxUidExprBinds] at hbinds
+      have hrhs : v.uid > maxUidExpr rhs := by omega
+      have hrest : v.uid > maxUidExprBinds rest := by omega
+      rw [freeVarsLet]
+      apply VarSet.union_not_contains_fwd _ _ _ (maxUidExpr_fresh rhs v hrhs)
+      exact VarSet.erase_not_contains_fwd _ _ _
+        (maxUidExprLet_fresh rest body v hrest hbody)
+  termination_by sizeOf binds + sizeOf body
+end
+
 /-! ## lowerTotal append unused -/
 
 -- Helper: env agreement for shadow case
@@ -521,12 +676,12 @@ mutual
       | none =>
         exact Option.bind_eq_none_of_inner (lowerTotal_prepend_unused_none_gen prefix_env env x f hcf hf)
       | some fv =>
-        rw [hf, Option.some_bind] at hnone
+        rw [hf, Option.bind_some] at hnone
         -- hnone : (lowerTotal ... a).bind ... = none
         have ha_none : lowerTotal (prefix_env ++ env) a = none := by
           cases ha : lowerTotal (prefix_env ++ env) a with
           | none => rfl
-          | some _ => rw [ha, Option.some_bind] at hnone; exact absurd hnone (by simp)
+          | some _ => rw [ha, Option.bind_some] at hnone; exact absurd hnone (by simp)
         have iha := lowerTotal_prepend_unused_none_gen prefix_env env x a hca ha_none
         cases hf2 : lowerTotal (prefix_env ++ x :: env) f with
         | none => rfl
@@ -1110,6 +1265,21 @@ theorem lowerTotal_prepend_unused (env : List VarId) (x : VarId) (e : Expr)
   have h := lowerTotal_prepend_unused_gen [] env x e (.inl hunused)
   simpa using h
 
+/-- Swapping an unused variable in the middle of the environment leaves
+    `lowerTotal` unchanged. Both `y₁` and `y₂` are free in `e`, so they
+    simply occupy the same shift position without being referenced. -/
+theorem lowerTotal_env_swap_unused (prefix_env env : List VarId) (y₁ y₂ : VarId) (e : Expr)
+    (hy1 : (freeVars e).contains y₁ = false)
+    (hy2 : (freeVars e).contains y₂ = false) :
+    lowerTotal (prefix_env ++ y₁ :: env) e = lowerTotal (prefix_env ++ y₂ :: env) e := by
+  cases h : lowerTotal (prefix_env ++ env) e with
+  | none =>
+    rw [lowerTotal_prepend_unused_none_gen prefix_env env y₁ e (.inl hy1) h,
+        lowerTotal_prepend_unused_none_gen prefix_env env y₂ e (.inl hy2) h]
+  | some t =>
+    rw [lowerTotal_prepend_unused_gen prefix_env env y₁ e (.inl hy1) t h,
+        lowerTotal_prepend_unused_gen prefix_env env y₂ e (.inl hy2) t h]
+
 /-! ## Fix counting (total) -/
 
 mutual
@@ -1152,20 +1322,29 @@ makes `expandFix` fully compositional.
 -/
 
 mutual
-  /-- Expand all Fix nodes bottom-up. Compositional: no counter threaded. -/
+  /-- Expand all Fix nodes bottom-up. Compositional: no counter threaded.
+
+      The Z combinator transformation produces:
+        (λz. z z) (λs. (λf. λx. body') (λv. s s v))
+      The body `f` is kept as an explicit `Lam f`, applied to `selfApp =
+      λv. s s v`. This is operationally equivalent to inlining the
+      substitution (the Apply-Lam β-reduces to the substituted form), but
+      keeps the structure compositional w.r.t. `body'`. The compositional
+      form makes `mirCtxRefines_fix` provable as a direct application of
+      `App`/`Lam` congruences. -/
   def expandFix (e : Expr) : Expr :=
     match e with
     | .Fix f (.Lam x body) =>
       -- Bottom-up: expand children first so body' is Fix-free
       let body' := expandFix body
       let base := maxUidExpr body' + 1
-      -- Z combinator: (λz. z z) (λs. λx. body'[f := λv. s s v])
+      -- Z combinator: (λz. z z) (λs. (λf. λx. body') (λv. s s v))
       let s : VarId := ⟨base, "s"⟩
       let v : VarId := ⟨base + 1, "v"⟩
       let selfApp := Expr.Lam v (.App (.App (.Var s) (.Var s)) (.Var v))
       let z : VarId := ⟨base + 2, "z"⟩
-      let e' := (subst f selfApp body').run ⟨base + 3⟩ |>.1
-      .App (.Lam z (.App (.Var z) (.Var z))) (.Lam s (.Lam x e'))
+      .App (.Lam z (.App (.Var z) (.Var z)))
+           (.Lam s (.App (.Lam f (.Lam x body')) selfApp))
     | .Fix f body =>
       let body' := expandFix body; .Fix f body'
     | .Lam x body =>
@@ -1257,6 +1436,267 @@ mutual
   termination_by sizeOf binds
 end
 
+/-! ## Forward VarSet helpers for freshness preservation -/
+
+theorem VarSet.erase_self_not_contains (s : VarSet) (y x : VarId)
+    (h : (y == x) = true) : (s.erase y).contains x = false := by
+  unfold VarSet.erase VarSet.contains
+  rw [← Array.any_toList, Array.toList_filter]
+  induction s.data.toList with
+  | nil => rfl
+  | cons w rest ih =>
+    simp only [List.filter_cons]
+    by_cases hwy : (w != y) = true
+    · simp only [hwy, ite_true, List.any_cons, Bool.or_eq_false_iff]
+      refine ⟨?_, ih⟩
+      show (w == x) = false
+      have hwy_uid : w.uid ≠ y.uid := by
+        simp only [bne, Bool.not_eq_true'] at hwy
+        rw [show (w == y) = decide (w.uid = y.uid) from rfl] at hwy
+        exact of_decide_eq_false hwy
+      have hyx_uid : y.uid = x.uid := by
+        rw [show (y == x) = decide (y.uid = x.uid) from rfl] at h
+        exact of_decide_eq_true h
+      rw [show (w == x) = decide (w.uid = x.uid) from rfl]
+      exact decide_eq_false (by omega)
+    · simp only [show (w != y) = false from by cases hh : (w != y); rfl; exact absurd hh hwy]
+      exact ih
+
+theorem VarSet.erase_of_inner_not_contains_or_match (s : VarSet) (y x : VarId)
+    (h : s.contains x = false ∨ (y == x) = true) :
+    (s.erase y).contains x = false := by
+  cases h with
+  | inl hs => exact VarSet.erase_not_contains_fwd _ _ _ hs
+  | inr hyx => exact VarSet.erase_self_not_contains _ _ _ hyx
+
+/-! ## expandFix preserves freeVars not-contains
+
+This preservation is proven via mutual recursion mirroring `expandFix`
+with two helper clauses:
+- `expandFix_fix_lam_freeVars_not_contains` handles the Z-combinator
+  unfolding when the Fix body is a Lam.
+- `expandFix_fix_nonlam_freeVars_not_contains` handles all other Fix body
+  shapes by structural recursion on the inner body.
+
+The main theorem `expandFix_freeVars_not_contains` dispatches on the top-level
+constructor and uses `Expr.isLam` style `match` to route Fix nodes to the
+correct helper. -/
+
+/-- Build a 3-way disjunction for the Fix-Lam case from the `not contains`
+    hypothesis on `((freeVars inner).erase x).erase f`. -/
+private theorem erase_erase_decompose (s : VarSet) (x f v : VarId)
+    (h : ((s.erase x).erase f).contains v = false) :
+    s.contains v = false ∨ (x == v) = true ∨ (f == v) = true := by
+  cases VarSet.erase_not_contains_imp' _ f v h with
+  | inr hfv => exact .inr (.inr hfv)
+  | inl h' =>
+    cases VarSet.erase_not_contains_imp' _ x v h' with
+    | inr hxv => exact .inr (.inl hxv)
+    | inl h'' => exact .inl h''
+
+/-- Core Fix-Lam fresh preservation: if `v` is absent from `freeVars inner'`
+    (or is matched by `x` or `f`), then the freeVars of the fully expanded
+    Z combinator wrapper don't contain `v`. -/
+private theorem expandFix_fix_lam_freeVars_not_contains
+    (f x : VarId) (inner_expanded : Expr) (v : VarId)
+    (hinner : (freeVars inner_expanded).contains v = false ∨
+              (x == v) = true ∨ (f == v) = true) :
+    let base := maxUidExpr inner_expanded + 1
+    let s_c : VarId := ⟨base, "s"⟩
+    let v_c : VarId := ⟨base + 1, "v"⟩
+    let z_c : VarId := ⟨base + 2, "z"⟩
+    (freeVars
+      ((Expr.Lam z_c ((Expr.Var z_c).App (Expr.Var z_c))).App
+        (Expr.Lam s_c
+          ((Expr.Lam f (Expr.Lam x inner_expanded)).App
+            (Expr.Lam v_c (((Expr.Var s_c).App (Expr.Var s_c)).App
+              (Expr.Var v_c))))))).contains v = false := by
+  intro base s_c v_c z_c
+  rw [freeVars]
+  apply VarSet.union_not_contains_fwd
+  · -- Lam z_c (App z_c z_c)
+    rw [freeVars]
+    by_cases hzv : (z_c == v) = true
+    · exact VarSet.erase_self_not_contains _ _ _ hzv
+    · have hzv' : (z_c == v) = false := by cases hz : (z_c == v); rfl; exact absurd hz hzv
+      apply VarSet.erase_not_contains_fwd
+      rw [freeVars]
+      apply VarSet.union_not_contains_fwd <;>
+        (rw [freeVars]; rw [VarSet.singleton_contains']; exact hzv')
+  · -- Lam s_c (App (Lam f (Lam x inner)) (Lam v_c (...)))
+    rw [freeVars]
+    by_cases hsv : (s_c == v) = true
+    · exact VarSet.erase_self_not_contains _ _ _ hsv
+    · have hsv' : (s_c == v) = false := by cases hs : (s_c == v); rfl; exact absurd hs hsv
+      apply VarSet.erase_not_contains_fwd
+      rw [freeVars]
+      apply VarSet.union_not_contains_fwd
+      · -- (Lam f (Lam x inner_expanded))
+        rw [freeVars]
+        rcases hinner with h1 | hxv | hfv
+        · apply VarSet.erase_not_contains_fwd
+          rw [freeVars]
+          apply VarSet.erase_not_contains_fwd
+          exact h1
+        · apply VarSet.erase_not_contains_fwd
+          rw [freeVars]
+          exact VarSet.erase_self_not_contains _ _ _ hxv
+        · exact VarSet.erase_self_not_contains _ _ _ hfv
+      · -- (Lam v_c (App (App s_c s_c) v_c))
+        rw [freeVars]
+        by_cases hvv : (v_c == v) = true
+        · exact VarSet.erase_self_not_contains _ _ _ hvv
+        · have hvv' : (v_c == v) = false := by cases hv : (v_c == v); rfl; exact absurd hv hvv
+          apply VarSet.erase_not_contains_fwd
+          rw [freeVars]
+          apply VarSet.union_not_contains_fwd
+          · rw [freeVars]
+            apply VarSet.union_not_contains_fwd <;>
+              (rw [freeVars]; rw [VarSet.singleton_contains']; exact hsv')
+          · rw [freeVars]
+            rw [VarSet.singleton_contains']
+            exact hvv'
+
+/-- Helper for the Fix-Lam case. Takes the inner freshness as a ready-made
+    disjunction so the preservation proof can be structured without nested
+    pattern matching. -/
+private theorem expandFix_fix_lam_free_from_disj
+    (f : VarId) (x : VarId) (inner : Expr) (v : VarId)
+    (hdisj : (freeVars (expandFix inner)).contains v = false ∨
+              (x == v) = true ∨ (f == v) = true) :
+    (freeVars (expandFix (.Fix f (.Lam x inner)))).contains v = false := by
+  simp only [expandFix]
+  exact expandFix_fix_lam_freeVars_not_contains f x (expandFix inner) v hdisj
+
+/-- Helper for the non-Lam Fix case: if `body` is Fix but not `.Fix f (.Lam _ _)`
+    at the top, `expandFix` reduces to `.Fix f (expandFix body)`. -/
+private theorem expandFix_nonlam_fix_unfold (f : VarId) (body : Expr) :
+    expandFix (.Fix f body) = .Fix f (expandFix body) ∨
+    ∃ x inner, body = .Lam x inner := by
+  cases body with
+  | Var _ => left; simp only [expandFix]
+  | Lit _ => left; simp only [expandFix]
+  | Builtin _ => left; simp only [expandFix]
+  | Error => left; simp only [expandFix]
+  | Lam x inner => right; exact ⟨x, inner, rfl⟩
+  | Fix _ _ => left; simp only [expandFix]
+  | App _ _ => left; simp only [expandFix]
+  | Force _ => left; simp only [expandFix]
+  | Delay _ => left; simp only [expandFix]
+  | Constr _ _ => left; simp only [expandFix]
+  | Case _ _ => left; simp only [expandFix]
+  | Let _ _ => left; simp only [expandFix]
+
+mutual
+  /-- Main preservation theorem: if `v` is not free in `e`, it's not free in
+      `expandFix e` either. -/
+  theorem expandFix_freeVars_not_contains (e : Expr) (v : VarId)
+      (h : (freeVars e).contains v = false) :
+      (freeVars (expandFix e)).contains v = false := by
+    cases e with
+    | Var _ => simp only [expandFix]; exact h
+    | Lit _ => simp only [expandFix]; exact h
+    | Builtin _ => simp only [expandFix]; exact h
+    | Error => simp only [expandFix]; exact h
+    | Lam y body =>
+      rw [freeVars] at h
+      simp only [expandFix, freeVars]
+      cases VarSet.erase_not_contains_imp' _ y v h with
+      | inl hb =>
+        exact VarSet.erase_not_contains_fwd _ _ _
+          (expandFix_freeVars_not_contains body v hb)
+      | inr hyv => exact VarSet.erase_self_not_contains _ _ _ hyv
+    | Fix f body =>
+      cases expandFix_nonlam_fix_unfold f body with
+      | inl heq =>
+        rw [heq, freeVars]
+        rw [freeVars] at h
+        cases VarSet.erase_not_contains_imp' _ f v h with
+        | inl hb =>
+          exact VarSet.erase_not_contains_fwd _ _ _
+            (expandFix_freeVars_not_contains body v hb)
+        | inr hfv => exact VarSet.erase_self_not_contains _ _ _ hfv
+      | inr hex =>
+        obtain ⟨x, inner, hbody⟩ := hex
+        subst hbody
+        rw [freeVars, freeVars] at h
+        have hdecomp := erase_erase_decompose _ x f v h
+        have hdisj : (freeVars (expandFix inner)).contains v = false ∨
+                      (x == v) = true ∨ (f == v) = true := by
+          rcases hdecomp with hi | hxv | hfv
+          · exact .inl (expandFix_freeVars_not_contains inner v hi)
+          · exact .inr (.inl hxv)
+          · exact .inr (.inr hfv)
+        exact expandFix_fix_lam_free_from_disj f x inner v hdisj
+    | App f a =>
+      rw [freeVars] at h
+      simp only [expandFix, freeVars]
+      have ⟨hf, ha⟩ := VarSet.union_not_contains' _ _ _ h
+      exact VarSet.union_not_contains_fwd _ _ _
+        (expandFix_freeVars_not_contains f v hf)
+        (expandFix_freeVars_not_contains a v ha)
+    | Force inner =>
+      rw [freeVars] at h
+      simp only [expandFix, freeVars]
+      exact expandFix_freeVars_not_contains inner v h
+    | Delay inner =>
+      rw [freeVars] at h
+      simp only [expandFix, freeVars]
+      exact expandFix_freeVars_not_contains inner v h
+    | Constr tag args =>
+      rw [freeVars] at h
+      simp only [expandFix, freeVars]
+      exact expandFixList_freeVars_not_contains args v h
+    | Case scrut alts =>
+      rw [freeVars] at h
+      simp only [expandFix, freeVars]
+      have ⟨hs, ha⟩ := VarSet.union_not_contains' _ _ _ h
+      exact VarSet.union_not_contains_fwd _ _ _
+        (expandFix_freeVars_not_contains scrut v hs)
+        (expandFixList_freeVars_not_contains alts v ha)
+    | Let binds body =>
+      rw [freeVars] at h
+      simp only [expandFix, freeVars]
+      exact expandFixBinds_freeVars_not_contains binds body v h
+  termination_by sizeOf e
+
+  theorem expandFixList_freeVars_not_contains (es : List Expr) (v : VarId)
+      (h : (freeVarsList es).contains v = false) :
+      (freeVarsList (expandFixList es)).contains v = false := by
+    cases es with
+    | nil => simp only [expandFixList]; exact h
+    | cons e rest =>
+      rw [freeVarsList] at h
+      simp only [expandFixList, freeVarsList]
+      have ⟨he, hr⟩ := VarSet.union_not_contains' _ _ _ h
+      exact VarSet.union_not_contains_fwd _ _ _
+        (expandFix_freeVars_not_contains e v he)
+        (expandFixList_freeVars_not_contains rest v hr)
+  termination_by sizeOf es
+
+  theorem expandFixBinds_freeVars_not_contains (binds : List (VarId × Expr × Bool))
+      (body : Expr) (v : VarId)
+      (h : (freeVarsLet binds body).contains v = false) :
+      (freeVarsLet (expandFixBinds binds) (expandFix body)).contains v = false := by
+    match binds with
+    | [] =>
+      rw [freeVarsLet] at h
+      simp only [expandFixBinds, freeVarsLet]
+      exact expandFix_freeVars_not_contains body v h
+    | (x, rhs, er) :: rest =>
+      rw [freeVarsLet] at h
+      simp only [expandFixBinds, freeVarsLet]
+      have ⟨hrhs, hre⟩ := VarSet.union_not_contains' _ _ _ h
+      apply VarSet.union_not_contains_fwd _ _ _
+        (expandFix_freeVars_not_contains rhs v hrhs)
+      cases VarSet.erase_not_contains_imp' _ x v hre with
+      | inl hr_inner =>
+        exact VarSet.erase_not_contains_fwd _ _ _
+          (expandFixBinds_freeVars_not_contains rest body v hr_inner)
+      | inr hxv => exact VarSet.erase_self_not_contains _ _ _ hxv
+  termination_by sizeOf binds + sizeOf body
+end
+
 /-! ## lowerTotalExpr: lowerTotal + Fix expansion -/
 
 /-- Lower an MIR expression to UPLC, handling Fix nodes by expanding them
@@ -1269,5 +1709,197 @@ def lowerTotalExpr (env : List VarId) (e : Expr) : Option Term :=
 theorem lowerTotalExpr_eq_lowerTotal (env : List VarId) (e : Expr)
     (h : fixCount e = 0) : lowerTotalExpr env e = lowerTotal env e := by
   simp only [lowerTotalExpr, expandFix_id e h]
+
+/-! ## Fix-Lam canonical form
+
+The Z combinator expansion of `Fix f (Lam x body)` lowers to a fixed UPLC
+wrapper around the lowered body. `fixLamWrapUplc` is that UPLC wrapper
+expressed as a function of the inner lowered body.
+-/
+
+/-- UPLC-level wrapper produced by lowering `expandFix (Fix f (Lam x body))`.
+    Takes the body's UPLC lowering (computed under `x :: f :: s :: env` where
+    `s` is the canonical fresh variable) and emits the full Z combinator form. -/
+def fixLamWrapUplc (body_l : Moist.Plutus.Term.Term) : Moist.Plutus.Term.Term :=
+  .Apply
+    (.Lam 0 (.Apply (.Var 1) (.Var 1)))
+    (.Lam 0 (.Apply (.Lam 0 (.Lam 0 body_l))
+                    (.Lam 0 (.Apply (.Apply (.Var 2) (.Var 2)) (.Var 1)))))
+
+/-- Small helper: `envLookupT (v :: env) v = some 0`. -/
+private theorem envLookupT_cons_self (v : VarId) (env : List VarId) :
+    envLookupT (v :: env) v = some 0 := by
+  unfold envLookupT envLookupT.go
+  have : (v == v) = true := by rw [VarId.beq_true_iff]
+  simp [this]
+
+/-- `envLookupT (y :: z :: env) z = some 1` when `y ≠ z`. -/
+private theorem envLookupT_cons_second (y z : VarId) (env : List VarId)
+    (hne : (y == z) = false) :
+    envLookupT (y :: z :: env) z = some 1 := by
+  unfold envLookupT envLookupT.go
+  simp [hne]
+  show envLookupT.go z (z :: env) (0 + 1) = some 1
+  rw [envLookupT.go_shift z (z :: env) 0 1]
+  have : envLookupT.go z (z :: env) 0 = some 0 := envLookupT_cons_self z env
+  rw [this]; rfl
+
+/-- `lowerTotalExpr` on `Fix f (Lam x body)` decomposes into a map over the
+    inner body's lowering under the canonical fresh `s` variable. -/
+theorem lowerTotalExpr_fix_lam_canonical (env : List VarId) (f x : VarId) (body : Expr) :
+    lowerTotalExpr env (.Fix f (.Lam x body)) =
+      (lowerTotal (x :: f :: ⟨maxUidExpr (expandFix body) + 1, "s"⟩ :: env)
+          (expandFix body)).map fixLamWrapUplc := by
+  -- Unfold lowerTotalExpr and expandFix on the LHS
+  have hunfold : lowerTotalExpr env (.Fix f (.Lam x body)) = lowerTotal env
+      ((Expr.Lam ⟨maxUidExpr (expandFix body) + 1 + 2, "z"⟩
+          ((Expr.Var ⟨maxUidExpr (expandFix body) + 1 + 2, "z"⟩).App
+            (Expr.Var ⟨maxUidExpr (expandFix body) + 1 + 2, "z"⟩))).App
+        (Expr.Lam ⟨maxUidExpr (expandFix body) + 1, "s"⟩
+          ((Expr.Lam f (Expr.Lam x (expandFix body))).App
+            (Expr.Lam ⟨maxUidExpr (expandFix body) + 1 + 1, "v"⟩
+              (((Expr.Var ⟨maxUidExpr (expandFix body) + 1, "s"⟩).App
+                  (Expr.Var ⟨maxUidExpr (expandFix body) + 1, "s"⟩)).App
+                (Expr.Var ⟨maxUidExpr (expandFix body) + 1 + 1, "v"⟩)))))) := by
+    simp only [lowerTotalExpr, expandFix]
+  rw [hunfold]
+  -- Introduce abbreviations
+  let body' := expandFix body
+  let base : Nat := maxUidExpr body' + 1
+  let s_c : VarId := ⟨base, "s"⟩
+  let v_c : VarId := ⟨base + 1, "v"⟩
+  let z_c : VarId := ⟨base + 2, "z"⟩
+  have hvs_ne : (v_c == s_c) = false := by
+    show decide (v_c.uid = s_c.uid) = false
+    exact decide_eq_false (show base + 1 ≠ base from by omega)
+  change lowerTotal env
+      ((Expr.Lam z_c ((Expr.Var z_c).App (Expr.Var z_c))).App
+        (Expr.Lam s_c
+          ((Expr.Lam f (Expr.Lam x body')).App
+            (Expr.Lam v_c (((Expr.Var s_c).App (Expr.Var s_c)).App (Expr.Var v_c))))))
+    = (lowerTotal (x :: f :: s_c :: env) body').map fixLamWrapUplc
+  -- Cases on the inner body lowering
+  cases hbinner : lowerTotal (x :: f :: s_c :: env) body' with
+  | none =>
+    simp only [Option.map_none]
+    simp only [lowerTotal, Option.bind_eq_bind,
+               envLookupT_cons_self, envLookupT_cons_second _ _ env hvs_ne,
+               hbinner, Option.bind_none, Option.bind_some]
+  | some bv =>
+    simp only [Option.map_some]
+    simp only [lowerTotal, Option.bind_eq_bind,
+               envLookupT_cons_self, envLookupT_cons_second _ _ env hvs_ne,
+               hbinner, Option.bind_some]
+    rfl
+
+/-- Version of `lowerTotalExpr_fix_lam_canonical` parameterized by any fresh
+    `s` variable (not just the canonical one from `maxUidExpr`). Uses
+    `lowerTotal_env_swap_unused` to switch between fresh variables. -/
+theorem lowerTotalExpr_fix_lam_with_fresh (env : List VarId) (f x : VarId) (body : Expr)
+    (s_pick : VarId) (hs : (freeVars (expandFix body)).contains s_pick = false) :
+    lowerTotalExpr env (.Fix f (.Lam x body)) =
+      (lowerTotal (x :: f :: s_pick :: env) (expandFix body)).map fixLamWrapUplc := by
+  rw [lowerTotalExpr_fix_lam_canonical]
+  have hs_c : (freeVars (expandFix body)).contains
+      ⟨maxUidExpr (expandFix body) + 1, "s"⟩ = false :=
+    maxUidExpr_fresh _ _ (show maxUidExpr (expandFix body) + 1 > maxUidExpr (expandFix body)
+      from Nat.lt_succ_self _)
+  -- By env_swap, we can replace s_canonical with s_pick
+  have := lowerTotal_env_swap_unused [x, f] env
+    ⟨maxUidExpr (expandFix body) + 1, "s"⟩ s_pick (expandFix body) hs_c hs
+  rw [show (x :: f :: (⟨maxUidExpr (expandFix body) + 1, "s"⟩ : VarId) :: env) =
+        [x, f] ++ (⟨maxUidExpr (expandFix body) + 1, "s"⟩ : VarId) :: env from rfl]
+  rw [show (x :: f :: s_pick :: env) = [x, f] ++ s_pick :: env from rfl]
+  rw [this]
+
+/-! ## `lowerTotal` succeeds only on Fix-free expressions
+
+If `lowerTotal env e` returns `some _`, then `e` has no Fix nodes. This is
+straightforward structural induction: every Fix node makes `lowerTotal`
+return `none`, and `none` propagates through every other constructor's
+`do`-block.
+-/
+
+mutual
+  theorem lowerTotal_some_fixCount_zero (env : List VarId) (e : Expr) (t : Term)
+      (h : lowerTotal env e = some t) : fixCount e = 0 := by
+    match e with
+    | .Var _ => simp [fixCount]
+    | .Lit _ => simp [fixCount]
+    | .Builtin _ => simp [fixCount]
+    | .Error => simp [fixCount]
+    | .Lam x body =>
+      simp only [lowerTotal, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+      obtain ⟨body', hbody, _⟩ := h
+      simp only [fixCount]
+      exact lowerTotal_some_fixCount_zero (x :: env) body body' hbody
+    | .App f x =>
+      simp only [lowerTotal, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+      obtain ⟨f', hf, x', hx, _⟩ := h
+      simp only [fixCount]
+      have := lowerTotal_some_fixCount_zero env f f' hf
+      have := lowerTotal_some_fixCount_zero env x x' hx
+      omega
+    | .Force inner =>
+      simp only [lowerTotal, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+      obtain ⟨inner', hinner, _⟩ := h
+      simp only [fixCount]
+      exact lowerTotal_some_fixCount_zero env inner inner' hinner
+    | .Delay inner =>
+      simp only [lowerTotal, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+      obtain ⟨inner', hinner, _⟩ := h
+      simp only [fixCount]
+      exact lowerTotal_some_fixCount_zero env inner inner' hinner
+    | .Constr _ args =>
+      simp only [lowerTotal, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+      obtain ⟨args', hargs, _⟩ := h
+      simp only [fixCount]
+      exact lowerTotalList_some_fixCountList_zero env args args' hargs
+    | .Case scrut alts =>
+      simp only [lowerTotal, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+      obtain ⟨scrut', hscrut, alts', halts, _⟩ := h
+      simp only [fixCount]
+      have := lowerTotal_some_fixCount_zero env scrut scrut' hscrut
+      have := lowerTotalList_some_fixCountList_zero env alts alts' halts
+      omega
+    | .Let binds body =>
+      simp only [lowerTotal] at h
+      simp only [fixCount]
+      exact lowerTotalLet_some_fixCount_zero env binds body t h
+    | .Fix _ _ => simp only [lowerTotal] at h; injection h
+  termination_by sizeOf e
+
+  theorem lowerTotalList_some_fixCountList_zero (env : List VarId) (es : List Expr)
+      (ts : List Term) (h : lowerTotalList env es = some ts) :
+      fixCountList es = 0 := by
+    match es with
+    | [] => simp [fixCountList]
+    | e :: rest =>
+      simp only [lowerTotalList, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+      obtain ⟨t, ht, ts', hts, _⟩ := h
+      simp only [fixCountList]
+      have := lowerTotal_some_fixCount_zero env e t ht
+      have := lowerTotalList_some_fixCountList_zero env rest ts' hts
+      omega
+  termination_by sizeOf es
+
+  theorem lowerTotalLet_some_fixCount_zero (env : List VarId)
+      (binds : List (VarId × Expr × Bool)) (body : Expr) (t : Term)
+      (h : lowerTotalLet env binds body = some t) :
+      fixCountBinds binds + fixCount body = 0 := by
+    match binds with
+    | [] =>
+      simp only [lowerTotalLet] at h
+      simp only [fixCountBinds, Nat.zero_add]
+      exact lowerTotal_some_fixCount_zero env body t h
+    | (x, rhs, _) :: rest =>
+      simp only [lowerTotalLet, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+      obtain ⟨rhs', hrhs, rest', hrest, _⟩ := h
+      simp only [fixCountBinds]
+      have := lowerTotal_some_fixCount_zero env rhs rhs' hrhs
+      have := lowerTotalLet_some_fixCount_zero (x :: env) rest body rest' hrest
+      omega
+  termination_by sizeOf binds + sizeOf body
+end
 
 end Moist.MIR

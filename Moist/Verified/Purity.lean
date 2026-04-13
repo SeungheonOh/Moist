@@ -446,4 +446,159 @@ theorem isPure_no_error (e : Expr) (t : Term) (env : List VarId) (ρ : CekEnv)
   have ⟨v, hv⟩ := isPure_halts e t env ρ hpure hlower hwf
   exact reaches_halt_not_error hv herr
 
+/-! ## expandFix preserves isPure
+
+Because `isPure (.Fix _ _) = false`, the Z-combinator transformation only
+applies to subexpressions whose original form was impure (Fix). All other
+constructors have structurally transparent `expandFix` recursion that
+preserves the top-level shape, so `isPure` carries through.
+
+The tricky case is `.Force e'`: its purity depends on whether `e'` is a
+`.Delay`, a `.Builtin`, or a `.Force (.Builtin)` (and `isForceable` checks
+for these shapes). Since `expandFix` is identity on `.Builtin` and on
+`.Force (.Builtin _)` (via recursion), and preserves `.Delay`'s shape,
+the force-case purity is preserved.
+-/
+
+/-- `isForceable` is preserved by `expandFix`. -/
+theorem isForceable_expandFix (e : Expr) (h : isForceable e = true) :
+    isForceable (Moist.MIR.expandFix e) = true := by
+  cases e with
+  | Delay body => simp only [Moist.MIR.expandFix, isForceable]
+  | Builtin b => simp only [Moist.MIR.expandFix]; exact h
+  | Force e' =>
+    cases e' with
+    | Builtin b => simp only [Moist.MIR.expandFix]; exact h
+    | Var _ => simp [isForceable] at h
+    | Lit _ => simp [isForceable] at h
+    | Lam _ _ => simp [isForceable] at h
+    | App _ _ => simp [isForceable] at h
+    | Force _ => simp [isForceable] at h
+    | Delay _ => simp [isForceable] at h
+    | Fix _ _ => simp [isForceable] at h
+    | Error => simp [isForceable] at h
+    | Constr _ _ => simp [isForceable] at h
+    | Case _ _ => simp [isForceable] at h
+    | Let _ _ => simp [isForceable] at h
+  | Var _ => simp [isForceable] at h
+  | Lit _ => simp [isForceable] at h
+  | Lam _ _ => simp [isForceable] at h
+  | App _ _ => simp [isForceable] at h
+  | Fix _ _ => simp [isForceable] at h
+  | Error => simp [isForceable] at h
+  | Constr _ _ => simp [isForceable] at h
+  | Case _ _ => simp [isForceable] at h
+  | Let _ _ => simp [isForceable] at h
+
+mutual
+  theorem isPure_expandFix (e : Expr) (h : isPure e = true) :
+      isPure (Moist.MIR.expandFix e) = true := by
+    cases e with
+    | Var _ => simp only [Moist.MIR.expandFix]; exact h
+    | Lit _ => simp only [Moist.MIR.expandFix]; exact h
+    | Builtin _ => simp only [Moist.MIR.expandFix]; exact h
+    | Error => simp [isPure] at h
+    | Lam _ _ => simp only [Moist.MIR.expandFix, isPure]
+    | Delay _ => simp only [Moist.MIR.expandFix, isPure]
+    | Fix _ _ => simp [isPure] at h
+    | Constr tag args =>
+      simp only [Moist.MIR.expandFix, isPure]
+      simp only [isPure] at h
+      exact isPureList_expandFixList args h
+    | Let binds body =>
+      simp only [Moist.MIR.expandFix, isPure]
+      simp only [isPure] at h
+      obtain ⟨hb, hbody⟩ := Bool.and_eq_true_iff.mp h
+      refine Bool.and_eq_true_iff.mpr ⟨?_, ?_⟩
+      · exact isPureBinds_expandFixBinds binds hb
+      · exact isPure_expandFix body hbody
+    | App _ _ => simp [isPure] at h
+    | Case _ _ => simp [isPure] at h
+    | Force e' =>
+      cases e' with
+      | Delay body =>
+        simp only [Moist.MIR.expandFix, isPure] at *
+        exact isPure_expandFix body h
+      | Var v' =>
+        simp only [Moist.MIR.expandFix]
+        simp only [isPure] at h
+        simp only [isPure]
+        simp only [isForceable] at h
+        exact absurd h (by simp)
+      | Lit c =>
+        simp only [Moist.MIR.expandFix]
+        simp only [isPure] at h
+        simp only [isPure]
+        simp only [isForceable] at h
+        exact absurd h (by simp)
+      | Builtin b =>
+        simp only [Moist.MIR.expandFix]
+        exact h
+      | Lam _ _ =>
+        simp only [isPure, isForceable] at h
+        exact absurd h (by simp)
+      | App _ _ =>
+        simp only [isPure, isForceable] at h
+        exact absurd h (by simp)
+      | Force e'' =>
+        cases e'' with
+        | Builtin b =>
+          simp only [Moist.MIR.expandFix]
+          exact h
+        | Var _ => simp only [isPure, isForceable] at h; exact absurd h (by simp)
+        | Lit _ => simp only [isPure, isForceable] at h; exact absurd h (by simp)
+        | Lam _ _ => simp only [isPure, isForceable] at h; exact absurd h (by simp)
+        | App _ _ => simp only [isPure, isForceable] at h; exact absurd h (by simp)
+        | Force _ => simp only [isPure, isForceable] at h; exact absurd h (by simp)
+        | Delay _ => simp only [isPure, isForceable] at h; exact absurd h (by simp)
+        | Fix _ _ => simp only [isPure, isForceable] at h; exact absurd h (by simp)
+        | Error => simp only [isPure, isForceable] at h; exact absurd h (by simp)
+        | Constr _ _ => simp only [isPure, isForceable] at h; exact absurd h (by simp)
+        | Case _ _ => simp only [isPure, isForceable] at h; exact absurd h (by simp)
+        | Let _ _ => simp only [isPure, isForceable] at h; exact absurd h (by simp)
+      | Fix _ _ =>
+        simp only [isPure, isForceable] at h
+        exact absurd h (by simp)
+      | Error =>
+        simp only [isPure, isForceable] at h
+        exact absurd h (by simp)
+      | Constr _ _ =>
+        simp only [isPure, isForceable] at h
+        exact absurd h (by simp)
+      | Case _ _ =>
+        simp only [isPure, isForceable] at h
+        exact absurd h (by simp)
+      | Let _ _ =>
+        simp only [isPure, isForceable] at h
+        exact absurd h (by simp)
+  termination_by sizeOf e
+
+  theorem isPureList_expandFixList (es : List Expr) (h : isPureList es = true) :
+      isPureList (Moist.MIR.expandFixList es) = true := by
+    match es with
+    | [] => simp only [Moist.MIR.expandFixList, isPureList]
+    | e :: rest =>
+      simp only [Moist.MIR.expandFixList, isPureList]
+      simp only [isPureList] at h
+      obtain ⟨he, hr⟩ := Bool.and_eq_true_iff.mp h
+      refine Bool.and_eq_true_iff.mpr ⟨?_, ?_⟩
+      · exact isPure_expandFix e he
+      · exact isPureList_expandFixList rest hr
+  termination_by sizeOf es
+
+  theorem isPureBinds_expandFixBinds (binds : List (VarId × Expr × Bool))
+      (h : isPureBinds binds = true) :
+      isPureBinds (Moist.MIR.expandFixBinds binds) = true := by
+    match binds with
+    | [] => simp only [Moist.MIR.expandFixBinds, isPureBinds]
+    | (v, rhs, er) :: rest =>
+      simp only [Moist.MIR.expandFixBinds, isPureBinds]
+      simp only [isPureBinds] at h
+      obtain ⟨hrhs, hr⟩ := Bool.and_eq_true_iff.mp h
+      refine Bool.and_eq_true_iff.mpr ⟨?_, ?_⟩
+      · exact isPure_expandFix rhs hrhs
+      · exact isPureBinds_expandFixBinds rest hr
+  termination_by sizeOf binds
+end
+
 end Moist.Verified.Purity

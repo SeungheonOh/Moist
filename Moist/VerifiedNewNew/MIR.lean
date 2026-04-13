@@ -1106,4 +1106,99 @@ theorem mirCtxRefines_case {scrut₁ scrut₂ : Expr} {alts₁ alts₂ : List Ex
               listRel_mirCtxRefines_toListCtxRefines halts h_a₁ h_a₂
             exact ctxRefines_case (hscrut.toCtxRefines h_s₁ h_s₂) hlist_ctx
 
+/-! ### 7d. Fix-Lam congruence for `MIRCtxRefines`
+
+The Fix-Lam case leverages the canonical form lemma
+`lowerTotalExpr_fix_lam_with_fresh` to factor both sides through a common
+fresh `s` variable, then applies UPLC-level congruences to lift through
+the Z-combinator wrapper.
+-/
+
+/-- Fix-Lam congruence for `MIRCtxRefines`. The Z combinator expansion
+    produces a fixed UPLC wrapper around the inner body lowering; the
+    congruence follows by picking a common fresh variable and applying
+    Apply/Lam congruences through the wrapper. -/
+theorem mirCtxRefines_fix_lam {f x : VarId} {body₁ body₂ : Expr}
+    (h : MIRCtxRefines body₁ body₂) :
+    MIRCtxRefines (.Fix f (.Lam x body₁)) (.Fix f (.Lam x body₂)) := by
+  intro env
+  -- Canonical fresh `s` variable that avoids both expanded bodies
+  let body₁' := Moist.MIR.expandFix body₁
+  let body₂' := Moist.MIR.expandFix body₂
+  let s_common : VarId :=
+    ⟨max (Moist.MIR.maxUidExpr body₁') (Moist.MIR.maxUidExpr body₂') + 1, "s"⟩
+  have hs₁ : (Moist.MIR.freeVars body₁').contains s_common = false :=
+    Moist.MIR.maxUidExpr_fresh body₁' s_common (by simp [s_common]; omega)
+  have hs₂ : (Moist.MIR.freeVars body₂').contains s_common = false :=
+    Moist.MIR.maxUidExpr_fresh body₂' s_common (by simp [s_common]; omega)
+  -- Both sides reduce to a map over `lowerTotal (x :: f :: s_common :: env) body_i'`
+  have hlhs : lowerTotalExpr env (.Fix f (.Lam x body₁)) =
+      (Moist.MIR.lowerTotal (x :: f :: s_common :: env) body₁').map
+        Moist.MIR.fixLamWrapUplc :=
+    Moist.MIR.lowerTotalExpr_fix_lam_with_fresh env f x body₁ s_common hs₁
+  have hrhs : lowerTotalExpr env (.Fix f (.Lam x body₂)) =
+      (Moist.MIR.lowerTotal (x :: f :: s_common :: env) body₂').map
+        Moist.MIR.fixLamWrapUplc :=
+    Moist.MIR.lowerTotalExpr_fix_lam_with_fresh env f x body₂ s_common hs₂
+  -- Apply IH at the common env
+  have ih := h (x :: f :: s_common :: env)
+  refine ⟨?_, ?_⟩
+  · -- isSome part (implication)
+    rw [hlhs, hrhs]
+    simp only [Option.isSome_map]
+    -- Goal: (lowerTotal ... body₁').isSome → (lowerTotal ... body₂').isSome
+    -- lowerTotal env' body_i' = lowerTotalExpr env' body_i by definition
+    exact ih.1
+  · -- CtxRefines part
+    rw [hlhs, hrhs]
+    cases hb₁ : Moist.MIR.lowerTotal (x :: f :: s_common :: env) body₁' with
+    | none => simp
+    | some t₁ =>
+      cases hb₂ : Moist.MIR.lowerTotal (x :: f :: s_common :: env) body₂' with
+      | none => simp
+      | some t₂ =>
+        simp only [Option.map_some]
+        -- Get CtxRefines t₁ t₂ from ih (by definition lowerTotalExpr unfolds to lowerTotal ∘ expandFix)
+        have hlow₁ : lowerTotalExpr (x :: f :: s_common :: env) body₁ = some t₁ := hb₁
+        have hlow₂ : lowerTotalExpr (x :: f :: s_common :: env) body₂ = some t₂ := hb₂
+        have hctx : CtxRefines t₁ t₂ := h.toCtxRefines hlow₁ hlow₂
+        -- Lift through the UPLC wrapper using Apply/Lam congruences
+        -- fixLamWrapUplc b =
+        --   .Apply (.Lam 0 (.Apply (.Var 1) (.Var 1)))
+        --          (.Lam 0 (.Apply (.Lam 0 (.Lam 0 b))
+        --                          (.Lam 0 (.Apply (.Apply (.Var 2) (.Var 2)) (.Var 1)))))
+        show CtxRefines (Moist.MIR.fixLamWrapUplc t₁) (Moist.MIR.fixLamWrapUplc t₂)
+        unfold Moist.MIR.fixLamWrapUplc
+        -- Build the congruence step by step
+        have h_inner : CtxRefines
+            (Moist.Plutus.Term.Term.Lam 0 (Moist.Plutus.Term.Term.Lam 0 t₁))
+            (Moist.Plutus.Term.Term.Lam 0 (Moist.Plutus.Term.Term.Lam 0 t₂)) :=
+          ctxRefines_lam 0 (ctxRefines_lam 0 hctx)
+        have h_fixed_refl : CtxRefines
+            (Moist.Plutus.Term.Term.Lam 0
+              (((Moist.Plutus.Term.Term.Var 2).Apply (Moist.Plutus.Term.Term.Var 2)).Apply
+                (Moist.Plutus.Term.Term.Var 1)))
+            (Moist.Plutus.Term.Term.Lam 0
+              (((Moist.Plutus.Term.Term.Var 2).Apply (Moist.Plutus.Term.Term.Var 2)).Apply
+                (Moist.Plutus.Term.Term.Var 1))) :=
+          ctxRefines_refl _
+        have h_app_inner : CtxRefines
+            ((Moist.Plutus.Term.Term.Lam 0 (Moist.Plutus.Term.Term.Lam 0 t₁)).Apply
+              (Moist.Plutus.Term.Term.Lam 0
+                (((Moist.Plutus.Term.Term.Var 2).Apply (Moist.Plutus.Term.Term.Var 2)).Apply
+                  (Moist.Plutus.Term.Term.Var 1))))
+            ((Moist.Plutus.Term.Term.Lam 0 (Moist.Plutus.Term.Term.Lam 0 t₂)).Apply
+              (Moist.Plutus.Term.Term.Lam 0
+                (((Moist.Plutus.Term.Term.Var 2).Apply (Moist.Plutus.Term.Term.Var 2)).Apply
+                  (Moist.Plutus.Term.Term.Var 1)))) :=
+          ctxRefines_app h_inner h_fixed_refl
+        have h_lam_outer := ctxRefines_lam 0 h_app_inner
+        have h_z_refl : CtxRefines
+            (Moist.Plutus.Term.Term.Lam 0
+              ((Moist.Plutus.Term.Term.Var 1).Apply (Moist.Plutus.Term.Term.Var 1)))
+            (Moist.Plutus.Term.Term.Lam 0
+              ((Moist.Plutus.Term.Term.Var 1).Apply (Moist.Plutus.Term.Term.Var 1))) :=
+          ctxRefines_refl _
+        exact ctxRefines_app h_z_refl h_lam_outer
+
 end Moist.VerifiedNewNew.MIR

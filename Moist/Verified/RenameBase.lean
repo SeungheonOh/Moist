@@ -143,4 +143,52 @@ theorem liftRename_shiftRename {c : Nat} (hc : c ≥ 1) :
       simp only [liftRename, shiftRename]
       split <;> split <;> omega
 
+/-! ## substTerm: total UPLC-level substitution (open semantics)
+
+`substTerm pos replacement t` substitutes the variable at de Bruijn position
+`pos` in `t` with `replacement`, AND decrements variables at positions
+`> pos` (because the binder at `pos` is being removed by the substitution).
+
+When the substitution descends under a binder, `pos` increments by 1
+(because the new binder occupies position 1, shifting our target up) and
+`replacement` is shifted by `shiftRename 1` to track the new binding.
+
+This is the standard "open substitution" used in β-reduction:
+`(λ x. body) v` β-reduces to `body[x := v]` where the `x` binder is gone
+and references to outer binders shift down.
+-/
+
+mutual
+  /-- Total UPLC substitution with open semantics. -/
+  def substTerm (pos : Nat) (replacement : Term) : Term → Term
+    | .Var n =>
+      if n = pos then replacement
+      else if n > pos then .Var (n - 1)
+      else .Var n
+    | .Lam name body =>
+      .Lam name (substTerm (pos + 1) (renameTerm (shiftRename 1) replacement) body)
+    | .Apply f a => .Apply (substTerm pos replacement f) (substTerm pos replacement a)
+    | .Force e => .Force (substTerm pos replacement e)
+    | .Delay e => .Delay (substTerm pos replacement e)
+    | .Constr tag args => .Constr tag (substTermList pos replacement args)
+    | .Case scrut alts =>
+      .Case (substTerm pos replacement scrut) (substTermList pos replacement alts)
+    | .Constant c => .Constant c
+    | .Builtin b => .Builtin b
+    | .Error => .Error
+  termination_by t => sizeOf t
+
+  def substTermList (pos : Nat) (replacement : Term) : List Term → List Term
+    | [] => []
+    | t :: ts => substTerm pos replacement t :: substTermList pos replacement ts
+  termination_by ts => sizeOf ts
+end
+
+/-- `substTermList` preserves length. -/
+theorem substTermList_length (pos : Nat) (replacement : Term) (ts : List Term) :
+    (substTermList pos replacement ts).length = ts.length := by
+  induction ts with
+  | nil => simp [substTermList]
+  | cons _ _ ih => simp [substTermList, ih]
+
 end Moist.Verified

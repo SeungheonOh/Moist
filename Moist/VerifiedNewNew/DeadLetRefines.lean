@@ -1352,6 +1352,80 @@ open Moist.MIR (Expr VarId lowerTotalExpr lowerTotal lowerTotalExpr_eq_lowerTota
   lowerTotal_prepend_unused lowerTotal_prepend_unused_none
   fixCount fixCountBinds freeVars)
 
+/-- General MIR-level dead-let refinement with no fix-free precondition.
+    Takes only the unused-in-body and purity hypotheses; reasoning goes through
+    `expandFix e` / `expandFix body`, using `isPure_expandFix` and
+    `expandFix_freeVars_not_contains` to transfer the hypotheses. -/
+theorem dead_let_mirRefines_general {x : VarId} {e body : Expr}
+    (hunused : (Moist.MIR.freeVars body).contains x = false)
+    (hsafe : Moist.MIR.isPure e = true) :
+    MIRRefines (.Let [(x, e, false)] body) body := by
+  -- Derive preservation of freshness and purity under expandFix
+  have hunused' : (Moist.MIR.freeVars (Moist.MIR.expandFix body)).contains x = false :=
+    Moist.MIR.expandFix_freeVars_not_contains body x hunused
+  have hsafe' : Moist.MIR.isPure (Moist.MIR.expandFix e) = true :=
+    Moist.Verified.Purity.isPure_expandFix e hsafe
+  refine ⟨?_, ?_⟩
+  · -- Compile preservation: if Let lowers, body lowers
+    intro env h_let
+    -- Unfold lowerTotalExpr to reveal lowerTotal on expandFix'd expression
+    have hlet_eq : lowerTotalExpr env (.Let [(x, e, false)] body) =
+        lowerTotal env (.Let [(x, Moist.MIR.expandFix e, false)] (Moist.MIR.expandFix body)) := by
+      simp only [lowerTotalExpr, Moist.MIR.expandFix, Moist.MIR.expandFixBinds]
+    have hbody_eq : lowerTotalExpr env body = lowerTotal env (Moist.MIR.expandFix body) := by
+      simp only [lowerTotalExpr]
+    rw [hlet_eq] at h_let
+    rw [hbody_eq]
+    cases hb_env : lowerTotal env (Moist.MIR.expandFix body) with
+    | some _ => rfl
+    | none =>
+      exfalso
+      have h_xe : lowerTotal (x :: env) (Moist.MIR.expandFix body) = none :=
+        lowerTotal_prepend_unused_none env x _ hunused' hb_env
+      simp only [Moist.MIR.lowerTotal.eq_11, Moist.MIR.lowerTotalLet.eq_2,
+        Moist.MIR.lowerTotalLet.eq_1, h_xe, Option.bind_eq_bind] at h_let
+      cases he : lowerTotal env (Moist.MIR.expandFix e) with
+      | none => rw [he] at h_let; simp at h_let
+      | some e_t => rw [he] at h_let; simp at h_let
+  · -- Semantic part: MIROpenRef at every depth d
+    intro d k env hlen
+    have hlet_eq : lowerTotalExpr env (.Let [(x, e, false)] body) =
+        lowerTotal env (.Let [(x, Moist.MIR.expandFix e, false)] (Moist.MIR.expandFix body)) := by
+      simp only [lowerTotalExpr, Moist.MIR.expandFix, Moist.MIR.expandFixBinds]
+    have hbody_eq : lowerTotalExpr env body = lowerTotal env (Moist.MIR.expandFix body) := by
+      simp only [lowerTotalExpr]
+    rw [hlet_eq, hbody_eq]
+    simp only [Moist.MIR.lowerTotal.eq_11, Moist.MIR.lowerTotalLet.eq_2,
+      Moist.MIR.lowerTotalLet.eq_1, Option.bind_eq_bind]
+    cases he : lowerTotal env (Moist.MIR.expandFix e) with
+    | none => simp
+    | some e_t =>
+      simp only [Option.bind_some]
+      cases hb_env : lowerTotal env (Moist.MIR.expandFix body) with
+      | none =>
+        have := lowerTotal_prepend_unused_none env x _ hunused' hb_env
+        rw [this]
+        simp
+      | some body_t =>
+        have hshift := lowerTotal_prepend_unused env x _ hunused' body_t hb_env
+        rw [hshift]
+        simp only [Option.bind_some]
+        intro j hj ρ₁ ρ₂ henv i hi π₁ π₂ hπ
+        have hclosed : closedAt d body_t = true := by
+          have := lowerTotal_closedAt env _ body_t hb_env
+          rw [hlen] at this; exact this
+        have h_rhs_halts : ∀ (ρ : CekEnv),
+            (∀ n, 0 < n → n ≤ d → ∃ v, ρ.lookup n = some v) →
+            ∀ (π : Stack), ∃ (m : Nat) (v_rhs : CekValue),
+              steps m (.compute π ρ e_t) = .ret π v_rhs ∧
+              ∀ k ≤ m, steps k (.compute π ρ e_t) ≠ .error := by
+          intro ρ hwf_ρ
+          have hwf_v : Moist.Verified.Semantics.WellSizedEnv env.length ρ := by
+            show ∀ n, 0 < n → n ≤ env.length → ∃ v, ρ.lookup n = some v
+            rw [hlen]; exact hwf_ρ
+          exact dead_let_pure_stack_poly env (Moist.MIR.expandFix e) hsafe' he hwf_v
+        exact uplc_dead_let_refines e_t hclosed h_rhs_halts k j hj ρ₁ ρ₂ henv i hi π₁ π₂ hπ
+
 /-- MIR-level dead-let refinement with no purity or well-sized preconditions.
     Takes a `MIRDeadLetCond` bundling the unused-in-body and fix-free hypotheses. -/
 theorem dead_let_mirRefines {x : VarId} {e body : Expr} (hcond : MIRDeadLetCond x e body) :
