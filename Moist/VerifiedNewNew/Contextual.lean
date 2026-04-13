@@ -587,13 +587,20 @@ structure ObsRefines (c₁ c₂ : State) : Prop where
   halt : (∃ v₁, Reaches c₁ (.halt v₁)) → (∃ v₂, Reaches c₂ (.halt v₂))
   error : Reaches c₁ .error → Reaches c₂ .error
 
-/-- **Guarded** contextual refinement: `t₁ ⊑ t₂` iff for every closing context
-    `C`, the empty-state CEK run of `fill C t₁` is halt/error-refined by that
-    of `fill C t₂`. Same closedness guard as `CtxEq`. -/
+/-- **Strict** contextual refinement: `t₁ ⊑ t₂` iff for every context `C`
+    that closes `fill C t₁` at depth 0, `fill C t₂` is *also* closed at
+    depth 0 (the optimizer doesn't invent fresh free variables) AND the
+    empty-state CEK run of `fill C t₁` halt/error-refines that of
+    `fill C t₂`.
+
+    By bundling closedness preservation INTO the refinement relation,
+    transitivity is direct — no middle-term closedness side condition
+    needed, since `h12 C hC1` hands us both `hC2` and the refinement, and
+    `h23 C hC2` then hands us `hC3` and the composed refinement. -/
 def CtxRefines (t₁ t₂ : Term) : Prop :=
   ∀ (C : Context),
     closedAt 0 (fill C t₁) = true →
-    closedAt 0 (fill C t₂) = true →
+    closedAt 0 (fill C t₂) = true ∧
     ObsRefines (.compute [] .nil (fill C t₁))
                (.compute [] .nil (fill C t₂))
 
@@ -601,44 +608,49 @@ def CtxRefines (t₁ t₂ : Term) : Prop :=
 
 /-- Reflexivity: refinement is the identity implication on both halt and error. -/
 theorem ctxRefines_refl (t : Term) : CtxRefines t t := by
-  intro C _ _
-  exact ObsRefines.mk (fun h => h) (fun h => h)
+  intro C hC
+  exact ⟨hC, ObsRefines.mk (fun h => h) (fun h => h)⟩
 
-/-- Transitivity: implication composition on both clauses. Needs the same
-    middle-term closedness side condition as `ctxEq_trans`. -/
+/-- Transitivity of `CtxRefines`. Thanks to the bundled closedness
+    preservation, this is a clean composition — no side conditions. -/
 theorem ctxRefines_trans {t₁ t₂ t₃ : Term}
-    (h_closed_mid : ∀ C, closedAt 0 (fill C t₁) = true →
-                          closedAt 0 (fill C t₃) = true →
-                          closedAt 0 (fill C t₂) = true) :
-    CtxRefines t₁ t₂ → CtxRefines t₂ t₃ → CtxRefines t₁ t₃ := by
-  intro h12 h23 C hC1 hC3
-  have hC2 := h_closed_mid C hC1 hC3
-  have ref12 := h12 C hC1 hC2
-  have ref23 := h23 C hC2 hC3
+    (h12 : CtxRefines t₁ t₂) (h23 : CtxRefines t₂ t₃) : CtxRefines t₁ t₃ := by
+  intro C hC1
+  obtain ⟨hC2, ref12⟩ := h12 C hC1
+  obtain ⟨hC3, ref23⟩ := h23 C hC2
+  refine ⟨hC3, ?_⟩
   exact ObsRefines.mk
     (fun h_t1 => ref23.halt (ref12.halt h_t1))
     (fun h_t1 => ref23.error (ref12.error h_t1))
 
-/-- Equivalence subsumes refinement (forward direction). -/
-theorem CtxEq.toCtxRefines {t₁ t₂ : Term} (h : CtxEq t₁ t₂) :
+/-- Equivalence subsumes refinement (forward direction). Requires an
+    external proof that `CtxEq` preserves closedness in the forward
+    direction, since `CtxEq` itself is closedness-agnostic. -/
+theorem CtxEq.toCtxRefines {t₁ t₂ : Term} (h : CtxEq t₁ t₂)
+    (h_close : ∀ C, closedAt 0 (fill C t₁) = true → closedAt 0 (fill C t₂) = true) :
     CtxRefines t₁ t₂ := by
-  intro C hC1 hC2
+  intro C hC1
+  have hC2 := h_close C hC1
   have obs := h C hC1 hC2
-  exact ObsRefines.mk obs.halt.mp obs.error.mp
+  exact ⟨hC2, ObsRefines.mk obs.halt.mp obs.error.mp⟩
 
-/-- Equivalence subsumes refinement (backward direction). -/
-theorem CtxEq.toCtxRefines_symm {t₁ t₂ : Term} (h : CtxEq t₁ t₂) :
+/-- Equivalence subsumes refinement (backward direction). Requires an
+    external proof that `CtxEq` preserves closedness in the backward
+    direction. -/
+theorem CtxEq.toCtxRefines_symm {t₁ t₂ : Term} (h : CtxEq t₁ t₂)
+    (h_close : ∀ C, closedAt 0 (fill C t₂) = true → closedAt 0 (fill C t₁) = true) :
     CtxRefines t₂ t₁ := by
-  intro C hC2 hC1
+  intro C hC2
+  have hC1 := h_close C hC2
   have obs := h C hC1 hC2
-  exact ObsRefines.mk obs.halt.mpr obs.error.mpr
+  exact ⟨hC1, ObsRefines.mk obs.halt.mpr obs.error.mpr⟩
 
 /-- Antisymmetry: bidirectional refinement gives equivalence. -/
 theorem ctxRefines_antisymm {t₁ t₂ : Term} :
     CtxRefines t₁ t₂ → CtxRefines t₂ t₁ → CtxEq t₁ t₂ := by
   intro h12 h21 C hC1 hC2
-  have ref12 := h12 C hC1 hC2
-  have ref21 := h21 C hC2 hC1
+  obtain ⟨_, ref12⟩ := h12 C hC1
+  obtain ⟨_, ref21⟩ := h21 C hC2
   exact ObsEq.mk
     (Iff.intro ref12.halt ref21.halt)
     (Iff.intro ref12.error ref21.error)
@@ -680,14 +692,7 @@ theorem ctxRefines_app {f₁ f₂ a₁ a₂ : Term}
   have hB : CtxRefines (.Apply f₂ a₁) (.Apply f₂ a₂) := by
     have := ctxRefines_extend ha (.AppRight f₂ .Hole)
     simpa [fill] using this
-  refine ctxRefines_trans ?_ hA hB
-  intro C hC1 hC2
-  have d1 := (fill_closedAt_iff C (.Apply f₁ a₁) 0).mp hC1
-  have d2 := (fill_closedAt_iff C (.Apply f₂ a₂) 0).mp hC2
-  simp only [Nat.zero_add, closedAt, Bool.and_eq_true] at d1 d2
-  refine (fill_closedAt_iff C (.Apply f₂ a₁) 0).mpr ⟨d1.1, ?_⟩
-  simp only [Nat.zero_add, closedAt, Bool.and_eq_true]
-  exact ⟨d2.2.1, d1.2.2⟩
+  exact ctxRefines_trans hA hB
 
 /-- Constr single-position congruence for `CtxRefines`. -/
 theorem ctxRefines_constr_one {tag : Nat} {a b : Term} {pre post : List Term}
@@ -716,19 +721,7 @@ private theorem ctxRefines_constr_swap_prefix {tag : Nat} {fs₁ fs₂ : List Te
       have e1 : (pre ++ [f₂]) ++ fs₁ = pre ++ (f₂ :: fs₁) := by simp
       have e2 : (pre ++ [f₂]) ++ fs₂ = pre ++ (f₂ :: fs₂) := by simp
       rw [e1, e2] at hB
-      refine ctxRefines_trans ?_ hA hB
-      intro C hC1 hC2
-      have d1 := (fill_closedAt_iff C (.Constr tag (pre ++ f₁ :: fs₁)) 0).mp hC1
-      have d2 := (fill_closedAt_iff C (.Constr tag (pre ++ f₂ :: fs₂)) 0).mp hC2
-      simp only [Nat.zero_add, closedAt] at d1 d2
-      have e1' := (closedAtList_append C.binders pre (f₁ :: fs₁)).mp d1.2
-      have e2' := (closedAtList_append C.binders pre (f₂ :: fs₂)).mp d2.2
-      simp only [closedAtList, Bool.and_eq_true] at e1' e2'
-      refine (fill_closedAt_iff C (.Constr tag (pre ++ f₂ :: fs₁)) 0).mpr ⟨d1.1, ?_⟩
-      simp only [Nat.zero_add, closedAt]
-      refine (closedAtList_append C.binders pre (f₂ :: fs₁)).mpr ⟨e1'.1, ?_⟩
-      simp only [closedAtList, Bool.and_eq_true]
-      exact ⟨e2'.2.1, e1'.2.2⟩
+      exact ctxRefines_trans hA hB
 
 /-- General Constr congruence for `CtxRefines` in head-tail form. -/
 theorem ctxRefines_constr {tag : Nat} {m₁ m₂ : Term} {ms₁ ms₂ : List Term}
@@ -772,20 +765,7 @@ private theorem ctxRefines_case_swap_prefix {scrut : Term} {as₁ as₂ : List T
       have e1 : (pre ++ [a₂]) ++ as₁ = pre ++ (a₂ :: as₁) := by simp
       have e2 : (pre ++ [a₂]) ++ as₂ = pre ++ (a₂ :: as₂) := by simp
       rw [e1, e2] at hB
-      refine ctxRefines_trans ?_ hA hB
-      intro C hC1 hC2
-      have d1 := (fill_closedAt_iff C (.Case scrut (pre ++ a₁ :: as₁)) 0).mp hC1
-      have d2 := (fill_closedAt_iff C (.Case scrut (pre ++ a₂ :: as₂)) 0).mp hC2
-      simp only [Nat.zero_add, closedAt, Bool.and_eq_true] at d1 d2
-      have e1' := (closedAtList_append C.binders pre (a₁ :: as₁)).mp d1.2.2
-      have e2' := (closedAtList_append C.binders pre (a₂ :: as₂)).mp d2.2.2
-      simp only [closedAtList, Bool.and_eq_true] at e1' e2'
-      refine (fill_closedAt_iff C (.Case scrut (pre ++ a₂ :: as₁)) 0).mpr ⟨d1.1, ?_⟩
-      simp only [Nat.zero_add, closedAt, Bool.and_eq_true]
-      refine ⟨d1.2.1, ?_⟩
-      refine (closedAtList_append C.binders pre (a₂ :: as₁)).mpr ⟨e1'.1, ?_⟩
-      simp only [closedAtList, Bool.and_eq_true]
-      exact ⟨e2'.2.1, e1'.2.2⟩
+      exact ctxRefines_trans hA hB
 
 /-- General Case congruence for `CtxRefines`: swap scrutinee and alts pointwise. -/
 theorem ctxRefines_case {scrut₁ scrut₂ : Term} {alts₁ alts₂ : List Term}
@@ -797,14 +777,7 @@ theorem ctxRefines_case {scrut₁ scrut₂ : Term} {alts₁ alts₂ : List Term}
   have hB : CtxRefines (.Case scrut₂ alts₁) (.Case scrut₂ alts₂) := by
     have := ctxRefines_case_swap_prefix (scrut := scrut₂) (pre := []) halts
     simpa using this
-  refine ctxRefines_trans ?_ hA hB
-  intro C hC1 hC2
-  have d1 := (fill_closedAt_iff C (.Case scrut₁ alts₁) 0).mp hC1
-  have d2 := (fill_closedAt_iff C (.Case scrut₂ alts₂) 0).mp hC2
-  simp only [Nat.zero_add, closedAt, Bool.and_eq_true] at d1 d2
-  refine (fill_closedAt_iff C (.Case scrut₂ alts₁) 0).mpr ⟨d1.1, ?_⟩
-  simp only [Nat.zero_add, closedAt, Bool.and_eq_true]
-  exact ⟨d2.2.1, d1.2.2⟩
+  exact ctxRefines_trans hA hB
 
 /-!
 ### Soundness

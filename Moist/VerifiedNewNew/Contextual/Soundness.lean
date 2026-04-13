@@ -1,4 +1,5 @@
 import Moist.VerifiedNewNew.Contextual.Subst
+import Moist.VerifiedNewNew.Contextual.BisimRef
 
 /-! # Open-context CtxEq soundness via the `term_obsEq` semantic bridge
 
@@ -594,7 +595,19 @@ theorem term_obsEq {d : Nat} {t₁ t₂ : Term} (h_open : OpenEq d t₁ t₂) :
 
 --------------------------------------------------------------------------------
 -- 4. Soundness theorem (Phase 5)
+--
+-- To handle arbitrary depths `d`, we use per-side locality padding:
+--   1. Build a `dummyEnv d` of length `d` containing matching VCon .Unit
+--      values on both sides.
+--   2. Apply `term_obsEq` on the padded envs (the invariant `d ≤ length`
+--      is satisfied).
+--   3. Use BisimRef's `LocalState` + `step_preserves` to transfer the
+--      `ObsEqK` result from padded-env evaluation back to the unpadded
+--      empty-env evaluation. This works because `fill C t_i` is
+--      `closedAt 0`, so its behavior is insensitive to env contents.
 --------------------------------------------------------------------------------
+
+open Moist.VerifiedNewNew.Contextual.BisimRef
 
 /-- Empty stack is `StackRelK`-related to itself at any level. The `.ret []`
     state is non-halt itself and steps to `.halt`, so the obsEqK condition is
@@ -609,52 +622,166 @@ theorem stackRelK_nil (k : Nat) : StackRelK ValueEqK k [] [] := by
     simp only [step]
     exact obsEqK_halt j' v_l v_r
 
-/-- Helper: instantiate `term_obsEq` at level `n` for an empty-state fill.
-    Restricted to `d = 0` since the initial env is empty and we need
-    `d ≤ CekEnv.nil.length = 0`. -/
-private theorem term_obsEq_at {t₁ t₂ : Term}
-    (h_open : OpenEq 0 t₁ t₂) (C : Context) (n : Nat) :
-    ObsEqK n (.compute [] .nil (fill C t₁)) (.compute [] .nil (fill C t₂)) :=
+/-- Dummy environment of length `d` filled with `VCon .Unit` values.
+    Used as padding to satisfy the `d ≤ ρ.length` invariant of
+    `term_obsEq` while letting locality recover the empty-env result. -/
+def dummyEnv : Nat → CekEnv
+  | 0 => .nil
+  | n + 1 => (dummyEnv n).extend (.VCon .Unit)
+
+theorem dummyEnv_length : ∀ (n : Nat), (dummyEnv n).length = n
+  | 0 => rfl
+  | n + 1 => by
+    show (dummyEnv n).length + 1 = n + 1
+    rw [dummyEnv_length n]
+
+/-- `dummyEnv n` is `AtLeastEnvEqK`-related to itself at any level: every
+    position holds the same `VCon .Unit`, which is `ValueEqK`-reflexive. -/
+theorem atLeastEnvEqK_dummyEnv (k n : Nat) :
+    AtLeastEnvEqK k (dummyEnv n) (dummyEnv n) := by
+  induction n with
+  | zero =>
+    refine ⟨rfl, ?_⟩
+    intro m _ hmlen
+    simp [dummyEnv, CekEnv.length] at hmlen
+    omega
+  | succ m ih =>
+    refine ⟨rfl, ?_⟩
+    intro j hj hjlen
+    by_cases h1 : j = 1
+    · subst h1
+      refine ⟨.VCon .Unit, .VCon .Unit, ?_, ?_, ?_⟩
+      · show (CekEnv.cons _ (dummyEnv m)).lookup 1 = some _
+        rfl
+      · show (CekEnv.cons _ (dummyEnv m)).lookup 1 = some _
+        rfl
+      · cases k <;> simp only [ValueEqK]
+    · have hj2 : j ≥ 2 := by omega
+      have hlen : (dummyEnv (m + 1)).length = m + 1 := dummyEnv_length (m + 1)
+      rw [hlen] at hjlen
+      match j, hj2 with
+      | j' + 2, _ =>
+        have hjlen' : j' + 1 ≤ (dummyEnv m).length := by
+          rw [dummyEnv_length m]; omega
+        obtain ⟨v_l, v_r, hl, hr, hrel⟩ := ih.2 (j' + 1) (by omega) hjlen'
+        refine ⟨v_l, v_r, ?_, ?_, hrel⟩
+        · show (CekEnv.cons _ (dummyEnv m)).lookup (j' + 2) = some v_l
+          exact hl
+        · show (CekEnv.cons _ (dummyEnv m)).lookup (j' + 2) = some v_r
+          exact hr
+
+/-- Locality transfer for `ObsRefinesK`. If `s₁, s₂` are each `LocalState`-
+    related to `s₁', s₂'` respectively (the padded versions), then
+    `ObsRefinesK` on the padded states transfers to `ObsRefinesK` on the
+    unpadded states — because `LocalState` is preserved under `steps`
+    and `.halt`/`.error` outcomes are invariant. -/
+theorem locality_obsRefinesK (k : Nat) {s₁ s₂ s₁' s₂' : State}
+    (hls₁ : LocalState s₁ s₁') (hls₂ : LocalState s₂ s₂')
+    (href' : ObsRefinesK k s₁' s₂') : ObsRefinesK k s₁ s₂ := by
+  refine ⟨?_, ?_⟩
+  · -- halt: given s₁ halts, show s₂ reaches halt
+    rintro v ⟨n, hn_le, hsteps_v⟩
+    have hls_n : LocalState (steps n s₁) (steps n s₁') :=
+      localState_preserves_steps n hls₁
+    rw [hsteps_v] at hls_n
+    obtain ⟨v', hs₁'⟩ := localState_halt_inv hls_n
+    obtain ⟨v'', m, hm⟩ := href'.1 v' ⟨n, hn_le, hs₁'⟩
+    have hls_m : LocalState (steps m s₂) (steps m s₂') :=
+      localState_preserves_steps m hls₂
+    rw [hm] at hls_m
+    obtain ⟨v''', hs₂⟩ := localState_halt_inv' hls_m
+    exact ⟨v''', m, hs₂⟩
+  · -- error: given s₁ errors, show s₂ reaches error
+    intro n hn_le hsteps_err
+    have hls_n : LocalState (steps n s₁) (steps n s₁') :=
+      localState_preserves_steps n hls₁
+    rw [hsteps_err] at hls_n
+    have hs₁'_err : steps n s₁' = .error := localState_error_inv hls_n
+    obtain ⟨m, hm⟩ := href'.2 n hn_le hs₁'_err
+    have hls_m : LocalState (steps m s₂) (steps m s₂') :=
+      localState_preserves_steps m hls₂
+    rw [hm] at hls_m
+    have hs₂_err : steps m s₂ = .error := localState_error_inv' hls_m
+    exact ⟨m, hs₂_err⟩
+
+/-- Locality transfer for `ObsEqK`: bidirectional `locality_obsRefinesK`. -/
+theorem locality_obsEqK (k : Nat) {s₁ s₂ s₁' s₂' : State}
+    (hls₁ : LocalState s₁ s₁') (hls₂ : LocalState s₂ s₂')
+    (heqK' : ObsEqK k s₁' s₂') : ObsEqK k s₁ s₂ :=
+  ⟨locality_obsRefinesK k hls₁ hls₂ heqK'.1,
+   locality_obsRefinesK k hls₂ hls₁ heqK'.2⟩
+
+/-- Locality transfer for `ObsEq`. Derive the unbounded observation from
+    the `ObsEqK`-at-every-level version on padded states. -/
+theorem locality_obsEq {s₁ s₂ s₁' s₂' : State}
+    (hls₁ : LocalState s₁ s₁') (hls₂ : LocalState s₂ s₂')
+    (heq' : ∀ k, ObsEqK k s₁' s₂') : ObsEq s₁ s₂ := by
+  refine ⟨?_, ?_⟩
+  · constructor
+    · rintro ⟨v, n, hs⟩
+      have heqK := heq' n
+      have href := locality_obsRefinesK n hls₁ hls₂ heqK.1
+      exact href.1 v ⟨n, Nat.le_refl _, hs⟩
+    · rintro ⟨v, n, hs⟩
+      have heqK := heq' n
+      have href := locality_obsRefinesK n hls₂ hls₁ heqK.2
+      exact href.1 v ⟨n, Nat.le_refl _, hs⟩
+  · constructor
+    · rintro ⟨n, hs⟩
+      have heqK := heq' n
+      have href := locality_obsRefinesK n hls₁ hls₂ heqK.1
+      exact href.2 n (Nat.le_refl _) hs
+    · rintro ⟨n, hs⟩
+      have heqK := heq' n
+      have href := locality_obsRefinesK n hls₂ hls₁ heqK.2
+      exact href.2 n (Nat.le_refl _) hs
+
+/-- Helper: instantiate `term_obsEq` at level `n` on the padded empty
+    state. Uses `dummyEnv d` to satisfy `d ≤ length`. -/
+private theorem term_obsEq_padded {d : Nat} {t₁ t₂ : Term}
+    (h_open : OpenEq d t₁ t₂) (C : Context) (n : Nat) :
+    ObsEqK n (.compute [] (dummyEnv d) (fill C t₁))
+              (.compute [] (dummyEnv d) (fill C t₂)) :=
   term_obsEq h_open n n (Nat.le_refl _)
-    (atLeastEnvEqK_nil n) (Nat.zero_le _) (stackRelK_nil n) (fill_termSubst C t₁ t₂)
+    (atLeastEnvEqK_dummyEnv n d) (by rw [dummyEnv_length]; exact Nat.le_refl _)
+    (stackRelK_nil n) (fill_termSubst C t₁ t₂)
 
-/-- Pointwise (unconditional) soundness: `OpenEq 0 t₁ t₂` implies
-    `ObsEq` on the empty-state CEK runs of `fill C t₁` and `fill C t₂` for
-    *every* context `C` (no closedness side condition). This is the
-    "strong" form that's provable because at `d = 0` there's no env-depth
-    obligation to discharge at the hole. Used as the main lemma behind
-    `soundness` below. -/
-private theorem soundness_pointwise {t₁ t₂ : Term} (h_open : OpenEq 0 t₁ t₂) :
-    ∀ (C : Context),
-      ObsEq (.compute [] .nil (fill C t₁)) (.compute [] .nil (fill C t₂)) := by
-  intro C
-  refine ⟨⟨?_, ?_⟩, ?_, ?_⟩
-  · rintro ⟨v, n, hs⟩
-    exact (term_obsEq_at h_open C n).1.1 v ⟨n, Nat.le_refl _, hs⟩
-  · rintro ⟨v, n, hs⟩
-    exact (term_obsEq_at h_open C n).2.1 v ⟨n, Nat.le_refl _, hs⟩
-  · rintro ⟨n, hs⟩
-    exact (term_obsEq_at h_open C n).1.2 n (Nat.le_refl _) hs
-  · rintro ⟨n, hs⟩
-    exact (term_obsEq_at h_open C n).2.2 n (Nat.le_refl _) hs
+/-- The unpadded and padded initial states (running a `closedAt 0` term
+    from the empty stack) are `LocalState`-related via `LocalEnv.zero`
+    and the trivial empty stack relation. -/
+private theorem localState_nil_dummyEnv (d : Nat) (t : Term)
+    (h_closed : closedAt 0 t = true) :
+    LocalState (.compute [] .nil t) (.compute [] (dummyEnv d) t) :=
+  LocalState.compute (LocalEnv.zero) h_closed LocalStack.nil
 
-/-- **Soundness**: `OpenEq 0` implies `CtxEq`. The bridge from the
-    semantic open-term equivalence at depth 0 to the guarded contextual
-    equivalence (which takes closedness of the fill as a hypothesis).
-    Directly drops the closedness hypotheses since `soundness_pointwise`
-    proves the conclusion unconditionally.
+/-- **Soundness**: `OpenEq d` implies `CtxEq` for *any* `d`. The bridge
+    from the semantic open-term equivalence at arbitrary depth to the
+    guarded contextual equivalence.
 
-    Currently restricted to `d = 0`. Supporting general `d > 0` would
-    require an env-extension + locality lemma (for closed-at-d terms,
-    CEK behavior is insensitive to env contents beyond position d). -/
-theorem soundness {t₁ t₂ : Term} (h_open : OpenEq 0 t₁ t₂) : CtxEq t₁ t₂ := by
-  intro C _ _
-  exact soundness_pointwise h_open C
+    Proof strategy: pad the empty env with `d` dummy `VCon .Unit` values
+    on both sides, apply `term_obsEq` (which requires `d ≤ length`), then
+    use `BisimRef` locality (via `locality_obsEq`) to transfer the
+    padded-env result back to the unpadded empty-env setting. Locality
+    works because `fill C t_i` is `closedAt 0` (from the guards on
+    `CtxEq`), so its behavior is insensitive to env contents beyond
+    position 0. -/
+theorem soundness {d : Nat} {t₁ t₂ : Term} (h_open : OpenEq d t₁ t₂) :
+    CtxEq t₁ t₂ := by
+  intro C h_c1 h_c2
+  -- Both sides are closedAt 0 by hypothesis
+  -- Pad the empty env to length d on both sides
+  -- Apply term_obsEq with dummyEnv d
+  -- Use locality to bridge back to the empty env
+  exact locality_obsEq
+    (localState_nil_dummyEnv d (fill C t₁) h_c1)
+    (localState_nil_dummyEnv d (fill C t₂) h_c2)
+    (fun n => term_obsEq_padded h_open C n)
 
 /-- `soundness_d` alias — kept under the historical name for downstream
-    consumers; now an alias for `soundness` after unifying on the
-    `CtxEq`-valued return type. -/
-theorem soundness_d {t₁ t₂ : Term} (h_open : OpenEq 0 t₁ t₂) : CtxEq t₁ t₂ :=
+    consumers; now an alias for `soundness` after generalizing to
+    arbitrary `d`. -/
+theorem soundness_d {d : Nat} {t₁ t₂ : Term} (h_open : OpenEq d t₁ t₂) :
+    CtxEq t₁ t₂ :=
   soundness h_open
 
 end Moist.VerifiedNewNew.Contextual.Soundness

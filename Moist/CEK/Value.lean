@@ -113,6 +113,57 @@ theorem lookup_none_of_gt_length : ∀ (ρ : CekEnv) (n : Nat),
     simp [length] at h
     omega
 
+/-- Append a value at the *back* of the environment. In contrast to `extend`
+    (which prepends and so shifts every existing variable index up by one),
+    `extendBack` appends: the new value occupies the fresh position
+    `ρ.length + 1` while all existing indices `1..ρ.length` keep the same
+    meaning. Used by the locality/bisimulation proofs to "pad" an
+    environment past a closed term's free-variable horizon without
+    disturbing behaviour. -/
+def extendBack : CekEnv → CekValue → CekEnv
+  | .nil, v => .cons v .nil
+  | .cons w rest, v => .cons w (rest.extendBack v)
+
+/-- `extendBack` grows `length` by exactly one. -/
+theorem length_extendBack : ∀ (ρ : CekEnv) (v : CekValue),
+    (ρ.extendBack v).length = ρ.length + 1
+  | .nil, _ => rfl
+  | .cons _ rest, v => by
+    show (rest.extendBack v).length + 1 = (rest.length + 1) + 1
+    rw [length_extendBack rest v]
+
+/-- `extendBack` preserves lookups at the existing positions `1..ρ.length`. -/
+theorem lookup_extendBack_of_le : ∀ (ρ : CekEnv) (v : CekValue) (n : Nat),
+    0 < n → n ≤ ρ.length → (ρ.extendBack v).lookup n = ρ.lookup n
+  | .nil, _, _, hn, hle => by
+    exfalso; simp [length] at hle; omega
+  | .cons _ _, _, 0, hn, _ => absurd hn (Nat.lt_irrefl 0)
+  | .cons _ _, _, 1, _, _ => rfl
+  | .cons _ rest, v, n + 2, _, hle => by
+    have hlen : rest.length ≥ n + 1 := by simp [length] at hle; omega
+    show (rest.extendBack v).lookup (n + 1) = rest.lookup (n + 1)
+    exact lookup_extendBack_of_le rest v (n + 1) (by omega) hlen
+
+/-- `extendBack` places the new value at the freshly-added position
+    `ρ.length + 1`. -/
+theorem lookup_extendBack_tip : ∀ (ρ : CekEnv) (v : CekValue),
+    (ρ.extendBack v).lookup (ρ.length + 1) = some v
+  | .nil, _ => rfl
+  | .cons _ rest, v => by
+    show (rest.extendBack v).lookup (rest.length + 1) = some v
+    exact lookup_extendBack_tip rest v
+
+/-- Any index within the environment's length resolves to `some` value. -/
+theorem lookup_some_of_le_length : ∀ (ρ : CekEnv) (n : Nat),
+    0 < n → n ≤ ρ.length → ∃ v, ρ.lookup n = some v
+  | .nil, _, _, hle => by exfalso; simp [length] at hle; omega
+  | .cons w _, 1, _, _ => ⟨w, rfl⟩
+  | .cons _ _, 0, hn, _ => absurd hn (Nat.lt_irrefl 0)
+  | .cons _ rest, n + 2, _, hle => by
+    have hlen : rest.length ≥ n + 1 := by simp [length] at hle; omega
+    show ∃ v, rest.lookup (n + 1) = some v
+    exact lookup_some_of_le_length rest (n + 1) (by omega) hlen
+
 end CekEnv
 
 /-! ## Pretty Printing -/
