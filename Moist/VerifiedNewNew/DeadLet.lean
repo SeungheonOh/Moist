@@ -3,13 +3,11 @@ import Moist.MIR.Analysis
 import Moist.MIR.LowerTotal
 import Moist.MIR.Optimize.Purity
 
-/-! # Dead Let Condition and Lowering Helpers
+/-! # Dead Let Lowering Helpers
 
 Supporting definitions and helpers for dead-let elimination, used by the
 unidirectional refinement proof in `DeadLetRefines.lean`.
 
-* `MIRDeadLetCond` — the condition for a single let binding `[(x, e)] body`
-  to be a valid dead-let elimination target (x unused in body, fix-free).
 * `extend_lookup_shift` — basic CEK lookup identity used when the left
   environment has an extra leading entry.
 * `lowerTotal_closedAt` — bridges `lowerTotal` success with
@@ -20,28 +18,12 @@ unidirectional refinement proof in `DeadLetRefines.lean`.
 namespace Moist.VerifiedNewNew.DeadLet
 
 open Moist.CEK
-open Moist.MIR (Expr VarId lowerTotalExpr lowerTotal lowerTotalLet
-                 fixCount fixCountBinds freeVars isPure)
+open Moist.MIR (Expr VarId lowerTotalExpr lowerTotal lowerTotalLet freeVars)
 open Moist.Plutus.Term (Term)
 open Moist.VerifiedNewNew (closedAt closedAtList)
 
 --------------------------------------------------------------------------------
--- 1. Dead-let condition
---------------------------------------------------------------------------------
-
-/-- Dead-let elimination condition for a single binding `[(x, e)] body`. The
-    `safe` purity condition is required: without it we could prove the unsound
-    transformation `Let x = Error in body ⊑ body`, since the LHS would error
-    but the RHS would not. `uplc_dead_let_refines` needs semantic purity
-    (`steps n (compute π ρ t_e) ≠ .error`); MIR-level `isPure` is the
-    syntactic approximation. -/
-structure MIRDeadLetCond (x : VarId) (e body : Expr) : Prop where
-  unused : (freeVars body).contains x = false
-  fixFree : fixCount e + fixCount body = 0
-  safe : isPure e = true
-
---------------------------------------------------------------------------------
--- 2. Shift-extend lookup
+-- 1. Shift-extend lookup
 --------------------------------------------------------------------------------
 
 theorem extend_lookup_shift (ρ : CekEnv) (v : CekValue) (n : Nat) :

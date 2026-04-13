@@ -7,9 +7,8 @@ Concrete examples of dead-let elimination proved via `dead_let_mirRefines`.
 
 namespace Moist.VerifiedNewNew.MIRExample
 
-open Moist.MIR (Expr VarId freeVars fixCount)
+open Moist.MIR (Expr VarId freeVars)
 open Moist.VerifiedNewNew.MIR
-open Moist.VerifiedNewNew.DeadLet
 open Moist.VerifiedNewNew.DeadLetRefines
 
 private def a : VarId := { uid := 0, hint := "a" }
@@ -23,10 +22,6 @@ private abbrev intLit (n : Int) : Expr :=
 theorem let_x_10_in_a_refines_a :
     (.Let [({ uid := 1 }, intLit 10, false)] (.Var { uid := 0 }) : Expr) ⊑ᴹ
       .Var { uid := 0 } :=
-  dead_let_mirRefines {
-    unused := by native_decide
-    fixFree := by native_decide
-    safe := by native_decide
-  }
+  dead_let_mirRefines (by native_decide) (by native_decide)
 
 end Moist.VerifiedNewNew.MIRExample
