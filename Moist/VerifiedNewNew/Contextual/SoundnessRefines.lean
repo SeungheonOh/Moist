@@ -153,13 +153,13 @@ def BehRefinesK (V : Nat → CekValue → CekValue → Prop) (k : Nat)
   ∀ j ≤ k, ∀ π₁ π₂, StackRefK V j π₁ π₂ →
     ObsRefinesK j (.compute π₁ ρ₁ t₁) (.compute π₂ ρ₂ t₂)
 
-/-- Unidirectional env relation — pointwise `ValueRefinesK` at every position. -/
+/-- Unidirectional env relation: mirrors the relaxed `EnvEqK` — strict
+    some/some match within `1..d` but no length equality. -/
 def EnvRefinesK (k d : Nat) (ρ₁ ρ₂ : CekEnv) : Prop :=
   ∀ n, 0 < n → n ≤ d →
-    match ρ₁.lookup n, ρ₂.lookup n with
-    | some v₁, some v₂ => ValueRefinesK k v₁ v₂
-    | none, none => True
-    | _, _ => False
+    ∃ v₁ v₂, ρ₁.lookup n = some v₁ ∧
+             ρ₂.lookup n = some v₂ ∧
+             ValueRefinesK k v₁ v₂
 
 /-- Unidirectional open term relation at fixed step index. -/
 def OpenRefinesK (k d : Nat) (t₁ t₂ : Term) : Prop :=
@@ -168,42 +168,56 @@ def OpenRefinesK (k d : Nat) (t₁ t₂ : Term) : Prop :=
 /-- Unidirectional open term relation at unbounded step index. -/
 def OpenRefines (d : Nat) (t₁ t₂ : Term) : Prop := ∀ k, OpenRefinesK k d t₁ t₂
 
-/-- Pointwise `ValueRefinesK` at every position. Mirrors `AtLeastEnvEqK`. -/
+/-- **Strict** pointwise env relation: both envs have the same length and
+    every position `1..length` is a `some` pair of `ValueRefinesK`-related
+    values. No `(none, none)` ghost — consistent with the strict `EnvRefinesK`.
+    Mirrors `AtLeastEnvEqK` in `Soundness.lean`. -/
 def AtLeastEnvRefinesK (k : Nat) (ρ_l ρ_r : CekEnv) : Prop :=
-  ∀ n, n > 0 →
-    match ρ_l.lookup n, ρ_r.lookup n with
-    | some v_l, some v_r => ValueRefinesK k v_l v_r
-    | none, none => True
-    | _, _ => False
+  ρ_l.length = ρ_r.length ∧
+  ∀ n, 0 < n → n ≤ ρ_l.length →
+    ∃ v_l v_r, ρ_l.lookup n = some v_l ∧ ρ_r.lookup n = some v_r ∧ ValueRefinesK k v_l v_r
 
 theorem atLeastEnvRefinesK_nil (k : Nat) : AtLeastEnvRefinesK k .nil .nil := by
-  intro n _
-  have : (CekEnv.nil).lookup n = none := by cases n <;> rfl
-  rw [this]
-  trivial
+  refine ⟨rfl, ?_⟩
+  intro n _ hn_len
+  simp [CekEnv.length] at hn_len
+  omega
 
+/-- Bridge from the length-indexed pointwise relation to the depth-indexed
+    strict relation, given that the depth `d` is within the env length. -/
 theorem atLeastEnvRefinesK_to_envRefinesK {k d : Nat} {ρ_l ρ_r : CekEnv}
-    (h : AtLeastEnvRefinesK k ρ_l ρ_r) : EnvRefinesK k d ρ_l ρ_r :=
-  fun n hn _ => h n hn
+    (h : AtLeastEnvRefinesK k ρ_l ρ_r) (hd : d ≤ ρ_l.length) : EnvRefinesK k d ρ_l ρ_r := by
+  intro n hn hnd
+  exact h.2 n hn (Nat.le_trans hnd hd)
 
 theorem atLeastEnvRefinesK_mono {j k : Nat} (hjk : j ≤ k) {ρ_l ρ_r : CekEnv}
     (h : AtLeastEnvRefinesK k ρ_l ρ_r) : AtLeastEnvRefinesK j ρ_l ρ_r := by
-  intro n hn
-  have := h n hn
-  cases h_l : ρ_l.lookup n <;> cases h_r : ρ_r.lookup n <;>
-    simp [h_l, h_r] at this ⊢
-  exact valueRefinesK_mono hjk _ _ this
+  refine ⟨h.1, ?_⟩
+  intro n hn hnlen
+  obtain ⟨v_l, v_r, hl, hr, hrel⟩ := h.2 n hn hnlen
+  exact ⟨v_l, v_r, hl, hr, valueRefinesK_mono hjk _ _ hrel⟩
 
 theorem atLeastEnvRefinesK_extend {k : Nat} {ρ_l ρ_r : CekEnv} {v_l v_r : CekValue}
     (hρ : AtLeastEnvRefinesK k ρ_l ρ_r) (hv : ValueRefinesK k v_l v_r) :
     AtLeastEnvRefinesK k (ρ_l.extend v_l) (ρ_r.extend v_r) := by
-  intro n hn
-  match n, hn with
-  | 1, _ => simp [CekEnv.extend, CekEnv.lookup]; exact hv
-  | n + 2, _ =>
-    have := hρ (n + 1) (by omega)
-    simp [CekEnv.extend, CekEnv.lookup]
-    exact this
+  refine ⟨?_, ?_⟩
+  · simp [CekEnv.extend, CekEnv.length, hρ.1]
+  · intro n hn hnlen
+    by_cases h1 : n = 1
+    · subst h1
+      refine ⟨v_l, v_r, ?_, ?_, hv⟩
+      · simp [CekEnv.extend, CekEnv.lookup]
+      · simp [CekEnv.extend, CekEnv.lookup]
+    · have hn2 : n ≥ 2 := by omega
+      have hlen_ext : (ρ_l.extend v_l).length = ρ_l.length + 1 := by
+        simp [CekEnv.extend, CekEnv.length]
+      rw [hlen_ext] at hnlen
+      match n, hn2 with
+      | n' + 2, _ =>
+        obtain ⟨w_l, w_r, hl, hr, hrel⟩ := hρ.2 (n' + 1) (by omega) (by omega)
+        refine ⟨w_l, w_r, ?_, ?_, hrel⟩
+        · simp [CekEnv.extend, CekEnv.lookup]; exact hl
+        · simp [CekEnv.extend, CekEnv.lookup]; exact hr
 
 --------------------------------------------------------------------------------
 -- 4. TermSubstL — TermSubst without the swapInv constructor
@@ -770,13 +784,15 @@ private theorem constrField_helper_refines {d : Nat} {t₁ t₂ : Term}
     (_h_open : OpenRefines d t₁ t₂)
     {tag : Nat} {k : Nat}
     (ih_te : ∀ i ≤ k, ∀ {ρ_l ρ_r : CekEnv} {π_l π_r : Stack} {tm_l tm_r : Term},
-      AtLeastEnvRefinesK i ρ_l ρ_r → StackRefK ValueRefinesK i π_l π_r →
+      AtLeastEnvRefinesK i ρ_l ρ_r → d ≤ ρ_l.length →
+      StackRefK ValueRefinesK i π_l π_r →
       TermSubstL t₁ t₂ tm_l tm_r →
       ObsRefinesK i (.compute π_l ρ_l tm_l) (.compute π_r ρ_r tm_r)) :
     ∀ {ms_l ms_r : List Term}, TermListSubstL t₁ t₂ ms_l ms_r →
     ∀ {j : Nat}, j ≤ k →
       ∀ {done_l done_r : List CekValue} {ρ_l ρ_r : CekEnv} {π_l π_r : Stack},
         AtLeastEnvRefinesK j ρ_l ρ_r →
+        d ≤ ρ_l.length →
         ListRel (ValueRefinesK j) done_l done_r →
         StackRefK ValueRefinesK j π_l π_r →
         StackRefK ValueRefinesK j (.constrField tag done_l ms_l ρ_l :: π_l)
@@ -786,7 +802,7 @@ private theorem constrField_helper_refines {d : Nat} {t₁ t₂ : Term}
   | nil =>
     cases hms with
     | nil =>
-      intro j _ done_l done_r ρ_l ρ_r π_l π_r _ h_done hπ
+      intro j _ done_l done_r ρ_l ρ_r π_l π_r _ _ h_done hπ
       intro j' hj'_j v_l v_r hv
       match j' with
       | 0 =>
@@ -810,7 +826,7 @@ private theorem constrField_helper_refines {d : Nat} {t₁ t₂ : Term}
   | cons m ms_l_rest ih_ms =>
     cases hms with
     | cons hm hms_rest =>
-      intro j hj_k done_l done_r ρ_l ρ_r π_l π_r hρ h_done hπ
+      intro j hj_k done_l done_r ρ_l ρ_r π_l π_r hρ hd h_done hπ
       intro j' hj'_j v_l v_r hv
       match j' with
       | 0 =>
@@ -818,8 +834,8 @@ private theorem constrField_helper_refines {d : Nat} {t₁ t₂ : Term}
       | n + 1 =>
         obsRefinesK_of_step_auto
         simp only [step]
-        apply ih_te n (by omega) (atLeastEnvRefinesK_mono (by omega) hρ) ?_ hm
-        exact ih_ms hms_rest (by omega : n ≤ k) (atLeastEnvRefinesK_mono (by omega) hρ)
+        apply ih_te n (by omega) (atLeastEnvRefinesK_mono (by omega) hρ) hd ?_ hm
+        exact ih_ms hms_rest (by omega : n ≤ k) (atLeastEnvRefinesK_mono (by omega) hρ) hd
           (show ListRel (ValueRefinesK n) (v_l :: done_l) (v_r :: done_r) from
             ⟨valueRefinesK_mono (by omega) v_l v_r hv,
              listRel_mono (fun a b h => valueRefinesK_mono (by omega) a b h) h_done⟩)
@@ -838,6 +854,7 @@ theorem term_obsRefines {d : Nat} {t₁ t₂ : Term} (h_open : OpenRefines d t�
     ∀ (k : Nat) (i : Nat), i ≤ k →
       ∀ {ρ_l ρ_r : CekEnv} {π_l π_r : Stack} {tm_l tm_r : Term},
         AtLeastEnvRefinesK i ρ_l ρ_r →
+        d ≤ ρ_l.length →
         StackRefK ValueRefinesK i π_l π_r →
         TermSubstL t₁ t₂ tm_l tm_r →
         ObsRefinesK i (.compute π_l ρ_l tm_l) (.compute π_r ρ_r tm_r) := by
@@ -847,7 +864,7 @@ theorem term_obsRefines {d : Nat} {t₁ t₂ : Term} (h_open : OpenRefines d t�
     intro i hi
     have hi0 : i = 0 := Nat.le_zero.mp hi
     subst hi0
-    intros _ _ _ _ _ _ _ _ _
+    intros _ _ _ _ _ _ _ _ _ _
     obsRefinesK_zero_nonhalt_auto
   | succ m ih =>
     intro i hi
@@ -855,12 +872,12 @@ theorem term_obsRefines {d : Nat} {t₁ t₂ : Term} (h_open : OpenRefines d t�
     · exact ih i hi_m
     · have hi_eq : i = m + 1 := by omega
       subst hi_eq
-      intro hρ hπ htm
+      intro hρ hd hπ htm
       rename_i ρ_l ρ_r π_l π_r tm_l tm_r
       cases htm with
       | swap =>
         exact h_open (m+1) (m+1) (Nat.le_refl _) ρ_l ρ_r
-          (atLeastEnvRefinesK_to_envRefinesK hρ) (m+1) (Nat.le_refl _) π_l π_r hπ
+          (atLeastEnvRefinesK_to_envRefinesK hρ hd) (m+1) (Nat.le_refl _) π_l π_r hπ
       | varRefl n =>
         obsRefinesK_of_step_auto
         simp only [step]
@@ -871,19 +888,18 @@ theorem term_obsRefines {d : Nat} {t₁ t₂ : Term} (h_open : OpenRefines d t�
           rw [hl, hr]
           exact obsRefinesK_error _
         · have hpos : n > 0 := Nat.pos_of_ne_zero hn
-          have hlk := hρ n hpos
-          cases hl : ρ_l.lookup n with
-          | none =>
-            cases hr : ρ_r.lookup n with
-            | none => exact obsRefinesK_error _
-            | some _ => rw [hl, hr] at hlk; exact absurd hlk id
-          | some v_l =>
-            cases hr : ρ_r.lookup n with
-            | none => rw [hl, hr] at hlk; exact absurd hlk id
-            | some v_r =>
-              rw [hl, hr] at hlk
-              exact hπ m (Nat.le_succ m) v_l v_r
-                (valueRefinesK_mono (Nat.le_succ m) v_l v_r hlk)
+          by_cases hnlen : n ≤ ρ_l.length
+          · obtain ⟨v_l, v_r, hl, hr, hrel⟩ := hρ.2 n hpos hnlen
+            rw [hl, hr]
+            exact hπ m (Nat.le_succ m) v_l v_r
+              (valueRefinesK_mono (Nat.le_succ m) v_l v_r hrel)
+          · have hl : ρ_l.lookup n = none :=
+              CekEnv.lookup_none_of_gt_length ρ_l n (by omega)
+            have hnr : n > ρ_r.length := by rw [← hρ.1]; omega
+            have hr : ρ_r.lookup n = none :=
+              CekEnv.lookup_none_of_gt_length ρ_r n hnr
+            rw [hl, hr]
+            exact obsRefinesK_error _
       | constRefl c =>
         obsRefinesK_of_step_auto
         simp only [step]
@@ -916,12 +932,15 @@ theorem term_obsRefines {d : Nat} {t₁ t₂ : Term} (h_open : OpenRefines d t�
           · apply atLeastEnvRefinesK_extend
             · exact atLeastEnvRefinesK_mono (by omega) hρ
             · exact valueRefinesK_mono hi _ _ harg
+          · show d ≤ (ρ_l.extend arg_l).length
+            simp [CekEnv.extend, CekEnv.length]
+            omega
           · exact hπ_app
           · exact hb
       | apply hf ha =>
         obsRefinesK_of_step_auto
         simp only [step]
-        apply ih m (Nat.le_refl m) (atLeastEnvRefinesK_mono (Nat.le_succ m) hρ) ?_ hf
+        apply ih m (Nat.le_refl m) (atLeastEnvRefinesK_mono (Nat.le_succ m) hρ) hd ?_ hf
         intro j hj_m vf_l vf_r hvf
         match j with
         | 0 =>
@@ -929,7 +948,7 @@ theorem term_obsRefines {d : Nat} {t₁ t₂ : Term} (h_open : OpenRefines d t�
         | j' + 1 =>
           obsRefinesK_of_step_auto
           simp only [step]
-          apply ih j' (by omega) (atLeastEnvRefinesK_mono (by omega) hρ) ?_ ha
+          apply ih j' (by omega) (atLeastEnvRefinesK_mono (by omega) hρ) hd ?_ ha
           intro j'' hj''_j' w_l w_r hw
           match j'' with
           | 0 =>
@@ -983,7 +1002,7 @@ theorem term_obsRefines {d : Nat} {t₁ t₂ : Term} (h_open : OpenRefines d t�
       | force he =>
         obsRefinesK_of_step_auto
         simp only [step]
-        apply ih m (Nat.le_refl m) (atLeastEnvRefinesK_mono (Nat.le_succ m) hρ) ?_ he
+        apply ih m (Nat.le_refl m) (atLeastEnvRefinesK_mono (Nat.le_succ m) hρ) hd ?_ he
         intro j hj_m vf_l vf_r hvf
         match j with
         | 0 =>
@@ -1033,6 +1052,7 @@ theorem term_obsRefines {d : Nat} {t₁ t₂ : Term} (h_open : OpenRefines d t�
           intro j hj_m' i hi π_l_app π_r_app hπ_app
           apply ih i (by omega)
           · exact atLeastEnvRefinesK_mono (by omega) hρ
+          · exact hd
           · exact hπ_app
           · exact hb
       | constr hms =>
@@ -1047,16 +1067,16 @@ theorem term_obsRefines {d : Nat} {t₁ t₂ : Term} (h_open : OpenRefines d t�
         | cons hm hms_rest =>
           obsRefinesK_of_step_auto
           simp only [step]
-          apply ih m (Nat.le_refl m) (atLeastEnvRefinesK_mono (Nat.le_succ m) hρ) ?_ hm
+          apply ih m (Nat.le_refl m) (atLeastEnvRefinesK_mono (Nat.le_succ m) hρ) hd ?_ hm
           exact constrField_helper_refines h_open ih hms_rest (Nat.le_refl m)
-            (atLeastEnvRefinesK_mono (Nat.le_succ m) hρ)
+            (atLeastEnvRefinesK_mono (Nat.le_succ m) hρ) hd
             (show ListRel (ValueRefinesK m) [] [] from trivial)
             (stackRefK_mono (Nat.le_succ m) hπ)
       | case hs has =>
         rename_i as_l as_r
         obsRefinesK_of_step_auto
         simp only [step]
-        apply ih m (Nat.le_refl m) (atLeastEnvRefinesK_mono (Nat.le_succ m) hρ) ?_ hs
+        apply ih m (Nat.le_refl m) (atLeastEnvRefinesK_mono (Nat.le_succ m) hρ) hd ?_ hs
         intro j hj_m vf_l vf_r hvf
         match j with
         | 0 =>
@@ -1078,7 +1098,7 @@ theorem term_obsRefines {d : Nat} {t₁ t₂ : Term} (h_open : OpenRefines d t�
             | inr h =>
               obtain ⟨alt_l, alt_r, hl, hr, halt⟩ := h
               rw [hl, hr]
-              apply ih j' (by omega) (atLeastEnvRefinesK_mono (by omega) hρ) ?_ halt
+              apply ih j' (by omega) (atLeastEnvRefinesK_mono (by omega) hρ) hd ?_ halt
               exact applyArgFrames_stackRefK h_fields
                 (stackRefK_mono (by omega) hπ)
           | .VCon c_l, .VCon c_r =>
@@ -1105,7 +1125,7 @@ theorem term_obsRefines {d : Nat} {t₁ t₂ : Term} (h_open : OpenRefines d t�
                 | inr h =>
                   obtain ⟨alt_l, alt_r, hl, hr, halt⟩ := h
                   rw [hl, hr]
-                  apply ih j' (by omega) (atLeastEnvRefinesK_mono (by omega) hρ) ?_ halt
+                  apply ih j' (by omega) (atLeastEnvRefinesK_mono (by omega) hρ) hd ?_ halt
                   have hfields_vcon := constToTagAndFields_fields_vcon c_l
                   rw [h_const] at hfields_vcon
                   exact applyArgFrames_stackRefK
@@ -1125,15 +1145,16 @@ theorem term_obsRefines {d : Nat} {t₁ t₂ : Term} (h_open : OpenRefines d t�
           | .VBuiltin _ _ _, .VConstr _ _ => simp only [ValueRefinesK] at hvf
 
 --------------------------------------------------------------------------------
--- 15. soundness_refines_d — the public entry point
+-- 15. soundness_refines — the public entry point
 --------------------------------------------------------------------------------
 
-/-- The unidirectional open-context soundness theorem: `OpenRefines d t₁ t₂`
-    implies that filling any context and running from the empty CEK state
-    yields an `ObsRefines` relationship — the forward direction of `ObsEq`
-    for both halt and error behavior.
-    Used by the DCE bridge to derive `CtxRefines` from `OpenRefines`. -/
-theorem soundness_refines_d {d : Nat} {t₁ t₂ : Term} (h_open : OpenRefines d t₁ t₂) :
+/-- Pointwise (unconditional) unidirectional soundness:
+    `OpenRefines 0 t₁ t₂` implies `ObsRefines` on the empty-state CEK runs
+    of `fill C t₁` and `fill C t₂` for *every* context `C`. This is the
+    "strong" form — no closedness side condition is needed because at
+    `d = 0` there's no env-depth obligation to discharge at the hole. -/
+private theorem soundness_refines_pointwise {t₁ t₂ : Term}
+    (h_open : OpenRefines 0 t₁ t₂) :
     ∀ (C : Context),
       ObsRefines (.compute [] .nil (fill C t₁)) (.compute [] .nil (fill C t₂)) := by
   intro C
@@ -1141,12 +1162,33 @@ theorem soundness_refines_d {d : Nat} {t₁ t₂ : Term} (h_open : OpenRefines d
   · rintro ⟨v, n, hs⟩
     have h_obs : ObsRefinesK n (.compute [] .nil (fill C t₁)) (.compute [] .nil (fill C t₂)) :=
       term_obsRefines h_open n n (Nat.le_refl _)
-        (atLeastEnvRefinesK_nil n) (stackRefK_nil n) (fill_termSubstL C t₁ t₂)
+        (atLeastEnvRefinesK_nil n) (Nat.zero_le _) (stackRefK_nil n) (fill_termSubstL C t₁ t₂)
     exact h_obs.1 v ⟨n, Nat.le_refl _, hs⟩
   · rintro ⟨n, hs⟩
     have h_obs : ObsRefinesK n (.compute [] .nil (fill C t₁)) (.compute [] .nil (fill C t₂)) :=
       term_obsRefines h_open n n (Nat.le_refl _)
-        (atLeastEnvRefinesK_nil n) (stackRefK_nil n) (fill_termSubstL C t₁ t₂)
+        (atLeastEnvRefinesK_nil n) (Nat.zero_le _) (stackRefK_nil n) (fill_termSubstL C t₁ t₂)
     exact h_obs.2 n (Nat.le_refl _) hs
+
+/-- **Unidirectional soundness**: `OpenRefines 0` implies `CtxRefines`. The
+    bridge from the semantic open-term refinement at depth 0 to the guarded
+    contextual refinement (which takes closedness of the fill as a
+    hypothesis). Directly drops the closedness hypotheses since
+    `soundness_refines_pointwise` proves the conclusion unconditionally.
+
+    Currently restricted to `d = 0`. Supporting general `d > 0` would
+    require an env-extension + locality lemma (for closed-at-d terms,
+    CEK behavior is insensitive to env contents beyond position d). -/
+theorem soundness_refines {t₁ t₂ : Term} (h_open : OpenRefines 0 t₁ t₂) :
+    CtxRefines t₁ t₂ := by
+  intro C _ _
+  exact soundness_refines_pointwise h_open C
+
+/-- `soundness_refines_d` alias — kept under the historical name for
+    downstream consumers; now an alias for `soundness_refines` after
+    unifying on the `CtxRefines`-valued return type. -/
+theorem soundness_refines_d {t₁ t₂ : Term} (h_open : OpenRefines 0 t₁ t₂) :
+    CtxRefines t₁ t₂ :=
+  soundness_refines h_open
 
 end Moist.VerifiedNewNew.Contextual.SoundnessRefines

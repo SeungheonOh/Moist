@@ -1,5 +1,8 @@
 import Moist.VerifiedNewNew.DeadLet
+import Moist.VerifiedNewNew.MIR
 import Moist.VerifiedNewNew.Contextual.SoundnessRefines
+import Moist.Verified.Purity
+import Moist.Verified.StepLift
 
 /-! # Unidirectional dead-let refinement at the UPLC level
 
@@ -260,10 +263,10 @@ mutual
       · subst hn
         have : Moist.Verified.shiftRename c 0 = 0 := by
           simp [Moist.Verified.shiftRename]; omega
-        simp [this]
         have h1 : ρ₁.lookup 0 = none := by cases ρ₁ <;> rfl
         have h2 : ρ₂.lookup 0 = none := by cases ρ₂ <;> rfl
-        simp [h1, h2]; exact obsRefinesK_error _
+        simp [this, h1, h2]
+        exact obsRefinesK_error _
       · have h_n := henv n (by omega) ht
         revert h_n
         cases ρ₁.lookup (Moist.Verified.shiftRename c n) <;>
@@ -1047,19 +1050,158 @@ private theorem halt_descends_to_baseπ {baseπ : Stack} :
               rfl
 
 --------------------------------------------------------------------------------
+-- 5b. Stack-polymorphic purity: `isPure e` implies `t_rhs` reaches
+--     `ret π v_rhs` from any initial stack without ever being `.error`.
+--
+-- This is the semantic substitute for the syntactic `isPure e` precondition
+-- used by `uplc_dead_let_refines`. It lifts `Moist.Verified.Purity`'s
+-- empty-stack results (`isPure_halts` + `isPure_no_error`) to arbitrary
+-- stacks via `Moist.Verified.StepLift.steps_liftState`.
+--
+-- Complicating factor: `Moist.Verified.Semantics.steps` and
+-- `Moist.VerifiedNewNew.Equivalence.steps` are two *syntactically distinct*
+-- copies of the iterated CEK step. A small bridge lemma `vstep_eq` proves
+-- them equal by induction so we can freely convert between them.
+--------------------------------------------------------------------------------
+
+/-- The two `steps` definitions (`Verified.Semantics` and
+    `VerifiedNewNew.Equivalence`) both iterate `Moist.CEK.step`; they are
+    propositionally equal by an induction on the step count. -/
+private theorem vstep_eq : ∀ (n : Nat) (s : State),
+    Moist.VerifiedNewNew.Equivalence.steps n s = Moist.Verified.Semantics.steps n s
+  | 0, _ => rfl
+  | n + 1, s => by
+    show Moist.VerifiedNewNew.Equivalence.steps n (step s) =
+         Moist.Verified.Semantics.steps n (step s)
+    exact vstep_eq n (step s)
+
+/-- Stack-polymorphic version of `isPure_halts + isPure_no_error`: for a
+    pure MIR expression `e` lowered to UPLC term `t` under a well-sized
+    environment, the trace `compute π ρ t` reaches `ret π v` (for some
+    `v`) in a bounded number of steps and never passes through `.error`
+    along the way, for *any* initial stack `π`. Obtained by locating the
+    first inactive step of the empty-stack trace (which is either
+    `ret [] v` or `halt v` — both lift to `ret π v` via `liftState`) and
+    invoking `steps_liftState`. -/
+theorem dead_let_pure_stack_poly
+    (env : List Moist.MIR.VarId) (e : Moist.MIR.Expr) {t : Moist.Plutus.Term.Term}
+    {ρ : CekEnv}
+    (hpure : Moist.MIR.isPure e = true)
+    (hlower : Moist.MIR.lowerTotal env e = some t)
+    (hwf : Moist.Verified.Semantics.WellSizedEnv env.length ρ) :
+    ∀ (π : Stack), ∃ (m : Nat) (v : CekValue),
+      steps m (.compute π ρ t) = .ret π v ∧
+      ∀ k ≤ m, steps k (.compute π ρ t) ≠ .error := by
+  intro π
+  -- Extract halt witness from `isPure_halts` (uses Verified.Semantics.steps).
+  obtain ⟨v, n_halt, h_halt_v⟩ :=
+    Moist.Verified.Purity.isPure_halts e t env ρ hpure hlower hwf
+  -- No-error at every step, via `isPure_no_error`.
+  have h_noerr_v : ∀ k, Moist.Verified.Semantics.steps k (.compute [] ρ t) ≠ .error := by
+    intro k h_err
+    exact Moist.Verified.Purity.isPure_no_error e t env ρ hpure hlower hwf ⟨k, h_err⟩
+  -- The `halt v` state is inactive, so there's at least one inactive step
+  -- within the bound `n_halt`. Use `firstInactive` to locate the earliest.
+  have h_halt_inactive : Moist.Verified.StepLift.isActive
+      (Moist.Verified.Semantics.steps n_halt (.compute [] ρ t)) = false := by
+    rw [h_halt_v]; simp [Moist.Verified.StepLift.isActive]
+  obtain ⟨K, hK_le, hK_inact, hK_min⟩ := Moist.Verified.StepLift.firstInactive
+    (.compute [] ρ t) n_halt ⟨n_halt, Nat.le_refl _, h_halt_inactive⟩
+  -- At step K, the state is inactive and not error (isPure_no_error).
+  -- So it's either `ret [] v'` or `halt v'` for some `v'` — and in both
+  -- cases, `liftState π` produces `ret π v'`.
+  have hK_not_err : Moist.Verified.Semantics.steps K (.compute [] ρ t) ≠ .error := h_noerr_v K
+  -- Case-analyze the state at step K.
+  have hK_state_ret_pi : ∃ v',
+      Moist.Verified.StepLift.liftState π
+        (Moist.Verified.Semantics.steps K (.compute [] ρ t)) = .ret π v' := by
+    cases h_s : Moist.Verified.Semantics.steps K (.compute [] ρ t) with
+    | compute _ _ _ =>
+      rw [h_s] at hK_inact; simp [Moist.Verified.StepLift.isActive] at hK_inact
+    | ret π' v' =>
+      cases π' with
+      | nil =>
+        refine ⟨v', ?_⟩
+        simp [Moist.Verified.StepLift.liftState]
+      | cons _ _ =>
+        rw [h_s] at hK_inact; simp [Moist.Verified.StepLift.isActive] at hK_inact
+    | halt v' =>
+      refine ⟨v', ?_⟩
+      simp [Moist.Verified.StepLift.liftState]
+    | error => exact absurd h_s hK_not_err
+  obtain ⟨v_ret, h_lift_K⟩ := hK_state_ret_pi
+  -- Lift via steps_liftState at step K (all j < K are active).
+  have h_lift_start : (.compute π ρ t : State) =
+      Moist.Verified.StepLift.liftState π (.compute [] ρ t) := by
+    simp [Moist.Verified.StepLift.liftState]
+  have h_steps_K : Moist.Verified.Semantics.steps K
+      (Moist.Verified.StepLift.liftState π (.compute [] ρ t)) =
+      Moist.Verified.StepLift.liftState π
+        (Moist.Verified.Semantics.steps K (.compute [] ρ t)) :=
+    Moist.Verified.StepLift.steps_liftState π K (.compute [] ρ t) hK_min
+  rw [h_lift_K] at h_steps_K
+  -- Translate to `VerifiedNewNew.Equivalence.steps`.
+  have h_reach_ret : steps K (.compute π ρ t) = .ret π v_ret := by
+    rw [vstep_eq, h_lift_start]; exact h_steps_K
+  refine ⟨K, v_ret, h_reach_ret, ?_⟩
+  intro k hk
+  -- No-error for k ≤ K: for k < K, state at k is active (not error) and
+  -- lifts to a non-error; for k = K, state is `ret π v_ret`, not error.
+  by_cases hk_eq : k = K
+  · rw [hk_eq, h_reach_ret]; exact State.noConfusion
+  · have hk_lt : k < K := by omega
+    have h_lift_k : Moist.Verified.Semantics.steps k
+        (Moist.Verified.StepLift.liftState π (.compute [] ρ t)) =
+        Moist.Verified.StepLift.liftState π
+          (Moist.Verified.Semantics.steps k (.compute [] ρ t)) := by
+      apply Moist.Verified.StepLift.steps_liftState
+      intro j hj; exact hK_min j (by omega)
+    have h_equiv_k : steps k (.compute π ρ t) =
+        Moist.Verified.StepLift.liftState π
+          (Moist.Verified.Semantics.steps k (.compute [] ρ t)) := by
+      rw [vstep_eq, h_lift_start]; exact h_lift_k
+    intro h_err
+    rw [h_err] at h_equiv_k
+    -- The active state at step k can't lift to `.error`, so we get a contradiction.
+    have h_active_k : Moist.Verified.StepLift.isActive
+        (Moist.Verified.Semantics.steps k (.compute [] ρ t)) = true := hK_min k hk_lt
+    cases hs : Moist.Verified.Semantics.steps k (.compute [] ρ t) with
+    | compute _ _ _ => rw [hs] at h_equiv_k; simp [Moist.Verified.StepLift.liftState] at h_equiv_k
+    | ret π' v' =>
+      cases π' with
+      | nil =>
+        rw [hs] at h_active_k
+        simp [Moist.Verified.StepLift.isActive] at h_active_k
+      | cons _ _ => rw [hs] at h_equiv_k; simp [Moist.Verified.StepLift.liftState] at h_equiv_k
+    | halt v' =>
+      rw [hs] at h_active_k
+      simp [Moist.Verified.StepLift.isActive] at h_active_k
+    | error =>
+      rw [hs] at h_active_k
+      simp [Moist.Verified.StepLift.isActive] at h_active_k
+
+--------------------------------------------------------------------------------
 -- 6. uplc_dead_let_refines — the main theorem (no preconditions on rhs)
 --------------------------------------------------------------------------------
 
-/-- Unidirectional dead-let refinement at the UPLC level. The `h_rhs_pure`
-    semantic hypothesis says that `t_rhs` never errors when run in any
-    environment/stack: this is what prevents the unsound transformation
-    `Let x = Error in body ⊑ body` from being provable. The user-facing
-    MIR-level wrapper `dead_let_mirRefines` derives this from the MIR-level
-    `isPure` predicate. -/
+/-- Unidirectional dead-let refinement at the UPLC level. Takes a
+    stack-polymorphic halts-without-error witness for `t_rhs` (the semantic
+    substitute for the syntactic `isPure e` condition): for every stack and
+    every environment `ρ` that is well-sized at depth `d`, `t_rhs` reaches
+    `ret π v_rhs` in some number of steps `m` without passing through
+    `.error` along the way. This is what prevents the unsound
+    transformation `Let x = Error in body ⊑ body`, since `Error`'s lowering
+    would fail the no-error conjunct. The user-facing MIR wrapper
+    `dead_let_mirRefines` derives this from MIR's syntactic `isPure`
+    predicate via `Moist.Verified.Purity.isPure_halts` +
+    `Moist.Verified.Purity.isPure_no_error`. -/
 theorem uplc_dead_let_refines {d : Nat} {t_body : Term} (t_rhs : Term)
     (hclosed : closedAt d t_body = true)
-    (h_rhs_pure : ∀ (ρ : CekEnv) (π : Stack) (n : Nat),
-      steps n (.compute π ρ t_rhs) ≠ .error) :
+    (h_rhs_halts : ∀ (ρ : CekEnv),
+      (∀ n, 0 < n → n ≤ d → ∃ v, ρ.lookup n = some v) →
+      ∀ (π : Stack), ∃ (m : Nat) (v_rhs : CekValue),
+        steps m (.compute π ρ t_rhs) = .ret π v_rhs ∧
+        ∀ k ≤ m, steps k (.compute π ρ t_rhs) ≠ .error) :
     ∀ (k : Nat) (j : Nat), j ≤ k → ∀ (ρ₁ ρ₂ : CekEnv), EnvRefinesK j d ρ₁ ρ₂ →
       ∀ (i : Nat), i ≤ j → ∀ (π₁ π₂ : Stack), StackRefK ValueRefinesK i π₁ π₂ →
         ObsRefinesK i
@@ -1068,6 +1210,14 @@ theorem uplc_dead_let_refines {d : Nat} {t_body : Term} (t_rhs : Term)
           (.compute π₂ ρ₂ t_body) := by
   intro k j hj ρ₁ ρ₂ henv i hi π₁ π₂ hπ
   let shifted := Moist.Verified.renameTerm (Moist.Verified.shiftRename 1) t_body
+  -- Extract ρ₁'s well-sizedness from EnvRefinesK
+  have hwf_ρ₁ : ∀ n, 0 < n → n ≤ d → ∃ v, ρ₁.lookup n = some v := by
+    intro n hn hnd
+    obtain ⟨v_l, _, hl, _, _⟩ := henv n hn hnd
+    exact ⟨v_l, hl⟩
+  -- Get t_rhs's halts-without-error witness for the funV-extended stack
+  obtain ⟨m_rhs, v_rhs, hm_steps_fv, hm_noerr_fv⟩ :=
+    h_rhs_halts ρ₁ hwf_ρ₁ (.funV (.VLam shifted ρ₁) :: π₁)
   refine ⟨?_, ?_⟩
   -- ── Halt clause ──
   · intro v ⟨n, hn_le_i, hs⟩
@@ -1122,10 +1272,11 @@ theorem uplc_dead_let_refines {d : Nat} {t_body : Term} (t_rhs : Term)
     refine ⟨n - 3 - (m + 1), ?_, h_remain_halt⟩
     omega
   -- ── Error clause ──
-  -- LHS errors ⇒ either the initial Apply/Lam steps err (impossible), or
-  -- evaluation of `t_rhs` errs (ruled out by h_rhs_pure), or after the
-  -- funV→compute handoff, `shifted`'s evaluation errors — which we then
-  -- forward to `body` via shiftRefines's error clause.
+  -- LHS errors ⇒ either (a) the initial Apply/Lam steps err (impossible),
+  -- (b) `t_rhs`'s own evaluation errors (ruled out by the no-error conjunct
+  -- of `h_rhs_halts`), or (c) after the funV→compute handoff, `shifted`'s
+  -- evaluation errors — which we forward to `body` via `shiftRefines`'s
+  -- error clause.
   · intro n hn_le_i hs
     have h3 : steps 3 (.compute π₁ ρ₁ (.Apply (.Lam 0 shifted) t_rhs)) =
         .compute (.funV (.VLam shifted ρ₁) :: π₁) ρ₁ t_rhs := by
@@ -1143,9 +1294,40 @@ theorem uplc_dead_let_refines {d : Nat} {t_body : Term} (t_rhs : Term)
       have heq : n = 3 + (n - 3) := by omega
       rw [heq, steps_trans 3 (n - 3), h3] at hs
       exact hs
-    -- Use h_rhs_pure on the extended stack: `t_rhs` under the funV frame is
-    -- still just `t_rhs` evaluating in ρ₁, so purity applies directly.
-    exact absurd hs' (h_rhs_pure ρ₁ (.funV (.VLam shifted ρ₁) :: π₁) (n - 3))
+    -- After `t_rhs` halts to `v_rhs` at step `m_rhs`, the next step dispatches
+    -- the `funV` frame into `compute π₁ (ρ₁.extend v_rhs) shifted`.
+    have h_after_funV :
+        steps (m_rhs + 1) (.compute (.funV (.VLam shifted ρ₁) :: π₁) ρ₁ t_rhs) =
+          .compute π₁ (ρ₁.extend v_rhs) shifted := by
+      rw [steps_trans m_rhs 1, hm_steps_fv]
+      show step (.ret (.funV (.VLam shifted ρ₁) :: π₁) v_rhs) =
+          .compute π₁ (ρ₁.extend v_rhs) shifted
+      rfl
+    -- Case split on whether `n - 3` is within `t_rhs`'s own eval, at the
+    -- funV-dispatch step, or deep into `shifted`'s evaluation.
+    by_cases hcase : n - 3 ≤ m_rhs
+    · -- Within `t_rhs`'s eval — contradicts the no-error conjunct.
+      exact absurd hs' (hm_noerr_fv (n - 3) hcase)
+    · -- Past `t_rhs`'s halting step.
+      have h_gt : n - 3 > m_rhs := Nat.gt_of_not_le hcase
+      by_cases heq : n - 3 = m_rhs + 1
+      · -- Exactly at the funV-dispatch step: state is `compute π₁ … shifted`.
+        rw [heq, h_after_funV] at hs'
+        exact absurd hs' State.noConfusion
+      · -- Strictly past the funV dispatch: error is inside `shifted`'s eval.
+        have hcase' : n - 3 > m_rhs + 1 := by omega
+        have h_shifted_err : steps (n - 3 - (m_rhs + 1))
+            (.compute π₁ (ρ₁.extend v_rhs) shifted) = .error := by
+          have heq' : n - 3 = (m_rhs + 1) + (n - 3 - (m_rhs + 1)) := by omega
+          rw [heq', steps_trans (m_rhs + 1) (n - 3 - (m_rhs + 1)), h_after_funV] at hs'
+          exact hs'
+        have h_shift_refines : ObsRefinesK i
+            (.compute π₁ (ρ₁.extend v_rhs) shifted)
+            (.compute π₂ ρ₂ t_body) := by
+          exact shiftRefines 1 d (by omega) t_body hclosed i i (Nat.le_refl _)
+            (ρ₁.extend v_rhs) ρ₂ (shiftEnvRefK_mono hi (envRefinesK_to_shiftEnvRefK henv))
+            i (Nat.le_refl _) π₁ π₂ hπ
+        exact h_shift_refines.2 (n - 3 - (m_rhs + 1)) (by omega) h_shifted_err
 
 --------------------------------------------------------------------------------
 -- 7. dead_let_mirRefines — MIR-level unidirectional dead-let refinement
@@ -1219,14 +1401,20 @@ theorem dead_let_mirRefines {x : VarId} {e body : Expr} (hcond : MIRDeadLetCond 
         have hclosed : closedAt d body_t = true := by
           have := lowerTotal_closedAt env body body_t hb_env
           rw [hlen] at this; exact this
-        -- TODO(purity-bridge): derive `h_rhs_pure` from `hcond.safe : isPure e`.
-        -- `Verified.Purity.isPure_no_error` gives non-error only for empty
-        -- stack + WellSizedEnv; we need a stack-independent version and a
-        -- WellSizedEnv bridge from EnvRefinesK. Deferred — the semantic shape
-        -- is correct; the bridge is bookkeeping.
-        have h_rhs_pure : ∀ (ρ : CekEnv) (π : Stack) (n : Nat),
-            steps n (.compute π ρ e_t) ≠ .error := by
-          sorry
-        exact uplc_dead_let_refines e_t hclosed h_rhs_pure k j hj ρ₁ ρ₂ henv i hi π₁ π₂ hπ
+        -- Construct the stack-polymorphic halts-without-error witness for
+        -- `e_t` from the MIR-level `isPure e` precondition, via the
+        -- `Moist.Verified.Purity` suite (`isPure_halts` + `isPure_no_error`)
+        -- combined with `Moist.Verified.StepLift.steps_liftState`.
+        have h_rhs_halts : ∀ (ρ : CekEnv),
+            (∀ n, 0 < n → n ≤ d → ∃ v, ρ.lookup n = some v) →
+            ∀ (π : Stack), ∃ (m : Nat) (v_rhs : CekValue),
+              steps m (.compute π ρ e_t) = .ret π v_rhs ∧
+              ∀ k ≤ m, steps k (.compute π ρ e_t) ≠ .error := by
+          intro ρ hwf_ρ
+          have hwf_v : Moist.Verified.Semantics.WellSizedEnv env.length ρ := by
+            show ∀ n, 0 < n → n ≤ env.length → ∃ v, ρ.lookup n = some v
+            rw [hlen]; exact hwf_ρ
+          exact dead_let_pure_stack_poly env e hcond.safe he hwf_v
+        exact uplc_dead_let_refines e_t hclosed h_rhs_halts k j hj ρ₁ ρ₂ henv i hi π₁ π₂ hπ
 
 end Moist.VerifiedNewNew.DeadLetRefines

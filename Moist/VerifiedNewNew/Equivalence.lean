@@ -19,10 +19,13 @@ def steps : Nat → State → State
 
 def Reaches (s s' : State) : Prop := ∃ n : Nat, steps n s = s'
 
-/-- Full observational equivalence: both halt AND error behavior preserved. -/
-def ObsEq (c₁ c₂ : State) : Prop :=
-  ((∃ v₁, Reaches c₁ (.halt v₁)) ↔ (∃ v₂, Reaches c₂ (.halt v₂))) ∧
-  (Reaches c₁ .error ↔ Reaches c₂ .error)
+/-- Full observational equivalence: both halt AND error behavior preserved.
+    Using a `structure` instead of `And ... ∧ ...` sidesteps Lean's anonymous-
+    constructor flattening: `⟨h, e⟩` and `h.halt`/`h.error` remain unambiguous
+    no matter how the inner `Iff`s look. -/
+structure ObsEq (c₁ c₂ : State) : Prop where
+  halt : (∃ v₁, Reaches c₁ (.halt v₁)) ↔ (∃ v₂, Reaches c₂ (.halt v₂))
+  error : Reaches c₁ .error ↔ Reaches c₂ .error
 
 /-- One-way step-indexed observation: halt preservation within k steps and
     error preservation within k steps (including n = 0, i.e. `s₁ = .error`).
@@ -89,12 +92,18 @@ def ValueEqK : Nat → CekValue → CekValue → Prop
 -- 4. OPEN EQUIVALENCE
 --------------------------------------------------------------------------------
 
+/-- **Strict** environment equivalence: every position `1..d` resolves to a
+    `some` pair of `ValueEqK`-related values. No `(none, none)` ghost branch.
+    The length is implied — `lookup n = some _` at every `n ≤ d` forces
+    `d ≤ ρ.length` — but we don't fix `length = d` exactly, which would over-
+    constrain the soundness bridge when the context has more binders than
+    `d` above the hole. This preserves the wellsizedness intent without
+    coupling `d` to the CEK path depth. -/
 def EnvEqK (k d : Nat) (ρ₁ ρ₂ : CekEnv) : Prop :=
   ∀ n, 0 < n → n ≤ d →
-    match ρ₁.lookup n, ρ₂.lookup n with
-    | some v₁, some v₂ => ValueEqK k v₁ v₂
-    | none, none => True
-    | _, _ => False
+    ∃ v₁ v₂, ρ₁.lookup n = some v₁ ∧
+             ρ₂.lookup n = some v₂ ∧
+             ValueEqK k v₁ v₂
 
 def OpenEqK (k d : Nat) (t₁ t₂ : Term) : Prop :=
   ∀ j ≤ k, ∀ ρ₁ ρ₂, EnvEqK j d ρ₁ ρ₂ → BehEqK ValueEqK j ρ₁ ρ₂ t₁ t₂
@@ -367,24 +376,26 @@ theorem valueEqK_mono {j k : Nat} (hjk : j ≤ k) (v₁ v₂ : CekValue)
 
 theorem envEqK_mono {j k d : Nat} (hjk : j ≤ k) {ρ₁ ρ₂ : CekEnv}
     (h : EnvEqK k d ρ₁ ρ₂) : EnvEqK j d ρ₁ ρ₂ := by
-  intro n hn hnd; have h_n := h n hn hnd
-  cases h₁ : ρ₁.lookup n <;> cases h₂ : ρ₂.lookup n <;> simp_all
-  · exact valueEqK_mono hjk _ _ h_n
+  intro n hn hnd
+  obtain ⟨v₁, v₂, hl₁, hl₂, hrel⟩ := h n hn hnd
+  exact ⟨v₁, v₂, hl₁, hl₂, valueEqK_mono hjk _ _ hrel⟩
 
 theorem envEqK_extend {k d : Nat} {ρ₁ ρ₂ : CekEnv} {v₁ v₂ : CekValue}
     (henv : EnvEqK k d ρ₁ ρ₂) (hv : ValueEqK k v₁ v₂) :
     EnvEqK k (d + 1) (ρ₁.extend v₁) (ρ₂.extend v₂) := by
   intro n hn hnd
   by_cases hn1 : n = 1
-  · subst hn1; simp [CekEnv.extend, CekEnv.lookup]; exact hv
-  · -- n ≥ 2: extended lookup shifts to original at n-1
-    have hn2 : n ≥ 2 := by omega
-    simp only [CekEnv.extend]
+  · subst hn1
+    refine ⟨v₁, v₂, ?_, ?_, hv⟩
+    · simp [CekEnv.extend, CekEnv.lookup]
+    · simp [CekEnv.extend, CekEnv.lookup]
+  · have hn2 : n ≥ 2 := by omega
     match n, hn2 with
     | n' + 2, _ =>
-      simp only [CekEnv.lookup]
-      -- Goal: match ρ₁.lookup (n'+1), ρ₂.lookup (n'+1) with ...
-      exact henv (n'+1) (by omega) (by omega)
+      obtain ⟨w₁, w₂, hl₁, hl₂, hrel⟩ := henv (n' + 1) (by omega) (by omega)
+      refine ⟨w₁, w₂, ?_, ?_, hrel⟩
+      · simp [CekEnv.extend, CekEnv.lookup]; exact hl₁
+      · simp [CekEnv.extend, CekEnv.lookup]; exact hl₂
 
 /-- VCon values in ListRel have equal constants, so extractConsts gives the same list. -/
 private theorem extractConsts_eq {k : Nat} {args₁ args₂ : List CekValue}
@@ -1315,9 +1326,9 @@ theorem valueEqK_symm (k : Nat) (v₁ v₂ : CekValue)
 
 theorem envEqK_symm {k d : Nat} {ρ₁ ρ₂ : CekEnv}
     (h : EnvEqK k d ρ₁ ρ₂) : EnvEqK k d ρ₂ ρ₁ := by
-  intro n hn hnd; have h_n := h n hn hnd
-  cases h₁ : ρ₁.lookup n <;> cases h₂ : ρ₂.lookup n <;> simp_all
-  · exact valueEqK_symm k _ _ h_n
+  intro n hn hnd
+  obtain ⟨v₁, v₂, hl₁, hl₂, hrel⟩ := h n hn hnd
+  exact ⟨v₂, v₁, hl₂, hl₁, valueEqK_symm k _ _ hrel⟩
 
 -- ── Reflexivity ──
 
@@ -1404,13 +1415,10 @@ def openEq_refl (d : Nat) (t : Term) (ht : closedAt d t = true) : OpenEq d t t :
         have h1 : ρ₁.lookup 0 = none := by cases ρ₁ <;> rfl
         have h2 : ρ₂.lookup 0 = none := by cases ρ₂ <;> rfl
         simp [h1, h2]; exact obsEqK_error _
-      · have h_n := henv n (by omega) ht
-        revert h_n
-        cases ρ₁.lookup n <;> cases ρ₂.lookup n <;> intro h_n
-        · exact obsEqK_error _
-        · exact absurd h_n id
-        · exact absurd h_n id
-        · exact hπ i' (by omega) _ _ (valueEqK_mono (by omega : i' ≤ j) _ _ h_n)
+      · -- Strict EnvEqK: lookup is guaranteed `some` for `0 < n ≤ d`.
+        obtain ⟨v₁, v₂, hl₁, hl₂, hrel⟩ := henv n (by omega) ht
+        rw [hl₁, hl₂]
+        exact hπ i' (by omega) _ _ (valueEqK_mono (by omega : i' ≤ j) _ _ hrel)
   | .Lam _ body =>
     match i with
     | 0 => obsEqK_zero_nonhalt_auto

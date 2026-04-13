@@ -48,48 +48,71 @@ open Moist.VerifiedNewNew.Contextual.Subst
 -- 1. AtLeastEnvEqK — a `EnvEqK k ∞` style env relation
 --------------------------------------------------------------------------------
 
-/-- Pointwise `ValueEqK` at every position of two CEK environments. Equivalent
-    to `∀ d, EnvEqK k d ρ_l ρ_r`, but more direct. -/
+/-- **Strict** pointwise env relation: both envs have the same length and
+    every position `1..length` is a `some` pair of `ValueEqK`-related values.
+    No `(none, none)` ghost — consistent with the strict `EnvEqK`. -/
 def AtLeastEnvEqK (k : Nat) (ρ_l ρ_r : CekEnv) : Prop :=
-  ∀ n, n > 0 →
-    match ρ_l.lookup n, ρ_r.lookup n with
-    | some v_l, some v_r => ValueEqK k v_l v_r
-    | none, none => True
-    | _, _ => False
+  ρ_l.length = ρ_r.length ∧
+  ∀ n, 0 < n → n ≤ ρ_l.length →
+    ∃ v_l v_r, ρ_l.lookup n = some v_l ∧ ρ_r.lookup n = some v_r ∧ ValueEqK k v_l v_r
 
 /-- The empty env is `AtLeastEnvEqK`-related to itself at any level. -/
 theorem atLeastEnvEqK_nil (k : Nat) : AtLeastEnvEqK k .nil .nil := by
-  intro n _
-  have : (CekEnv.nil).lookup n = none := by cases n <;> rfl
-  rw [this]
-  trivial
+  refine ⟨rfl, ?_⟩
+  intro n _ hn_len
+  -- `.nil.length = 0`, so `n ≤ 0`, combined with `0 < n` gives a contradiction.
+  simp [CekEnv.length] at hn_len
+  omega
 
-/-- `AtLeastEnvEqK` restricts to `EnvEqK k d` for any `d`. -/
+/-- The key bridge: an `AtLeastEnvEqK`-related pair restricts to `EnvEqK k d`
+    at any depth `d` that's within both envs' length. The soundness bridge
+    derives the length fact from `closedAt 0 (fill C t)`, which forces the
+    context to have at least `d` binders above the hole. -/
 theorem atLeastEnvEqK_to_envEqK {k d : Nat} {ρ_l ρ_r : CekEnv}
-    (h : AtLeastEnvEqK k ρ_l ρ_r) : EnvEqK k d ρ_l ρ_r :=
-  fun n hn _ => h n hn
+    (h : AtLeastEnvEqK k ρ_l ρ_r) (hd : d ≤ ρ_l.length) : EnvEqK k d ρ_l ρ_r := by
+  intro n hn hnd
+  exact h.2 n hn (Nat.le_trans hnd hd)
+
+/-- Convenience wrapper used in the `term_obsEq` swap case: combines
+    `AtLeastEnvEqK` (strict, length-matching, fully bound) with an explicit
+    length bound `d ≤ ρ_l.length` to produce `EnvEqK k d`. The bridge carries
+    this length bound as an invariant through `term_obsEq`'s induction. -/
+theorem atLeastEnvEqK_to_envEqK_unconditional {k d : Nat} {ρ_l ρ_r : CekEnv}
+    (h : AtLeastEnvEqK k ρ_l ρ_r) (hd : d ≤ ρ_l.length) : EnvEqK k d ρ_l ρ_r :=
+  atLeastEnvEqK_to_envEqK h hd
 
 /-- Monotonicity in the step index. -/
 theorem atLeastEnvEqK_mono {j k : Nat} (hjk : j ≤ k) {ρ_l ρ_r : CekEnv}
     (h : AtLeastEnvEqK k ρ_l ρ_r) : AtLeastEnvEqK j ρ_l ρ_r := by
-  intro n hn
-  have := h n hn
-  cases h_l : ρ_l.lookup n <;> cases h_r : ρ_r.lookup n <;>
-    simp [h_l, h_r] at this ⊢
-  exact valueEqK_mono hjk _ _ this
+  refine ⟨h.1, ?_⟩
+  intro n hn hnlen
+  obtain ⟨v_l, v_r, hl, hr, hrel⟩ := h.2 n hn hnlen
+  exact ⟨v_l, v_r, hl, hr, valueEqK_mono hjk _ _ hrel⟩
 
 /-- Extending two `AtLeastEnvEqK`-related envs by two `ValueEqK`-related
     values gives an `AtLeastEnvEqK`-related extended pair. -/
 theorem atLeastEnvEqK_extend {k : Nat} {ρ_l ρ_r : CekEnv} {v_l v_r : CekValue}
     (hρ : AtLeastEnvEqK k ρ_l ρ_r) (hv : ValueEqK k v_l v_r) :
     AtLeastEnvEqK k (ρ_l.extend v_l) (ρ_r.extend v_r) := by
-  intro n hn
-  match n, hn with
-  | 1, _ => simp [CekEnv.extend, CekEnv.lookup]; exact hv
-  | n + 2, _ =>
-    have := hρ (n + 1) (by omega)
-    simp [CekEnv.extend, CekEnv.lookup]
-    exact this
+  refine ⟨?_, ?_⟩
+  · -- lengths: `ρ.extend v` is `v :: ρ` so length grows by one on both sides.
+    simp [CekEnv.extend, CekEnv.length, hρ.1]
+  · intro n hn hnlen
+    by_cases h1 : n = 1
+    · subst h1
+      refine ⟨v_l, v_r, ?_, ?_, hv⟩
+      · simp [CekEnv.extend, CekEnv.lookup]
+      · simp [CekEnv.extend, CekEnv.lookup]
+    · have hn2 : n ≥ 2 := by omega
+      have hlen_ext : (ρ_l.extend v_l).length = ρ_l.length + 1 := by
+        simp [CekEnv.extend, CekEnv.length]
+      rw [hlen_ext] at hnlen
+      match n, hn2 with
+      | n' + 2, _ =>
+        obtain ⟨w_l, w_r, hl, hr, hrel⟩ := hρ.2 (n' + 1) (by omega) (by omega)
+        refine ⟨w_l, w_r, ?_, ?_, hrel⟩
+        · simp [CekEnv.extend, CekEnv.lookup]; exact hl
+        · simp [CekEnv.extend, CekEnv.lookup]; exact hr
 
 --------------------------------------------------------------------------------
 -- 2. ObsEqK helpers
@@ -141,11 +164,12 @@ theorem obsEqK_halt (k : Nat) (v_l v_r : CekValue) :
 /-- `AtLeastEnvEqK` is symmetric: pointwise `ValueEqK` is symmetric. -/
 theorem atLeastEnvEqK_symm {k : Nat} {ρ_l ρ_r : CekEnv}
     (h : AtLeastEnvEqK k ρ_l ρ_r) : AtLeastEnvEqK k ρ_r ρ_l := by
-  intro n hn
-  have h' := h n hn
-  cases hl : ρ_l.lookup n <;> cases hr : ρ_r.lookup n <;>
-    simp [hl, hr] at h' ⊢
-  exact valueEqK_symm k _ _ h'
+  refine ⟨h.1.symm, ?_⟩
+  intro n hn hnlen
+  -- `n ≤ ρ_r.length = ρ_l.length` by `h.1`.
+  have hnlen' : n ≤ ρ_l.length := by rw [h.1]; exact hnlen
+  obtain ⟨v_l, v_r, hl, hr, hrel⟩ := h.2 n hn hnlen'
+  exact ⟨v_r, v_l, hr, hl, valueEqK_symm k _ _ hrel⟩
 
 /-- `constrField` frame `StackRelK` constructor. Mirrors `constrField_stackRelK`
     from `Equivalence.lean` but parameterized over a `term_obsEq` IH that handles
@@ -154,13 +178,14 @@ private theorem constrField_helper {d : Nat} {t₁ t₂ : Term}
     (_h_open : OpenEq d t₁ t₂)
     {tag : Nat} {k : Nat}
     (ih_te : ∀ i ≤ k, ∀ {ρ_l ρ_r : CekEnv} {π_l π_r : Stack} {tm_l tm_r : Term},
-      AtLeastEnvEqK i ρ_l ρ_r → StackRelK ValueEqK i π_l π_r →
+      AtLeastEnvEqK i ρ_l ρ_r → d ≤ ρ_l.length → StackRelK ValueEqK i π_l π_r →
       TermSubst t₁ t₂ tm_l tm_r →
       ObsEqK i (.compute π_l ρ_l tm_l) (.compute π_r ρ_r tm_r)) :
     ∀ {ms_l ms_r : List Term}, TermListSubst t₁ t₂ ms_l ms_r →
     ∀ {j : Nat}, j ≤ k →
       ∀ {done_l done_r : List CekValue} {ρ_l ρ_r : CekEnv} {π_l π_r : Stack},
         AtLeastEnvEqK j ρ_l ρ_r →
+        d ≤ ρ_l.length →
         ListRel (ValueEqK j) done_l done_r →
         StackRelK ValueEqK j π_l π_r →
         StackRelK ValueEqK j (.constrField tag done_l ms_l ρ_l :: π_l)
@@ -170,7 +195,7 @@ private theorem constrField_helper {d : Nat} {t₁ t₂ : Term}
   | nil =>
     cases hms with
     | nil =>
-      intro j _ done_l done_r ρ_l ρ_r π_l π_r _ h_done hπ
+      intro j _ done_l done_r ρ_l ρ_r π_l π_r _ _ h_done hπ
       intro j' hj'_j v_l v_r hv
       match j' with
       | 0 =>
@@ -194,7 +219,7 @@ private theorem constrField_helper {d : Nat} {t₁ t₂ : Term}
   | cons m ms_l_rest ih_ms =>
     cases hms with
     | cons hm hms_rest =>
-      intro j hj_k done_l done_r ρ_l ρ_r π_l π_r hρ h_done hπ
+      intro j hj_k done_l done_r ρ_l ρ_r π_l π_r hρ hd h_done hπ
       intro j' hj'_j v_l v_r hv
       match j' with
       | 0 =>
@@ -202,8 +227,8 @@ private theorem constrField_helper {d : Nat} {t₁ t₂ : Term}
       | n + 1 =>
         obsEqK_of_step_auto
         simp only [step]
-        apply ih_te n (by omega) (atLeastEnvEqK_mono (by omega) hρ) ?_ hm
-        exact ih_ms hms_rest (by omega : n ≤ k) (atLeastEnvEqK_mono (by omega) hρ)
+        apply ih_te n (by omega) (atLeastEnvEqK_mono (by omega) hρ) hd ?_ hm
+        exact ih_ms hms_rest (by omega : n ≤ k) (atLeastEnvEqK_mono (by omega) hρ) hd
           (show ListRel (ValueEqK n) (v_l :: done_l) (v_r :: done_r) from
             ⟨valueEqK_mono (by omega) v_l v_r hv,
              listRel_mono (fun a b h => valueEqK_mono (by omega) a b h) h_done⟩)
@@ -213,6 +238,7 @@ theorem term_obsEq {d : Nat} {t₁ t₂ : Term} (h_open : OpenEq d t₁ t₂) :
     ∀ (k : Nat) (i : Nat), i ≤ k →
       ∀ {ρ_l ρ_r : CekEnv} {π_l π_r : Stack} {tm_l tm_r : Term},
         AtLeastEnvEqK i ρ_l ρ_r →
+        d ≤ ρ_l.length →
         StackRelK ValueEqK i π_l π_r →
         TermSubst t₁ t₂ tm_l tm_r →
         ObsEqK i (.compute π_l ρ_l tm_l) (.compute π_r ρ_r tm_r) := by
@@ -222,7 +248,7 @@ theorem term_obsEq {d : Nat} {t₁ t₂ : Term} (h_open : OpenEq d t₁ t₂) :
     intro i hi
     have hi0 : i = 0 := Nat.le_zero.mp hi
     subst hi0
-    intros _ _ _ _ _ _ _ _ _
+    intros _ _ _ _ _ _ _ _ _ _
     obsEqK_zero_nonhalt_auto
   | succ m ih =>
     intro i hi
@@ -232,22 +258,26 @@ theorem term_obsEq {d : Nat} {t₁ t₂ : Term} (h_open : OpenEq d t₁ t₂) :
     · -- i = m + 1
       have hi_eq : i = m + 1 := by omega
       subst hi_eq
-      intro hρ hπ htm
+      intro hρ hd hπ htm
       rename_i ρ_l ρ_r π_l π_r tm_l tm_r
       cases htm with
       | swap =>
-        -- Apply OpenEq 0 t₁ t₂ directly. EnvEqK k 0 is vacuous.
+        -- Apply OpenEq d t₁ t₂ directly; the length bound is our invariant.
         exact h_open (m+1) (m+1) (Nat.le_refl _) ρ_l ρ_r
-          (atLeastEnvEqK_to_envEqK hρ) (m+1) (Nat.le_refl _) π_l π_r hπ
+          (atLeastEnvEqK_to_envEqK_unconditional hρ hd) (m+1) (Nat.le_refl _) π_l π_r hπ
       | swapInv =>
-        -- Apply OpenEq 0 t₁ t₂ with sides swapped, then symmetrize.
+        -- Apply OpenEq d t₁ t₂ with sides swapped, then symmetrize.
         apply obsEqK_symm
+        have hd' : d ≤ ρ_r.length := by rw [← hρ.1]; exact hd
         exact h_open (m+1) (m+1) (Nat.le_refl _) ρ_r ρ_l
-          (atLeastEnvEqK_to_envEqK (atLeastEnvEqK_symm hρ))
+          (atLeastEnvEqK_to_envEqK_unconditional (atLeastEnvEqK_symm hρ) hd')
           (m+1) (Nat.le_refl _) π_r π_l
           (stackRelK_symm_of (fun k' => valueEqK_symm k') hπ)
       | varRefl n =>
-        -- compute → ret with lookup result, or error
+        -- compute → ret with lookup result, or error. With the strict
+        -- AtLeastEnvEqK, `n ≤ ρ_l.length` gives a `some/some` pair directly;
+        -- out-of-range lookups miss on both sides by the length-matching
+        -- invariant of AtLeastEnvEqK.
         obsEqK_of_step_auto
         simp only [step]
         by_cases hn : n = 0
@@ -257,20 +287,20 @@ theorem term_obsEq {d : Nat} {t₁ t₂ : Term} (h_open : OpenEq d t₁ t₂) :
           rw [hl, hr]
           exact obsEqK_error _
         · have hpos : n > 0 := Nat.pos_of_ne_zero hn
-          have hlk := hρ n hpos
-          cases hl : ρ_l.lookup n with
-          | none =>
-            cases hr : ρ_r.lookup n with
-            | none => exact obsEqK_error _
-            | some _ => rw [hl, hr] at hlk; exact absurd hlk id
-          | some v_l =>
-            cases hr : ρ_r.lookup n with
-            | none => rw [hl, hr] at hlk; exact absurd hlk id
-            | some v_r =>
-              rw [hl, hr] at hlk
-              -- hlk : ValueEqK (m+1) v_l v_r
-              exact hπ m (Nat.le_succ m) v_l v_r
-                (valueEqK_mono (Nat.le_succ m) v_l v_r hlk)
+          by_cases hnlen : n ≤ ρ_l.length
+          · obtain ⟨v_l, v_r, hl, hr, hrel⟩ := hρ.2 n hpos hnlen
+            rw [hl, hr]
+            exact hπ m (Nat.le_succ m) v_l v_r
+              (valueEqK_mono (Nat.le_succ m) v_l v_r hrel)
+          · -- n > ρ_l.length: both lookups miss (ρ_r.length = ρ_l.length),
+            -- both sides error.
+            have hl : ρ_l.lookup n = none :=
+              CekEnv.lookup_none_of_gt_length ρ_l n (by omega)
+            have hnr : n > ρ_r.length := by rw [← hρ.1]; omega
+            have hr : ρ_r.lookup n = none :=
+              CekEnv.lookup_none_of_gt_length ρ_r n hnr
+            rw [hl, hr]
+            exact obsEqK_error _
       | constRefl c =>
         -- compute → ret π (VCon c.fst); both sides identical
         obsEqK_of_step_auto
@@ -312,6 +342,10 @@ theorem term_obsEq {d : Nat} {t₁ t₂ : Term} (h_open : OpenEq d t₁ t₂) :
             apply atLeastEnvEqK_extend
             · exact atLeastEnvEqK_mono (by omega) hρ
             · exact valueEqK_mono hi _ _ harg
+          · -- d ≤ (ρ_l.extend arg_l).length = ρ_l.length + 1
+            show d ≤ (ρ_l.extend arg_l).length
+            simp [CekEnv.extend, CekEnv.length]
+            omega
           · -- StackRelK ValueEqK i π_l_app π_r_app — exactly hπ_app
             exact hπ_app
           · exact hb
@@ -319,7 +353,7 @@ theorem term_obsEq {d : Nat} {t₁ t₂ : Term} (h_open : OpenEq d t₁ t₂) :
         -- compute (Apply f a) → compute (.arg a ρ :: π) ρ f
         obsEqK_of_step_auto
         simp only [step]
-        apply ih m (Nat.le_refl m) (atLeastEnvEqK_mono (Nat.le_succ m) hρ) ?_ hf
+        apply ih m (Nat.le_refl m) (atLeastEnvEqK_mono (Nat.le_succ m) hρ) hd ?_ hf
         -- StackRelK m of (.arg a_l ρ_l :: π_l) (.arg a_r ρ_r :: π_r)
         intro j hj_m vf_l vf_r hvf
         match j with
@@ -329,7 +363,7 @@ theorem term_obsEq {d : Nat} {t₁ t₂ : Term} (h_open : OpenEq d t₁ t₂) :
           obsEqK_of_step_auto
           simp only [step]
           -- Stepped to compute (.funV vf :: π) ρ a. Use ih at level j'.
-          apply ih j' (by omega) (atLeastEnvEqK_mono (by omega) hρ) ?_ ha
+          apply ih j' (by omega) (atLeastEnvEqK_mono (by omega) hρ) hd ?_ ha
           -- StackRelK j' of (.funV vf_l :: π_l) (.funV vf_r :: π_r)
           intro j'' hj''_j' w_l w_r hw
           match j'' with
@@ -393,7 +427,7 @@ theorem term_obsEq {d : Nat} {t₁ t₂ : Term} (h_open : OpenEq d t₁ t₂) :
         obsEqK_of_step_auto
         simp only [step]
         -- Apply ih m at the new compute state. Need StackRelK m of (.force :: π).
-        apply ih m (Nat.le_refl m) (atLeastEnvEqK_mono (Nat.le_succ m) hρ) ?_ he
+        apply ih m (Nat.le_refl m) (atLeastEnvEqK_mono (Nat.le_succ m) hρ) hd ?_ he
         -- Build StackRelK m of (.force :: π_l) (.force :: π_r) inline.
         intro j hj_m vf_l vf_r hvf
         match j with
@@ -452,6 +486,7 @@ theorem term_obsEq {d : Nat} {t₁ t₂ : Term} (h_open : OpenEq d t₁ t₂) :
           intro j hj_m' i hi π_l_app π_r_app hπ_app
           apply ih i (by omega)
           · exact atLeastEnvEqK_mono (by omega) hρ
+          · exact hd
           · exact hπ_app
           · exact hb
       | constr hms =>
@@ -469,10 +504,10 @@ theorem term_obsEq {d : Nat} {t₁ t₂ : Term} (h_open : OpenEq d t₁ t₂) :
           -- → compute (.constrField tag [] ms_rest ρ :: π) ρ m
           obsEqK_of_step_auto
           simp only [step]
-          apply ih m (Nat.le_refl m) (atLeastEnvEqK_mono (Nat.le_succ m) hρ) ?_ hm
+          apply ih m (Nat.le_refl m) (atLeastEnvEqK_mono (Nat.le_succ m) hρ) hd ?_ hm
           -- Need StackRelK m of new constrField stack via constrField_helper
           exact constrField_helper h_open ih hms_rest (Nat.le_refl m)
-            (atLeastEnvEqK_mono (Nat.le_succ m) hρ)
+            (atLeastEnvEqK_mono (Nat.le_succ m) hρ) hd
             (show ListRel (ValueEqK m) [] [] from trivial)
             (stackRelK_mono (Nat.le_succ m) hπ)
       | case hs has =>
@@ -480,7 +515,7 @@ theorem term_obsEq {d : Nat} {t₁ t₂ : Term} (h_open : OpenEq d t₁ t₂) :
         -- compute (.Case scrut alts) → compute (.caseScrutinee alts ρ :: π) ρ scrut
         obsEqK_of_step_auto
         simp only [step]
-        apply ih m (Nat.le_refl m) (atLeastEnvEqK_mono (Nat.le_succ m) hρ) ?_ hs
+        apply ih m (Nat.le_refl m) (atLeastEnvEqK_mono (Nat.le_succ m) hρ) hd ?_ hs
         -- StackRelK m of (.caseScrutinee as_l ρ_l :: π_l) (.caseScrutinee as_r ρ_r :: π_r)
         intro j hj_m vf_l vf_r hvf
         match j with
@@ -506,7 +541,7 @@ theorem term_obsEq {d : Nat} {t₁ t₂ : Term} (h_open : OpenEq d t₁ t₂) :
               rw [hl, hr]
               -- compute (fields.map .applyArg ++ π) ρ alt
               -- Use ih at level j'
-              apply ih j' (by omega) (atLeastEnvEqK_mono (by omega) hρ) ?_ halt
+              apply ih j' (by omega) (atLeastEnvEqK_mono (by omega) hρ) hd ?_ halt
               -- StackRelK j' of (fields_l.map .applyArg ++ π_l) ...
               exact applyArgFrames_stackRelK h_fields
                 (stackRelK_mono (by omega) hπ)
@@ -537,7 +572,7 @@ theorem term_obsEq {d : Nat} {t₁ t₂ : Term} (h_open : OpenEq d t₁ t₂) :
                 | inr h =>
                   obtain ⟨alt_l, alt_r, hl, hr, halt⟩ := h
                   rw [hl, hr]
-                  apply ih j' (by omega) (atLeastEnvEqK_mono (by omega) hρ) ?_ halt
+                  apply ih j' (by omega) (atLeastEnvEqK_mono (by omega) hρ) hd ?_ halt
                   -- fields are reflexive VCon — use listRel_refl_vcon
                   have hfields_vcon := constToTagAndFields_fields_vcon c_l
                   rw [h_const] at hfields_vcon
@@ -574,17 +609,22 @@ theorem stackRelK_nil (k : Nat) : StackRelK ValueEqK k [] [] := by
     simp only [step]
     exact obsEqK_halt j' v_l v_r
 
-/-- Helper: instantiate `term_obsEq` at level `n` for an empty-state fill. -/
-private theorem term_obsEq_at {d : Nat} {t₁ t₂ : Term}
-    (h_open : OpenEq d t₁ t₂) (C : Context) (n : Nat) :
+/-- Helper: instantiate `term_obsEq` at level `n` for an empty-state fill.
+    Restricted to `d = 0` since the initial env is empty and we need
+    `d ≤ CekEnv.nil.length = 0`. -/
+private theorem term_obsEq_at {t₁ t₂ : Term}
+    (h_open : OpenEq 0 t₁ t₂) (C : Context) (n : Nat) :
     ObsEqK n (.compute [] .nil (fill C t₁)) (.compute [] .nil (fill C t₂)) :=
   term_obsEq h_open n n (Nat.le_refl _)
-    (atLeastEnvEqK_nil n) (stackRelK_nil n) (fill_termSubst C t₁ t₂)
+    (atLeastEnvEqK_nil n) (Nat.zero_le _) (stackRelK_nil n) (fill_termSubst C t₁ t₂)
 
-/-- The open-context soundness theorem: `OpenEq 0 t₁ t₂` implies that for any
-    context `C`, the empty-state CEK runs of `fill C t₁` and `fill C t₂` are
-    observationally equivalent (halt and error behavior both preserved). -/
-theorem soundness {t₁ t₂ : Term} (h_open : OpenEq 0 t₁ t₂) :
+/-- Pointwise (unconditional) soundness: `OpenEq 0 t₁ t₂` implies
+    `ObsEq` on the empty-state CEK runs of `fill C t₁` and `fill C t₂` for
+    *every* context `C` (no closedness side condition). This is the
+    "strong" form that's provable because at `d = 0` there's no env-depth
+    obligation to discharge at the hole. Used as the main lemma behind
+    `soundness` below. -/
+private theorem soundness_pointwise {t₁ t₂ : Term} (h_open : OpenEq 0 t₁ t₂) :
     ∀ (C : Context),
       ObsEq (.compute [] .nil (fill C t₁)) (.compute [] .nil (fill C t₂)) := by
   intro C
@@ -598,20 +638,23 @@ theorem soundness {t₁ t₂ : Term} (h_open : OpenEq 0 t₁ t₂) :
   · rintro ⟨n, hs⟩
     exact (term_obsEq_at h_open C n).2.2 n (Nat.le_refl _) hs
 
-/-- Depth-indexed variant: `OpenEq d t₁ t₂` at any `d` still gives `ObsEq` on
-    the empty-state runs of any context fill. -/
-theorem soundness_d {d : Nat} {t₁ t₂ : Term} (h_open : OpenEq d t₁ t₂) :
-    ∀ (C : Context),
-      ObsEq (.compute [] .nil (fill C t₁)) (.compute [] .nil (fill C t₂)) := by
-  intro C
-  refine ⟨⟨?_, ?_⟩, ?_, ?_⟩
-  · rintro ⟨v, n, hs⟩
-    exact (term_obsEq_at h_open C n).1.1 v ⟨n, Nat.le_refl _, hs⟩
-  · rintro ⟨v, n, hs⟩
-    exact (term_obsEq_at h_open C n).2.1 v ⟨n, Nat.le_refl _, hs⟩
-  · rintro ⟨n, hs⟩
-    exact (term_obsEq_at h_open C n).1.2 n (Nat.le_refl _) hs
-  · rintro ⟨n, hs⟩
-    exact (term_obsEq_at h_open C n).2.2 n (Nat.le_refl _) hs
+/-- **Soundness**: `OpenEq 0` implies `CtxEq`. The bridge from the
+    semantic open-term equivalence at depth 0 to the guarded contextual
+    equivalence (which takes closedness of the fill as a hypothesis).
+    Directly drops the closedness hypotheses since `soundness_pointwise`
+    proves the conclusion unconditionally.
+
+    Currently restricted to `d = 0`. Supporting general `d > 0` would
+    require an env-extension + locality lemma (for closed-at-d terms,
+    CEK behavior is insensitive to env contents beyond position d). -/
+theorem soundness {t₁ t₂ : Term} (h_open : OpenEq 0 t₁ t₂) : CtxEq t₁ t₂ := by
+  intro C _ _
+  exact soundness_pointwise h_open C
+
+/-- `soundness_d` alias — kept under the historical name for downstream
+    consumers; now an alias for `soundness` after unifying on the
+    `CtxEq`-valued return type. -/
+theorem soundness_d {t₁ t₂ : Term} (h_open : OpenEq 0 t₁ t₂) : CtxEq t₁ t₂ :=
+  soundness h_open
 
 end Moist.VerifiedNewNew.Contextual.Soundness

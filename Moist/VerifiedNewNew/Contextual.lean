@@ -93,33 +93,56 @@ def Context.closedAt : Nat → Context → Bool
         && Moist.VerifiedNewNew.closedAtList d lefts && Context.closedAt d C
         && Moist.VerifiedNewNew.closedAtList d rights
 
+-- The `fill_closedAt_iff` lemma proved further below discharges the
+-- middle-term closedness side conditions on `ctxEq_trans` / `ctxRefines_trans`
+-- at each congruence call site.
+
 /--
-  Two terms are contextually equivalent if, when placed in **any** syntax tree
-  and evaluated in the empty machine, their unbounded termination behavior
-  matches. Contexts are unrestricted — no closedness side condition — because
-  the soundness bridge (`Contextual.Soundness.soundness`) handles open contexts
-  directly via the semantic `term_obsEq` chain.
+  **Guarded** contextual equivalence: `t₁ ≈ t₂` iff for every context `C`
+  that fully closes both `fill C t₁` and `fill C t₂` at depth 0, the empty-
+  state CEK runs are observationally equivalent. The closedness premises
+  ensure that during CEK evaluation we never reach the hole with missing
+  bindings — the context supplies exactly the right number of binders,
+  which lets us bake `ρ.length = d` into `EnvEqK`. Without this guard, we'd
+  have to accept ghost `(none, none)` lookups and the soundness bridge
+  would have no way to discharge the purity obligations that strict-error
+  refinement demands.
 -/
 def CtxEq (t₁ t₂ : Term) : Prop :=
   ∀ (C : Context),
+    closedAt 0 (fill C t₁) = true →
+    closedAt 0 (fill C t₂) = true →
     ObsEq (.compute [] .nil (fill C t₁))
           (.compute [] .nil (fill C t₂))
 
 /--
-  The Transitivity of Contextual Equivalence.
-  `ObsEq` is a conjunction of a halt-Iff and an error-Iff, so trans chains both.
+  Transitivity of guarded contextual equivalence. Needs an auxiliary closedness
+  hypothesis on the intermediate term at every context, which caller-side
+  helpers (`ctxEq_extend`) thread through naturally. The generic form takes
+  it as a side condition; specialized congruence rules discharge it
+  structurally.
 -/
-theorem ctxEq_trans {t₁ t₂ t₃ : Term} :
-  CtxEq t₁ t₂ → CtxEq t₂ t₃ → CtxEq t₁ t₃ := by
-  intro h1 h2 C
-  exact ⟨Iff.trans (h1 C).1 (h2 C).1, Iff.trans (h1 C).2 (h2 C).2⟩
+theorem ctxEq_trans {t₁ t₂ t₃ : Term}
+    (h_closed_mid : ∀ C, closedAt 0 (fill C t₁) = true →
+                          closedAt 0 (fill C t₃) = true →
+                          closedAt 0 (fill C t₂) = true) :
+    CtxEq t₁ t₂ → CtxEq t₂ t₃ → CtxEq t₁ t₃ := by
+  intro h1 h2 C hC1 hC3
+  have hC2 := h_closed_mid C hC1 hC3
+  have eq12 := h1 C hC1 hC2
+  have eq23 := h2 C hC2 hC3
+  exact ObsEq.mk (Iff.trans eq12.halt eq23.halt) (Iff.trans eq12.error eq23.error)
 
-/-- Reflexivity of `CtxEq`. Both halt and error Iffs are `Iff.rfl`. -/
-theorem ctxEq_refl (t : Term) : CtxEq t t := fun _ => ⟨Iff.rfl, Iff.rfl⟩
+/-- Reflexivity of `CtxEq`. -/
+theorem ctxEq_refl (t : Term) : CtxEq t t := by
+  intro C _ _
+  exact ObsEq.mk Iff.rfl Iff.rfl
 
 /-- Symmetry of `CtxEq`. -/
-theorem ctxEq_symm {t₁ t₂ : Term} (h : CtxEq t₁ t₂) : CtxEq t₂ t₁ :=
-  fun C => ⟨(h C).1.symm, (h C).2.symm⟩
+theorem ctxEq_symm {t₁ t₂ : Term} (h : CtxEq t₁ t₂) : CtxEq t₂ t₁ := by
+  intro C hC2 hC1
+  have obs := h C hC1 hC2
+  exact ObsEq.mk obs.halt.symm obs.error.symm
 
 --------------------------------------------------------------------------------
 -- 4. CONTEXT COMPOSITION (plumbing for congruence theorems)
@@ -221,6 +244,163 @@ theorem Context.compose_closedAt {outer inner : Context} :
     simp [Context.closedAt, Context.compose, Context.binders] at houter hinner ⊢
     exact ⟨⟨⟨houter.1.1.1, houter.1.1.2⟩, ih houter.1.2 hinner⟩, houter.2⟩
 
+/-- `closedAtList` distributes over list concatenation. -/
+theorem closedAtList_append (d : Nat) (xs ys : List Term) :
+    closedAtList d (xs ++ ys) = true ↔
+      closedAtList d xs = true ∧ closedAtList d ys = true := by
+  induction xs with
+  | nil => simp [closedAtList]
+  | cons x xs ih =>
+    simp only [List.cons_append, closedAtList, Bool.and_eq_true]
+    constructor
+    · rintro ⟨hx, hrest⟩
+      have := ih.mp hrest
+      exact ⟨⟨hx, this.1⟩, this.2⟩
+    · rintro ⟨⟨hx, hxs⟩, hys⟩
+      exact ⟨hx, ih.mpr ⟨hxs, hys⟩⟩
+
+mutual
+  /-- Monotonicity of `closedAt`: a term closed at depth `d` is also closed
+      at any larger depth. Re-established for `Moist.VerifiedNewNew.closedAt`
+      after its removal from the old Contextual chain (see PathA postmortem). -/
+  theorem closedAt_mono {d d' : Nat} {t : Term} (h : closedAt d t = true) (hle : d ≤ d') :
+      closedAt d' t = true := by
+    cases t with
+    | Var n =>
+      simp only [closedAt] at h ⊢
+      exact decide_eq_true (Nat.le_trans (of_decide_eq_true h) hle)
+    | Lam _ body =>
+      simp only [closedAt] at h ⊢
+      exact closedAt_mono h (by omega)
+    | Apply f x =>
+      simp only [closedAt, Bool.and_eq_true] at h ⊢
+      exact ⟨closedAt_mono h.1 hle, closedAt_mono h.2 hle⟩
+    | Force e =>
+      simp only [closedAt] at h ⊢
+      exact closedAt_mono h hle
+    | Delay e =>
+      simp only [closedAt] at h ⊢
+      exact closedAt_mono h hle
+    | Constr _ args =>
+      simp only [closedAt] at h ⊢
+      exact closedAtList_mono h hle
+    | Case scrut alts =>
+      simp only [closedAt, Bool.and_eq_true] at h ⊢
+      exact ⟨closedAt_mono h.1 hle, closedAtList_mono h.2 hle⟩
+    | Constant _ => simp [closedAt]
+    | Builtin _ => simp [closedAt]
+    | Error => simp [closedAt]
+  termination_by sizeOf t
+
+  /-- Monotonicity of `closedAtList`. -/
+  theorem closedAtList_mono {d d' : Nat} {ts : List Term}
+      (h : closedAtList d ts = true) (hle : d ≤ d') :
+      closedAtList d' ts = true := by
+    cases ts with
+    | nil => simp [closedAtList]
+    | cons t rest =>
+      simp only [closedAtList, Bool.and_eq_true] at h ⊢
+      exact ⟨closedAt_mono h.1 hle, closedAtList_mono h.2 hle⟩
+  termination_by sizeOf ts
+end
+
+/-- `closedAtList` on a singleton unfolds to the element. -/
+theorem closedAtList_singleton (d : Nat) (t : Term) :
+    closedAtList d [t] = true ↔ closedAt d t = true := by
+  simp [closedAtList]
+
+/-- **Decomposition lemma**: closedness of `fill C t` at depth `d` is exactly
+    closedness of `C` at `d` plus closedness of `t` at the shifted depth
+    `d + C.binders`. This is the key lemma that lets us discharge the
+    middle-term closedness side conditions in the transitivity calls of the
+    congruence theorems below. -/
+theorem fill_closedAt_iff (C : Context) (t : Term) :
+    ∀ (d : Nat), closedAt d (fill C t) = true ↔
+      C.closedAt d = true ∧ closedAt (d + C.binders) t = true := by
+  induction C with
+  | Hole =>
+    intro d
+    simp [fill, Context.closedAt, Context.binders]
+  | Lam x C ih =>
+    intro d
+    simp only [fill, closedAt, Context.closedAt, Context.binders]
+    rw [ih (d + 1)]
+    constructor
+    · rintro ⟨hC, ht⟩
+      have : (d + 1) + C.binders = d + (C.binders + 1) := by omega
+      rw [this] at ht
+      exact ⟨hC, ht⟩
+    · rintro ⟨hC, ht⟩
+      have : (d + 1) + C.binders = d + (C.binders + 1) := by omega
+      rw [this]
+      exact ⟨hC, ht⟩
+  | AppLeft C e ih =>
+    intro d
+    simp only [fill, closedAt, Context.closedAt, Context.binders, Bool.and_eq_true]
+    rw [ih d]
+    constructor
+    · rintro ⟨⟨hC, ht⟩, he⟩
+      exact ⟨⟨hC, he⟩, ht⟩
+    · rintro ⟨⟨hC, he⟩, ht⟩
+      exact ⟨⟨hC, ht⟩, he⟩
+  | AppRight e C ih =>
+    intro d
+    simp only [fill, closedAt, Context.closedAt, Context.binders, Bool.and_eq_true]
+    rw [ih d]
+    constructor
+    · rintro ⟨he, hC, ht⟩
+      exact ⟨⟨he, hC⟩, ht⟩
+    · rintro ⟨⟨he, hC⟩, ht⟩
+      exact ⟨he, hC, ht⟩
+  | Delay C ih =>
+    intro d
+    simp only [fill, closedAt, Context.closedAt, Context.binders]
+    exact ih d
+  | Force C ih =>
+    intro d
+    simp only [fill, closedAt, Context.closedAt, Context.binders]
+    exact ih d
+  | Constr tag lefts C rights ih =>
+    intro d
+    simp only [fill, closedAt, Context.closedAt, Context.binders, Bool.and_eq_true]
+    constructor
+    · intro hlist
+      have h1 := (closedAtList_append d (lefts ++ [fill C t]) rights).mp hlist
+      have h2 := (closedAtList_append d lefts [fill C t]).mp h1.1
+      have h3 := (closedAtList_singleton d (fill C t)).mp h2.2
+      have h4 := (ih d).mp h3
+      exact ⟨⟨⟨h2.1, h4.1⟩, h1.2⟩, h4.2⟩
+    · rintro ⟨⟨⟨hL, hC⟩, hR⟩, ht⟩
+      have h3 := (ih d).mpr ⟨hC, ht⟩
+      have h2 := (closedAtList_singleton d (fill C t)).mpr h3
+      have h1 := (closedAtList_append d lefts [fill C t]).mpr ⟨hL, h2⟩
+      exact (closedAtList_append d (lefts ++ [fill C t]) rights).mpr ⟨h1, hR⟩
+  | Case C alts ih =>
+    intro d
+    simp only [fill, closedAt, Context.closedAt, Context.binders, Bool.and_eq_true]
+    rw [ih d]
+    constructor
+    · rintro ⟨⟨hC, ht⟩, hA⟩
+      exact ⟨⟨hC, hA⟩, ht⟩
+    · rintro ⟨⟨hC, hA⟩, ht⟩
+      exact ⟨⟨hC, ht⟩, hA⟩
+  | CaseAlt scrut lefts C rights ih =>
+    intro d
+    simp only [fill, closedAt, Context.closedAt, Context.binders, Bool.and_eq_true]
+    constructor
+    · rintro ⟨hs, hlist⟩
+      have h1 := (closedAtList_append d (lefts ++ [fill C t]) rights).mp hlist
+      have h2 := (closedAtList_append d lefts [fill C t]).mp h1.1
+      have h3 := (closedAtList_singleton d (fill C t)).mp h2.2
+      have h4 := (ih d).mp h3
+      exact ⟨⟨⟨⟨hs, h2.1⟩, h4.1⟩, h1.2⟩, h4.2⟩
+    · rintro ⟨⟨⟨⟨hs, hL⟩, hC⟩, hR⟩, ht⟩
+      have h3 := (ih d).mpr ⟨hC, ht⟩
+      have h2 := (closedAtList_singleton d (fill C t)).mpr h3
+      have h1 := (closedAtList_append d lefts [fill C t]).mpr ⟨hL, h2⟩
+      refine ⟨hs, ?_⟩
+      exact (closedAtList_append d (lefts ++ [fill C t]) rights).mpr ⟨h1, hR⟩
+
 --------------------------------------------------------------------------------
 -- 5. CONGRUENCE THEOREMS FOR CtxEq (port of compat_* from Equivalence)
 --------------------------------------------------------------------------------
@@ -264,7 +444,14 @@ theorem ctxEq_app {f₁ f₂ a₁ a₂ : Term}
   have hB : CtxEq (.Apply f₂ a₁) (.Apply f₂ a₂) := by
     have := ctxEq_extend ha (.AppRight f₂ .Hole)
     simpa [fill] using this
-  exact ctxEq_trans hA hB
+  refine ctxEq_trans ?_ hA hB
+  intro C hC1 hC2
+  have d1 := (fill_closedAt_iff C (.Apply f₁ a₁) 0).mp hC1
+  have d2 := (fill_closedAt_iff C (.Apply f₂ a₂) 0).mp hC2
+  simp only [Nat.zero_add, closedAt, Bool.and_eq_true] at d1 d2
+  refine (fill_closedAt_iff C (.Apply f₂ a₁) 0).mpr ⟨d1.1, ?_⟩
+  simp only [Nat.zero_add, closedAt, Bool.and_eq_true]
+  exact ⟨d2.2.1, d1.2.2⟩
 
 /-- Constr congruence (single-element swap form). Swaps one field at a known
     position inside `pre ++ a :: post`. -/
@@ -296,7 +483,19 @@ private theorem ctxEq_constr_swap_prefix {tag : Nat} {fs₁ fs₂ : List Term}
       have e1 : (pre ++ [f₂]) ++ fs₁ = pre ++ (f₂ :: fs₁) := by simp
       have e2 : (pre ++ [f₂]) ++ fs₂ = pre ++ (f₂ :: fs₂) := by simp
       rw [e1, e2] at hB
-      exact ctxEq_trans hA hB
+      refine ctxEq_trans ?_ hA hB
+      intro C hC1 hC2
+      have d1 := (fill_closedAt_iff C (.Constr tag (pre ++ f₁ :: fs₁)) 0).mp hC1
+      have d2 := (fill_closedAt_iff C (.Constr tag (pre ++ f₂ :: fs₂)) 0).mp hC2
+      simp only [Nat.zero_add, closedAt] at d1 d2
+      have e1' := (closedAtList_append C.binders pre (f₁ :: fs₁)).mp d1.2
+      have e2' := (closedAtList_append C.binders pre (f₂ :: fs₂)).mp d2.2
+      simp only [closedAtList, Bool.and_eq_true] at e1' e2'
+      refine (fill_closedAt_iff C (.Constr tag (pre ++ f₂ :: fs₁)) 0).mpr ⟨d1.1, ?_⟩
+      simp only [Nat.zero_add, closedAt]
+      refine (closedAtList_append C.binders pre (f₂ :: fs₁)).mpr ⟨e1'.1, ?_⟩
+      simp only [closedAtList, Bool.and_eq_true]
+      exact ⟨e2'.2.1, e1'.2.2⟩
 
 /-- General Constr congruence in head-tail form, mirroring `compat_constr`. -/
 theorem ctxEq_constr {tag : Nat} {m₁ m₂ : Term} {ms₁ ms₂ : List Term}
@@ -339,7 +538,20 @@ private theorem ctxEq_case_swap_prefix {scrut : Term} {as₁ as₂ : List Term}
       have e1 : (pre ++ [a₂]) ++ as₁ = pre ++ (a₂ :: as₁) := by simp
       have e2 : (pre ++ [a₂]) ++ as₂ = pre ++ (a₂ :: as₂) := by simp
       rw [e1, e2] at hB
-      exact ctxEq_trans hA hB
+      refine ctxEq_trans ?_ hA hB
+      intro C hC1 hC2
+      have d1 := (fill_closedAt_iff C (.Case scrut (pre ++ a₁ :: as₁)) 0).mp hC1
+      have d2 := (fill_closedAt_iff C (.Case scrut (pre ++ a₂ :: as₂)) 0).mp hC2
+      simp only [Nat.zero_add, closedAt, Bool.and_eq_true] at d1 d2
+      have e1' := (closedAtList_append C.binders pre (a₁ :: as₁)).mp d1.2.2
+      have e2' := (closedAtList_append C.binders pre (a₂ :: as₂)).mp d2.2.2
+      simp only [closedAtList, Bool.and_eq_true] at e1' e2'
+      refine (fill_closedAt_iff C (.Case scrut (pre ++ a₂ :: as₁)) 0).mpr ⟨d1.1, ?_⟩
+      simp only [Nat.zero_add, closedAt, Bool.and_eq_true]
+      refine ⟨d1.2.1, ?_⟩
+      refine (closedAtList_append C.binders pre (a₂ :: as₁)).mpr ⟨e1'.1, ?_⟩
+      simp only [closedAtList, Bool.and_eq_true]
+      exact ⟨e2'.2.1, e1'.2.2⟩
 
 /-- General Case congruence: swap both the scrutinee and the alts pointwise. -/
 theorem ctxEq_case {scrut₁ scrut₂ : Term} {alts₁ alts₂ : List Term}
@@ -350,7 +562,14 @@ theorem ctxEq_case {scrut₁ scrut₂ : Term} {alts₁ alts₂ : List Term}
   have hB : CtxEq (.Case scrut₂ alts₁) (.Case scrut₂ alts₂) := by
     have := ctxEq_case_swap_prefix (scrut := scrut₂) (pre := []) halts
     simpa using this
-  exact ctxEq_trans hA hB
+  refine ctxEq_trans ?_ hA hB
+  intro C hC1 hC2
+  have d1 := (fill_closedAt_iff C (.Case scrut₁ alts₁) 0).mp hC1
+  have d2 := (fill_closedAt_iff C (.Case scrut₂ alts₂) 0).mp hC2
+  simp only [Nat.zero_add, closedAt, Bool.and_eq_true] at d1 d2
+  refine (fill_closedAt_iff C (.Case scrut₂ alts₁) 0).mpr ⟨d1.1, ?_⟩
+  simp only [Nat.zero_add, closedAt, Bool.and_eq_true]
+  exact ⟨d2.2.1, d1.2.2⟩
 
 --------------------------------------------------------------------------------
 -- 6. CONTEXTUAL REFINEMENT
@@ -361,45 +580,68 @@ theorem ctxEq_case {scrut₁ scrut₂ : Term} {alts₁ alts₂ : List Term}
 --------------------------------------------------------------------------------
 
 /-- Observational refinement: `c₂` refines `c₁`'s halt AND error behavior.
-    This prevents unsound transforms like `Let x = Error in 10 ⊑ 10`. -/
-def ObsRefines (c₁ c₂ : State) : Prop :=
-  ((∃ v₁, Reaches c₁ (.halt v₁)) → (∃ v₂, Reaches c₂ (.halt v₂))) ∧
-  (Reaches c₁ .error → Reaches c₂ .error)
+    This prevents unsound transforms like `Let x = Error in 10 ⊑ 10`.
+    Defined as a `structure` for the same reason `ObsEq` is — unambiguous
+    destructuring/construction with `.halt`/`.error`/`ObsRefines.mk`. -/
+structure ObsRefines (c₁ c₂ : State) : Prop where
+  halt : (∃ v₁, Reaches c₁ (.halt v₁)) → (∃ v₂, Reaches c₂ (.halt v₂))
+  error : Reaches c₁ .error → Reaches c₂ .error
 
-/-- Contextual refinement: in any context, if `t₁` converges, so does `t₂`. -/
+/-- **Guarded** contextual refinement: `t₁ ⊑ t₂` iff for every closing context
+    `C`, the empty-state CEK run of `fill C t₁` is halt/error-refined by that
+    of `fill C t₂`. Same closedness guard as `CtxEq`. -/
 def CtxRefines (t₁ t₂ : Term) : Prop :=
   ∀ (C : Context),
+    closedAt 0 (fill C t₁) = true →
+    closedAt 0 (fill C t₂) = true →
     ObsRefines (.compute [] .nil (fill C t₁))
                (.compute [] .nil (fill C t₂))
 
 @[inherit_doc] scoped infix:50 " ⊑Ctx " => CtxRefines
 
 /-- Reflexivity: refinement is the identity implication on both halt and error. -/
-theorem ctxRefines_refl (t : Term) : CtxRefines t t :=
-  fun _ => ⟨fun h => h, fun h => h⟩
+theorem ctxRefines_refl (t : Term) : CtxRefines t t := by
+  intro C _ _
+  exact ObsRefines.mk (fun h => h) (fun h => h)
 
-/-- Transitivity: implication composition on both clauses. -/
-theorem ctxRefines_trans {t₁ t₂ t₃ : Term} :
+/-- Transitivity: implication composition on both clauses. Needs the same
+    middle-term closedness side condition as `ctxEq_trans`. -/
+theorem ctxRefines_trans {t₁ t₂ t₃ : Term}
+    (h_closed_mid : ∀ C, closedAt 0 (fill C t₁) = true →
+                          closedAt 0 (fill C t₃) = true →
+                          closedAt 0 (fill C t₂) = true) :
     CtxRefines t₁ t₂ → CtxRefines t₂ t₃ → CtxRefines t₁ t₃ := by
-  intro h12 h23 C
-  exact ⟨fun h_t1 => (h23 C).1 ((h12 C).1 h_t1),
-         fun h_t1 => (h23 C).2 ((h12 C).2 h_t1)⟩
+  intro h12 h23 C hC1 hC3
+  have hC2 := h_closed_mid C hC1 hC3
+  have ref12 := h12 C hC1 hC2
+  have ref23 := h23 C hC2 hC3
+  exact ObsRefines.mk
+    (fun h_t1 => ref23.halt (ref12.halt h_t1))
+    (fun h_t1 => ref23.error (ref12.error h_t1))
 
 /-- Equivalence subsumes refinement (forward direction). -/
 theorem CtxEq.toCtxRefines {t₁ t₂ : Term} (h : CtxEq t₁ t₂) :
-    CtxRefines t₁ t₂ :=
-  fun C => ⟨(h C).1.mp, (h C).2.mp⟩
+    CtxRefines t₁ t₂ := by
+  intro C hC1 hC2
+  have obs := h C hC1 hC2
+  exact ObsRefines.mk obs.halt.mp obs.error.mp
 
 /-- Equivalence subsumes refinement (backward direction). -/
 theorem CtxEq.toCtxRefines_symm {t₁ t₂ : Term} (h : CtxEq t₁ t₂) :
-    CtxRefines t₂ t₁ :=
-  fun C => ⟨(h C).1.mpr, (h C).2.mpr⟩
+    CtxRefines t₂ t₁ := by
+  intro C hC2 hC1
+  have obs := h C hC1 hC2
+  exact ObsRefines.mk obs.halt.mpr obs.error.mpr
 
 /-- Antisymmetry: bidirectional refinement gives equivalence. -/
 theorem ctxRefines_antisymm {t₁ t₂ : Term} :
     CtxRefines t₁ t₂ → CtxRefines t₂ t₁ → CtxEq t₁ t₂ := by
-  intro h12 h21 C
-  exact ⟨⟨(h12 C).1, (h21 C).1⟩, ⟨(h12 C).2, (h21 C).2⟩⟩
+  intro h12 h21 C hC1 hC2
+  have ref12 := h12 C hC1 hC2
+  have ref21 := h21 C hC2 hC1
+  exact ObsEq.mk
+    (Iff.intro ref12.halt ref21.halt)
+    (Iff.intro ref12.error ref21.error)
 
 /-- Generic single-subterm extension for `CtxRefines`. Mirrors `ctxEq_extend`. -/
 private theorem ctxRefines_extend
@@ -438,7 +680,14 @@ theorem ctxRefines_app {f₁ f₂ a₁ a₂ : Term}
   have hB : CtxRefines (.Apply f₂ a₁) (.Apply f₂ a₂) := by
     have := ctxRefines_extend ha (.AppRight f₂ .Hole)
     simpa [fill] using this
-  exact ctxRefines_trans hA hB
+  refine ctxRefines_trans ?_ hA hB
+  intro C hC1 hC2
+  have d1 := (fill_closedAt_iff C (.Apply f₁ a₁) 0).mp hC1
+  have d2 := (fill_closedAt_iff C (.Apply f₂ a₂) 0).mp hC2
+  simp only [Nat.zero_add, closedAt, Bool.and_eq_true] at d1 d2
+  refine (fill_closedAt_iff C (.Apply f₂ a₁) 0).mpr ⟨d1.1, ?_⟩
+  simp only [Nat.zero_add, closedAt, Bool.and_eq_true]
+  exact ⟨d2.2.1, d1.2.2⟩
 
 /-- Constr single-position congruence for `CtxRefines`. -/
 theorem ctxRefines_constr_one {tag : Nat} {a b : Term} {pre post : List Term}
@@ -467,7 +716,19 @@ private theorem ctxRefines_constr_swap_prefix {tag : Nat} {fs₁ fs₂ : List Te
       have e1 : (pre ++ [f₂]) ++ fs₁ = pre ++ (f₂ :: fs₁) := by simp
       have e2 : (pre ++ [f₂]) ++ fs₂ = pre ++ (f₂ :: fs₂) := by simp
       rw [e1, e2] at hB
-      exact ctxRefines_trans hA hB
+      refine ctxRefines_trans ?_ hA hB
+      intro C hC1 hC2
+      have d1 := (fill_closedAt_iff C (.Constr tag (pre ++ f₁ :: fs₁)) 0).mp hC1
+      have d2 := (fill_closedAt_iff C (.Constr tag (pre ++ f₂ :: fs₂)) 0).mp hC2
+      simp only [Nat.zero_add, closedAt] at d1 d2
+      have e1' := (closedAtList_append C.binders pre (f₁ :: fs₁)).mp d1.2
+      have e2' := (closedAtList_append C.binders pre (f₂ :: fs₂)).mp d2.2
+      simp only [closedAtList, Bool.and_eq_true] at e1' e2'
+      refine (fill_closedAt_iff C (.Constr tag (pre ++ f₂ :: fs₁)) 0).mpr ⟨d1.1, ?_⟩
+      simp only [Nat.zero_add, closedAt]
+      refine (closedAtList_append C.binders pre (f₂ :: fs₁)).mpr ⟨e1'.1, ?_⟩
+      simp only [closedAtList, Bool.and_eq_true]
+      exact ⟨e2'.2.1, e1'.2.2⟩
 
 /-- General Constr congruence for `CtxRefines` in head-tail form. -/
 theorem ctxRefines_constr {tag : Nat} {m₁ m₂ : Term} {ms₁ ms₂ : List Term}
@@ -511,7 +772,20 @@ private theorem ctxRefines_case_swap_prefix {scrut : Term} {as₁ as₂ : List T
       have e1 : (pre ++ [a₂]) ++ as₁ = pre ++ (a₂ :: as₁) := by simp
       have e2 : (pre ++ [a₂]) ++ as₂ = pre ++ (a₂ :: as₂) := by simp
       rw [e1, e2] at hB
-      exact ctxRefines_trans hA hB
+      refine ctxRefines_trans ?_ hA hB
+      intro C hC1 hC2
+      have d1 := (fill_closedAt_iff C (.Case scrut (pre ++ a₁ :: as₁)) 0).mp hC1
+      have d2 := (fill_closedAt_iff C (.Case scrut (pre ++ a₂ :: as₂)) 0).mp hC2
+      simp only [Nat.zero_add, closedAt, Bool.and_eq_true] at d1 d2
+      have e1' := (closedAtList_append C.binders pre (a₁ :: as₁)).mp d1.2.2
+      have e2' := (closedAtList_append C.binders pre (a₂ :: as₂)).mp d2.2.2
+      simp only [closedAtList, Bool.and_eq_true] at e1' e2'
+      refine (fill_closedAt_iff C (.Case scrut (pre ++ a₂ :: as₁)) 0).mpr ⟨d1.1, ?_⟩
+      simp only [Nat.zero_add, closedAt, Bool.and_eq_true]
+      refine ⟨d1.2.1, ?_⟩
+      refine (closedAtList_append C.binders pre (a₂ :: as₁)).mpr ⟨e1'.1, ?_⟩
+      simp only [closedAtList, Bool.and_eq_true]
+      exact ⟨e2'.2.1, e1'.2.2⟩
 
 /-- General Case congruence for `CtxRefines`: swap scrutinee and alts pointwise. -/
 theorem ctxRefines_case {scrut₁ scrut₂ : Term} {alts₁ alts₂ : List Term}
@@ -523,7 +797,14 @@ theorem ctxRefines_case {scrut₁ scrut₂ : Term} {alts₁ alts₂ : List Term}
   have hB : CtxRefines (.Case scrut₂ alts₁) (.Case scrut₂ alts₂) := by
     have := ctxRefines_case_swap_prefix (scrut := scrut₂) (pre := []) halts
     simpa using this
-  exact ctxRefines_trans hA hB
+  refine ctxRefines_trans ?_ hA hB
+  intro C hC1 hC2
+  have d1 := (fill_closedAt_iff C (.Case scrut₁ alts₁) 0).mp hC1
+  have d2 := (fill_closedAt_iff C (.Case scrut₂ alts₂) 0).mp hC2
+  simp only [Nat.zero_add, closedAt, Bool.and_eq_true] at d1 d2
+  refine (fill_closedAt_iff C (.Case scrut₂ alts₁) 0).mpr ⟨d1.1, ?_⟩
+  simp only [Nat.zero_add, closedAt, Bool.and_eq_true]
+  exact ⟨d2.2.1, d1.2.2⟩
 
 /-!
 ### Soundness

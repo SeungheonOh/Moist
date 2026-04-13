@@ -1,4 +1,3 @@
-import Moist.VerifiedNewNew.MIR
 import Moist.VerifiedNewNew.Rename
 import Moist.MIR.Analysis
 import Moist.MIR.LowerTotal
@@ -24,7 +23,6 @@ open Moist.CEK
 open Moist.MIR (Expr VarId lowerTotalExpr lowerTotal lowerTotalLet
                  fixCount fixCountBinds freeVars isPure)
 open Moist.Plutus.Term (Term)
-open Moist.VerifiedNewNew.MIR
 open Moist.VerifiedNewNew (closedAt closedAtList)
 
 --------------------------------------------------------------------------------

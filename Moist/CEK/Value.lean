@@ -94,6 +94,25 @@ def lookup : CekEnv → Nat → Option CekValue
 @[inline] def extend (env : CekEnv) (v : CekValue) : CekEnv :=
   .cons v env
 
+/-- Number of bindings. -/
+def length : CekEnv → Nat
+  | .nil => 0
+  | .cons _ rest => rest.length + 1
+
+/-- Looking up an index beyond the env length returns `none`. Recursive
+    definition because `CekEnv` is part of a mutual inductive and cannot be
+    inducted over with `induction`. -/
+theorem lookup_none_of_gt_length : ∀ (ρ : CekEnv) (n : Nat),
+    n > ρ.length → ρ.lookup n = none
+  | .nil, n, _ => by cases n <;> rfl
+  | .cons _ _, 0, _ => rfl
+  | .cons _ rest, 1, h => by simp [length] at h
+  | .cons _ rest, n + 2, h => by
+    show rest.lookup (n + 1) = none
+    apply lookup_none_of_gt_length
+    simp [length] at h
+    omega
+
 end CekEnv
 
 /-! ## Pretty Printing -/
