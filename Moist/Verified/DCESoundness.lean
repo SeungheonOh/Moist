@@ -1,6 +1,6 @@
 import Moist.Verified.MIR
 import Moist.Verified.MIR.Congruence
-import Moist.Verified.DeadLetRefines
+import Moist.Verified.DeadLet
 import Moist.MIR.Optimize.DCE
 
 /-! # Soundness of MIR Dead Code Elimination
@@ -354,7 +354,7 @@ private theorem dead_let_mirCtxRefines {x : VarId} {e body : Expr}
     (hsafe : Moist.MIR.isPure e = true) :
     MIRCtxRefines (.Let [(x, e, false)] body) body := by
   refine mirRefines_to_mirCtxRefines
-    (Moist.Verified.DeadLetRefines.dead_let_mirRefines hunused hsafe) ?_
+    (Moist.Verified.DeadLet.dead_let_mirRefines hunused hsafe) ?_
   intro env k t₁ t₂ hlow₁ hlow₂ hclosed
   -- Unfold lowerTotalExpr on both sides through expandFix
   have hlet_eq : lowerTotalExpr env (.Let [(x, e, false)] body) =

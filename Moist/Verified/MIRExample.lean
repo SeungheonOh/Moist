@@ -1,4 +1,4 @@
-import Moist.Verified.DeadLetRefines
+import Moist.Verified.DeadLet
 
 /-! # MIR Dead Let Elimination Examples
 
@@ -9,7 +9,7 @@ namespace Moist.Verified.MIRExample
 
 open Moist.MIR (Expr VarId freeVars)
 open Moist.Verified.MIR
-open Moist.Verified.DeadLetRefines
+open Moist.Verified.DeadLet
 
 private def a : VarId := { uid := 0, hint := "a" }
 private def x : VarId := { uid := 1, hint := "x" }

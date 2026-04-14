@@ -4,7 +4,6 @@ import Moist.Verified.Contextual
 import Moist.Verified.Contextual.Congruence
 import Moist.Verified.Contextual.Soundness
 import Moist.Verified.Contextual.SoundnessRefines
-import Moist.Verified.DeadLet
 import Moist.Verified.Definitions.MIR
 import Moist.MIR.LowerTotal
 
@@ -42,13 +41,95 @@ open Moist.Verified.Contextual.SoundnessRefines
   (EnvRefinesK BehRefinesK ValueRefinesK StackRefK OpenRefinesK OpenRefines
    soundness_refines obsRefines_of_openRefines)
 
+/-! ## `lowerTotal` preserves `closedAt`
+
+Bridging lemmas connecting `Moist.MIR.lowerTotal` with the
+`Moist.Verified.closedAt` predicate. Used by `lowerTotalExpr_closedAt`
+below (and indirectly by the dead-let refinement proof). -/
+
+open Moist.MIR (envLookupT_bound lowerTotalList) in
+mutual
+  theorem lowerTotal_closedAt (env : List VarId) (e : Expr) (t : Moist.Plutus.Term.Term)
+      (h : Moist.MIR.lowerTotal env e = some t) : closedAt env.length t = true := by
+    match e with
+    | .Var x =>
+      simp only [Moist.MIR.lowerTotal.eq_1] at h; split at h
+      · rename_i idx hlook; injection h with h; subst h; simp [closedAt]
+        have := envLookupT_bound env x idx hlook; omega
+      · injection h
+    | .Lit (c, ty) =>
+      simp only [Moist.MIR.lowerTotal.eq_2] at h; injection h with h; subst h; simp [closedAt]
+    | .Builtin b =>
+      simp only [Moist.MIR.lowerTotal.eq_3] at h; injection h with h; subst h; simp [closedAt]
+    | .Error =>
+      simp only [Moist.MIR.lowerTotal.eq_4] at h; injection h with h; subst h; simp [closedAt]
+    | .Lam x body =>
+      simp only [Moist.MIR.lowerTotal.eq_5, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+      obtain ⟨body', hbody, heq⟩ := h; injection heq with heq; subst heq
+      simp only [closedAt]; have := lowerTotal_closedAt (x :: env) body body' hbody
+      simp at this; exact this
+    | .App f x =>
+      simp only [Moist.MIR.lowerTotal.eq_6, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+      obtain ⟨f', hf, x', hx, heq⟩ := h; injection heq with heq; subst heq
+      simp only [closedAt, Bool.and_eq_true]
+      exact ⟨lowerTotal_closedAt env f f' hf, lowerTotal_closedAt env x x' hx⟩
+    | .Force inner =>
+      simp only [Moist.MIR.lowerTotal.eq_7, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+      obtain ⟨inner', hinner, heq⟩ := h; injection heq with heq; subst heq
+      simp only [closedAt]; exact lowerTotal_closedAt env inner inner' hinner
+    | .Delay inner =>
+      simp only [Moist.MIR.lowerTotal.eq_8, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+      obtain ⟨inner', hinner, heq⟩ := h; injection heq with heq; subst heq
+      simp only [closedAt]; exact lowerTotal_closedAt env inner inner' hinner
+    | .Constr tag args =>
+      simp only [Moist.MIR.lowerTotal.eq_9, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+      obtain ⟨args', hargs, heq⟩ := h; injection heq with heq; subst heq
+      simp only [closedAt]; exact lowerTotalList_closedAtList env args args' hargs
+    | .Case scrut alts =>
+      simp only [Moist.MIR.lowerTotal.eq_10, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+      obtain ⟨scrut', hscrut, alts', halts, heq⟩ := h; injection heq with heq; subst heq
+      simp only [closedAt, Bool.and_eq_true]
+      exact ⟨lowerTotal_closedAt env scrut scrut' hscrut,
+             lowerTotalList_closedAtList env alts alts' halts⟩
+    | .Let binds body =>
+      simp only [Moist.MIR.lowerTotal.eq_11] at h; exact lowerTotalLet_closedAt env binds body t h
+    | .Fix _ _ => simp only [Moist.MIR.lowerTotal.eq_12] at h; injection h
+  termination_by sizeOf e
+
+  theorem lowerTotalList_closedAtList (env : List VarId) (es : List Expr)
+      (ts : List Moist.Plutus.Term.Term) (h : Moist.MIR.lowerTotalList env es = some ts) :
+      Moist.Verified.closedAtList env.length ts = true := by
+    match es with
+    | [] => simp only [Moist.MIR.lowerTotalList.eq_1] at h; injection h with h; subst h; simp [Moist.Verified.closedAtList]
+    | e :: rest =>
+      simp only [Moist.MIR.lowerTotalList.eq_2, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+      obtain ⟨t, ht, ts', hts, heq⟩ := h; injection heq with heq; subst heq
+      simp only [Moist.Verified.closedAtList, Bool.and_eq_true]
+      exact ⟨lowerTotal_closedAt env e t ht, lowerTotalList_closedAtList env rest ts' hts⟩
+  termination_by sizeOf es
+
+  theorem lowerTotalLet_closedAt (env : List VarId)
+      (binds : List (VarId × Expr × Bool)) (body : Expr) (t : Moist.Plutus.Term.Term)
+      (h : Moist.MIR.lowerTotalLet env binds body = some t) :
+      closedAt env.length t = true := by
+    match binds with
+    | [] => simp only [Moist.MIR.lowerTotalLet.eq_1] at h; exact lowerTotal_closedAt env body t h
+    | (x, rhs, _) :: rest =>
+      simp only [Moist.MIR.lowerTotalLet.eq_2, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+      obtain ⟨rhs', hrhs, rest', hrest, heq⟩ := h; injection heq with heq; subst heq
+      simp only [closedAt, Bool.and_eq_true]
+      have := lowerTotalLet_closedAt (x :: env) rest body rest' hrest
+      simp at this; exact ⟨this, lowerTotal_closedAt env rhs rhs' hrhs⟩
+  termination_by sizeOf binds + sizeOf body
+end
+
 /-- Lift `lowerTotal_closedAt` through `lowerTotalExpr`'s extra `expandFix`
     step: if `lowerTotalExpr env e = some t`, then `t` is closed at
     `env.length`. -/
 private theorem lowerTotalExpr_closedAt {env : List VarId} {e : Expr} {t : Moist.Plutus.Term.Term}
     (h : lowerTotalExpr env e = some t) : closedAt env.length t = true := by
   simp only [Moist.MIR.lowerTotalExpr] at h
-  exact Moist.Verified.DeadLet.lowerTotal_closedAt env (Moist.MIR.expandFix e) t h
+  exact lowerTotal_closedAt env (Moist.MIR.expandFix e) t h
 
 --------------------------------------------------------------------------------
 -- 1. LIFTING `OpenRefines` TO MIR
