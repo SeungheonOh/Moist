@@ -129,7 +129,7 @@ end
     `lowerTotalLet env (expandFixBinds binds) (expandFix body)`. Holds for any
     binds/body, including those containing Fix nodes. The expansion happens
     inside `expandFix` on the Let constructor. -/
-private theorem lowerTotalExpr_let (env : List VarId)
+theorem lowerTotalExpr_let (env : List VarId)
     (binds : List (VarId × Expr × Bool)) (body : Expr) :
     lowerTotalExpr env (.Let binds body) =
       lowerTotalLet env (Moist.MIR.expandFixBinds binds) (Moist.MIR.expandFix body) := by
@@ -214,7 +214,7 @@ private theorem lowerTotalLet_ctxRefines_body_swap :
 
 /-- MIR-level body swap congruence for `.Let`. The lowering goes through
     `expandFix` internally. -/
-private theorem mirCtxRefines_let_body
+theorem mirCtxRefines_let_body
     {binds : List (VarId × Expr × Bool)} {body₁ body₂ : Expr}
     (h : MIRCtxRefines body₁ body₂) :
     MIRCtxRefines (.Let binds body₁) (.Let binds body₂) := by
@@ -241,7 +241,7 @@ private theorem mirCtxRefines_let_body
 
 /-- MIR-level head-rhs swap congruence for `.Let`. The lowering goes through
     `expandFix` internally. -/
-private theorem mirCtxRefines_let_rhs_head
+theorem mirCtxRefines_let_rhs_head
     {x : VarId} {rhs₁ rhs₂ : Expr} {er : Bool}
     {rest : List (VarId × Expr × Bool)} {body : Expr}
     (h : MIRCtxRefines rhs₁ rhs₂) :
@@ -303,13 +303,13 @@ private theorem mirCtxRefines_let_rhs_head
 /-- `lowerTotalExpr env (.Let [] body) = lowerTotalExpr env body` definitionally
     via `lowerTotalExpr → lowerTotal ∘ expandFix → lowerTotal on .Let → lowerTotalLet`
     → nil case → `lowerTotal env (expandFix body)` = `lowerTotalExpr env body`. -/
-private theorem lowerTotalExpr_let_nil_eq (env : List VarId) (body : Expr) :
+theorem lowerTotalExpr_let_nil_eq (env : List VarId) (body : Expr) :
     lowerTotalExpr env (.Let [] body) = lowerTotalExpr env body := by
   simp only [lowerTotalExpr, Moist.MIR.expandFix, Moist.MIR.expandFixBinds, Moist.MIR.lowerTotal,
     Moist.MIR.lowerTotalLet]
 
 /-- An empty `.Let [] body` is `MIRCtxRefines`-equivalent to `body`. -/
-private theorem mirCtxRefines_let_nil {body : Expr} :
+theorem mirCtxRefines_let_nil {body : Expr} :
     MIRCtxRefines (.Let [] body) body := by
   intro env
   rw [lowerTotalExpr_let_nil_eq env body]
@@ -393,7 +393,7 @@ private theorem dead_let_mirCtxRefines {x : VarId} {e body : Expr}
 
 /-- Per-binding rhs swap congruence for `.Let`. Pass-through proof using the
     head-rhs and body helpers. -/
-private theorem mirCtxRefines_let_binds_congr :
+theorem mirCtxRefines_let_binds_congr :
     ∀ (binds₁ binds₂ : List (VarId × Expr × Bool)) (body : Expr),
       ListRel (fun b₁ b₂ => b₁.1 = b₂.1 ∧ b₁.2.2 = b₂.2.2 ∧
                             MIRCtxRefines b₁.2.1 b₂.2.1) binds₁ binds₂ →

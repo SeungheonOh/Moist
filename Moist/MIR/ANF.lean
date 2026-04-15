@@ -16,34 +16,28 @@ def anfAtom (e : Expr) : FreshM (Expr × List (VarId × Expr × Bool)) := do
   if e.isAtom then
     pure (e, [])
   else
-    match e with
-    | .Let binds body =>
-      if body.isAtom then
-        pure (body, binds)
-      else
-        let v ← freshVar "anf"
-        pure (.Var v, binds ++ [(v, body, false)])
-    | _ =>
-      let v ← freshVar "anf"
-      pure (.Var v, [(v, e, false)])
+    let v ← freshVar "anf"
+    pure (.Var v, [(v, e, false)])
 
-private def wrapLet (binds : List (VarId × Expr × Bool)) (body : Expr) : Expr :=
+def wrapLet (binds : List (VarId × Expr × Bool)) (body : Expr) : Expr :=
   match binds with
   | [] => body
   | _ => .Let binds body
 
-private def flattenLetBinds (normalized : List (VarId × Expr × Bool)) : List (VarId × Expr × Bool) :=
+def flattenLetBinds (normalized : List (VarId × Expr × Bool)) : List (VarId × Expr × Bool) :=
   normalized.foldl (fun acc (v, e', er) =>
     match e' with
     | .Let innerBinds innerBody => acc ++ innerBinds ++ [(v, innerBody, er)]
     | _ => acc ++ [(v, e', er)]) []
 
-private def flattenLetBody (binds : List (VarId × Expr × Bool)) (body : Expr) : Expr :=
+def flattenLetBody (binds : List (VarId × Expr × Bool)) (body : Expr) : Expr :=
   match body with
   | .Let innerBinds innerBody => .Let (binds ++ innerBinds) innerBody
   | _ => .Let binds body
 
-partial def anfNormalize : Expr → FreshM Expr
+mutual
+
+def anfNormalize : Expr → FreshM Expr
   | .App f x => do
     let f' ← anfNormalize f
     let x' ← anfNormalize x
@@ -59,23 +53,20 @@ partial def anfNormalize : Expr → FreshM Expr
   | .Case scrut alts => do
     let scrut' ← anfNormalize scrut
     let (atom, binds) ← anfAtom scrut'
-    let alts' ← alts.mapM anfNormalize
+    let alts' ← anfNormalizeList alts
     pure (wrapLet binds (.Case atom alts'))
 
   | .Constr tag args => do
-    let args' ← args.mapM anfNormalize
+    let args' ← anfNormalizeList args
     let results ← args'.mapM anfAtom
     let atoms := results.map Prod.fst
     let allBinds := results.foldl (fun acc (_, bs) => acc ++ bs) []
     pure (wrapLet allBinds (.Constr tag atoms))
 
   | .Let binds body => do
-    let normalized ← binds.mapM fun (v, e, er) => do
-      let e' ← anfNormalize e
-      pure (v, e', er)
-    let flatBinds := flattenLetBinds normalized
+    let normalized ← anfNormalizeBinds binds
     let body' ← anfNormalize body
-    pure (flattenLetBody flatBinds body')
+    pure (flattenLetBody normalized body')
 
   | .Fix f body => do
     let body' ← anfNormalize body
@@ -90,6 +81,23 @@ partial def anfNormalize : Expr → FreshM Expr
     pure (.Delay e')
 
   | e => pure e
+
+def anfNormalizeList : List Expr → FreshM (List Expr)
+  | [] => pure []
+  | e :: rest => do
+    let e' ← anfNormalize e
+    let rest' ← anfNormalizeList rest
+    pure (e' :: rest')
+
+def anfNormalizeBinds :
+    List (VarId × Expr × Bool) → FreshM (List (VarId × Expr × Bool))
+  | [] => pure []
+  | (v, e, er) :: rest => do
+    let e' ← anfNormalize e
+    let rest' ← anfNormalizeBinds rest
+    pure ((v, e', er) :: rest')
+
+end
 
 def anfNormalizeProof (e : Expr) : FreshM ANFExpr := do
   let normalized ← anfNormalize e

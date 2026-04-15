@@ -1727,7 +1727,7 @@ def fixLamWrapUplc (body_l : Moist.Plutus.Term.Term) : Moist.Plutus.Term.Term :=
                     (.Lam 0 (.Apply (.Apply (.Var 2) (.Var 2)) (.Var 1)))))
 
 /-- Small helper: `envLookupT (v :: env) v = some 0`. -/
-private theorem envLookupT_cons_self (v : VarId) (env : List VarId) :
+theorem envLookupT_cons_self (v : VarId) (env : List VarId) :
     envLookupT (v :: env) v = some 0 := by
   unfold envLookupT envLookupT.go
   have : (v == v) = true := by rw [VarId.beq_true_iff]
