@@ -442,6 +442,35 @@ mutual
   termination_by sizeOf binds + sizeOf body
 end
 
+/-! ## maxUid arithmetic helpers (generally reusable for any pass) -/
+
+theorem maxUidExpr_le_maxUidExprList_of_mem {x : Expr} {es : List Expr}
+    (h : x ∈ es) : maxUidExpr x ≤ maxUidExprList es := by
+  induction es with
+  | nil => exact absurd h (by simp)
+  | cons e rest ih =>
+    simp only [maxUidExprList]
+    rcases List.mem_cons.mp h with rfl | h
+    · omega
+    · have := ih h; omega
+
+theorem maxUidExprBinds_append (xs ys : List (VarId × Expr × Bool)) :
+    maxUidExprBinds (xs ++ ys) ≤ max (maxUidExprBinds xs) (maxUidExprBinds ys) := by
+  induction xs with
+  | nil => simp [maxUidExprBinds]
+  | cons b rest ih =>
+    obtain ⟨v, rhs, er⟩ := b
+    show maxUidExprBinds ((v, rhs, er) :: (rest ++ ys)) ≤ _
+    simp only [maxUidExprBinds]; omega
+
+theorem maxUidExprList_append (xs ys : List Expr) :
+    maxUidExprList (xs ++ ys) ≤ max (maxUidExprList xs) (maxUidExprList ys) := by
+  induction xs with
+  | nil => simp [maxUidExprList]
+  | cons x rest ih =>
+    show maxUidExprList (x :: (rest ++ ys)) ≤ _
+    simp only [maxUidExprList]; omega
+
 /-! ## lowerTotal append unused -/
 
 -- Helper: env agreement for shadow case
