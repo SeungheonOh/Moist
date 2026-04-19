@@ -1366,32 +1366,86 @@ theorem steps_error_fixed : ∀ (n : Nat), steps n (.error : State) = .error
 -- For now, state the theorem and provide the structural framework.
 --------------------------------------------------------------------------------
 
-/-- The direct lifting from `SubstBisimState` to `ObsRefines`. This is the
-    key theorem for interfacing SubstBisim with the contextual refinement
-    framework. Proof structure:
-      - LHS halts/errors ↔ RHS halts/errors (with matching halt values via
-        `SubstBisimValue`).
-      - Uses CEK step analysis + the evalBuiltin/constToTagAndFields compat
-        lemmas for the fiddly cases.
+/-- Weak step preservation: one step of LHS corresponds to ≥ 1 steps of RHS,
+    maintaining the bisim. For most cases (non-Var/non-Var=pos), m = 1 (strong
+    bisim). For Var=pos, m is the step count to evaluate `replacement` to its
+    cached value `v_repl` plus 1 (the ret step). -/
+theorem substBisimState_step_preserves_weak :
+    ∀ {s₁ s₂ : State}, SubstBisimState s₁ s₂ →
+    ∃ m, SubstBisimState (step s₁) (steps m s₂) := by
+  intro s₁ s₂ h
+  -- Full proof: case analysis on h, mirroring shiftBisimState_step_preserves
+  -- in BetaValueRefines.lean (which is ~400 lines), with the Var=pos case
+  -- using `value_stack_poly` / `halt_descends_to_baseπ` to extract
+  -- replacement's evaluation trace (number of steps m).
+  --
+  -- Most cases: m = 1 (strong 1-1 step match). The Var=pos case dispatches
+  -- on the structure of `replacement`:
+  --   - Atom rep (.Var/.Lit/.Builtin): m ≈ 2-3 (admin steps).
+  --   - Value rep (.Lam/.Delay/.Constr): m ≈ 2-5.
+  --   - Compound rep: m depends on rep's evaluation.
+  -- After m RHS steps, both sides are at `.ret π v_repl` — SubstBisim-related.
+  sorry
 
-    The Var=pos case is the crux: LHS evaluates var 1 → lookup → v_repl in
-    one step, while RHS evaluates `replacement` → same v_repl in multiple
-    steps. Both converge, so ObsRefines holds. -/
+/-- Iterated step preservation derived from weak step preservation. -/
+theorem substBisimState_steps_preserves_weak :
+    ∀ (n : Nat) {s₁ s₂ : State},
+    SubstBisimState s₁ s₂ →
+    ∃ m, SubstBisimState (steps n s₁) (steps m s₂) := by
+  intro n
+  induction n with
+  | zero => intro _ _ h; exact ⟨0, h⟩
+  | succ k ih =>
+    intro s₁ s₂ h
+    obtain ⟨m₀, h_step⟩ := substBisimState_step_preserves_weak h
+    obtain ⟨m₁, h_next⟩ := ih h_step
+    refine ⟨m₀ + m₁, ?_⟩
+    -- steps (k+1) s₁ = steps k (step s₁). And steps (m₀ + m₁) s₂ = steps m₁ (steps m₀ s₂).
+    show SubstBisimState (steps (k + 1) s₁) (steps (m₀ + m₁) s₂)
+    have hlhs : steps (k + 1) s₁ = steps k (step s₁) := by simp [steps]
+    have hrhs : steps (m₀ + m₁) s₂ = steps m₁ (steps m₀ s₂) :=
+      steps_trans m₀ m₁ s₂
+    rw [hlhs, hrhs]
+    exact h_next
+
+/-- Halt inversion: SubstBisimState (halt v₁) s forces s = halt v₂ with
+    SubstBisimValue v₁ v₂. -/
+theorem substBisimState_halt_inv : ∀ {v : CekValue} {s : State},
+    SubstBisimState (.halt v) s → ∃ v', s = .halt v' ∧ SubstBisimValue v v'
+  | _, _, .halt h_v => ⟨_, rfl, h_v⟩
+
+/-- Error inversion. -/
+theorem substBisimState_error_inv : ∀ {s : State},
+    SubstBisimState .error s → s = .error
+  | _, .error => rfl
+
+/-- Ret inversion. -/
+theorem substBisimState_ret_inv : ∀ {π : Stack} {v : CekValue} {s : State},
+    SubstBisimState (.ret π v) s →
+    ∃ π' v', s = .ret π' v' ∧ SubstBisimValue v v' ∧ SubstBisimStack π π'
+  | _, _, _, .ret h_v h_π => ⟨_, _, rfl, h_v, h_π⟩
+
+/-- The direct lifting from `SubstBisimState` to `ObsRefines`. Uses weak
+    step preservation + halt/error inversions. -/
 theorem substBisimState_to_obsRefines :
     ∀ {s₁ s₂ : State}, SubstBisimState s₁ s₂ → ObsRefines s₁ s₂ := by
   intro s₁ s₂ h
-  -- Full proof requires ~400 lines of CEK case analysis mirroring
-  -- step_preserves for shift bisim + additional admin-step reasoning
-  -- for the Var=pos case (where replacement multi-steps to v_repl).
-  --
-  -- The halt case follows from:
-  --   1. Reaches s₁ (halt v₁) = ∃ n, steps n s₁ = halt v₁.
-  --   2. Bisim preservation through n steps (with possibly more steps on RHS).
-  --   3. RHS reaches halt v₂ with SubstBisimValue v₁ v₂.
-  --   4. In particular, ∃ v₂, Reaches s₂ (halt v₂).
-  --
-  -- The error case: similar, with error instead of halt.
-  sorry
+  refine ObsRefines.mk ?_ ?_
+  · -- Halt clause
+    intro ⟨v, n, hs⟩
+    -- Reaches s₁ (halt v): ∃ n, steps n s₁ = halt v.
+    -- Apply iterated weak step preservation: ∃ m, SubstBisimState (halt v) (steps m s₂).
+    -- By halt_inv: steps m s₂ = halt v' with SubstBisimValue v v'.
+    obtain ⟨m, hm⟩ := substBisimState_steps_preserves_weak n h
+    rw [hs] at hm
+    obtain ⟨v', hv'_eq, _hv_rel⟩ := substBisimState_halt_inv hm
+    exact ⟨v', m, hv'_eq⟩
+  · -- Error clause
+    intro ⟨n, hs⟩
+    obtain ⟨m, hm⟩ := substBisimState_steps_preserves_weak n h
+    rw [hs] at hm
+    have : steps m s₂ = .error := substBisimState_error_inv hm
+    exact ⟨m, this⟩
 
 --------------------------------------------------------------------------------
 -- 12. Reflexivity of SubstBisimValue at well-formed values
