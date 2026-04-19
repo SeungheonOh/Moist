@@ -4592,4 +4592,127 @@ theorem shiftBisimValue_to_valueRefinesK :
 
 end ShiftBisimValueRefines
 
+--------------------------------------------------------------------------------
+-- 19g. ShiftBisim reflexivity at identity σ on well-formed structures.
+--------------------------------------------------------------------------------
+
+section ShiftBisimRefl
+open Moist.Verified.FundamentalRefines (is0preserving_id)
+
+mutual
+
+theorem shiftBisimValue_refl_id_aux : ∀ {v : CekValue}
+    (h : ValueWellFormed v), ShiftBisimValue v v
+  | _, .vcon c => ShiftBisimValue.vcon c
+  | _, .vlam (body := body) (ρ := ρ) (k := k) hρ hlen hc => by
+    have hρrefl : ShiftBisimEnv id k ρ ρ := shiftBisimEnv_refl_id_aux hρ
+    have h_result := ShiftBisimValue.vlam is0preserving_id hρrefl hc
+    have h_eq : Moist.Verified.renameTerm (Moist.Verified.liftRename id) body = body := by
+      rw [Moist.Verified.liftRename_id]; exact Moist.Verified.renameTerm_id body
+    rw [h_eq] at h_result
+    exact h_result
+  | _, .vdelay (body := body) (ρ := ρ) (k := k) hρ hlen hc => by
+    have hρrefl : ShiftBisimEnv id k ρ ρ := shiftBisimEnv_refl_id_aux hρ
+    have h_result := ShiftBisimValue.vdelay is0preserving_id hρrefl hc
+    have h_eq : Moist.Verified.renameTerm id body = body := Moist.Verified.renameTerm_id body
+    rw [h_eq] at h_result
+    exact h_result
+  | _, .vconstr tag hfs =>
+    ShiftBisimValue.vconstr tag (shiftBisimValueList_refl_id_aux hfs)
+  | _, .vbuiltin b ea hargs =>
+    ShiftBisimValue.vbuiltin b ea (shiftBisimValueList_refl_id_aux hargs)
+
+theorem shiftBisimValueList_refl_id_aux : ∀ {vs : List CekValue}
+    (h : ValueListWellFormed vs), ShiftBisimValueList vs vs
+  | _, .nil => ShiftBisimValueList.nil
+  | _, .cons hv hrest =>
+    ShiftBisimValueList.cons (shiftBisimValue_refl_id_aux hv)
+      (shiftBisimValueList_refl_id_aux hrest)
+
+theorem shiftBisimEnv_refl_id_aux : ∀ {d : Nat} {ρ : CekEnv}
+    (h : EnvWellFormed d ρ), ShiftBisimEnv id d ρ ρ
+  | _, _, .zero => ShiftBisimEnv.zero
+  | _, _, .succ hrest hlen hlookup hvwf =>
+    ShiftBisimEnv.succ (shiftBisimEnv_refl_id_aux hrest)
+      hlookup hlookup (shiftBisimValue_refl_id_aux hvwf)
+
+end
+
+/-- Public alias. -/
+theorem shiftBisimValue_refl_id : ∀ (v : CekValue),
+    ValueWellFormed v → ShiftBisimValue v v := fun _ h => shiftBisimValue_refl_id_aux h
+
+/-- Public alias. -/
+theorem shiftBisimValueList_refl_id : ∀ (vs : List CekValue),
+    ValueListWellFormed vs → ShiftBisimValueList vs vs := fun _ h => shiftBisimValueList_refl_id_aux h
+
+/-- Public alias. -/
+theorem shiftBisimEnv_refl_id : ∀ (d : Nat) (ρ : CekEnv),
+    EnvWellFormed d ρ → ShiftBisimEnv id d ρ ρ := fun _ _ h => shiftBisimEnv_refl_id_aux h
+
+/-- Helper: `renameTermList id = id`. -/
+private theorem renameTermList_id_aux : ∀ (ts : List Moist.Plutus.Term.Term),
+    Moist.Verified.renameTermList id ts = ts
+  | [] => rfl
+  | t :: rest => by
+    simp only [Moist.Verified.renameTermList, Moist.Verified.renameTerm_id]
+    exact congrArg _ (renameTermList_id_aux rest)
+
+/-- Well-formed stack is ShiftBisim-related to itself at identity σ. -/
+theorem shiftBisimStack_refl_id : ∀ (π : Stack),
+    StackWellFormed π → ShiftBisimStack π π
+  | [], _ => ShiftBisimStack.nil
+  | f :: rest, h => by
+    cases h with
+    | cons hf hrest =>
+      refine ShiftBisimStack.cons ?_ (shiftBisimStack_refl_id rest hrest)
+      cases hf with
+      | force => exact ShiftBisimFrame.force
+      | @arg t ρ k hρ hlen hclosed =>
+        have hρrefl := shiftBisimEnv_refl_id k ρ hρ
+        have h_result := ShiftBisimFrame.arg is0preserving_id hρrefl hclosed
+        have h_eq : Moist.Verified.renameTerm id t = t := Moist.Verified.renameTerm_id t
+        rw [h_eq] at h_result
+        exact h_result
+      | funV hv => exact ShiftBisimFrame.funV (shiftBisimValue_refl_id _ hv)
+      | applyArg hv => exact ShiftBisimFrame.applyArg (shiftBisimValue_refl_id _ hv)
+      | @constrField tag done todo ρ k hdone hρ hlen hclosed =>
+        have hρrefl := shiftBisimEnv_refl_id k ρ hρ
+        have h_result := ShiftBisimFrame.constrField tag is0preserving_id
+          (shiftBisimValueList_refl_id done hdone) hρrefl hclosed
+        have h_eq : Moist.Verified.renameTermList id todo = todo :=
+          renameTermList_id_aux todo
+        rw [h_eq] at h_result
+        exact h_result
+      | @caseScrutinee alts ρ k hρ hlen hclosed =>
+        have hρrefl := shiftBisimEnv_refl_id k ρ hρ
+        have h_result := ShiftBisimFrame.caseScrutinee is0preserving_id hρrefl hclosed
+        have h_eq : Moist.Verified.renameTermList id alts = alts :=
+          renameTermList_id_aux alts
+        rw [h_eq] at h_result
+        exact h_result
+
+end ShiftBisimRefl
+
+/-- Build `ShiftBisimEnv (shiftRename 1) d ρ_tail (ρ_tail.extend v0)`. -/
+theorem shiftBisimEnv_shift_extend : ∀ (d : Nat) (ρ_tail : CekEnv) (v0 : CekValue),
+    EnvWellFormed d ρ_tail →
+    ShiftBisimEnv (Moist.Verified.shiftRename 1) d ρ_tail (ρ_tail.extend v0) := by
+  intro d
+  induction d with
+  | zero => intros; exact ShiftBisimEnv.zero
+  | succ n ih =>
+    intro ρ_tail v0 hwf
+    cases hwf with
+    | @succ _ _ v hrest hlen hlookup hvwf =>
+      have hrec := ih ρ_tail v0 hrest
+      have hsr : Moist.Verified.shiftRename 1 (n + 1) = n + 2 := by
+        rw [Moist.Verified.shiftRename_ge (by omega : n + 1 ≥ 1)]
+      refine ShiftBisimEnv.succ hrec hlookup ?_ (shiftBisimValue_refl_id v hvwf)
+      rw [hsr]
+      have hlook₂ : (ρ_tail.extend v0).lookup (n + 2) = ρ_tail.lookup (n + 1) :=
+        extend_lookup_succ ρ_tail v0 (n + 1) (by omega)
+      rw [hlook₂]
+      exact hlookup
+
 end Moist.Verified.BetaValueRefines
