@@ -4025,4 +4025,451 @@ theorem shiftBisimValueList_evalBuiltin {b : BuiltinFun}
               simp only [evalBuiltin, hpt₂, hec₂, hbc]
             rw [hn] at this
             exact Option.noConfusion this
+
+theorem shiftBisimValueList_constToTagAndFields_refl :
+    ∀ {c : Const} {tag numCtors : Nat} {fs : List CekValue},
+      constToTagAndFields c = some (tag, numCtors, fs) → ShiftBisimValueList fs fs := by
+  intro c tag numCtors fs hc
+  cases c with
+  | Integer n =>
+    simp only [constToTagAndFields] at hc
+    split at hc
+    · simp only [Option.some.injEq, Prod.mk.injEq] at hc
+      obtain ⟨_, _, hfs⟩ := hc
+      subst hfs
+      exact ShiftBisimValueList.nil
+    · exact Option.noConfusion hc
+  | ByteString _ => simp [constToTagAndFields] at hc
+  | String _ => simp [constToTagAndFields] at hc
+  | Unit =>
+    simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
+    obtain ⟨_, _, hfs⟩ := hc
+    subst hfs
+    exact ShiftBisimValueList.nil
+  | Bool b =>
+    cases b <;>
+    · simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
+      obtain ⟨_, _, hfs⟩ := hc
+      subst hfs
+      exact ShiftBisimValueList.nil
+  | ConstList l =>
+    cases l with
+    | nil =>
+      simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
+      obtain ⟨_, _, hfs⟩ := hc
+      subst hfs
+      exact ShiftBisimValueList.nil
+    | cons head tail =>
+      simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
+      obtain ⟨_, _, hfs⟩ := hc
+      subst hfs
+      exact ShiftBisimValueList.cons (ShiftBisimValue.vcon _)
+              (ShiftBisimValueList.cons (ShiftBisimValue.vcon _) ShiftBisimValueList.nil)
+  | ConstDataList l =>
+    cases l with
+    | nil =>
+      simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
+      obtain ⟨_, _, hfs⟩ := hc
+      subst hfs
+      exact ShiftBisimValueList.nil
+    | cons head tail =>
+      simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
+      obtain ⟨_, _, hfs⟩ := hc
+      subst hfs
+      exact ShiftBisimValueList.cons (ShiftBisimValue.vcon _)
+              (ShiftBisimValueList.cons (ShiftBisimValue.vcon _) ShiftBisimValueList.nil)
+  | ConstPairDataList _ => simp [constToTagAndFields] at hc
+  | Pair p =>
+    obtain ⟨a, b⟩ := p
+    simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
+    obtain ⟨_, _, hfs⟩ := hc
+    subst hfs
+    exact ShiftBisimValueList.cons (ShiftBisimValue.vcon _)
+            (ShiftBisimValueList.cons (ShiftBisimValue.vcon _) ShiftBisimValueList.nil)
+  | PairData p =>
+    obtain ⟨a, b⟩ := p
+    simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
+    obtain ⟨_, _, hfs⟩ := hc
+    subst hfs
+    exact ShiftBisimValueList.cons (ShiftBisimValue.vcon _)
+            (ShiftBisimValueList.cons (ShiftBisimValue.vcon _) ShiftBisimValueList.nil)
+  | Data _ => simp [constToTagAndFields] at hc
+  | ConstArray _ => simp [constToTagAndFields] at hc
+  | Bls12_381_G1_element => simp [constToTagAndFields] at hc
+  | Bls12_381_G2_element => simp [constToTagAndFields] at hc
+  | Bls12_381_MlResult => simp [constToTagAndFields] at hc
+
+--------------------------------------------------------------------------------
+-- 19d. step_preserves — the main shift bisimulation theorem
+--------------------------------------------------------------------------------
+
+/-- The shift bisimulation is preserved by one CEK step. -/
+theorem shiftBisimState_step_preserves : ∀ {s₁ s₂ : State},
+    ShiftBisimState s₁ s₂ → ShiftBisimState (step s₁) (step s₂) := by
+  intro s₁ s₂ h
+  cases h with
+  | halt h_v => exact ShiftBisimState.halt h_v
+  | error => exact ShiftBisimState.error
+  | @compute π₁ π₂ ρ₁ ρ₂ t σ d h_σ hρ h_closed hπ =>
+    cases t with
+    | Var n =>
+      -- LHS: compute π₁ ρ₁ (.Var n) → match ρ₁.lookup n
+      -- RHS: compute π₂ ρ₂ (renameTerm σ (.Var n)) = compute π₂ ρ₂ (.Var (σ n)) →
+      --       match ρ₂.lookup (σ n)
+      show ShiftBisimState
+        (match ρ₁.lookup n with | some v => .ret π₁ v | none => .error)
+        (match ρ₂.lookup (σ n) with | some v => .ret π₂ v | none => .error)
+      by_cases hn : n = 0
+      · subst hn
+        have h_σ0 : σ 0 = 0 := h_σ.1
+        have h1 : ρ₁.lookup 0 = none := by cases ρ₁ <;> rfl
+        have h2 : ρ₂.lookup 0 = none := by cases ρ₂ <;> rfl
+        rw [h1]
+        rw [h_σ0, h2]
+        exact ShiftBisimState.error
+      · have hpos : 0 < n := Nat.pos_of_ne_zero hn
+        have h_n_le_d : n ≤ d := by
+          simp only [closedAt, decide_eq_true_eq] at h_closed
+          exact h_closed
+        obtain ⟨v₁, v₂, hl₁, hl₂, h_v⟩ := shiftBisimEnv_lookup σ d hρ hpos h_n_le_d
+        rw [hl₁, hl₂]
+        exact ShiftBisimState.ret h_v hπ
+    | Constant p =>
+      show ShiftBisimState (.ret π₁ (.VCon p.1)) (.ret π₂ (.VCon p.1))
+      exact ShiftBisimState.ret (ShiftBisimValue.vcon p.1) hπ
+    | Builtin b =>
+      show ShiftBisimState (.ret π₁ (.VBuiltin b [] (expectedArgs b)))
+                            (.ret π₂ (.VBuiltin b [] (expectedArgs b)))
+      exact ShiftBisimState.ret
+        (ShiftBisimValue.vbuiltin b (expectedArgs b) ShiftBisimValueList.nil) hπ
+    | Lam _ body =>
+      have h_body : closedAt (d + 1) body = true := by
+        simp only [closedAt] at h_closed; exact h_closed
+      show ShiftBisimState (.ret π₁ (.VLam body ρ₁))
+                            (.ret π₂ (.VLam (Moist.Verified.renameTerm
+                              (Moist.Verified.liftRename σ) body) ρ₂))
+      exact ShiftBisimState.ret (ShiftBisimValue.vlam h_σ hρ h_body) hπ
+    | Delay body =>
+      have h_body : closedAt d body = true := by
+        simp only [closedAt] at h_closed; exact h_closed
+      show ShiftBisimState (.ret π₁ (.VDelay body ρ₁))
+                            (.ret π₂ (.VDelay (Moist.Verified.renameTerm σ body) ρ₂))
+      exact ShiftBisimState.ret (ShiftBisimValue.vdelay h_σ hρ h_body) hπ
+    | Force e =>
+      have h_e : closedAt d e = true := by
+        simp only [closedAt] at h_closed; exact h_closed
+      show ShiftBisimState (.compute (.force :: π₁) ρ₁ e)
+                            (.compute (.force :: π₂) ρ₂ (Moist.Verified.renameTerm σ e))
+      exact ShiftBisimState.compute h_σ hρ h_e
+        (ShiftBisimStack.cons ShiftBisimFrame.force hπ)
+    | Apply f x =>
+      have h_fx : closedAt d f = true ∧ closedAt d x = true := by
+        simp only [closedAt, Bool.and_eq_true] at h_closed; exact h_closed
+      show ShiftBisimState (.compute (.arg x ρ₁ :: π₁) ρ₁ f)
+                            (.compute (.arg (Moist.Verified.renameTerm σ x) ρ₂ :: π₂) ρ₂
+                              (Moist.Verified.renameTerm σ f))
+      exact ShiftBisimState.compute h_σ hρ h_fx.1
+              (ShiftBisimStack.cons (ShiftBisimFrame.arg h_σ hρ h_fx.2) hπ)
+    | Constr tag args =>
+      cases args with
+      | nil =>
+        show ShiftBisimState (.ret π₁ (.VConstr tag [])) (.ret π₂ (.VConstr tag []))
+        exact ShiftBisimState.ret
+          (ShiftBisimValue.vconstr tag ShiftBisimValueList.nil) hπ
+      | cons m ms =>
+        have h_mms : closedAt d m = true ∧ closedAtList d ms = true := by
+          simp only [closedAt, closedAtList, Bool.and_eq_true] at h_closed
+          exact h_closed
+        show ShiftBisimState (.compute (.constrField tag [] ms ρ₁ :: π₁) ρ₁ m)
+                              (.compute (.constrField tag [] (Moist.Verified.renameTermList σ ms)
+                                ρ₂ :: π₂) ρ₂ (Moist.Verified.renameTerm σ m))
+        exact ShiftBisimState.compute h_σ hρ h_mms.1
+                (ShiftBisimStack.cons
+                  (ShiftBisimFrame.constrField tag h_σ ShiftBisimValueList.nil hρ h_mms.2)
+                  hπ)
+    | Case scrut alts =>
+      have h_sa : closedAt d scrut = true ∧ closedAtList d alts = true := by
+        simp only [closedAt, Bool.and_eq_true] at h_closed; exact h_closed
+      show ShiftBisimState (.compute (.caseScrutinee alts ρ₁ :: π₁) ρ₁ scrut)
+                            (.compute (.caseScrutinee (Moist.Verified.renameTermList σ alts)
+                              ρ₂ :: π₂) ρ₂ (Moist.Verified.renameTerm σ scrut))
+      exact ShiftBisimState.compute h_σ hρ h_sa.1
+              (ShiftBisimStack.cons
+                (ShiftBisimFrame.caseScrutinee h_σ hρ h_sa.2)
+                hπ)
+    | Error => exact ShiftBisimState.error
+  | @ret π₁ π₂ v₁ v₂ h_v hπ =>
+    cases hπ with
+    | nil => exact ShiftBisimState.halt h_v
+    | @cons f₁ f₂ π₁' π₂' h_f h_rest =>
+      cases h_f with
+      | force =>
+        cases h_v with
+        | vcon c => exact ShiftBisimState.error
+        | vlam _ _ _ => exact ShiftBisimState.error
+        | @vdelay body ρ₁' ρ₂' σ' d' h_σ' hρ' h_body =>
+          show ShiftBisimState (.compute π₁' ρ₁' body)
+                                (.compute π₂' ρ₂' (Moist.Verified.renameTerm σ' body))
+          exact ShiftBisimState.compute h_σ' hρ' h_body h_rest
+        | vconstr tag _ => exact ShiftBisimState.error
+        | @vbuiltin b ea args₁ args₂ h_args =>
+          cases ea with
+          | one k =>
+            cases k with
+            | argV => exact ShiftBisimState.error
+            | argQ =>
+              have ⟨h_some, h_iff⟩ := @shiftBisimValueList_evalBuiltin b args₁ args₂ h_args
+              cases he₁ : evalBuiltin b args₁ with
+              | some v₁' =>
+                obtain ⟨v₂', he₂, h_v_rel⟩ := h_some v₁' he₁
+                show ShiftBisimState
+                  (match evalBuiltin b args₁ with | some v => .ret π₁' v | none => .error)
+                  (match evalBuiltin b args₂ with | some v => .ret π₂' v | none => .error)
+                rw [he₁, he₂]
+                exact ShiftBisimState.ret h_v_rel h_rest
+              | none =>
+                have he₂ : evalBuiltin b args₂ = none := h_iff.mp he₁
+                show ShiftBisimState
+                  (match evalBuiltin b args₁ with | some v => .ret π₁' v | none => .error)
+                  (match evalBuiltin b args₂ with | some v => .ret π₂' v | none => .error)
+                rw [he₁, he₂]
+                exact ShiftBisimState.error
+          | more k rest =>
+            cases k with
+            | argV => exact ShiftBisimState.error
+            | argQ =>
+              exact ShiftBisimState.ret
+                (ShiftBisimValue.vbuiltin b rest h_args) h_rest
+      | @arg t ρ₁' ρ₂' σ' d' h_σ' hρ' h_t =>
+        show ShiftBisimState (.compute (.funV v₁ :: π₁') ρ₁' t)
+                              (.compute (.funV v₂ :: π₂') ρ₂'
+                                (Moist.Verified.renameTerm σ' t))
+        exact ShiftBisimState.compute h_σ' hρ' h_t
+                (ShiftBisimStack.cons (ShiftBisimFrame.funV h_v) h_rest)
+      | @funV v_f₁ v_f₂ h_vf =>
+        cases h_vf with
+        | vcon _ => exact ShiftBisimState.error
+        | @vlam body ρ₁' ρ₂' σ' d' h_σ' hρ' h_body =>
+          show ShiftBisimState (.compute π₁' (ρ₁'.extend v₁) body)
+                                (.compute π₂' (ρ₂'.extend v₂)
+                                  (Moist.Verified.renameTerm
+                                    (Moist.Verified.liftRename σ') body))
+          have hρ'' := shiftBisimEnv_extend h_σ' d' hρ' h_v
+          exact ShiftBisimState.compute (is0preserving_lift σ') hρ'' h_body h_rest
+        | vdelay _ _ _ => exact ShiftBisimState.error
+        | vconstr _ _ => exact ShiftBisimState.error
+        | @vbuiltin b ea args₁ args₂ h_args =>
+          cases ea with
+          | one k =>
+            cases k with
+            | argQ => exact ShiftBisimState.error
+            | argV =>
+              have h_args' : ShiftBisimValueList (v₁ :: args₁) (v₂ :: args₂) :=
+                ShiftBisimValueList.cons h_v h_args
+              have ⟨h_some, h_iff⟩ :=
+                @shiftBisimValueList_evalBuiltin b (v₁ :: args₁) (v₂ :: args₂) h_args'
+              cases he₁ : evalBuiltin b (v₁ :: args₁) with
+              | some v_r₁ =>
+                obtain ⟨v_r₂, he₂, h_v_rel⟩ := h_some v_r₁ he₁
+                show ShiftBisimState
+                  (match evalBuiltin b (v₁ :: args₁) with
+                    | some v => .ret π₁' v | none => .error)
+                  (match evalBuiltin b (v₂ :: args₂) with
+                    | some v => .ret π₂' v | none => .error)
+                rw [he₁, he₂]
+                exact ShiftBisimState.ret h_v_rel h_rest
+              | none =>
+                have he₂ : evalBuiltin b (v₂ :: args₂) = none := h_iff.mp he₁
+                show ShiftBisimState
+                  (match evalBuiltin b (v₁ :: args₁) with
+                    | some v => .ret π₁' v | none => .error)
+                  (match evalBuiltin b (v₂ :: args₂) with
+                    | some v => .ret π₂' v | none => .error)
+                rw [he₁, he₂]
+                exact ShiftBisimState.error
+          | more k rest =>
+            cases k with
+            | argQ => exact ShiftBisimState.error
+            | argV =>
+              exact ShiftBisimState.ret
+                (ShiftBisimValue.vbuiltin b rest (ShiftBisimValueList.cons h_v h_args))
+                h_rest
+      | @applyArg v_x₁ v_x₂ h_vx =>
+        cases h_v with
+        | vcon _ => exact ShiftBisimState.error
+        | @vlam body ρ₁' ρ₂' σ' d' h_σ' hρ' h_body =>
+          show ShiftBisimState (.compute π₁' (ρ₁'.extend v_x₁) body)
+                                (.compute π₂' (ρ₂'.extend v_x₂)
+                                  (Moist.Verified.renameTerm
+                                    (Moist.Verified.liftRename σ') body))
+          have hρ'' := shiftBisimEnv_extend h_σ' d' hρ' h_vx
+          exact ShiftBisimState.compute (is0preserving_lift σ') hρ'' h_body h_rest
+        | vdelay _ _ _ => exact ShiftBisimState.error
+        | vconstr _ _ => exact ShiftBisimState.error
+        | @vbuiltin b ea args₁ args₂ h_args =>
+          cases ea with
+          | one k =>
+            cases k with
+            | argQ => exact ShiftBisimState.error
+            | argV =>
+              have h_args' : ShiftBisimValueList (v_x₁ :: args₁) (v_x₂ :: args₂) :=
+                ShiftBisimValueList.cons h_vx h_args
+              have ⟨h_some, h_iff⟩ :=
+                @shiftBisimValueList_evalBuiltin b (v_x₁ :: args₁) (v_x₂ :: args₂) h_args'
+              cases he₁ : evalBuiltin b (v_x₁ :: args₁) with
+              | some v_r₁ =>
+                obtain ⟨v_r₂, he₂, h_v_rel⟩ := h_some v_r₁ he₁
+                show ShiftBisimState
+                  (match evalBuiltin b (v_x₁ :: args₁) with
+                    | some v => .ret π₁' v | none => .error)
+                  (match evalBuiltin b (v_x₂ :: args₂) with
+                    | some v => .ret π₂' v | none => .error)
+                rw [he₁, he₂]
+                exact ShiftBisimState.ret h_v_rel h_rest
+              | none =>
+                have he₂ : evalBuiltin b (v_x₂ :: args₂) = none := h_iff.mp he₁
+                show ShiftBisimState
+                  (match evalBuiltin b (v_x₁ :: args₁) with
+                    | some v => .ret π₁' v | none => .error)
+                  (match evalBuiltin b (v_x₂ :: args₂) with
+                    | some v => .ret π₂' v | none => .error)
+                rw [he₁, he₂]
+                exact ShiftBisimState.error
+          | more k rest =>
+            cases k with
+            | argQ => exact ShiftBisimState.error
+            | argV =>
+              exact ShiftBisimState.ret
+                (ShiftBisimValue.vbuiltin b rest (ShiftBisimValueList.cons h_vx h_args))
+                h_rest
+      | @constrField tag done₁ done₂ todo ρ₁' ρ₂' σ' d' h_σ' h_done hρ' h_todo =>
+        cases todo with
+        | nil =>
+          show ShiftBisimState (.ret π₁' (.VConstr tag ((v₁ :: done₁).reverse)))
+                                (.ret π₂' (.VConstr tag ((v₂ :: done₂).reverse)))
+          exact ShiftBisimState.ret
+            (ShiftBisimValue.vconstr tag
+              (shiftBisimValueList_reverse _ (ShiftBisimValueList.cons h_v h_done))) h_rest
+        | cons m ms =>
+          have h_mms : closedAt d' m = true ∧ closedAtList d' ms = true := by
+            simp only [closedAtList, Bool.and_eq_true] at h_todo
+            exact h_todo
+          show ShiftBisimState (.compute (.constrField tag (v₁ :: done₁) ms ρ₁' :: π₁') ρ₁' m)
+                                (.compute
+                                  (.constrField tag (v₂ :: done₂)
+                                    (Moist.Verified.renameTermList σ' ms) ρ₂' :: π₂')
+                                  ρ₂' (Moist.Verified.renameTerm σ' m))
+          exact ShiftBisimState.compute h_σ' hρ' h_mms.1
+                  (ShiftBisimStack.cons
+                    (ShiftBisimFrame.constrField tag h_σ'
+                      (ShiftBisimValueList.cons h_v h_done) hρ' h_mms.2)
+                    h_rest)
+      | @caseScrutinee alts ρ₁' ρ₂' σ' d' h_σ' hρ' h_alts =>
+        cases h_v with
+        | vcon c =>
+          show ShiftBisimState
+            (match constToTagAndFields c with
+              | some (tag, numCtors, fields) =>
+                if numCtors > 0 && alts.length > numCtors then State.error
+                else match alts[tag]? with
+                  | some alt => State.compute (fields.map Frame.applyArg ++ π₁') ρ₁' alt
+                  | none => State.error
+              | none => State.error)
+            (match constToTagAndFields c with
+              | some (tag, numCtors, fields) =>
+                if numCtors > 0 && (Moist.Verified.renameTermList σ' alts).length > numCtors
+                then State.error
+                else match (Moist.Verified.renameTermList σ' alts)[tag]? with
+                  | some alt => State.compute (fields.map Frame.applyArg ++ π₂') ρ₂' alt
+                  | none => State.error
+              | none => State.error)
+          cases hc : constToTagAndFields c with
+          | none => exact ShiftBisimState.error
+          | some r =>
+            obtain ⟨tag, numCtors, fields⟩ := r
+            have h_len_eq : (Moist.Verified.renameTermList σ' alts).length = alts.length :=
+              Moist.Verified.renameTermList_length σ' alts
+            by_cases hnum : (numCtors > 0 && alts.length > numCtors) = true
+            · have hnum' : (numCtors > 0 && (Moist.Verified.renameTermList σ' alts).length > numCtors) = true := by
+                rw [h_len_eq]; exact hnum
+              simp only [hnum, hnum', if_true]
+              exact ShiftBisimState.error
+            · have hnum' : (numCtors > 0 && (Moist.Verified.renameTermList σ' alts).length > numCtors) = false := by
+                rw [h_len_eq]
+                cases hn : (numCtors > 0 && alts.length > numCtors) with
+                | true => exact absurd hn hnum
+                | false => rfl
+              simp only [hnum, hnum', if_false, Bool.false_eq_true]
+              cases ha : alts[tag]? with
+              | none =>
+                have hge : tag ≥ alts.length := List.getElem?_eq_none_iff.mp ha
+                have hge' : tag ≥ (Moist.Verified.renameTermList σ' alts).length := by
+                  rw [h_len_eq]; exact hge
+                have ha' : (Moist.Verified.renameTermList σ' alts)[tag]? = none :=
+                  List.getElem?_eq_none hge'
+                rw [ha']
+                exact ShiftBisimState.error
+              | some alt =>
+                have h_alt := shiftBisim_closedAtList_get d' alts tag alt h_alts ha
+                have hlt : tag < alts.length := by
+                  rcases Nat.lt_or_ge tag alts.length with h_case | h_case
+                  · exact h_case
+                  · rw [List.getElem?_eq_none h_case] at ha; cases ha
+                have hlt' : tag < (Moist.Verified.renameTermList σ' alts).length := by
+                  rw [h_len_eq]; exact hlt
+                have heq_val : alts[tag] = alt := by
+                  have := List.getElem?_eq_some_iff.mp ha
+                  exact this.2
+                have ha' : (Moist.Verified.renameTermList σ' alts)[tag]? =
+                    some (Moist.Verified.renameTerm σ' alt) := by
+                  rw [List.getElem?_eq_some_iff.mpr]
+                  refine ⟨hlt', ?_⟩
+                  rw [Moist.Verified.renameTermList_getElem σ' alts tag hlt, heq_val]
+                rw [ha']
+                have h_fs_refl : ShiftBisimValueList fields fields :=
+                  shiftBisimValueList_constToTagAndFields_refl hc
+                exact ShiftBisimState.compute h_σ' hρ' h_alt
+                        (shiftBisimValueList_to_applyArg_stack fields h_fs_refl h_rest)
+        | vlam _ _ _ => exact ShiftBisimState.error
+        | vdelay _ _ _ => exact ShiftBisimState.error
+        | @vconstr tag fs₁ fs₂ h_fs =>
+          show ShiftBisimState
+            (match alts[tag]? with
+              | some alt => State.compute (fs₁.map Frame.applyArg ++ π₁') ρ₁' alt
+              | none => State.error)
+            (match (Moist.Verified.renameTermList σ' alts)[tag]? with
+              | some alt => State.compute (fs₂.map Frame.applyArg ++ π₂') ρ₂' alt
+              | none => State.error)
+          have h_len_eq : (Moist.Verified.renameTermList σ' alts).length = alts.length :=
+            Moist.Verified.renameTermList_length σ' alts
+          cases ha : alts[tag]? with
+          | none =>
+            have hge : tag ≥ alts.length := List.getElem?_eq_none_iff.mp ha
+            have hge' : tag ≥ (Moist.Verified.renameTermList σ' alts).length := by
+              rw [h_len_eq]; exact hge
+            have ha' : (Moist.Verified.renameTermList σ' alts)[tag]? = none :=
+              List.getElem?_eq_none hge'
+            rw [ha']
+            exact ShiftBisimState.error
+          | some alt =>
+            have h_alt := shiftBisim_closedAtList_get d' alts tag alt h_alts ha
+            have hlt : tag < alts.length := by
+              rcases Nat.lt_or_ge tag alts.length with h_case | h_case
+              · exact h_case
+              · rw [List.getElem?_eq_none h_case] at ha; cases ha
+            have hlt' : tag < (Moist.Verified.renameTermList σ' alts).length := by
+              rw [h_len_eq]; exact hlt
+            have heq_val : alts[tag] = alt := by
+              have := List.getElem?_eq_some_iff.mp ha
+              exact this.2
+            have ha' : (Moist.Verified.renameTermList σ' alts)[tag]? =
+                some (Moist.Verified.renameTerm σ' alt) := by
+              rw [List.getElem?_eq_some_iff.mpr]
+              refine ⟨hlt', ?_⟩
+              rw [Moist.Verified.renameTermList_getElem σ' alts tag hlt, heq_val]
+            rw [ha']
+            exact ShiftBisimState.compute h_σ' hρ' h_alt
+                    (shiftBisimValueList_to_applyArg_stack fs₁ h_fs h_rest)
+        | vbuiltin _ _ _ => exact ShiftBisimState.error
+
 end Moist.Verified.BetaValueRefines
