@@ -3041,16 +3041,296 @@ theorem shiftEnv_length : ∀ (v0 : CekValue) (ρ : CekEnv),
     simp [CekEnv.length]
     exact shiftEnv_length v0 rest
 
--- NOTE: `shiftValue_wellFormed`, `shiftEnv_wellFormed_body`, and
--- `shiftValueList_wellFormed` are NOT PROVED in this file. Their mutual
--- recursion trips Lean4's termination checker because:
--- (1) `shiftEnv_wellFormed_body` recursing via `h_rest` decreases env size;
---     calling `shiftValue_wellFormed` on an env element `v` requires
---     `sizeOf v < sizeOf env`, which is not structurally evident to Lean.
--- (2) The only clean fix is to add a sizeOf-bound lemma on env lookups or
---     use a combined lex measure with an explicit proof. Both approaches
---     require ~50-100 additional lines of infrastructure.
--- See memory note `feedback_valueRefinesK_shift_right_blocker.md` for
--- the overall proof scope analysis.
+--------------------------------------------------------------------------------
+-- 19. Shift bisimulation (semantic).
+--
+-- Mutual inductive relation pairing "original" state with its "shifted"
+-- counterpart. Each closure-forming constructor existentially quantifies
+-- over its own σ (`Is0Preserving` rename), encoding that the RHS's term
+-- is `renameTerm σ` of the LHS's term, at the current level. Under
+-- binders, σ is lifted to `liftRename σ` — this is exactly the renaming
+-- structure produced by stepping, so the "env-ordering" apparent conflict
+-- resolves because the σ "bakes in" the positional correspondence.
+--
+-- Structure mirrors `Moist.Verified.Contextual.BisimRef.lean`.
+--------------------------------------------------------------------------------
+
+open Moist.Verified.FundamentalRefines (Is0Preserving is0preserving_id
+  is0preserving_shiftRename is0preserving_lift)
+
+mutual
+
+inductive ShiftBisimState : State → State → Prop
+  | compute : ∀ {π₁ π₂ : Stack} {ρ₁ ρ₂ : CekEnv} {t : Moist.Plutus.Term.Term}
+      {σ : Nat → Nat} {d : Nat},
+      Is0Preserving σ →
+      ShiftBisimEnv σ d ρ₁ ρ₂ →
+      closedAt d t = true →
+      ShiftBisimStack π₁ π₂ →
+      ShiftBisimState (.compute π₁ ρ₁ t) (.compute π₂ ρ₂ (Moist.Verified.renameTerm σ t))
+  | ret : ∀ {π₁ π₂ : Stack} {v₁ v₂ : CekValue},
+      ShiftBisimValue v₁ v₂ → ShiftBisimStack π₁ π₂ →
+      ShiftBisimState (.ret π₁ v₁) (.ret π₂ v₂)
+  | halt : ∀ {v₁ v₂ : CekValue}, ShiftBisimValue v₁ v₂ →
+      ShiftBisimState (.halt v₁) (.halt v₂)
+  | error : ShiftBisimState .error .error
+
+/-- Environments related at depth `d` under renaming `σ`: for each
+    position `n` with `1 ≤ n ≤ d`, `ρ₁.lookup n` and `ρ₂.lookup (σ n)`
+    return `ShiftBisimValue`-related values. -/
+inductive ShiftBisimEnv : (Nat → Nat) → Nat → CekEnv → CekEnv → Prop
+  | zero : ∀ {σ : Nat → Nat} {ρ₁ ρ₂ : CekEnv}, ShiftBisimEnv σ 0 ρ₁ ρ₂
+  | succ : ∀ {σ : Nat → Nat} {d : Nat} {ρ₁ ρ₂ : CekEnv} {v₁ v₂ : CekValue},
+      ShiftBisimEnv σ d ρ₁ ρ₂ →
+      ρ₁.lookup (d + 1) = some v₁ →
+      ρ₂.lookup (σ (d + 1)) = some v₂ →
+      ShiftBisimValue v₁ v₂ →
+      ShiftBisimEnv σ (d + 1) ρ₁ ρ₂
+
+inductive ShiftBisimValue : CekValue → CekValue → Prop
+  | vcon : ∀ (c : Moist.Plutus.Term.Const), ShiftBisimValue (.VCon c) (.VCon c)
+  | vlam : ∀ {body : Moist.Plutus.Term.Term} {ρ₁ ρ₂ : CekEnv}
+      {σ : Nat → Nat} {d : Nat},
+      Is0Preserving σ →
+      ShiftBisimEnv σ d ρ₁ ρ₂ →
+      closedAt (d + 1) body = true →
+      ShiftBisimValue (.VLam body ρ₁)
+        (.VLam (Moist.Verified.renameTerm (Moist.Verified.liftRename σ) body) ρ₂)
+  | vdelay : ∀ {body : Moist.Plutus.Term.Term} {ρ₁ ρ₂ : CekEnv}
+      {σ : Nat → Nat} {d : Nat},
+      Is0Preserving σ →
+      ShiftBisimEnv σ d ρ₁ ρ₂ →
+      closedAt d body = true →
+      ShiftBisimValue (.VDelay body ρ₁)
+        (.VDelay (Moist.Verified.renameTerm σ body) ρ₂)
+  | vconstr : ∀ (tag : Nat) {fs₁ fs₂ : List CekValue},
+      ShiftBisimValueList fs₁ fs₂ →
+      ShiftBisimValue (.VConstr tag fs₁) (.VConstr tag fs₂)
+  | vbuiltin : ∀ (b : Moist.Plutus.Term.BuiltinFun) (ea : ExpectedArgs)
+      {args₁ args₂ : List CekValue},
+      ShiftBisimValueList args₁ args₂ →
+      ShiftBisimValue (.VBuiltin b args₁ ea) (.VBuiltin b args₂ ea)
+
+inductive ShiftBisimValueList : List CekValue → List CekValue → Prop
+  | nil : ShiftBisimValueList [] []
+  | cons : ∀ {v₁ v₂ : CekValue} {vs₁ vs₂ : List CekValue},
+      ShiftBisimValue v₁ v₂ → ShiftBisimValueList vs₁ vs₂ →
+      ShiftBisimValueList (v₁ :: vs₁) (v₂ :: vs₂)
+
+inductive ShiftBisimStack : Stack → Stack → Prop
+  | nil : ShiftBisimStack [] []
+  | cons : ∀ {f₁ f₂ : Frame} {π₁ π₂ : Stack},
+      ShiftBisimFrame f₁ f₂ → ShiftBisimStack π₁ π₂ →
+      ShiftBisimStack (f₁ :: π₁) (f₂ :: π₂)
+
+inductive ShiftBisimFrame : Frame → Frame → Prop
+  | force : ShiftBisimFrame .force .force
+  | arg : ∀ {t : Moist.Plutus.Term.Term} {ρ₁ ρ₂ : CekEnv}
+      {σ : Nat → Nat} {d : Nat},
+      Is0Preserving σ →
+      ShiftBisimEnv σ d ρ₁ ρ₂ →
+      closedAt d t = true →
+      ShiftBisimFrame (.arg t ρ₁) (.arg (Moist.Verified.renameTerm σ t) ρ₂)
+  | funV : ∀ {v₁ v₂ : CekValue},
+      ShiftBisimValue v₁ v₂ → ShiftBisimFrame (.funV v₁) (.funV v₂)
+  | applyArg : ∀ {v₁ v₂ : CekValue},
+      ShiftBisimValue v₁ v₂ → ShiftBisimFrame (.applyArg v₁) (.applyArg v₂)
+  | constrField : ∀ (tag : Nat) {done₁ done₂ : List CekValue}
+      {todo : List Moist.Plutus.Term.Term} {ρ₁ ρ₂ : CekEnv}
+      {σ : Nat → Nat} {d : Nat},
+      Is0Preserving σ →
+      ShiftBisimValueList done₁ done₂ →
+      ShiftBisimEnv σ d ρ₁ ρ₂ →
+      closedAtList d todo = true →
+      ShiftBisimFrame (.constrField tag done₁ todo ρ₁)
+        (.constrField tag done₂ (Moist.Verified.renameTermList σ todo) ρ₂)
+  | caseScrutinee : ∀ {alts : List Moist.Plutus.Term.Term} {ρ₁ ρ₂ : CekEnv}
+      {σ : Nat → Nat} {d : Nat},
+      Is0Preserving σ →
+      ShiftBisimEnv σ d ρ₁ ρ₂ →
+      closedAtList d alts = true →
+      ShiftBisimFrame (.caseScrutinee alts ρ₁)
+        (.caseScrutinee (Moist.Verified.renameTermList σ alts) ρ₂)
+end
+
+--------------------------------------------------------------------------------
+-- 19b. ShiftBisimEnv helpers
+--------------------------------------------------------------------------------
+
+/-- `ShiftBisimEnv σ 0` always holds trivially. -/
+theorem shiftBisimEnv_zero {σ : Nat → Nat} (ρ₁ ρ₂ : CekEnv) :
+    ShiftBisimEnv σ 0 ρ₁ ρ₂ := ShiftBisimEnv.zero
+
+/-- Narrow a `ShiftBisimEnv` down to a smaller depth. -/
+theorem shiftBisimEnv_narrow : ∀ (σ : Nat → Nat) (d : Nat) {d' : Nat}
+    {ρ₁ ρ₂ : CekEnv}, ShiftBisimEnv σ d ρ₁ ρ₂ → d' ≤ d → ShiftBisimEnv σ d' ρ₁ ρ₂ := by
+  intro σ d
+  induction d with
+  | zero =>
+    intro d' _ _ _ hle
+    have : d' = 0 := Nat.le_zero.mp hle
+    subst this
+    exact ShiftBisimEnv.zero
+  | succ n ih =>
+    intro d' _ _ h hle
+    by_cases h_eq : d' = n + 1
+    · subst h_eq; exact h
+    · cases h with
+      | succ h_rest _ _ _ => exact ih h_rest (by omega)
+
+/-- Lookup within a `ShiftBisimEnv σ d` returns a matching `ShiftBisimValue`
+    pair at positions `(n, σ n)`. -/
+theorem shiftBisimEnv_lookup : ∀ (σ : Nat → Nat) (d : Nat) {ρ₁ ρ₂ : CekEnv},
+    ShiftBisimEnv σ d ρ₁ ρ₂ → ∀ {n : Nat}, 0 < n → n ≤ d →
+      ∃ v₁ v₂, ρ₁.lookup n = some v₁ ∧ ρ₂.lookup (σ n) = some v₂ ∧
+        ShiftBisimValue v₁ v₂ := by
+  intro σ d
+  induction d with
+  | zero => intro _ _ _ _ _ hle; omega
+  | succ n ih =>
+    intro _ _ h m hm hle
+    cases h with
+    | succ h_rest hl₁ hl₂ h_v =>
+      by_cases h_eq : m = n + 1
+      · subst h_eq; exact ⟨_, _, hl₁, hl₂, h_v⟩
+      · exact ih h_rest hm (by omega)
+
+/-- Extending two `ShiftBisimEnv σ d`-related envs with a related pair
+    gives a `ShiftBisimEnv (liftRename σ) (d+1)`-related pair. Mirrors
+    `renameEnvRefR_extend`. -/
+theorem shiftBisimEnv_extend : ∀ {σ : Nat → Nat} (h_σ : Is0Preserving σ)
+    (d : Nat) {ρ₁ ρ₂ : CekEnv} {v₁ v₂ : CekValue},
+    ShiftBisimEnv σ d ρ₁ ρ₂ → ShiftBisimValue v₁ v₂ →
+    ShiftBisimEnv (Moist.Verified.liftRename σ) (d + 1) (ρ₁.extend v₁) (ρ₂.extend v₂) := by
+  intro σ h_σ d
+  induction d with
+  | zero =>
+    intro ρ₁ ρ₂ _ _ _ h_v
+    refine ShiftBisimEnv.succ ShiftBisimEnv.zero ?_ ?_ h_v
+    · simp [CekEnv.extend, CekEnv.lookup]
+    · show (CekEnv.cons _ ρ₂).lookup (Moist.Verified.liftRename σ 1) = _
+      have : Moist.Verified.liftRename σ 1 = 1 := rfl
+      rw [this]; rfl
+  | succ n ih =>
+    intro ρ₁ ρ₂ v_new₁ v_new₂ h h_v
+    cases h with
+    | @succ _ _ _ _ v₁ v₂ h_rest hl₁ hl₂ h_inner =>
+      have ih' := ih h_rest h_v
+      refine ShiftBisimEnv.succ ih' ?_ ?_ h_inner
+      · show (CekEnv.cons v_new₁ ρ₁).lookup (n + 1 + 1) = some v₁
+        have heq : (CekEnv.cons v_new₁ ρ₁).lookup (n + 1 + 1) = ρ₁.lookup (n + 1) :=
+          extend_lookup_succ ρ₁ v_new₁ (n + 1) (by omega)
+        rw [heq]; exact hl₁
+      · have hlift : Moist.Verified.liftRename σ (n + 1 + 1) = σ (n + 1) + 1 := by
+          show Moist.Verified.liftRename σ (n + 2) = σ (n + 1) + 1
+          rfl
+        rw [hlift]
+        have hσ_ge : σ (n + 1) ≥ 1 := h_σ.2 (n + 1) (by omega)
+        show (CekEnv.cons v_new₂ ρ₂).lookup (σ (n + 1) + 1) = some v₂
+        have heq : (CekEnv.cons v_new₂ ρ₂).lookup (σ (n + 1) + 1) =
+                   ρ₂.lookup (σ (n + 1)) :=
+          extend_lookup_succ ρ₂ v_new₂ (σ (n + 1)) hσ_ge
+        rw [heq]; exact hl₂
+
+/-- `ShiftBisimValueList` has the same length on both sides. -/
+theorem shiftBisimValueList_length_eq : ∀ {xs₁ xs₂ : List CekValue},
+    ShiftBisimValueList xs₁ xs₂ → xs₁.length = xs₂.length
+  | [], _, h => by cases h; rfl
+  | _ :: _, _, h => by
+    cases h with
+    | cons _ hr => simp [shiftBisimValueList_length_eq hr]
+
+/-- Inversion for `ShiftBisimValueList` on empty head list. -/
+theorem shiftBisimValueList_nil_inv : ∀ {xs : List CekValue},
+    ShiftBisimValueList [] xs → xs = []
+  | _, h => by cases h; rfl
+
+/-- Inversion for `ShiftBisimValueList` on cons head list. -/
+theorem shiftBisimValueList_cons_inv : ∀ {v : CekValue} {vs xs : List CekValue},
+    ShiftBisimValueList (v :: vs) xs →
+    ∃ w ws, xs = w :: ws ∧ ShiftBisimValue v w ∧ ShiftBisimValueList vs ws
+  | _, _, _, h => by cases h with | cons hv hr => exact ⟨_, _, rfl, hv, hr⟩
+
+/-- Inversion for `ShiftBisimValue` on `VCon`. -/
+theorem shiftBisimValue_vcon_inv : ∀ {c : Moist.Plutus.Term.Const} {v : CekValue},
+    ShiftBisimValue (.VCon c) v → v = .VCon c
+  | _, _, h => by cases h; rfl
+
+/-- `ShiftBisimValueList` is closed under `append`. -/
+theorem shiftBisimValueList_append : ∀ (xs₁ : List CekValue)
+    {xs₂ ys₁ ys₂ : List CekValue},
+    ShiftBisimValueList xs₁ xs₂ → ShiftBisimValueList ys₁ ys₂ →
+    ShiftBisimValueList (xs₁ ++ ys₁) (xs₂ ++ ys₂)
+  | [], _, _, _, hxs, hys => by cases hxs; exact hys
+  | _ :: rest, _, _, _, hxs, hys => by
+    cases hxs with
+    | cons hv hrest =>
+      exact ShiftBisimValueList.cons hv (shiftBisimValueList_append rest hrest hys)
+
+/-- `List.reverse` preserves `ShiftBisimValueList`. -/
+theorem shiftBisimValueList_reverse : ∀ (xs₁ : List CekValue)
+    {xs₂ : List CekValue},
+    ShiftBisimValueList xs₁ xs₂ →
+    ShiftBisimValueList xs₁.reverse xs₂.reverse
+  | [], _, hxs => by cases hxs; exact ShiftBisimValueList.nil
+  | x :: rest, _, hxs => by
+    cases hxs with
+    | cons hv hrest =>
+      simp only [List.reverse_cons]
+      exact shiftBisimValueList_append _ (shiftBisimValueList_reverse rest hrest)
+              (ShiftBisimValueList.cons hv ShiftBisimValueList.nil)
+
+/-- Mapping `Frame.applyArg` + prepending preserves stack relation. -/
+theorem shiftBisimValueList_to_applyArg_stack : ∀ (fs₁ : List CekValue)
+    {fs₂ : List CekValue} {π₁ π₂ : Stack},
+    ShiftBisimValueList fs₁ fs₂ → ShiftBisimStack π₁ π₂ →
+    ShiftBisimStack (fs₁.map Frame.applyArg ++ π₁) (fs₂.map Frame.applyArg ++ π₂)
+  | [], _, _, _, hfs, hπ => by cases hfs; exact hπ
+  | _ :: rest, _, _, _, hfs, hπ => by
+    cases hfs with
+    | cons hv hrest =>
+      exact ShiftBisimStack.cons (ShiftBisimFrame.applyArg hv)
+              (shiftBisimValueList_to_applyArg_stack rest hrest hπ)
+
+/-- `closedAtList d alts → alts[n]? = some alt → closedAt d alt`. -/
+theorem shiftBisim_closedAtList_get : ∀ (d : Nat) (alts : List Moist.Plutus.Term.Term)
+    (n : Nat) (alt : Moist.Plutus.Term.Term),
+    closedAtList d alts = true →
+    alts[n]? = some alt →
+    closedAt d alt = true
+  | _, [], _, _, _, h => by simp at h
+  | d, a :: rest, 0, _, h_cl, h_get => by
+    simp only [List.getElem?_cons_zero, Option.some.injEq] at h_get
+    subst h_get
+    simp only [closedAtList, Bool.and_eq_true] at h_cl
+    exact h_cl.1
+  | d, _ :: rest, n + 1, alt, h_cl, h_get => by
+    simp only [List.getElem?_cons_succ] at h_get
+    simp only [closedAtList, Bool.and_eq_true] at h_cl
+    exact shiftBisim_closedAtList_get d rest n alt h_cl.2 h_get
+
+/-- `extractConsts` yields the same output on `ShiftBisimValueList`-related
+    lists. Our ShiftBisimValue.vcon forces literal equality. -/
+theorem shiftBisimValueList_extractConsts :
+    ∀ (args₁ : List CekValue) {args₂ : List CekValue},
+    ShiftBisimValueList args₁ args₂ → extractConsts args₁ = extractConsts args₂ := by
+  intro args₁
+  induction args₁ with
+  | nil =>
+    intro args₂ h
+    cases h
+    rfl
+  | cons v rest ih =>
+    intro args₂ h
+    obtain ⟨w, rest₂, heq, hv, hrest⟩ := shiftBisimValueList_cons_inv h
+    subst heq
+    cases hv with
+    | vcon c =>
+      simp only [extractConsts]
+      rw [ih hrest]
+    | vlam _ _ _ => rfl
+    | vdelay _ _ _ => rfl
+    | vconstr _ _ => rfl
+    | vbuiltin _ _ _ => rfl
 
 end Moist.Verified.BetaValueRefines
