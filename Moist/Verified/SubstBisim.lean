@@ -165,7 +165,7 @@ inductive SubstBisimState : State → State → Prop
         (.compute π₂ ρ₂ (Moist.Verified.substTerm pos replacement t))
   | ret : ∀ {π₁ π₂ : Stack} {v₁ v₂ : CekValue},
       SubstBisimValue v₁ v₂ → SubstBisimStack π₁ π₂ →
-      SubstBisimState (.ret π₁ v₁) (.ret π₂ v₂)
+      SubstBisimState (State.ret π₁ v₁) (State.ret π₂ v₂)
   | halt : ∀ {v₁ v₂ : CekValue}, SubstBisimValue v₁ v₂ →
       SubstBisimState (.halt v₁) (.halt v₂)
   | error : SubstBisimState .error .error
@@ -1348,7 +1348,7 @@ theorem steps_halt_fixed (n : Nat) (v : CekValue) :
   | succ n ih => simp [steps, step, ih]
 
 /-- `error` is a fixed point of `step`. -/
-theorem steps_error_fixed : ∀ (n : Nat), steps n (.error : State) = .error
+theorem steps_error_fixed : ∀ (n : Nat), steps n State.error = .error
   | 0 => rfl
   | n + 1 => by simp only [steps, step]; exact steps_error_fixed n
 
@@ -1382,12 +1382,255 @@ theorem substBisimState_step_preserves_weak :
   | error =>
     refine ⟨0, ?_⟩
     exact SubstBisimState.error
-  | compute hpos_le hpos_d hrep_closed henv hclosed hπ =>
-    -- The full compute case is a ~400-line CEK case analysis mirroring
-    -- shiftBisimState_step_preserves in BetaValueRefines.lean, with the
-    -- Var=pos sub-case using value_stack_poly / halt_descends_to_baseπ to
-    -- extract the replacement's evaluation trace (step count m).
-    sorry
+  | @compute π₁ π₂ ρ₁ ρ₂ t pos replacement v_repl d hpos_le hpos_d hrep_closed henv hclosed hπ =>
+    -- Case analysis on t.
+    cases t with
+    | Var n =>
+      -- step compute π₁ ρ₁ (Var n) = match ρ₁.lookup n with | some v => ret π₁ v | none => error
+      -- RHS: substTerm pos rep (Var n) = rep if n = pos, .Var (n-1) if n > pos, .Var n if n < pos.
+      by_cases hn : n = 0
+      · -- n = 0: both look up at 0 → none → error.
+        subst hn
+        refine ⟨1, ?_⟩
+        have h_l1 : ρ₁.lookup 0 = none := lookup_zero ρ₁
+        have h_l2 : ρ₂.lookup 0 = none := lookup_zero ρ₂
+        -- LHS step: match none → .error.
+        -- RHS step: substTerm pos rep (Var 0) = ... pos ≥ 1 so 0 < pos → .Var 0.
+        --   step compute π₂ ρ₂ (Var 0) = match ρ₂.lookup 0 → none → error.
+        show SubstBisimState _ (steps 1 _)
+        have h_lhs_eq : step (.compute π₁ ρ₁ (.Var 0)) = .error := by
+          show (match ρ₁.lookup 0 with
+                | some v => State.ret π₁ v
+                | none => State.error) = .error
+          rw [h_l1]
+        have hsubst_zero : Moist.Verified.substTerm pos replacement (.Var 0) = .Var 0 := by
+          simp only [Moist.Verified.substTerm]
+          have h1 : (0 : Nat) ≠ pos := by omega
+          have h2 : ¬ (0 > pos) := by omega
+          simp [h1, h2]
+        have h_rhs_eq : steps 1 (.compute π₂ ρ₂ (Moist.Verified.substTerm pos replacement (.Var 0))) = .error := by
+          show steps 1 (.compute π₂ ρ₂ (Moist.Verified.substTerm pos replacement (.Var 0))) = .error
+          rw [hsubst_zero]
+          show steps 1 (.compute π₂ ρ₂ (.Var 0)) = .error
+          simp only [steps]
+          show step (.compute π₂ ρ₂ (.Var 0)) = .error
+          show (match ρ₂.lookup 0 with
+                | some v => State.ret π₂ v
+                | none => State.error) = .error
+          rw [h_l2]
+        rw [h_lhs_eq, h_rhs_eq]
+        exact SubstBisimState.error
+      · -- n ≥ 1
+        have hn_pos : 1 ≤ n := Nat.one_le_iff_ne_zero.mpr hn
+        have hn_le_d1 : n ≤ d + 1 := by
+          simp only [closedAt, decide_eq_true_eq] at hclosed
+          exact hclosed
+        by_cases hn_pos_eq : n = pos
+        · -- n = pos case: LHS lookup = v_repl, RHS evaluates `replacement` which must eval to v_repl.
+          -- This sub-case fundamentally requires the replacement-halts-to-v_repl hypothesis,
+          -- which is NOT currently part of SubstBisim.compute's hypotheses.
+          -- For the inline pass, this hypothesis is established at the call site where
+          -- v_repl = eval(rhs, ρ₂). Leaving as sorry with documentation.
+          sorry
+        · by_cases hn_lt_pos : n < pos
+          · -- n < pos case: LHS lookup ρ₁.n, RHS looks up ρ₂.n (both exist, related).
+            obtain ⟨v₁, v₂, hl₁, hl₂, hv_rel⟩ :=
+              substBisimEnv_lookup_below pos replacement v_repl (d + 1) hn_pos hn_le_d1 hn_lt_pos henv
+            refine ⟨1, ?_⟩
+            have h_lhs_eq : step (.compute π₁ ρ₁ (.Var n)) = State.ret π₁ v₁ := by
+              show (match ρ₁.lookup n with
+                    | some v => .ret π₁ v
+                    | none => State.error) = State.ret π₁ v₁
+              rw [hl₁]
+            have hsubst_lt : Moist.Verified.substTerm pos replacement (.Var n) = .Var n := by
+              simp only [Moist.Verified.substTerm]
+              have h1 : n ≠ pos := fun h => hn_pos_eq h
+              have h2 : ¬ (n > pos) := by omega
+              simp [h1, h2]
+            have h_rhs_eq : steps 1 (.compute π₂ ρ₂ (Moist.Verified.substTerm pos replacement (.Var n))) = State.ret π₂ v₂ := by
+              rw [hsubst_lt]
+              show steps 1 (.compute π₂ ρ₂ (.Var n)) = State.ret π₂ v₂
+              simp only [steps]
+              show step (.compute π₂ ρ₂ (.Var n)) = State.ret π₂ v₂
+              show (match ρ₂.lookup n with
+                    | some v => .ret π₂ v
+                    | none => State.error) = State.ret π₂ v₂
+              rw [hl₂]
+            rw [h_lhs_eq, h_rhs_eq]
+            exact SubstBisimState.ret hv_rel hπ
+          · -- n > pos case
+            have hn_gt_pos : n > pos := by omega
+            obtain ⟨v₁, v₂, hl₁, hl₂, hv_rel⟩ :=
+              substBisimEnv_lookup_above pos replacement v_repl (d + 1) hn_pos hn_le_d1 hn_gt_pos henv
+            refine ⟨1, ?_⟩
+            have h_lhs_eq : step (.compute π₁ ρ₁ (.Var n)) = State.ret π₁ v₁ := by
+              show (match ρ₁.lookup n with
+                    | some v => .ret π₁ v
+                    | none => State.error) = State.ret π₁ v₁
+              rw [hl₁]
+            have hsubst_gt : Moist.Verified.substTerm pos replacement (.Var n) = .Var (n - 1) := by
+              simp only [Moist.Verified.substTerm]
+              have h1 : n ≠ pos := fun h => hn_pos_eq h
+              have h2 : n > pos := hn_gt_pos
+              simp [h1, h2]
+            have h_rhs_eq : steps 1 (.compute π₂ ρ₂ (Moist.Verified.substTerm pos replacement (.Var n))) = State.ret π₂ v₂ := by
+              rw [hsubst_gt]
+              show steps 1 (.compute π₂ ρ₂ (.Var (n - 1))) = State.ret π₂ v₂
+              simp only [steps]
+              show step (.compute π₂ ρ₂ (.Var (n - 1))) = State.ret π₂ v₂
+              show (match ρ₂.lookup (n - 1) with
+                    | some v => .ret π₂ v
+                    | none => State.error) = State.ret π₂ v₂
+              rw [hl₂]
+            rw [h_lhs_eq, h_rhs_eq]
+            exact SubstBisimState.ret hv_rel hπ
+    | Constant p =>
+      -- step compute π₁ ρ₁ (Constant (c, ty)) = ret π₁ (VCon c).
+      -- substTerm doesn't affect Constant. Same on RHS.
+      refine ⟨1, ?_⟩
+      obtain ⟨c, ty⟩ := p
+      have h_lhs_eq : step (.compute π₁ ρ₁ (.Constant (c, ty))) = .ret π₁ (.VCon c) := rfl
+      have hsubst_eq : Moist.Verified.substTerm pos replacement (.Constant (c, ty)) = .Constant (c, ty) := by simp only [Moist.Verified.substTerm]
+      have h_rhs_eq : steps 1 (.compute π₂ ρ₂ (Moist.Verified.substTerm pos replacement (.Constant (c, ty))))
+          = .ret π₂ (.VCon c) := by
+        rw [hsubst_eq]; simp only [steps]; rfl
+      rw [h_lhs_eq, h_rhs_eq]
+      exact SubstBisimState.ret (SubstBisimValue.vcon c) hπ
+    | Builtin b =>
+      refine ⟨1, ?_⟩
+      have h_lhs_eq : step (.compute π₁ ρ₁ (.Builtin b)) = .ret π₁ (.VBuiltin b [] (expectedArgs b)) := rfl
+      have hsubst_eq : Moist.Verified.substTerm pos replacement (.Builtin b) = .Builtin b := by simp only [Moist.Verified.substTerm]
+      have h_rhs_eq : steps 1 (.compute π₂ ρ₂ (Moist.Verified.substTerm pos replacement (.Builtin b)))
+          = .ret π₂ (.VBuiltin b [] (expectedArgs b)) := by
+        rw [hsubst_eq]; simp only [steps]; rfl
+      rw [h_lhs_eq, h_rhs_eq]
+      exact SubstBisimState.ret
+        (SubstBisimValue.vbuiltin b (expectedArgs b) SubstBisimValueList.nil) hπ
+    | Error =>
+      refine ⟨1, ?_⟩
+      have h_lhs_eq : step (.compute π₁ ρ₁ .Error) = .error := rfl
+      have hsubst_eq : Moist.Verified.substTerm pos replacement .Error = .Error := by simp only [Moist.Verified.substTerm]
+      have h_rhs_eq : steps 1 (.compute π₂ ρ₂ (Moist.Verified.substTerm pos replacement .Error)) = .error := by
+        rw [hsubst_eq]; simp only [steps]; rfl
+      rw [h_lhs_eq, h_rhs_eq]
+      exact SubstBisimState.error
+    | Lam name body =>
+      -- step compute π₁ ρ₁ (Lam x body) = ret π₁ (VLam body ρ₁).
+      -- substTerm pos rep (Lam x body) = Lam x (substTerm (pos+1) (shift rep) body).
+      -- step RHS = ret π₂ (VLam (substTerm (pos+1) (shift rep) body) ρ₂).
+      -- Related via SubstBisimValue.vlam.
+      refine ⟨1, ?_⟩
+      have h_lhs_eq : step (.compute π₁ ρ₁ (.Lam name body)) = .ret π₁ (.VLam body ρ₁) := rfl
+      have hsubst_eq : Moist.Verified.substTerm pos replacement (.Lam name body) =
+          .Lam name (Moist.Verified.substTerm (pos + 1)
+            (Moist.Verified.renameTerm (Moist.Verified.shiftRename 1) replacement) body) := by simp only [Moist.Verified.substTerm]
+      have hbody_closed : closedAt (d + 2) body = true := by
+        simp only [closedAt] at hclosed; exact hclosed
+      have h_rhs_eq : steps 1 (.compute π₂ ρ₂ (Moist.Verified.substTerm pos replacement (.Lam name body)))
+          = .ret π₂ (.VLam (Moist.Verified.substTerm (pos + 1)
+              (Moist.Verified.renameTerm (Moist.Verified.shiftRename 1) replacement) body) ρ₂) := by
+        rw [hsubst_eq]; simp only [steps]; rfl
+      rw [h_lhs_eq, h_rhs_eq]
+      exact SubstBisimState.ret
+        (SubstBisimValue.vlam hpos_le hpos_d hrep_closed henv hbody_closed) hπ
+    | Delay body =>
+      refine ⟨1, ?_⟩
+      have h_lhs_eq : step (.compute π₁ ρ₁ (.Delay body)) = .ret π₁ (.VDelay body ρ₁) := rfl
+      have hsubst_eq : Moist.Verified.substTerm pos replacement (.Delay body) =
+          .Delay (Moist.Verified.substTerm pos replacement body) := by simp only [Moist.Verified.substTerm]
+      have hbody_closed : closedAt (d + 1) body = true := by
+        simp only [closedAt] at hclosed; exact hclosed
+      have h_rhs_eq : steps 1 (.compute π₂ ρ₂ (Moist.Verified.substTerm pos replacement (.Delay body)))
+          = .ret π₂ (.VDelay (Moist.Verified.substTerm pos replacement body) ρ₂) := by
+        rw [hsubst_eq]; simp only [steps]; rfl
+      rw [h_lhs_eq, h_rhs_eq]
+      exact SubstBisimState.ret
+        (SubstBisimValue.vdelay hpos_le hpos_d hrep_closed henv hbody_closed) hπ
+    | Force e =>
+      -- step compute π₁ ρ₁ (Force e) = compute (.force :: π₁) ρ₁ e.
+      -- substTerm pos rep (Force e) = Force (substTerm pos rep e).
+      -- step RHS = compute (.force :: π₂) ρ₂ (substTerm pos rep e).
+      refine ⟨1, ?_⟩
+      have h_lhs_eq : step (.compute π₁ ρ₁ (.Force e)) = .compute (.force :: π₁) ρ₁ e := rfl
+      have hsubst_eq : Moist.Verified.substTerm pos replacement (.Force e) =
+          .Force (Moist.Verified.substTerm pos replacement e) := by simp only [Moist.Verified.substTerm]
+      have he_closed : closedAt (d + 1) e = true := by
+        simp only [closedAt] at hclosed; exact hclosed
+      have h_rhs_eq : steps 1 (.compute π₂ ρ₂ (Moist.Verified.substTerm pos replacement (.Force e)))
+          = .compute (.force :: π₂) ρ₂ (Moist.Verified.substTerm pos replacement e) := by
+        rw [hsubst_eq]; simp only [steps]; rfl
+      rw [h_lhs_eq, h_rhs_eq]
+      exact SubstBisimState.compute hpos_le hpos_d hrep_closed henv he_closed
+        (SubstBisimStack.cons SubstBisimFrame.force hπ)
+    | Apply f x =>
+      refine ⟨1, ?_⟩
+      have h_lhs_eq : step (.compute π₁ ρ₁ (.Apply f x)) = .compute (.arg x ρ₁ :: π₁) ρ₁ f := rfl
+      have hsubst_eq : Moist.Verified.substTerm pos replacement (.Apply f x) =
+          .Apply (Moist.Verified.substTerm pos replacement f)
+            (Moist.Verified.substTerm pos replacement x) := by simp only [Moist.Verified.substTerm]
+      have h_fx : closedAt (d + 1) f = true ∧ closedAt (d + 1) x = true := by
+        simp only [closedAt, Bool.and_eq_true] at hclosed; exact hclosed
+      have h_rhs_eq : steps 1 (.compute π₂ ρ₂ (Moist.Verified.substTerm pos replacement (.Apply f x)))
+          = .compute (.arg (Moist.Verified.substTerm pos replacement x) ρ₂ :: π₂) ρ₂
+              (Moist.Verified.substTerm pos replacement f) := by
+        rw [hsubst_eq]; simp only [steps]; rfl
+      rw [h_lhs_eq, h_rhs_eq]
+      exact SubstBisimState.compute hpos_le hpos_d hrep_closed henv h_fx.1
+        (SubstBisimStack.cons
+          (SubstBisimFrame.arg hpos_le hpos_d hrep_closed henv h_fx.2) hπ)
+    | Constr tag args =>
+      cases args with
+      | nil =>
+        refine ⟨1, ?_⟩
+        have h_lhs_eq : step (.compute π₁ ρ₁ (.Constr tag [])) = .ret π₁ (.VConstr tag []) := rfl
+        have hsubst_eq : Moist.Verified.substTerm pos replacement (.Constr tag []) = .Constr tag [] := by
+          simp only [Moist.Verified.substTerm, Moist.Verified.substTermList]
+
+        have h_rhs_eq : steps 1 (.compute π₂ ρ₂ (Moist.Verified.substTerm pos replacement (.Constr tag [])))
+            = .ret π₂ (.VConstr tag []) := by
+          rw [hsubst_eq]; simp only [steps]; rfl
+        rw [h_lhs_eq, h_rhs_eq]
+        exact SubstBisimState.ret
+          (SubstBisimValue.vconstr tag SubstBisimValueList.nil) hπ
+      | cons m ms =>
+        refine ⟨1, ?_⟩
+        have h_lhs_eq : step (.compute π₁ ρ₁ (.Constr tag (m :: ms))) =
+            .compute (.constrField tag [] ms ρ₁ :: π₁) ρ₁ m := rfl
+        have hsubst_eq : Moist.Verified.substTerm pos replacement (.Constr tag (m :: ms)) =
+            .Constr tag (Moist.Verified.substTerm pos replacement m ::
+                         Moist.Verified.substTermList pos replacement ms) := by
+          simp only [Moist.Verified.substTerm, Moist.Verified.substTermList]
+        have h_mms : closedAt (d + 1) m = true ∧ closedAtList (d + 1) ms = true := by
+          simp only [closedAt, closedAtList, Bool.and_eq_true] at hclosed; exact hclosed
+        have h_rhs_eq : steps 1 (.compute π₂ ρ₂ (Moist.Verified.substTerm pos replacement (.Constr tag (m :: ms))))
+            = .compute (.constrField tag [] (Moist.Verified.substTermList pos replacement ms) ρ₂ :: π₂) ρ₂
+                (Moist.Verified.substTerm pos replacement m) := by
+          rw [hsubst_eq]; simp only [steps]; rfl
+        rw [h_lhs_eq, h_rhs_eq]
+        exact SubstBisimState.compute hpos_le hpos_d hrep_closed henv h_mms.1
+          (SubstBisimStack.cons
+            (SubstBisimFrame.constrField tag hpos_le hpos_d hrep_closed
+              SubstBisimValueList.nil henv h_mms.2)
+            hπ)
+    | Case scrut alts =>
+      refine ⟨1, ?_⟩
+      have h_lhs_eq : step (.compute π₁ ρ₁ (.Case scrut alts)) =
+          .compute (.caseScrutinee alts ρ₁ :: π₁) ρ₁ scrut := rfl
+      have hsubst_eq : Moist.Verified.substTerm pos replacement (.Case scrut alts) =
+          .Case (Moist.Verified.substTerm pos replacement scrut)
+                (Moist.Verified.substTermList pos replacement alts) := by
+        simp only [Moist.Verified.substTerm]
+      have h_sa : closedAt (d + 1) scrut = true ∧ closedAtList (d + 1) alts = true := by
+        simp only [closedAt, Bool.and_eq_true] at hclosed; exact hclosed
+      have h_rhs_eq : steps 1 (.compute π₂ ρ₂ (Moist.Verified.substTerm pos replacement (.Case scrut alts)))
+          = .compute (.caseScrutinee (Moist.Verified.substTermList pos replacement alts) ρ₂ :: π₂) ρ₂
+              (Moist.Verified.substTerm pos replacement scrut) := by
+        rw [hsubst_eq]; simp only [steps]; rfl
+      rw [h_lhs_eq, h_rhs_eq]
+      exact SubstBisimState.compute hpos_le hpos_d hrep_closed henv h_sa.1
+        (SubstBisimStack.cons
+          (SubstBisimFrame.caseScrutinee hpos_le hpos_d hrep_closed henv h_sa.2)
+          hπ)
   | ret h_v h_π =>
     -- Ret case: step depends on stack. Strong 1-1 bisim (m = 1). The full
     -- proof is a case analysis on h_π's frames, similar to
