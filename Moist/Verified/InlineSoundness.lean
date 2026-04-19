@@ -388,6 +388,20 @@ private theorem mirCtxRefines_of_lowerEq {m₁ m₂ : Expr}
 -- budget) — so this is legitimately a 6+ session effort.
 --------------------------------------------------------------------------------
 
+/-- Shorthand: the `shouldInline` condition that the inline pass checks
+    before substituting `rhs` for `v` in `body` and `rest`. This gates
+    the substitution on one of the four `shouldInline` branches (atom /
+    small value/pure / single-use value/pure / single-use impure strict). -/
+def InlineGate (v : VarId) (rhs body : Expr)
+    (rest : List (VarId × Expr × Bool)) : Bool :=
+  Moist.MIR.shouldInline rhs
+    (Moist.MIR.countOccurrences v body +
+      rest.foldl (fun n (_, e, _) => n + Moist.MIR.countOccurrences v e) 0)
+    (Moist.MIR.occursUnderFix v body ||
+      rest.any (fun (_, e, _) => Moist.MIR.occursUnderFix v e))
+    (Moist.MIR.occursInDeferred v body ||
+      rest.any (fun (_, e, _) => Moist.MIR.occursInDeferred v e))
+
 /-- Core substitution-inline sub-theorem (unified form). For every
     `let ((v, rhs, er) :: rest) in body`, the split-substitution form
     that `inlineLetGo` produces (substituting `rhs` into `body` directly
@@ -396,34 +410,19 @@ private theorem mirCtxRefines_of_lowerEq {m₁ m₂ : Expr}
 
     This is the direction used by the inlining pass: the original let is
     refined by its substituted form. Under call-by-value, this is sound
-    exactly when `shouldInline` returns true (atomic / small value / pure
-    single use) — the `inlineLetGo` loop applies `shouldInline` as a
-    gating predicate to ensure this condition holds, but at the level of
-    `MIRCtxRefines` (which is halt- and error-preservation, one-
-    directional), the inlining direction is always sound regardless of
-    the gating. This is the direction the theorem captures.
+    exactly when `shouldInline` returns true (atomic / small value/pure /
+    single-use value/pure / single-use impure strict) — hence the
+    `InlineGate` hypothesis. See the prior scope analysis above for why
+    the unconditional form is unsound (counterexample: `rhs = .Error`
+    with `v` unused in `body`).
 
-    The special case with `rest = []` handles the beta-reduction sorry
+    The special case with `rest = []` handles the beta-reduction case
     in `betaReduce_soundness`: when `rest = []`, `substInBindings v rhs []`
-    returns `([], rfl)` and the let reduces to just the body substitution.
-
-    **Status**: admitted (`sorry`). See the section 2 header above for
-    the full scope analysis. A brief summary:
-
-    * The proof needs either (Option A) MIR-level AlphaEq infrastructure
-      or (Option B) UPLC-level logical-relation substitution preservation
-      or (Option C) a direct CEK simulation argument.
-    * Minimum viable scope: **6,000 lines** (Option C with the strictest
-      prerequisites); realistic scope: **12,000-15,000 lines** for the
-      cleanest/recommended Option A.
-    * This proof belongs in a dedicated series of follow-up sessions;
-      a single 3,000-line budget is insufficient by a factor of 3-5x.
-    * Memory notes `feedback_subst_preserves_alphaEq_scope_2500budget.md`
-      and `feedback_expandFix_subst_comm_post_subst_preserves.md` record
-      the per-phase line-count investigations. -/
+    returns `([], rfl)` and the let reduces to just the body substitution. -/
 theorem substInBindings_body_inline_mirCtxRefines (v : VarId) (rhs body : Expr)
     (er : Bool) (rest : List (VarId × Expr × Bool))
-    (s : Moist.MIR.FreshState) :
+    (s : Moist.MIR.FreshState)
+    (hgate : InlineGate v rhs body rest = true) :
     MIRCtxRefines
       (.Let ((v, rhs, er) :: rest) body)
       (.Let (Moist.MIR.substInBindings v rhs rest
@@ -431,12 +430,22 @@ theorem substInBindings_body_inline_mirCtxRefines (v : VarId) (rhs body : Expr)
             (Moist.MIR.subst v rhs body s).1) := by
   sorry
 
+/-- Atoms always satisfy `InlineGate`: `shouldInline` for an atom expression
+    returns `true` unconditionally (atoms are free to duplicate). -/
+private theorem InlineGate_of_atom (v : VarId) (rhs body : Expr)
+    (rest : List (VarId × Expr × Bool)) (hatom : rhs.isAtom = true) :
+    InlineGate v rhs body rest = true := by
+  unfold InlineGate
+  unfold Moist.MIR.shouldInline
+  simp [hatom]
+
 /-- Specialization: when `rest = []`, the inline form reduces to just
-    the body substitution. -/
+    the body substitution. Requires `InlineGate` to hold. -/
 private theorem subst_body_inline_mirCtxRefines (v : VarId) (rhs body : Expr)
-    (er : Bool) (s : Moist.MIR.FreshState) :
+    (er : Bool) (s : Moist.MIR.FreshState)
+    (hgate : InlineGate v rhs body [] = true) :
     MIRCtxRefines (.Let [(v, rhs, er)] body) (Moist.MIR.subst v rhs body s).1 := by
-  have h := substInBindings_body_inline_mirCtxRefines v rhs body er [] s
+  have h := substInBindings_body_inline_mirCtxRefines v rhs body er [] s hgate
   -- substInBindings v rhs [] = pure ⟨[], rfl⟩, so the result is .Let [] body'
   -- where body' = (subst v rhs body s).1. This is MIRCtxRefines to body' via
   -- mirCtxRefines_let_nil.
@@ -505,9 +514,11 @@ theorem betaReduce_soundness (f x : Expr) (s : Moist.MIR.FreshState) :
         simp only [hxa, ↓reduceIte]
         rfl
       rw [heq]
+      have hgate : InlineGate param x body [] = true :=
+        InlineGate_of_atom param x body [] hxa
       exact mirCtxRefines_trans
         (mirCtxRefines_app_lam_to_let param body x)
-        (subst_body_inline_mirCtxRefines param x body false s)
+        (subst_body_inline_mirCtxRefines param x body false s hgate)
     · -- betaReduce returns (.App (.Lam param body) x, false) unchanged
       have hxa' : x.isAtom = false := by
         cases hh : x.isAtom with
@@ -620,15 +631,18 @@ The inline step is the semantically non-trivial one; it requires the shared
 
 /-- Inline-step helper: relate `.Let ((v, rhs, er) :: rest) body` to the
     post-substitution form that appears inside `inlineLetGo`. This is a
-    direct use of `substInBindings_body_inline_mirCtxRefines`. -/
+    direct use of `substInBindings_body_inline_mirCtxRefines`, which
+    requires the `InlineGate` precondition witnessing that `shouldInline`
+    returned `true` at this binding. -/
 private theorem inline_step_mirCtxRefines
     (v : VarId) (rhs : Expr) (er : Bool)
     (rest : List (VarId × Expr × Bool)) (body : Expr)
-    (s : Moist.MIR.FreshState) :
+    (s : Moist.MIR.FreshState)
+    (hgate : InlineGate v rhs body rest = true) :
     MIRCtxRefines (.Let ((v, rhs, er) :: rest) body)
       (.Let (Moist.MIR.substInBindings v rhs rest (Moist.MIR.subst v rhs body s).2).1.val
             (Moist.MIR.subst v rhs body s).1) :=
-  substInBindings_body_inline_mirCtxRefines v rhs body er rest s
+  substInBindings_body_inline_mirCtxRefines v rhs body er rest s hgate
 
 /-- Generalized soundness of the inlining decision loop with explicit
     accumulator. The shape `(acc.reverse ++ binds)` captures the let
@@ -688,11 +702,12 @@ private theorem inlineLetGo_soundness :
             (.Let acc.reverse (.Let ((v, rhs, er) :: rest) body)) :=
         mirCtxRefines_of_lowerEq
           (lowerTotalExpr_let_split · acc.reverse ((v, rhs, er) :: rest) body)
+      have hgate : InlineGate v rhs body rest = true := hinline
       have h_step :
           MIRCtxRefines
             (.Let ((v, rhs, er) :: rest) body)
             (.Let rest' body') :=
-        inline_step_mirCtxRefines v rhs er rest body s
+        inline_step_mirCtxRefines v rhs er rest body s hgate
       have h_wrap :
           MIRCtxRefines
             (.Let acc.reverse (.Let ((v, rhs, er) :: rest) body))
