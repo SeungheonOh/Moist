@@ -479,4 +479,829 @@ theorem substBisimEnv_extend :
           rw [h_l2_simp] at h_l2
           exact h_l2
 
+--------------------------------------------------------------------------------
+-- 6. List structural helpers + stack helpers
+--------------------------------------------------------------------------------
+
+theorem substBisimValueList_append : ∀ (xs₁ : List CekValue)
+    {xs₂ ys₁ ys₂ : List CekValue},
+    SubstBisimValueList xs₁ xs₂ → SubstBisimValueList ys₁ ys₂ →
+    SubstBisimValueList (xs₁ ++ ys₁) (xs₂ ++ ys₂)
+  | [], _, _, _, hxs, hys => by cases hxs; exact hys
+  | _ :: rest, _, _, _, hxs, hys => by
+    cases hxs with
+    | cons hv hrest =>
+      exact SubstBisimValueList.cons hv (substBisimValueList_append rest hrest hys)
+
+theorem substBisimValueList_reverse : ∀ (xs₁ : List CekValue)
+    {xs₂ : List CekValue},
+    SubstBisimValueList xs₁ xs₂ → SubstBisimValueList xs₁.reverse xs₂.reverse
+  | [], _, hxs => by cases hxs; exact SubstBisimValueList.nil
+  | x :: rest, _, hxs => by
+    cases hxs with
+    | cons hv hrest =>
+      simp only [List.reverse_cons]
+      exact substBisimValueList_append _ (substBisimValueList_reverse rest hrest)
+              (SubstBisimValueList.cons hv SubstBisimValueList.nil)
+
+theorem substBisimValueList_to_applyArg_stack : ∀ (fs₁ : List CekValue)
+    {fs₂ : List CekValue} {π₁ π₂ : Stack},
+    SubstBisimValueList fs₁ fs₂ → SubstBisimStack π₁ π₂ →
+    SubstBisimStack (fs₁.map Frame.applyArg ++ π₁) (fs₂.map Frame.applyArg ++ π₂)
+  | [], _, _, _, hfs, hπ => by cases hfs; exact hπ
+  | _ :: rest, _, _, _, hfs, hπ => by
+    cases hfs with
+    | cons hv hrest =>
+      exact SubstBisimStack.cons (SubstBisimFrame.applyArg hv)
+              (substBisimValueList_to_applyArg_stack rest hrest hπ)
+
+theorem substBisim_closedAtList_get : ∀ (d : Nat) (alts : List Term)
+    (n : Nat) (alt : Term),
+    closedAtList d alts = true →
+    alts[n]? = some alt →
+    closedAt d alt = true
+  | _, [], _, _, _, h => by simp at h
+  | d, a :: rest, 0, _, h_cl, h_get => by
+    simp only [List.getElem?_cons_zero, Option.some.injEq] at h_get
+    subst h_get
+    simp only [closedAtList, Bool.and_eq_true] at h_cl
+    exact h_cl.1
+  | d, _ :: rest, n + 1, alt, h_cl, h_get => by
+    simp only [List.getElem?_cons_succ] at h_get
+    simp only [closedAtList, Bool.and_eq_true] at h_cl
+    exact substBisim_closedAtList_get d rest n alt h_cl.2 h_get
+
+--------------------------------------------------------------------------------
+-- 7. extractConsts compatibility under SubstBisimValueList
+--------------------------------------------------------------------------------
+
+theorem substBisimValueList_extractConsts :
+    ∀ (args₁ : List CekValue) {args₂ : List CekValue},
+    SubstBisimValueList args₁ args₂ → extractConsts args₁ = extractConsts args₂ := by
+  intro args₁
+  induction args₁ with
+  | nil =>
+    intro args₂ h
+    cases h
+    rfl
+  | cons v rest ih =>
+    intro args₂ h
+    obtain ⟨w, rest₂, heq, hv, hrest⟩ := substBisimValueList_cons_inv h
+    subst heq
+    cases hv with
+    | vcon c =>
+      simp only [extractConsts]
+      rw [ih hrest]
+    | vlam _ _ _ _ _ => rfl
+    | vdelay _ _ _ _ _ => rfl
+    | vconstr _ _ => rfl
+    | vbuiltin _ _ _ => rfl
+
+--------------------------------------------------------------------------------
+-- 8. constToTagAndFields fields are SubstBisimValueList-reflexive
+--
+-- Since constToTagAndFields returns only VCon fields, they are trivially
+-- related by SubstBisimValue.vcon reflexivity.
+--------------------------------------------------------------------------------
+
+theorem substBisimValueList_constToTagAndFields_refl :
+    ∀ {c : Const} {tag numCtors : Nat} {fs : List CekValue},
+      constToTagAndFields c = some (tag, numCtors, fs) → SubstBisimValueList fs fs := by
+  intro c tag numCtors fs hc
+  cases c with
+  | Integer n =>
+    simp only [constToTagAndFields] at hc
+    split at hc
+    · simp only [Option.some.injEq, Prod.mk.injEq] at hc
+      obtain ⟨_, _, hfs⟩ := hc
+      subst hfs
+      exact SubstBisimValueList.nil
+    · exact Option.noConfusion hc
+  | ByteString _ => simp [constToTagAndFields] at hc
+  | String _ => simp [constToTagAndFields] at hc
+  | Unit =>
+    simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
+    obtain ⟨_, _, hfs⟩ := hc; subst hfs
+    exact SubstBisimValueList.nil
+  | Bool b =>
+    cases b <;>
+    · simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
+      obtain ⟨_, _, hfs⟩ := hc; subst hfs
+      exact SubstBisimValueList.nil
+  | ConstList l =>
+    cases l with
+    | nil =>
+      simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
+      obtain ⟨_, _, hfs⟩ := hc; subst hfs
+      exact SubstBisimValueList.nil
+    | cons head tail =>
+      simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
+      obtain ⟨_, _, hfs⟩ := hc; subst hfs
+      exact SubstBisimValueList.cons (SubstBisimValue.vcon _)
+              (SubstBisimValueList.cons (SubstBisimValue.vcon _) SubstBisimValueList.nil)
+  | ConstDataList l =>
+    cases l with
+    | nil =>
+      simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
+      obtain ⟨_, _, hfs⟩ := hc; subst hfs
+      exact SubstBisimValueList.nil
+    | cons head tail =>
+      simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
+      obtain ⟨_, _, hfs⟩ := hc; subst hfs
+      exact SubstBisimValueList.cons (SubstBisimValue.vcon _)
+              (SubstBisimValueList.cons (SubstBisimValue.vcon _) SubstBisimValueList.nil)
+  | ConstPairDataList _ => simp [constToTagAndFields] at hc
+  | Pair p =>
+    obtain ⟨a, b⟩ := p
+    simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
+    obtain ⟨_, _, hfs⟩ := hc; subst hfs
+    exact SubstBisimValueList.cons (SubstBisimValue.vcon _)
+            (SubstBisimValueList.cons (SubstBisimValue.vcon _) SubstBisimValueList.nil)
+  | PairData p =>
+    obtain ⟨a, b⟩ := p
+    simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
+    obtain ⟨_, _, hfs⟩ := hc; subst hfs
+    exact SubstBisimValueList.cons (SubstBisimValue.vcon _)
+            (SubstBisimValueList.cons (SubstBisimValue.vcon _) SubstBisimValueList.nil)
+  | Data _ => simp [constToTagAndFields] at hc
+  | ConstArray _ => simp [constToTagAndFields] at hc
+  | Bls12_381_G1_element => simp [constToTagAndFields] at hc
+  | Bls12_381_G2_element => simp [constToTagAndFields] at hc
+  | Bls12_381_MlResult => simp [constToTagAndFields] at hc
+
+
+--------------------------------------------------------------------------------
+-- 9. evalBuiltin compatibility under SubstBisimValueList
+--   (adapted from BetaValueRefines via find-replace of relation names)
+--------------------------------------------------------------------------------
+
+/-- For a pass-through builtin, if LHS succeeds with `some v₁`, then RHS
+    succeeds with `some v₂` where `SubstBisimValue v₁ v₂`. -/
+theorem substBisimValueList_evalBuiltinPassThrough_some : ∀ (b : BuiltinFun) {args₁ args₂ : List CekValue},
+    SubstBisimValueList args₁ args₂ →
+    ∀ v₁, evalBuiltinPassThrough b args₁ = some v₁ →
+      ∃ v₂, evalBuiltinPassThrough b args₂ = some v₂ ∧ SubstBisimValue v₁ v₂ := by
+  intro b args₁ args₂ h v₁ hv₁
+  by_cases hb : b = .IfThenElse ∨ b = .ChooseUnit ∨ b = .Trace ∨
+                b = .ChooseData ∨ b = .ChooseList ∨ b = .MkCons
+  · rcases hb with rfl | rfl | rfl | rfl | rfl | rfl
+    -- ==================== IfThenElse: [e, t, .VCon (.Bool cond)] ====================
+    · match args₁, h, hv₁ with
+      | [e₁, t₁, .VCon (.Bool cond)], h_args, hv₁ =>
+        obtain ⟨e₂, _, he₁, h_e, hr⟩ := substBisimValueList_cons_inv h_args
+        obtain ⟨t₂, _, he₂, h_t, hr'⟩ := substBisimValueList_cons_inv hr
+        obtain ⟨w, _, he₃, h_w, hrn⟩ := substBisimValueList_cons_inv hr'
+        have hnil := substBisimValueList_nil_inv hrn
+        subst hnil he₁ he₂ he₃
+        cases substBisimValue_vcon_inv h_w
+        simp only [evalBuiltinPassThrough, Option.some.injEq] at hv₁
+        subst hv₁
+        refine ⟨if cond then t₂ else e₂, rfl, ?_⟩
+        by_cases hc : cond
+        · subst hc; exact h_t
+        · simp only [hc]; exact h_e
+      | [], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VCon (.Integer _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VCon (.ByteString _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VCon (.String _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VCon .Unit], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VCon (.ConstList _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VCon (.ConstDataList _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VCon (.ConstPairDataList _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VCon (.Pair _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VCon (.PairData _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VCon (.Data _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VCon (.ConstArray _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VCon .Bls12_381_G1_element], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VCon .Bls12_381_G2_element], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VCon .Bls12_381_MlResult], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VDelay _ _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VLam _ _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VConstr _ _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VBuiltin _ _ _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | _ :: _ :: _ :: _ :: _, _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+    -- ==================== ChooseUnit: [r, .VCon .Unit] ====================
+    · match args₁, h, hv₁ with
+      | [r₁, .VCon .Unit], h_args, hv₁ =>
+        obtain ⟨r₂, _, he₁, h_r, hr⟩ := substBisimValueList_cons_inv h_args
+        obtain ⟨w, _, he₂, h_w, hrn⟩ := substBisimValueList_cons_inv hr
+        have hnil := substBisimValueList_nil_inv hrn
+        subst hnil he₁ he₂
+        cases substBisimValue_vcon_inv h_w
+        simp only [evalBuiltinPassThrough, Option.some.injEq] at hv₁
+        subst hv₁
+        exact ⟨r₂, rfl, h_r⟩
+      | [], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VCon (.Integer _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VCon (.ByteString _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VCon (.String _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VCon (.Bool _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VCon (.ConstList _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VCon (.ConstDataList _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VCon (.ConstPairDataList _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VCon (.Pair _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VCon (.PairData _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VCon (.Data _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VCon (.ConstArray _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VCon .Bls12_381_G1_element], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VCon .Bls12_381_G2_element], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VCon .Bls12_381_MlResult], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VDelay _ _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VLam _ _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VConstr _ _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VBuiltin _ _ _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | _ :: _ :: _ :: _, _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+    -- ==================== Trace: [r, .VCon (.String _)] ====================
+    · match args₁, h, hv₁ with
+      | [r₁, .VCon (.String _)], h_args, hv₁ =>
+        obtain ⟨r₂, _, he₁, h_r, hr⟩ := substBisimValueList_cons_inv h_args
+        obtain ⟨w, _, he₂, h_w, hrn⟩ := substBisimValueList_cons_inv hr
+        have hnil := substBisimValueList_nil_inv hrn
+        subst hnil he₁ he₂
+        cases substBisimValue_vcon_inv h_w
+        simp only [evalBuiltinPassThrough, Option.some.injEq] at hv₁
+        subst hv₁
+        exact ⟨r₂, rfl, h_r⟩
+      | [], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VCon (.Integer _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VCon (.ByteString _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VCon .Unit], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VCon (.Bool _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VCon (.ConstList _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VCon (.ConstDataList _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VCon (.ConstPairDataList _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VCon (.Pair _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VCon (.PairData _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VCon (.Data _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VCon (.ConstArray _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VCon .Bls12_381_G1_element], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VCon .Bls12_381_G2_element], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VCon .Bls12_381_MlResult], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VDelay _ _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VLam _ _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VConstr _ _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, .VBuiltin _ _ _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | _ :: _ :: _ :: _, _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+    -- ========= ChooseData: [b, i, l, m, c, .VCon (.Data d)] =========
+    · match args₁, h, hv₁ with
+      | [b₁, i₁, l₁, m₁, cr₁, .VCon (.Data d)], h_args, hv₁ =>
+        obtain ⟨b₂, _, he₁, h_b, hr⟩ := substBisimValueList_cons_inv h_args
+        obtain ⟨i₂, _, he₂, h_i, hr₂⟩ := substBisimValueList_cons_inv hr
+        obtain ⟨l₂, _, he₃, h_l, hr₃⟩ := substBisimValueList_cons_inv hr₂
+        obtain ⟨m₂, _, he₄, h_m, hr₄⟩ := substBisimValueList_cons_inv hr₃
+        obtain ⟨cr₂, _, he₅, h_cr, hr₅⟩ := substBisimValueList_cons_inv hr₄
+        obtain ⟨w, _, he₆, h_w, hrn⟩ := substBisimValueList_cons_inv hr₅
+        have hnil := substBisimValueList_nil_inv hrn
+        subst hnil he₁ he₂ he₃ he₄ he₅ he₆
+        cases substBisimValue_vcon_inv h_w
+        simp only [evalBuiltinPassThrough] at hv₁
+        cases d with
+        | Constr _ _ =>
+          simp only [Option.some.injEq] at hv₁; subst hv₁
+          exact ⟨cr₂, rfl, h_cr⟩
+        | Map _ =>
+          simp only [Option.some.injEq] at hv₁; subst hv₁
+          exact ⟨m₂, rfl, h_m⟩
+        | List _ =>
+          simp only [Option.some.injEq] at hv₁; subst hv₁
+          exact ⟨l₂, rfl, h_l⟩
+        | I _ =>
+          simp only [Option.some.injEq] at hv₁; subst hv₁
+          exact ⟨i₂, rfl, h_i⟩
+        | B _ =>
+          simp only [Option.some.injEq] at hv₁; subst hv₁
+          exact ⟨b₂, rfl, h_b⟩
+      | [], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, _, _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, _, _, _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, _, _, _, .VCon (.Integer _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, _, _, _, .VCon (.ByteString _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, _, _, _, .VCon (.String _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, _, _, _, .VCon .Unit], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, _, _, _, .VCon (.Bool _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, _, _, _, .VCon (.ConstList _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, _, _, _, .VCon (.ConstDataList _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, _, _, _, .VCon (.ConstPairDataList _)], _, hv₁ =>
+          simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, _, _, _, .VCon (.Pair _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, _, _, _, .VCon (.PairData _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, _, _, _, .VCon (.ConstArray _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, _, _, _, .VCon .Bls12_381_G1_element], _, hv₁ =>
+          simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, _, _, _, .VCon .Bls12_381_G2_element], _, hv₁ =>
+          simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, _, _, _, .VCon .Bls12_381_MlResult], _, hv₁ =>
+          simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, _, _, _, .VDelay _ _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, _, _, _, .VLam _ _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, _, _, _, .VConstr _ _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, _, _, _, .VBuiltin _ _ _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | _ :: _ :: _ :: _ :: _ :: _ :: _ :: _, _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+    -- ChooseList: [consC, nilC, .VCon (.ConstDataList l)] or [consC, nilC, .VCon (.ConstList l)]
+    · match args₁, h, hv₁ with
+      | [c₁, n₁, .VCon (.ConstDataList l)], h_args, hv₁ =>
+        obtain ⟨c₂, _, he₁, h_c, hr⟩ := substBisimValueList_cons_inv h_args
+        obtain ⟨n₂, _, he₂, h_n, hr'⟩ := substBisimValueList_cons_inv hr
+        obtain ⟨w, _, he₃, h_w, hrn⟩ := substBisimValueList_cons_inv hr'
+        have hnil := substBisimValueList_nil_inv hrn
+        subst hnil he₁ he₂ he₃
+        cases substBisimValue_vcon_inv h_w
+        simp only [evalBuiltinPassThrough, Option.some.injEq] at hv₁
+        subst hv₁
+        refine ⟨if l.isEmpty then n₂ else c₂, rfl, ?_⟩
+        by_cases hl : l.isEmpty
+        · simp [hl]; exact h_n
+        · simp [hl]; exact h_c
+      | [c₁, n₁, .VCon (.ConstList l)], h_args, hv₁ =>
+        obtain ⟨c₂, _, he₁, h_c, hr⟩ := substBisimValueList_cons_inv h_args
+        obtain ⟨n₂, _, he₂, h_n, hr'⟩ := substBisimValueList_cons_inv hr
+        obtain ⟨w, _, he₃, h_w, hrn⟩ := substBisimValueList_cons_inv hr'
+        have hnil := substBisimValueList_nil_inv hrn
+        subst hnil he₁ he₂ he₃
+        cases substBisimValue_vcon_inv h_w
+        simp only [evalBuiltinPassThrough, Option.some.injEq] at hv₁
+        subst hv₁
+        refine ⟨if l.isEmpty then n₂ else c₂, rfl, ?_⟩
+        by_cases hl : l.isEmpty
+        · simp [hl]; exact h_n
+        · simp [hl]; exact h_c
+      | [], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VCon (.Integer _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VCon (.ByteString _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VCon (.String _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VCon .Unit], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VCon (.Bool _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VCon (.ConstPairDataList _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VCon (.Pair _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VCon (.PairData _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VCon (.Data _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VCon (.ConstArray _)], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VCon .Bls12_381_G1_element], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VCon .Bls12_381_G2_element], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VCon .Bls12_381_MlResult], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VDelay _ _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VLam _ _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VConstr _ _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_, _, .VBuiltin _ _ _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | _ :: _ :: _ :: _ :: _, _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+    -- MkCons: [.VCon (.ConstList tail), .VCon elem] → .VCon (.ConstList (elem :: tail))
+    · match args₁, h, hv₁ with
+      | [.VCon (.ConstList tail), .VCon c], h_args, hv₁ =>
+        obtain ⟨w₁, _, he₁, h_w₁, hr⟩ := substBisimValueList_cons_inv h_args
+        obtain ⟨w₂, _, he₂, h_w₂, hrn⟩ := substBisimValueList_cons_inv hr
+        have hnil := substBisimValueList_nil_inv hrn
+        subst hnil he₁ he₂
+        cases substBisimValue_vcon_inv h_w₁
+        cases substBisimValue_vcon_inv h_w₂
+        simp only [evalBuiltinPassThrough, Option.some.injEq] at hv₁
+        subst hv₁
+        exact ⟨.VCon (.ConstList (c :: tail)), rfl, SubstBisimValue.vcon _⟩
+      | [.VCon (.ConstList _), .VDelay _ _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [.VCon (.ConstList _), .VLam _ _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [.VCon (.ConstList _), .VConstr _ _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [.VCon (.ConstList _), .VBuiltin _ _ _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [_], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [.VCon (.Integer _), _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [.VCon (.ByteString _), _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [.VCon (.String _), _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [.VCon .Unit, _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [.VCon (.Bool _), _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [.VCon (.ConstDataList _), _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [.VCon (.ConstPairDataList _), _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [.VCon (.Pair _), _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [.VCon (.PairData _), _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [.VCon (.Data _), _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [.VCon (.ConstArray _), _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [.VCon .Bls12_381_G1_element, _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [.VCon .Bls12_381_G2_element, _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [.VCon .Bls12_381_MlResult, _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [.VDelay _ _, _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [.VLam _ _, _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [.VConstr _ _, _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | [.VBuiltin _ _ _, _], _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+      | _ :: _ :: _ :: _, _, hv₁ => simp [evalBuiltinPassThrough] at hv₁
+  · -- Default case: b is not a pass-through builtin
+    exfalso
+    have h1 : b ≠ .IfThenElse := fun heq => hb (Or.inl heq)
+    have h2 : b ≠ .ChooseUnit := fun heq => hb (Or.inr (Or.inl heq))
+    have h3 : b ≠ .Trace := fun heq => hb (Or.inr (Or.inr (Or.inl heq)))
+    have h4 : b ≠ .ChooseData := fun heq => hb (Or.inr (Or.inr (Or.inr (Or.inl heq))))
+    have h5 : b ≠ .ChooseList :=
+      fun heq => hb (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl heq)))))
+    have h6 : b ≠ .MkCons :=
+      fun heq => hb (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr heq)))))
+    have h_none := evalBuiltinPassThrough_none_of_not_passthrough b args₁ ⟨h1, h2, h3, h4, h5, h6⟩
+    rw [h_none] at hv₁
+    exact Option.noConfusion hv₁
+
+
+/-- Reverse direction of `_some`: if RHS succeeds, LHS succeeds with related output. -/
+theorem substBisimValueList_evalBuiltinPassThrough_some_rev : ∀ (b : BuiltinFun) {args₁ args₂ : List CekValue},
+    SubstBisimValueList args₁ args₂ →
+    ∀ v₂, evalBuiltinPassThrough b args₂ = some v₂ →
+      ∃ v₁, evalBuiltinPassThrough b args₁ = some v₁ ∧ SubstBisimValue v₁ v₂ := by
+  intro b args₁ args₂ h v₂ hv₂
+  by_cases hb : b = .IfThenElse ∨ b = .ChooseUnit ∨ b = .Trace ∨
+                b = .ChooseData ∨ b = .ChooseList ∨ b = .MkCons
+  · rcases hb with rfl | rfl | rfl | rfl | rfl | rfl
+    -- IfThenElse
+    · match args₂, h, hv₂ with
+      | [e₂, t₂, .VCon (.Bool cond)], h_args, hv₂ =>
+        obtain ⟨e₁, _, he₁, h_e, hr⟩ := substBisimValueList_cons_inv_right h_args
+        obtain ⟨t₁, _, he₂, h_t, hr'⟩ := substBisimValueList_cons_inv_right hr
+        obtain ⟨w, _, he₃, h_w, hrn⟩ := substBisimValueList_cons_inv_right hr'
+        have hnil := substBisimValueList_nil_inv_right hrn
+        subst hnil he₁ he₂ he₃
+        cases substBisimValue_vcon_inv_right h_w
+        simp only [evalBuiltinPassThrough, Option.some.injEq] at hv₂
+        subst hv₂
+        refine ⟨if cond then t₁ else e₁, rfl, ?_⟩
+        by_cases hc : cond
+        · subst hc; exact h_t
+        · simp only [hc]; exact h_e
+      | [], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VCon (.Integer _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VCon (.ByteString _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VCon (.String _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VCon .Unit], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VCon (.ConstList _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VCon (.ConstDataList _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VCon (.ConstPairDataList _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VCon (.Pair _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VCon (.PairData _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VCon (.Data _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VCon (.ConstArray _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VCon .Bls12_381_G1_element], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VCon .Bls12_381_G2_element], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VCon .Bls12_381_MlResult], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VDelay _ _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VLam _ _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VConstr _ _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VBuiltin _ _ _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | _ :: _ :: _ :: _ :: _, _, hv => simp [evalBuiltinPassThrough] at hv
+    -- ChooseUnit
+    · match args₂, h, hv₂ with
+      | [r₂, .VCon .Unit], h_args, hv₂ =>
+        obtain ⟨r₁, _, he₁, h_r, hr⟩ := substBisimValueList_cons_inv_right h_args
+        obtain ⟨w, _, he₂, h_w, hrn⟩ := substBisimValueList_cons_inv_right hr
+        have hnil := substBisimValueList_nil_inv_right hrn
+        subst hnil he₁ he₂
+        cases substBisimValue_vcon_inv_right h_w
+        simp only [evalBuiltinPassThrough, Option.some.injEq] at hv₂
+        subst hv₂
+        exact ⟨r₁, rfl, h_r⟩
+      | [], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VCon (.Integer _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VCon (.ByteString _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VCon (.String _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VCon (.Bool _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VCon (.ConstList _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VCon (.ConstDataList _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VCon (.ConstPairDataList _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VCon (.Pair _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VCon (.PairData _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VCon (.Data _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VCon (.ConstArray _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VCon .Bls12_381_G1_element], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VCon .Bls12_381_G2_element], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VCon .Bls12_381_MlResult], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VDelay _ _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VLam _ _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VConstr _ _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VBuiltin _ _ _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | _ :: _ :: _ :: _, _, hv => simp [evalBuiltinPassThrough] at hv
+    -- Trace
+    · match args₂, h, hv₂ with
+      | [r₂, .VCon (.String _)], h_args, hv₂ =>
+        obtain ⟨r₁, _, he₁, h_r, hr⟩ := substBisimValueList_cons_inv_right h_args
+        obtain ⟨w, _, he₂, h_w, hrn⟩ := substBisimValueList_cons_inv_right hr
+        have hnil := substBisimValueList_nil_inv_right hrn
+        subst hnil he₁ he₂
+        cases substBisimValue_vcon_inv_right h_w
+        simp only [evalBuiltinPassThrough, Option.some.injEq] at hv₂
+        subst hv₂
+        exact ⟨r₁, rfl, h_r⟩
+      | [], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VCon (.Integer _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VCon (.ByteString _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VCon .Unit], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VCon (.Bool _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VCon (.ConstList _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VCon (.ConstDataList _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VCon (.ConstPairDataList _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VCon (.Pair _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VCon (.PairData _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VCon (.Data _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VCon (.ConstArray _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VCon .Bls12_381_G1_element], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VCon .Bls12_381_G2_element], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VCon .Bls12_381_MlResult], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VDelay _ _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VLam _ _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VConstr _ _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, .VBuiltin _ _ _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | _ :: _ :: _ :: _, _, hv => simp [evalBuiltinPassThrough] at hv
+    -- ChooseData
+    · match args₂, h, hv₂ with
+      | [b₂, i₂, l₂, m₂, cr₂, .VCon (.Data d)], h_args, hv₂ =>
+        obtain ⟨b₁, _, he₁, h_b, hr⟩ := substBisimValueList_cons_inv_right h_args
+        obtain ⟨i₁, _, he₂, h_i, hr₂⟩ := substBisimValueList_cons_inv_right hr
+        obtain ⟨l₁, _, he₃, h_l, hr₃⟩ := substBisimValueList_cons_inv_right hr₂
+        obtain ⟨m₁, _, he₄, h_m, hr₄⟩ := substBisimValueList_cons_inv_right hr₃
+        obtain ⟨cr₁, _, he₅, h_cr, hr₅⟩ := substBisimValueList_cons_inv_right hr₄
+        obtain ⟨w, _, he₆, h_w, hrn⟩ := substBisimValueList_cons_inv_right hr₅
+        have hnil := substBisimValueList_nil_inv_right hrn
+        subst hnil he₁ he₂ he₃ he₄ he₅ he₆
+        cases substBisimValue_vcon_inv_right h_w
+        simp only [evalBuiltinPassThrough] at hv₂
+        cases d with
+        | Constr _ _ =>
+          simp only [Option.some.injEq] at hv₂; subst hv₂
+          exact ⟨cr₁, rfl, h_cr⟩
+        | Map _ =>
+          simp only [Option.some.injEq] at hv₂; subst hv₂
+          exact ⟨m₁, rfl, h_m⟩
+        | List _ =>
+          simp only [Option.some.injEq] at hv₂; subst hv₂
+          exact ⟨l₁, rfl, h_l⟩
+        | I _ =>
+          simp only [Option.some.injEq] at hv₂; subst hv₂
+          exact ⟨i₁, rfl, h_i⟩
+        | B _ =>
+          simp only [Option.some.injEq] at hv₂; subst hv₂
+          exact ⟨b₁, rfl, h_b⟩
+      | [], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, _, _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, _, _, _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, _, _, _, .VCon (.Integer _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, _, _, _, .VCon (.ByteString _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, _, _, _, .VCon (.String _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, _, _, _, .VCon .Unit], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, _, _, _, .VCon (.Bool _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, _, _, _, .VCon (.ConstList _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, _, _, _, .VCon (.ConstDataList _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, _, _, _, .VCon (.ConstPairDataList _)], _, hv =>
+          simp [evalBuiltinPassThrough] at hv
+      | [_, _, _, _, _, .VCon (.Pair _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, _, _, _, .VCon (.PairData _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, _, _, _, .VCon (.ConstArray _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, _, _, _, .VCon .Bls12_381_G1_element], _, hv =>
+          simp [evalBuiltinPassThrough] at hv
+      | [_, _, _, _, _, .VCon .Bls12_381_G2_element], _, hv =>
+          simp [evalBuiltinPassThrough] at hv
+      | [_, _, _, _, _, .VCon .Bls12_381_MlResult], _, hv =>
+          simp [evalBuiltinPassThrough] at hv
+      | [_, _, _, _, _, .VDelay _ _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, _, _, _, .VLam _ _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, _, _, _, .VConstr _ _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, _, _, _, .VBuiltin _ _ _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | _ :: _ :: _ :: _ :: _ :: _ :: _ :: _, _, hv => simp [evalBuiltinPassThrough] at hv
+    -- ChooseList
+    · match args₂, h, hv₂ with
+      | [c₂, n₂, .VCon (.ConstDataList l)], h_args, hv₂ =>
+        obtain ⟨c₁, _, he₁, h_c, hr⟩ := substBisimValueList_cons_inv_right h_args
+        obtain ⟨n₁, _, he₂, h_n, hr'⟩ := substBisimValueList_cons_inv_right hr
+        obtain ⟨w, _, he₃, h_w, hrn⟩ := substBisimValueList_cons_inv_right hr'
+        have hnil := substBisimValueList_nil_inv_right hrn
+        subst hnil he₁ he₂ he₃
+        cases substBisimValue_vcon_inv_right h_w
+        simp only [evalBuiltinPassThrough, Option.some.injEq] at hv₂
+        subst hv₂
+        refine ⟨if l.isEmpty then n₁ else c₁, rfl, ?_⟩
+        by_cases hl : l.isEmpty
+        · simp [hl]; exact h_n
+        · simp [hl]; exact h_c
+      | [c₂, n₂, .VCon (.ConstList l)], h_args, hv₂ =>
+        obtain ⟨c₁, _, he₁, h_c, hr⟩ := substBisimValueList_cons_inv_right h_args
+        obtain ⟨n₁, _, he₂, h_n, hr'⟩ := substBisimValueList_cons_inv_right hr
+        obtain ⟨w, _, he₃, h_w, hrn⟩ := substBisimValueList_cons_inv_right hr'
+        have hnil := substBisimValueList_nil_inv_right hrn
+        subst hnil he₁ he₂ he₃
+        cases substBisimValue_vcon_inv_right h_w
+        simp only [evalBuiltinPassThrough, Option.some.injEq] at hv₂
+        subst hv₂
+        refine ⟨if l.isEmpty then n₁ else c₁, rfl, ?_⟩
+        by_cases hl : l.isEmpty
+        · simp [hl]; exact h_n
+        · simp [hl]; exact h_c
+      | [], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VCon (.Integer _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VCon (.ByteString _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VCon (.String _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VCon .Unit], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VCon (.Bool _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VCon (.ConstPairDataList _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VCon (.Pair _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VCon (.PairData _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VCon (.Data _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VCon (.ConstArray _)], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VCon .Bls12_381_G1_element], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VCon .Bls12_381_G2_element], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VCon .Bls12_381_MlResult], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VDelay _ _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VLam _ _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VConstr _ _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_, _, .VBuiltin _ _ _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | _ :: _ :: _ :: _ :: _, _, hv => simp [evalBuiltinPassThrough] at hv
+    -- MkCons
+    · match args₂, h, hv₂ with
+      | [.VCon (.ConstList tail), .VCon c], h_args, hv₂ =>
+        obtain ⟨w₁, _, he₁, h_w₁, hr⟩ := substBisimValueList_cons_inv_right h_args
+        obtain ⟨w₂, _, he₂, h_w₂, hrn⟩ := substBisimValueList_cons_inv_right hr
+        have hnil := substBisimValueList_nil_inv_right hrn
+        subst hnil he₁ he₂
+        cases substBisimValue_vcon_inv_right h_w₁
+        cases substBisimValue_vcon_inv_right h_w₂
+        simp only [evalBuiltinPassThrough, Option.some.injEq] at hv₂
+        subst hv₂
+        exact ⟨.VCon (.ConstList (c :: tail)), rfl, SubstBisimValue.vcon _⟩
+      | [.VCon (.ConstList _), .VDelay _ _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [.VCon (.ConstList _), .VLam _ _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [.VCon (.ConstList _), .VConstr _ _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [.VCon (.ConstList _), .VBuiltin _ _ _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [_], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [.VCon (.Integer _), _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [.VCon (.ByteString _), _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [.VCon (.String _), _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [.VCon .Unit, _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [.VCon (.Bool _), _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [.VCon (.ConstDataList _), _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [.VCon (.ConstPairDataList _), _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [.VCon (.Pair _), _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [.VCon (.PairData _), _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [.VCon (.Data _), _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [.VCon (.ConstArray _), _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [.VCon .Bls12_381_G1_element, _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [.VCon .Bls12_381_G2_element, _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [.VCon .Bls12_381_MlResult, _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [.VDelay _ _, _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [.VLam _ _, _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [.VConstr _ _, _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | [.VBuiltin _ _ _, _], _, hv => simp [evalBuiltinPassThrough] at hv
+      | _ :: _ :: _ :: _, _, hv => simp [evalBuiltinPassThrough] at hv
+  · exfalso
+    have h1 : b ≠ .IfThenElse := fun heq => hb (Or.inl heq)
+    have h2 : b ≠ .ChooseUnit := fun heq => hb (Or.inr (Or.inl heq))
+    have h3 : b ≠ .Trace := fun heq => hb (Or.inr (Or.inr (Or.inl heq)))
+    have h4 : b ≠ .ChooseData := fun heq => hb (Or.inr (Or.inr (Or.inr (Or.inl heq))))
+    have h5 : b ≠ .ChooseList :=
+      fun heq => hb (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl heq)))))
+    have h6 : b ≠ .MkCons :=
+      fun heq => hb (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr heq)))))
+    have h_none := evalBuiltinPassThrough_none_of_not_passthrough b args₂ ⟨h1, h2, h3, h4, h5, h6⟩
+    rw [h_none] at hv₂
+    exact Option.noConfusion hv₂
+
+/-- Full bidirectional evalBuiltinPassThrough compat. -/
+theorem substBisimValueList_evalBuiltinPassThrough (b : BuiltinFun)
+    {args₁ args₂ : List CekValue} (h : SubstBisimValueList args₁ args₂) :
+    (∀ v₁, evalBuiltinPassThrough b args₁ = some v₁ →
+      ∃ v₂, evalBuiltinPassThrough b args₂ = some v₂ ∧ SubstBisimValue v₁ v₂) ∧
+    (evalBuiltinPassThrough b args₁ = none ↔ evalBuiltinPassThrough b args₂ = none) := by
+  refine ⟨substBisimValueList_evalBuiltinPassThrough_some b h, ?_, ?_⟩
+  · intro hn
+    cases heq : evalBuiltinPassThrough b args₂ with
+    | none => rfl
+    | some v₂ =>
+      exfalso
+      obtain ⟨v₁, hv₁, _⟩ :=
+        substBisimValueList_evalBuiltinPassThrough_some_rev b h v₂ heq
+      rw [hn] at hv₁
+      exact Option.noConfusion hv₁
+  · intro hn
+    cases heq : evalBuiltinPassThrough b args₁ with
+    | none => rfl
+    | some v₁ =>
+      exfalso
+      obtain ⟨v₂, hv₂, _⟩ :=
+        substBisimValueList_evalBuiltinPassThrough_some b h v₁ heq
+      rw [hn] at hv₂
+      exact Option.noConfusion hv₂
+
+/-- Full evalBuiltin compat: bisim-preserves both Some (with related value)
+    and None directions under SubstBisimValueList. -/
+theorem shiftBisimValueList_evalBuiltin {b : BuiltinFun}
+    {args₁ args₂ : List CekValue} (h : SubstBisimValueList args₁ args₂) :
+    (∀ v₁, evalBuiltin b args₁ = some v₁ →
+      ∃ v₂, evalBuiltin b args₂ = some v₂ ∧ SubstBisimValue v₁ v₂) ∧
+    (evalBuiltin b args₁ = none ↔ evalBuiltin b args₂ = none) := by
+  have h_ext : extractConsts args₁ = extractConsts args₂ :=
+    substBisimValueList_extractConsts _ h
+  obtain ⟨h_pt_some, h_pt_iff⟩ := substBisimValueList_evalBuiltinPassThrough b h
+  refine ⟨?_, ?_⟩
+  -- SOME direction
+  · intro v₁ hv₁
+    cases hpt₁ : evalBuiltinPassThrough b args₁ with
+    | some v_pt =>
+      obtain ⟨v₂, hpt₂, h_rel⟩ := h_pt_some v_pt hpt₁
+      refine ⟨v₂, ?_, ?_⟩
+      · simp only [evalBuiltin, hpt₂]
+      · have heq : v₁ = v_pt := by
+          have h1 : evalBuiltin b args₁ = some v_pt := by
+            simp only [evalBuiltin, hpt₁]
+          rw [hv₁] at h1
+          exact Option.some.inj h1
+        rw [heq]
+        exact h_rel
+    | none =>
+      have hpt₂ : evalBuiltinPassThrough b args₂ = none := h_pt_iff.mp hpt₁
+      cases hec₁ : extractConsts args₁ with
+      | none =>
+        exfalso
+        have : evalBuiltin b args₁ = none := by
+          simp only [evalBuiltin, hpt₁, hec₁]
+        rw [hv₁] at this
+        exact Option.noConfusion this
+      | some cs =>
+        have hec₂ : extractConsts args₂ = some cs := h_ext ▸ hec₁
+        cases hbc : evalBuiltinConst b cs with
+        | none =>
+          exfalso
+          have : evalBuiltin b args₁ = none := by
+            simp only [evalBuiltin, hpt₁, hec₁, hbc]
+          rw [hv₁] at this
+          exact Option.noConfusion this
+        | some c =>
+          refine ⟨.VCon c, ?_, ?_⟩
+          · simp only [evalBuiltin, hpt₂, hec₂, hbc]
+          · have heq : v₁ = .VCon c := by
+              have h1 : evalBuiltin b args₁ = some (.VCon c) := by
+                simp only [evalBuiltin, hpt₁, hec₁, hbc]
+              rw [hv₁] at h1
+              exact Option.some.inj h1
+            rw [heq]
+            exact SubstBisimValue.vcon c
+  -- NONE ↔ NONE direction
+  · constructor
+    · intro hn
+      cases hpt₁ : evalBuiltinPassThrough b args₁ with
+      | some v =>
+        exfalso
+        have : evalBuiltin b args₁ = some v := by
+          simp only [evalBuiltin, hpt₁]
+        rw [hn] at this
+        exact Option.noConfusion this
+      | none =>
+        have hpt₂ := h_pt_iff.mp hpt₁
+        cases hec₁ : extractConsts args₁ with
+        | none =>
+          have hec₂ : extractConsts args₂ = none := h_ext ▸ hec₁
+          simp only [evalBuiltin, hpt₂, hec₂]
+        | some cs =>
+          have hec₂ : extractConsts args₂ = some cs := h_ext ▸ hec₁
+          cases hbc : evalBuiltinConst b cs with
+          | none =>
+            simp only [evalBuiltin, hpt₂, hec₂, hbc]
+          | some c =>
+            exfalso
+            have : evalBuiltin b args₁ = some (.VCon c) := by
+              simp only [evalBuiltin, hpt₁, hec₁, hbc]
+            rw [hn] at this
+            exact Option.noConfusion this
+    · intro hn
+      cases hpt₂ : evalBuiltinPassThrough b args₂ with
+      | some v =>
+        exfalso
+        have : evalBuiltin b args₂ = some v := by
+          simp only [evalBuiltin, hpt₂]
+        rw [hn] at this
+        exact Option.noConfusion this
+      | none =>
+        have hpt₁ := h_pt_iff.mpr hpt₂
+        cases hec₂ : extractConsts args₂ with
+        | none =>
+          have hec₁ : extractConsts args₁ = none := by rw [h_ext]; exact hec₂
+          simp only [evalBuiltin, hpt₁, hec₁]
+        | some cs =>
+          have hec₁ : extractConsts args₁ = some cs := by rw [h_ext]; exact hec₂
+          cases hbc : evalBuiltinConst b cs with
+          | none =>
+            simp only [evalBuiltin, hpt₁, hec₁, hbc]
+          | some c =>
+            exfalso
+            have : evalBuiltin b args₂ = some (.VCon c) := by
+              simp only [evalBuiltin, hpt₂, hec₂, hbc]
+            rw [hn] at this
+            exact Option.noConfusion this
+
 end Moist.Verified.SubstBisim
