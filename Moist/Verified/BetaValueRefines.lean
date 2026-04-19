@@ -4472,4 +4472,124 @@ theorem shiftBisimState_step_preserves : ∀ {s₁ s₂ : State},
                     (shiftBisimValueList_to_applyArg_stack fs₁ h_fs h_rest)
         | vbuiltin _ _ _ => exact ShiftBisimState.error
 
+--------------------------------------------------------------------------------
+-- 19e. Iterated step + halt/error inversions
+--------------------------------------------------------------------------------
+
+/-- Iterated version of `step_preserves`: `ShiftBisimState` is preserved
+    under any number of `step` calls. -/
+theorem shiftBisimState_steps_preserves : ∀ (n : Nat) {s₁ s₂ : State},
+    ShiftBisimState s₁ s₂ → ShiftBisimState (steps n s₁) (steps n s₂) := by
+  intro n
+  induction n with
+  | zero => intro _ _ h; exact h
+  | succ m ih =>
+    intro s₁ s₂ h
+    show ShiftBisimState (steps m (step s₁)) (steps m (step s₂))
+    exact ih (shiftBisimState_step_preserves h)
+
+/-- Halt inversion: if `ShiftBisimState (halt v) s`, then `s` is `halt v'`
+    for some `v'` with `ShiftBisimValue v v'`. -/
+theorem shiftBisimState_halt_inv : ∀ {v : CekValue} {s : State},
+    ShiftBisimState (.halt v) s → ∃ v', s = .halt v' ∧ ShiftBisimValue v v'
+  | _, _, .halt h_v => ⟨_, rfl, h_v⟩
+
+/-- Error inversion: if `ShiftBisimState .error s`, then `s = .error`. -/
+theorem shiftBisimState_error_inv : ∀ {s : State},
+    ShiftBisimState .error s → s = .error
+  | _, .error => rfl
+
+/-- Ret inversion: `ShiftBisimState (ret π v) s` forces s = ret π' v' with relations. -/
+theorem shiftBisimState_ret_inv : ∀ {π : Stack} {v : CekValue} {s : State},
+    ShiftBisimState (.ret π v) s →
+    ∃ π' v', s = .ret π' v' ∧ ShiftBisimValue v v' ∧ ShiftBisimStack π π'
+  | _, _, _, .ret h_v h_π => ⟨_, _, rfl, h_v, h_π⟩
+
+--------------------------------------------------------------------------------
+-- 19f. ShiftBisimValue → ValueRefinesK extraction
+--
+-- Shows ShiftBisimValue implies ValueRefinesK at any step index.
+-- Uses mutual induction on step index and value structure.
+-- Closure cases use renameRefinesR_shift1 (via renameRefinesR with liftRename).
+--------------------------------------------------------------------------------
+
+section ShiftBisimValueRefines
+open Moist.Verified.FundamentalRefines (renameRefinesR is0preserving_lift)
+
+/-- Convert `ShiftBisimEnv σ d ρ₁ ρ₂` to `RenameEnvRefR σ k d ρ₁ ρ₂` at a
+    specific step index k, assuming `ShiftBisimValue` implies `ValueRefinesK`
+    at k. -/
+private theorem shiftBisimEnv_to_renameEnvRefR_at (k : Nat)
+    (hvrel : ∀ (v₁ v₂ : CekValue), ShiftBisimValue v₁ v₂ →
+      ValueRefinesK k v₁ v₂)
+    {σ : Nat → Nat} {d : Nat} {ρ₁ ρ₂ : CekEnv}
+    (h : ShiftBisimEnv σ d ρ₁ ρ₂) :
+    Moist.Verified.FundamentalRefines.RenameEnvRefR σ k d ρ₁ ρ₂ := by
+  intro n hn hnd
+  obtain ⟨v₁, v₂, hl₁, hl₂, h_v⟩ := shiftBisimEnv_lookup σ d h hn hnd
+  show match ρ₁.lookup n, ρ₂.lookup (σ n) with
+       | some v₁, some v₂ => ValueRefinesK k v₁ v₂
+       | none, none => True
+       | _, _ => False
+  rw [hl₁, hl₂]
+  exact hvrel v₁ v₂ h_v
+
+/-- Helper: ShiftBisimValueList → ListRel ValueRefinesK, by structural
+    recursion (since it's mutually inductive, direct induction fails). -/
+private theorem shiftBisimValueList_to_listRel_valueRefinesK
+    (hvrel : ∀ (v₁ v₂ : CekValue), ShiftBisimValue v₁ v₂ → ValueRefinesK k v₁ v₂) :
+    ∀ {xs ys : List CekValue}, ShiftBisimValueList xs ys →
+      ListRel (ValueRefinesK k) xs ys
+  | [], _, h => by cases h; exact True.intro
+  | _ :: _, _, h => by
+    cases h with
+    | cons hv hrest =>
+      exact ⟨hvrel _ _ hv, shiftBisimValueList_to_listRel_valueRefinesK hvrel hrest⟩
+
+/-- `ShiftBisimValue v₁ v₂` implies `ValueRefinesK k v₁ v₂` for all k. -/
+theorem shiftBisimValue_to_valueRefinesK :
+    ∀ (k : Nat) (v₁ v₂ : CekValue), ShiftBisimValue v₁ v₂ → ValueRefinesK k v₁ v₂ := by
+  intro k
+  induction k with
+  | zero =>
+    intro v₁ v₂ h
+    cases h with
+    | vcon c => simp only [ValueRefinesK]
+    | vlam _ _ _ => simp only [ValueRefinesK]
+    | vdelay _ _ _ => simp only [ValueRefinesK]
+    | vconstr tag _ => simp only [ValueRefinesK]
+    | vbuiltin b ea _ => simp only [ValueRefinesK]; exact ⟨trivial, trivial⟩
+  | succ k ih =>
+    -- ih at index k → use valueRefinesK_mono to get any j ≤ k.
+    have ih_mono : ∀ (j : Nat), j ≤ k → ∀ (v₁ v₂ : CekValue),
+        ShiftBisimValue v₁ v₂ → ValueRefinesK j v₁ v₂ := by
+      intro j hj v₁ v₂ h
+      exact valueRefinesK_mono hj v₁ v₂ (ih v₁ v₂ h)
+    intro v₁ v₂ h
+    cases h with
+    | vcon c => simp only [ValueRefinesK]
+    | @vlam body ρ₁ ρ₂ σ d h_σ hρ hclosed =>
+      simp only [ValueRefinesK]
+      intro j hj arg₁ arg₂ harg i hi π₁ π₂ hπ
+      have henv_ext : Moist.Verified.FundamentalRefines.RenameEnvRefR
+          (Moist.Verified.liftRename σ) j (d + 1) (ρ₁.extend arg₁) (ρ₂.extend arg₂) :=
+        Moist.Verified.FundamentalRefines.renameEnvRefR_extend h_σ
+          (shiftBisimEnv_to_renameEnvRefR_at j (ih_mono j hj) hρ) harg
+      exact renameRefinesR (Moist.Verified.liftRename σ) (is0preserving_lift σ) (d + 1)
+        body hclosed j j (Nat.le_refl _) (ρ₁.extend arg₁) (ρ₂.extend arg₂)
+        henv_ext i hi π₁ π₂ hπ
+    | @vdelay body ρ₁ ρ₂ σ d h_σ hρ hclosed =>
+      simp only [ValueRefinesK]
+      intro j hj i hi π₁ π₂ hπ
+      exact renameRefinesR σ h_σ d body hclosed j j (Nat.le_refl _) ρ₁ ρ₂
+        (shiftBisimEnv_to_renameEnvRefR_at j (ih_mono j hj) hρ) i hi π₁ π₂ hπ
+    | @vconstr tag fs₁ fs₂ h_fs =>
+      simp only [ValueRefinesK]
+      exact ⟨trivial, shiftBisimValueList_to_listRel_valueRefinesK ih h_fs⟩
+    | @vbuiltin b ea args₁ args₂ h_args =>
+      simp only [ValueRefinesK]
+      exact ⟨trivial, trivial, shiftBisimValueList_to_listRel_valueRefinesK ih h_args⟩
+
+end ShiftBisimValueRefines
+
 end Moist.Verified.BetaValueRefines
