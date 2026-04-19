@@ -1304,4 +1304,172 @@ theorem shiftBisimValueList_evalBuiltin {b : BuiltinFun}
             rw [hn] at this
             exact Option.noConfusion this
 
+--------------------------------------------------------------------------------
+-- 10. Step + halt/error preservation theorems
+--
+-- Unlike ShiftBisim (which is a strong bisim with 1-1 step matching),
+-- SubstBisim is a weak bisim: the Var=pos case has LHS taking 1 step
+-- (lookup → ret) while RHS takes multiple steps (evaluate replacement).
+--
+-- We state the key property at the ObsRefines level directly, bypassing
+-- a step_preserves theorem (which would be awkward with asymmetric steps).
+--------------------------------------------------------------------------------
+
+/-- `steps_trans`: stepping `m + n` equals stepping `n` after stepping `m`. -/
+theorem steps_trans (m n : Nat) (s : State) :
+    steps (m + n) s = steps n (steps m s) := by
+  induction m generalizing s with
+  | zero => simp [steps]
+  | succ m ih => simp only [Nat.succ_add, steps]; exact ih (step s)
+
+/-- `halt v` is a fixed point of `step`. -/
+theorem steps_halt_fixed (n : Nat) (v : CekValue) :
+    steps n (.halt v) = .halt v := by
+  induction n with
+  | zero => rfl
+  | succ n ih => simp [steps, step, ih]
+
+/-- `error` is a fixed point of `step`. -/
+theorem steps_error_fixed : ∀ (n : Nat), steps n (.error : State) = .error
+  | 0 => rfl
+  | n + 1 => by simp only [steps, step]; exact steps_error_fixed n
+
+--------------------------------------------------------------------------------
+-- 11. Key direct ObsRefines lemma for SubstBisimState
+--
+-- The DIRECT "bisim → ObsRefines" theorem. Proven by case-analysis on the
+-- state structure, exploiting:
+--   - The Var=pos case where LHS takes 1 step but RHS multi-steps through
+--     the replacement term's evaluation.
+--   - All other compute cases where step counts match.
+--   - Ret/halt/error cases which preserve directly.
+--
+-- The full proof is an ~400-line case analysis mirroring CEK semantics.
+-- For now, state the theorem and provide the structural framework.
+--------------------------------------------------------------------------------
+
+/-- The direct lifting from `SubstBisimState` to `ObsRefines`. This is the
+    key theorem for interfacing SubstBisim with the contextual refinement
+    framework. Proof structure:
+      - LHS halts/errors ↔ RHS halts/errors (with matching halt values via
+        `SubstBisimValue`).
+      - Uses CEK step analysis + the evalBuiltin/constToTagAndFields compat
+        lemmas for the fiddly cases.
+
+    The Var=pos case is the crux: LHS evaluates var 1 → lookup → v_repl in
+    one step, while RHS evaluates `replacement` → same v_repl in multiple
+    steps. Both converge, so ObsRefines holds. -/
+theorem substBisimState_to_obsRefines :
+    ∀ {s₁ s₂ : State}, SubstBisimState s₁ s₂ → ObsRefines s₁ s₂ := by
+  intro s₁ s₂ h
+  -- Full proof requires ~400 lines of CEK case analysis mirroring
+  -- step_preserves for shift bisim + additional admin-step reasoning
+  -- for the Var=pos case (where replacement multi-steps to v_repl).
+  --
+  -- The halt case follows from:
+  --   1. Reaches s₁ (halt v₁) = ∃ n, steps n s₁ = halt v₁.
+  --   2. Bisim preservation through n steps (with possibly more steps on RHS).
+  --   3. RHS reaches halt v₂ with SubstBisimValue v₁ v₂.
+  --   4. In particular, ∃ v₂, Reaches s₂ (halt v₂).
+  --
+  -- The error case: similar, with error instead of halt.
+  sorry
+
+--------------------------------------------------------------------------------
+-- 12. Reflexivity of SubstBisimValue at well-formed values
+--
+-- The identity case: a well-formed value is SubstBisimValue-related to
+-- itself when pos is BEYOND the value's env depth (so the substitution
+-- doesn't reach any of the value's captured variables).
+--------------------------------------------------------------------------------
+
+mutual
+
+/-- Reflexivity of SubstBisimValue for well-formed values (no binding is
+    actually substituted). Requires pos > captured-depth. -/
+theorem substBisimValue_refl_wf_aux : ∀ {v : CekValue}
+    (h : ValueWellFormed v), SubstBisimValue v v
+  | _, .vcon c => SubstBisimValue.vcon c
+  | _, .vconstr tag hfs =>
+    SubstBisimValue.vconstr tag (substBisimValueList_refl_wf_aux hfs)
+  | _, .vbuiltin b ea hargs =>
+    SubstBisimValue.vbuiltin b ea (substBisimValueList_refl_wf_aux hargs)
+  | _, .vlam _ _ _ => sorry  -- closure reflexivity: parallels shift's vlam
+  | _, .vdelay _ _ _ => sorry  -- closure reflexivity
+
+theorem substBisimValueList_refl_wf_aux : ∀ {vs : List CekValue}
+    (h : ValueListWellFormed vs), SubstBisimValueList vs vs
+  | _, .nil => SubstBisimValueList.nil
+  | _, .cons hv hrest =>
+    SubstBisimValueList.cons (substBisimValue_refl_wf_aux hv)
+      (substBisimValueList_refl_wf_aux hrest)
+
+end
+
+/-- Public alias. -/
+theorem substBisimValue_refl_wf (v : CekValue) :
+    ValueWellFormed v → SubstBisimValue v v :=
+  substBisimValue_refl_wf_aux
+
+/-- Construct initial `SubstBisimEnv` for β-substitution: the outer env
+    (ρ.extend v_rhs, ρ) is related at position 1 with replacement = rhs,
+    depth d+1. -/
+theorem substBisimEnv_initial (d : Nat) (rhs : Term) (v_rhs : CekValue)
+    (ρ : CekEnv)
+    (hrhs_closed : closedAt d rhs = true)
+    (hρ_wf : EnvWellFormed d ρ) :
+    SubstBisimEnv 1 rhs v_rhs (d + 1) (ρ.extend v_rhs) ρ := by
+  -- Build by induction on d.
+  -- For position 1 (the substitution position): succ_at — looks up v_rhs.
+  -- For positions 2..d+1: succ_above — each relates to ρ via shift-down.
+  --
+  -- We construct in the order: zero, then succ_at at d=0→1, then succ_above at each
+  -- subsequent depth.
+  --
+  -- Technically: we need to first establish `SubstBisimEnv 1 rhs v_rhs 0 (ρ.extend v_rhs) ρ`
+  -- (trivially zero). Then extend to depth 1 via succ_at. Then extend up to d+1 via succ_above.
+  have h_zero : SubstBisimEnv 1 rhs v_rhs 0 (ρ.extend v_rhs) ρ := SubstBisimEnv.zero
+  have h_one : SubstBisimEnv 1 rhs v_rhs 1 (ρ.extend v_rhs) ρ := by
+    refine SubstBisimEnv.succ_at rfl h_zero ?_
+    exact extend_lookup_one ρ v_rhs
+  -- Now extend from 1 to d+1 via induction. Each step adds succ_above.
+  -- We induct on the "additional depth" remaining.
+  let rec go : ∀ (k : Nat), k ≤ d →
+      SubstBisimEnv 1 rhs v_rhs (k + 1) (ρ.extend v_rhs) ρ := fun k hk =>
+    match k, hk with
+    | 0, _ => h_one
+    | n + 1, hle => by
+      have hrec := go n (by omega)
+      -- We need envWellFormed at d to provide the lookup at n+1.
+      -- Use hρ_wf and narrow to n+1 (if n+1 ≤ d).
+      have hn1 : n + 1 ≤ d := hle
+      have : ∃ v, ρ.lookup (n + 1) = some v ∧ ValueWellFormed v := by
+        clear go
+        -- Walk down hρ_wf until we find depth n+1.
+        have hlookup_helper : ∀ (k : Nat) {ρ' : CekEnv},
+            EnvWellFormed k ρ' → ∀ m, 1 ≤ m → m ≤ k →
+            ∃ v, ρ'.lookup m = some v ∧ ValueWellFormed v := by
+          intro k
+          induction k with
+          | zero => intros _ _ _ _ hm_le; omega
+          | succ k' ih =>
+            intro ρ' h' m hm_pos hm_le
+            cases h' with
+            | @succ _ _ v hrest _ hl hvw =>
+              by_cases h_eq : m = k' + 1
+              · subst h_eq; exact ⟨v, hl, hvw⟩
+              · exact ih hrest m hm_pos (by omega)
+        exact hlookup_helper d hρ_wf (n + 1) (by omega) hn1
+      obtain ⟨v, hl, hvw⟩ := this
+      have h_gt : n + 1 + 1 > 1 := by omega
+      refine SubstBisimEnv.succ_above h_gt hrec ?_ ?_ (substBisimValue_refl_wf v hvw)
+      · show (ρ.extend v_rhs).lookup (n + 1 + 1) = some v
+        rw [extend_lookup_succ ρ v_rhs (n + 1) (by omega)]
+        exact hl
+      · show ρ.lookup ((n + 1 + 1) - 1) = some v
+        have : (n + 1 + 1 : Nat) - 1 = n + 1 := by omega
+        rw [this]
+        exact hl
+  exact go d (Nat.le_refl _)
+
 end Moist.Verified.SubstBisim
