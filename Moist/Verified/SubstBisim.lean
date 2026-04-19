@@ -1366,7 +1366,7 @@ theorem steps_error_fixed : ∀ (n : Nat), steps n (.error : State) = .error
 -- For now, state the theorem and provide the structural framework.
 --------------------------------------------------------------------------------
 
-/-- Weak step preservation: one step of LHS corresponds to ≥ 1 steps of RHS,
+/-- Weak step preservation: one step of LHS corresponds to ≥ 0 steps of RHS,
     maintaining the bisim. For most cases (non-Var/non-Var=pos), m = 1 (strong
     bisim). For Var=pos, m is the step count to evaluate `replacement` to its
     cached value `v_repl` plus 1 (the ret step). -/
@@ -1374,18 +1374,27 @@ theorem substBisimState_step_preserves_weak :
     ∀ {s₁ s₂ : State}, SubstBisimState s₁ s₂ →
     ∃ m, SubstBisimState (step s₁) (steps m s₂) := by
   intro s₁ s₂ h
-  -- Full proof: case analysis on h, mirroring shiftBisimState_step_preserves
-  -- in BetaValueRefines.lean (which is ~400 lines), with the Var=pos case
-  -- using `value_stack_poly` / `halt_descends_to_baseπ` to extract
-  -- replacement's evaluation trace (number of steps m).
-  --
-  -- Most cases: m = 1 (strong 1-1 step match). The Var=pos case dispatches
-  -- on the structure of `replacement`:
-  --   - Atom rep (.Var/.Lit/.Builtin): m ≈ 2-3 (admin steps).
-  --   - Value rep (.Lam/.Delay/.Constr): m ≈ 2-5.
-  --   - Compound rep: m depends on rep's evaluation.
-  -- After m RHS steps, both sides are at `.ret π v_repl` — SubstBisim-related.
-  sorry
+  cases h with
+  | halt h_v =>
+    -- step .halt = .halt; steps 0 .halt = .halt.
+    refine ⟨0, ?_⟩
+    exact SubstBisimState.halt h_v
+  | error =>
+    refine ⟨0, ?_⟩
+    exact SubstBisimState.error
+  | compute hpos_le hpos_d hrep_closed henv hclosed hπ =>
+    -- The full compute case is a ~400-line CEK case analysis mirroring
+    -- shiftBisimState_step_preserves in BetaValueRefines.lean, with the
+    -- Var=pos sub-case using value_stack_poly / halt_descends_to_baseπ to
+    -- extract the replacement's evaluation trace (step count m).
+    sorry
+  | ret h_v h_π =>
+    -- Ret case: step depends on stack. Strong 1-1 bisim (m = 1). The full
+    -- proof is a case analysis on h_π's frames, similar to
+    -- shiftBisimState_step_preserves's ret case. Identical structure to
+    -- shift bisim's ret since ret mechanics don't involve term substitution
+    -- at the state level (only values/stacks).
+    sorry
 
 /-- Iterated step preservation derived from weak step preservation. -/
 theorem substBisimState_steps_preserves_weak :
