@@ -4715,4 +4715,188 @@ theorem shiftBisimEnv_shift_extend : ∀ (d : Nat) (ρ_tail : CekEnv) (v0 : CekV
       rw [hlook₂]
       exact hlookup
 
+--------------------------------------------------------------------------------
+-- 19j. `valueRefinesK_trans_shiftBisim`: compose ValueRefinesK with ShiftBisim.
+--------------------------------------------------------------------------------
+
+/-- Helper: ListRel (ValueRefinesK k) + ShiftBisimValueList → ListRel
+    (ValueRefinesK k), compositionally via element-wise transitivity. -/
+theorem listRel_valueRefinesK_trans_shiftBisim
+    (compose : ∀ (v_a v_b v_c : CekValue), ValueRefinesK k v_a v_b →
+      ShiftBisimValue v_b v_c → ValueRefinesK k v_a v_c) :
+    ∀ (xs_a : List CekValue) {xs_b xs_c : List CekValue},
+      ListRel (ValueRefinesK k) xs_a xs_b → ShiftBisimValueList xs_b xs_c →
+      ListRel (ValueRefinesK k) xs_a xs_c
+  | [], xs_b, xs_c, hab, hbc => by
+    cases xs_b with
+    | nil => cases hbc; exact hab
+    | cons _ _ => exact absurd hab id
+  | v_a :: vs_a, xs_b, xs_c, hab, hbc => by
+    cases xs_b with
+    | nil => exact absurd hab id
+    | cons v_b vs_b =>
+      obtain ⟨hvh_ab, hvs_ab⟩ := hab
+      cases hbc with
+      | cons hvh_bc hvs_bc =>
+        exact ⟨compose _ _ _ hvh_ab hvh_bc,
+          listRel_valueRefinesK_trans_shiftBisim compose vs_a hvs_ab hvs_bc⟩
+
+/-- Compose `ValueRefinesK k v_a v_b` with `ShiftBisimValue v_b v_c` to get
+    `ValueRefinesK k v_a v_c`. The simple (non-closure) cases are direct;
+    the closure cases (VLam/VDelay) at step index k+1 require composing
+    ObsRefinesK between (a-compute) and (b-compute) with the rename-based
+    refinement from (b-compute) to (c-compute). -/
+theorem valueRefinesK_trans_shiftBisim :
+    ∀ (k : Nat) (v_a v_b v_c : CekValue),
+      ValueRefinesK k v_a v_b → ShiftBisimValue v_b v_c →
+      ValueRefinesK k v_a v_c := by
+  intro k
+  induction k with
+  | zero =>
+    intro v_a v_b v_c h_ab h_bc
+    cases v_a with
+    | VCon c_a =>
+      cases v_b with
+      | VCon c_b =>
+        simp only [ValueRefinesK] at h_ab
+        have : v_c = .VCon c_b := shiftBisimValue_vcon_inv h_bc
+        rw [this]; simp only [ValueRefinesK]; exact h_ab
+      | _ => simp [ValueRefinesK] at h_ab
+    | VLam _ _ =>
+      cases v_b with
+      | VLam _ _ =>
+        cases h_bc with
+        | vlam _ _ _ => simp only [ValueRefinesK]
+        | _ => simp [ValueRefinesK] at h_ab
+      | _ => simp [ValueRefinesK] at h_ab
+    | VDelay _ _ =>
+      cases v_b with
+      | VDelay _ _ =>
+        cases h_bc with
+        | vdelay _ _ _ => simp only [ValueRefinesK]
+        | _ => simp [ValueRefinesK] at h_ab
+      | _ => simp [ValueRefinesK] at h_ab
+    | VConstr tag_a _ =>
+      cases v_b with
+      | VConstr tag_b _ =>
+        simp only [ValueRefinesK] at h_ab
+        cases h_bc with
+        | vconstr _ _ => simp only [ValueRefinesK]; exact h_ab
+        | _ => simp [ValueRefinesK] at h_ab
+      | _ => simp [ValueRefinesK] at h_ab
+    | VBuiltin b_a _ ea_a =>
+      cases v_b with
+      | VBuiltin b_b _ ea_b =>
+        simp only [ValueRefinesK] at h_ab
+        cases h_bc with
+        | vbuiltin _ _ _ => simp only [ValueRefinesK]; exact h_ab
+        | _ => simp [ValueRefinesK] at h_ab
+      | _ => simp [ValueRefinesK] at h_ab
+  | succ k ih =>
+    intro v_a v_b v_c h_ab h_bc
+    cases v_a with
+    | VCon c_a =>
+      cases v_b with
+      | VCon c_b =>
+        simp only [ValueRefinesK] at h_ab
+        have : v_c = .VCon c_b := shiftBisimValue_vcon_inv h_bc
+        rw [this]; simp only [ValueRefinesK]; exact h_ab
+      | _ => simp [ValueRefinesK] at h_ab
+    | VLam _ _ =>
+      cases v_b with
+      | VLam _ _ =>
+        cases h_bc with
+        | vlam _ _ _ =>
+          -- Closure transitivity at k+1 for VLam. Compose h_ab (closure rel a-b)
+          -- with renameRefinesR (closure rel b-c via renaming σ). The chaining
+          -- requires ValueRefinesK j arg_c arg_c (self-refl) which we don't have
+          -- for arbitrary arg_c — general ValueRefinesK transitivity is known
+          -- to require well-formedness hypotheses on args. See
+          -- `Moist.Verified.Contextual.BisimRef` for the existing LocalValue-based
+          -- analog (which is symmetric and uses local refl via closedAt).
+          -- For the specific inline-pass use case, the outer composition via
+          -- `rHalts_shift_WF` can bypass this via the RHaltsRelWF structure
+          -- guaranteeing ValueWellFormed on v_rhs' at each step.
+          sorry
+        | _ => simp [ValueRefinesK] at h_ab
+      | _ => simp [ValueRefinesK] at h_ab
+    | VDelay _ _ =>
+      cases v_b with
+      | VDelay _ _ =>
+        cases h_bc with
+        | vdelay _ _ _ => sorry  -- Analogous to VLam; same obstruction.
+        | _ => simp [ValueRefinesK] at h_ab
+      | _ => simp [ValueRefinesK] at h_ab
+    | VConstr tag_a fields_a =>
+      cases v_b with
+      | VConstr tag_b fields_b =>
+        cases h_bc with
+        | @vconstr _ fs_b fs_c h_fs =>
+          simp only [ValueRefinesK] at h_ab ⊢
+          obtain ⟨h_tag, h_ls_ab⟩ := h_ab
+          subst h_tag
+          refine ⟨rfl, ?_⟩
+          exact listRel_valueRefinesK_trans_shiftBisim ih fields_a h_ls_ab h_fs
+        | _ => simp [ValueRefinesK] at h_ab
+      | _ => simp [ValueRefinesK] at h_ab
+    | VBuiltin b_a args_a ea_a =>
+      cases v_b with
+      | VBuiltin b_b args_b ea_b =>
+        cases h_bc with
+        | @vbuiltin _ _ args_b' args_c h_args =>
+          simp only [ValueRefinesK] at h_ab ⊢
+          obtain ⟨hb_eq, hea_eq, h_ls_ab⟩ := h_ab
+          subst hb_eq; subst hea_eq
+          refine ⟨rfl, rfl, ?_⟩
+          exact listRel_valueRefinesK_trans_shiftBisim ih args_a h_ls_ab h_args
+        | _ => simp [ValueRefinesK] at h_ab
+      | _ => simp [ValueRefinesK] at h_ab
+
+--------------------------------------------------------------------------------
+-- 19k. `rHalts_shift_WF` — the unconditional form via shift bisim.
+--------------------------------------------------------------------------------
+
+/-- **`rHalts_shift_WF`**: `RHaltsRelWF t_rhs v_rhs k d` lifts to
+    `RHaltsRelWF (shift t_rhs) v_rhs k (d + 1)`. Composes `rHalts_shift_WF_cond`
+    with a proof of `ValueShiftsPreserve` via the shift bisim. -/
+theorem rHalts_shift_WF {k d : Nat} {t_rhs : Moist.Plutus.Term.Term}
+    {v_rhs : CekValue}
+    (h : RHaltsRelWF t_rhs v_rhs k d) :
+    RHaltsRelWF (Moist.Verified.renameTerm (Moist.Verified.shiftRename 1) t_rhs)
+      v_rhs k (d + 1) := by
+  refine rHalts_shift_WF_cond h ?_
+  intro ρ_full π hwf_full hwf_π m v' hsteps_m
+  -- Decompose ρ_full, build initial bisim, apply preservation, extract via ret_inv.
+  obtain ⟨v0, ρ_tail, hρ_eq⟩ := envWellFormed_succ_cons hwf_full
+  subst hρ_eq
+  obtain ⟨hwf_tail, hwf_v0⟩ := envWellFormed_cons_decompose hwf_full
+  obtain ⟨hclosed, hv_rhs_wf, heval⟩ := h
+  have henv_init : ShiftBisimEnv (Moist.Verified.shiftRename 1) d ρ_tail (ρ_tail.extend v0) :=
+    shiftBisimEnv_shift_extend d ρ_tail v0 hwf_tail
+  have hstack_refl : ShiftBisimStack π π := shiftBisimStack_refl_id π hwf_π
+  have hstate_init : ShiftBisimState
+      (.compute π ρ_tail t_rhs)
+      (.compute π (ρ_tail.extend v0)
+        (Moist.Verified.renameTerm (Moist.Verified.shiftRename 1) t_rhs)) :=
+    ShiftBisimState.compute
+      (Moist.Verified.FundamentalRefines.is0preserving_shiftRename (by omega))
+      henv_init hclosed hstack_refl
+  have hstate_m := shiftBisimState_steps_preserves m hstate_init
+  -- Note: `.extend` = `.cons`, and `hsteps_m` uses `cons`; equate them.
+  have hstate_m' : ShiftBisimState (steps m (.compute π ρ_tail t_rhs))
+      (.ret π v') := by
+    show ShiftBisimState _ (.ret π v')
+    have hextend : (ρ_tail.extend v0) = CekEnv.cons v0 ρ_tail := rfl
+    rw [← hextend] at hsteps_m
+    exact hsteps_m ▸ hstate_m
+  have hs_lhs : ∃ π_lhs v_lhs, steps m (.compute π ρ_tail t_rhs) = .ret π_lhs v_lhs ∧
+      ShiftBisimStack π_lhs π ∧ ShiftBisimValue v_lhs v' := by
+    generalize hs : steps m (.compute π ρ_tail t_rhs) = s_lhs at hstate_m'
+    cases hstate_m' with
+    | ret h_v h_π => exact ⟨_, _, rfl, h_π, h_v⟩
+  obtain ⟨π_lhs, v_lhs, _h_lhs_steps, _h_π_rel, h_v_rel⟩ := hs_lhs
+  -- Final composition: requires matching m with heval's m_h and valueRefinesK
+  -- transitivity at VLam/VDelay, which remains as one sorry.
+  sorry
+
 end Moist.Verified.BetaValueRefines
