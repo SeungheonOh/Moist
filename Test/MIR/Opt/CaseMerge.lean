@@ -9,17 +9,17 @@ open Test.Framework
 
 /-! ## Extra fixtures for case merge tests (uids 70+) -/
 
-private def f0 : VarId := ⟨70, "f0"⟩
-private def f1 : VarId := ⟨71, "f1"⟩
-private def f2 : VarId := ⟨72, "f2"⟩
-private def f3 : VarId := ⟨73, "f3"⟩
-private def g0 : VarId := ⟨74, "g0"⟩
-private def g1 : VarId := ⟨75, "g1"⟩
-private def g2 : VarId := ⟨76, "g2"⟩
-private def g3 : VarId := ⟨77, "g3"⟩
-private def t1 : VarId := ⟨80, "t1"⟩
-private def t2 : VarId := ⟨81, "t2"⟩
-private def r  : VarId := ⟨82, "r"⟩
+private def f0 : VarId := ⟨70, .source, "f0"⟩
+private def f1 : VarId := ⟨71, .source, "f1"⟩
+private def f2 : VarId := ⟨72, .source, "f2"⟩
+private def f3 : VarId := ⟨73, .source, "f3"⟩
+private def g0 : VarId := ⟨74, .source, "g0"⟩
+private def g1 : VarId := ⟨75, .source, "g1"⟩
+private def g2 : VarId := ⟨76, .source, "g2"⟩
+private def g3 : VarId := ⟨77, .source, "g3"⟩
+private def t1 : VarId := ⟨80, .source, "t1"⟩
+private def t2 : VarId := ⟨81, .source, "t2"⟩
+private def r  : VarId := ⟨82, .source, "r"⟩
 
 def tests : TestTree := suite "caseMerge" do
   -- Basic: two cases on the same scrutinee, single constructor
@@ -151,9 +151,9 @@ def tests : TestTree := suite "caseMerge" do
 
   -- Three cases on the same scrutinee (triple merge)
   test "cm_triple_case" do
-    let t3 : VarId := ⟨83, "t3"⟩
-    let h0 : VarId := ⟨84, "h0"⟩
-    let h1 : VarId := ⟨85, "h1"⟩
+    let t3 : VarId := ⟨83, .source, "t3"⟩
+    let h0 : VarId := ⟨84, .source, "h0"⟩
+    let h1 : VarId := ⟨85, .source, "h1"⟩
     let e := Expr.Let
       [(t1, .Case (.Var x) [.Lam f0 (.Lam f1 (.Var f0))], false),
        (t2, .Case (.Var x) [.Lam g0 (.Lam g1 (.Var g1))], false),

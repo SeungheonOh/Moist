@@ -8,15 +8,15 @@ open Moist.MIR
 open Test.MIR
 open Test.Framework
 
-private def w : VarId := ⟨51, "w"⟩
-private def r : VarId := ⟨52, "r"⟩
+private def w : VarId := ⟨51, .source, "w"⟩
+private def r : VarId := ⟨52, .source, "r"⟩
 
-private def f0 : VarId := ⟨70, "f0"⟩
-private def f1 : VarId := ⟨71, "f1"⟩
-private def g0 : VarId := ⟨74, "g0"⟩
-private def g1 : VarId := ⟨75, "g1"⟩
-private def t1 : VarId := ⟨80, "t1"⟩
-private def t2 : VarId := ⟨81, "t2"⟩
+private def f0 : VarId := ⟨70, .source, "f0"⟩
+private def f1 : VarId := ⟨71, .source, "f1"⟩
+private def g0 : VarId := ⟨74, .source, "g0"⟩
+private def g1 : VarId := ⟨75, .source, "g1"⟩
+private def t1 : VarId := ⟨80, .source, "t1"⟩
+private def t2 : VarId := ⟨81, .source, "t2"⟩
 
 private def mkPassGolden (name : String) (input : Expr) (pass : Expr → Expr × Bool)
     : TreeBuilder Unit :=
@@ -229,7 +229,7 @@ def goldenTree : TestTree := suite "golden" do
          (b, .App (.Var f) (.App (.Var f) (.App (.Var f)
                 (.App (.Var f) (.App (.Var f) (.App (.Var f) (.Var x)))))), false)]
         (.App (.App (.Var g) (.Var a)) (.Var b)))
-    let rep : VarId := ⟨60, "rep"⟩
+    let rep : VarId := ⟨60, .source, "rep"⟩
     let add := Expr.Builtin .AddInteger
     let expensive :=
       Expr.App (.App add (.App (.App add (.App (.App add (.App (.App add (intLit 1)) (intLit 1))) (intLit 1))) (intLit 1))) (intLit 1)

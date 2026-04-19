@@ -91,7 +91,7 @@ def tests : TestTree := suite "inlinePass" do
     checkAlphaEq "inline_nonval_2_occ" r e
     check "inline_nonval_2_occ_no_change" (!ch)
   test "inline_expensive_across_fix" do
-    let rep : VarId := ⟨60, "rep"⟩
+    let rep : VarId := ⟨60, .source, "rep"⟩
     let add := Expr.Builtin .AddInteger
     let expensive :=
       Expr.App (.App add (.App (.App add (.App (.App add (.App (.App add (intLit 1)) (intLit 1))) (intLit 1))) (intLit 1))) (intLit 1)

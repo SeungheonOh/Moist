@@ -8,18 +8,49 @@ open Moist.Plutus.Term
 
 The Mid-level Intermediate Representation for Moist.
 Named variables (VarId), expression type, predicates, and fresh variable supply.
+
+## Variable Origin Partitioning
+
+`VarId.origin` splits the VarId space into two disjoint namespaces:
+- `.source`: VarIds introduced by the elaborator / parser / tests.
+- `.gen`: VarIds introduced by fresh-variable generation (`freshVar`) in
+  `subst`, `expandFix`, `canonicalize`, and other passes.
+
+BEq checks origin before uid, so `.source` and `.gen` VarIds are never
+equal even if their uids coincide. This lets `rename` (which only
+substitutes `.source` VarIds in practice) definitionally not perturb
+`.gen` binders introduced by `expandFix`'s Z-combinator expansion, which
+in turn makes `rename ∘ expandFix = expandFix ∘ rename` hold without
+any alpha-equivalence reasoning.
 -/
 
+inductive VarOrigin where
+  | source
+  | gen
+deriving Repr, DecidableEq, Inhabited
+
+instance : BEq VarOrigin where
+  beq
+    | .source, .source => true
+    | .gen,    .gen    => true
+    | _,       _       => false
+
+instance : Hashable VarOrigin where
+  hash
+    | .source => 0
+    | .gen    => 1
+
 structure VarId where
-  uid  : Nat
-  hint : String := ""
+  uid    : Nat
+  origin : VarOrigin := .source
+  hint   : String := ""
 deriving Repr, Inhabited
 
 instance : BEq VarId where
-  beq a b := a.uid == b.uid
+  beq a b := a.origin == b.origin && a.uid == b.uid
 
 instance : Hashable VarId where
-  hash v := hash v.uid
+  hash v := mixHash (hash v.origin) (hash v.uid)
 
 /-- Strip Lean hygiene suffixes from a variable hint.
     `"a._@.Module._hyg.53"` → `"a"`, `"x._@.Foo._hyg.8.152"` → `"x"` -/
@@ -31,8 +62,15 @@ private def sanitizeHint (s : String) : String :=
 
 instance : ToString VarId where
   toString v :=
+    let pre := match v.origin with | .source => "" | .gen => "g"
     let h := sanitizeHint v.hint
-    if h.isEmpty then s!"v{v.uid}" else s!"{h}_{v.uid}"
+    if h.isEmpty then s!"{pre}v{v.uid}" else s!"{pre}{h}_{v.uid}"
+
+/-- Construct a `.source`-origin VarId. Convenience helper for explicit
+    construction; the default origin is already `.source` so `⟨uid, .source, hint⟩`
+    and field-style construction work equivalently. -/
+def sourceVar (uid : Nat) (hint : String := "") : VarId :=
+  { uid := uid, origin := .source, hint := hint }
 
 inductive Expr
   | Var     : VarId → Expr
@@ -157,7 +195,7 @@ abbrev FreshM := StateM FreshState
 def freshVar (hint : String := "") : FreshM VarId := do
   let s ← get
   set { s with next := s.next + 1 }
-  pure ⟨s.next, hint⟩
+  pure { uid := s.next, origin := .gen, hint := hint }
 
 def runFresh (m : FreshM α) (start : Nat := 0) : α :=
   (m.run ⟨start⟩).1

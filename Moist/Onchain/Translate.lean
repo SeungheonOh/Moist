@@ -107,7 +107,7 @@ abbrev TranslateM := ReaderT TranslateCtx (StateRefT TranslateState MetaM)
 private def freshVarId (hint : String := "") : TranslateM MIR.VarId := do
   let s ← get
   set { s with nextFresh := s.nextFresh + 1 }
-  pure ⟨s.nextFresh, hint⟩
+  pure ⟨s.nextFresh, .source, hint⟩
 
 private def withLocal (v : MIR.VarId) (m : TranslateM α) : TranslateM α :=
   withReader (fun ctx => { ctx with locals := v :: ctx.locals }) m
@@ -1483,7 +1483,7 @@ def translateDef (val : Lean.Expr) (freshStart : Nat := 0) : MetaM MIR.Expr := d
 def translateDefByName (name : Name) (val : Lean.Expr)
     (freshStart : Nat := 0) : MetaM MIR.Expr := do
   let env ← getEnv
-  let selfVar : MIR.VarId := ⟨freshStart, name.toString⟩
+  let selfVar : MIR.VarId := ⟨freshStart, .source, name.toString⟩
   let namedCtx : TranslateCtx := {
     locals := []
     unfolding := .insert {} name

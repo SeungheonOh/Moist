@@ -3,6 +3,7 @@
 import Moist.Basic
 import Moist.MIR.Expr
 import Moist.MIR.Analysis
+import Moist.MIR.Canonicalize
 import Moist.MIR.Pretty
 import Moist.MIR.ANF
 import Moist.MIR.Lower

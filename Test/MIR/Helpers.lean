@@ -16,31 +16,31 @@ open Test.Framework
 
 /-! ## Variable Fixtures (uids 1-8) -/
 
-def x : VarId := ⟨1, "x"⟩
-def y : VarId := ⟨2, "y"⟩
-def z : VarId := ⟨3, "z"⟩
-def f : VarId := ⟨4, "f"⟩
-def g : VarId := ⟨5, "g"⟩
-def n : VarId := ⟨6, "n"⟩
-def a : VarId := ⟨7, "a"⟩
-def b : VarId := ⟨8, "b"⟩
+def x : VarId := ⟨1, .source, "x"⟩
+def y : VarId := ⟨2, .source, "y"⟩
+def z : VarId := ⟨3, .source, "z"⟩
+def f : VarId := ⟨4, .source, "f"⟩
+def g : VarId := ⟨5, .source, "g"⟩
+def n : VarId := ⟨6, .source, "n"⟩
+def a : VarId := ⟨7, .source, "a"⟩
+def b : VarId := ⟨8, .source, "b"⟩
 
 /-! ## Additional Variable Fixtures (uids 9-11) -/
 
-def c : VarId := ⟨9, "c"⟩
-def d : VarId := ⟨10, "d"⟩
-def w : VarId := ⟨11, "w"⟩
+def c : VarId := ⟨9, .source, "c"⟩
+def d : VarId := ⟨10, .source, "d"⟩
+def w : VarId := ⟨11, .source, "w"⟩
 
 /-! ## Optimization Test Fixtures (uids 50+) -/
 
-def v : VarId := ⟨50, "v"⟩
+def v : VarId := ⟨50, .source, "v"⟩
 
 /-! Dummy bound vars for expected expressions (uids 900+).
     alphaEq matches by binding position, so exact uids don't matter. -/
 
-def t1 : VarId := ⟨901, "t"⟩
-def t2 : VarId := ⟨902, "t"⟩
-def t3 : VarId := ⟨903, "t"⟩
+def t1 : VarId := ⟨901, .source, "t"⟩
+def t2 : VarId := ⟨902, .source, "t"⟩
+def t3 : VarId := ⟨903, .source, "t"⟩
 
 /-! ## Literal Helpers -/
 
@@ -110,11 +110,11 @@ def largeLam : Expr :=
 /-! ## Factorial Expression (from MIR-Plan.md) -/
 
 def factorialMIR : Expr :=
-  let fac  : VarId := ⟨10, "fac"⟩
-  let n    : VarId := ⟨11, "n"⟩
-  let t0   : VarId := ⟨12, "isZero"⟩
-  let t1   : VarId := ⟨13, "n1"⟩
-  let t2   : VarId := ⟨14, "facN1"⟩
+  let fac  : VarId := ⟨10, .source, "fac"⟩
+  let n    : VarId := ⟨11, .source, "n"⟩
+  let t0   : VarId := ⟨12, .source, "isZero"⟩
+  let t1   : VarId := ⟨13, .source, "n1"⟩
+  let t2   : VarId := ⟨14, .source, "facN1"⟩
   .Let
     [(fac,
       .Fix fac
@@ -139,11 +139,11 @@ def factorialMIR : Expr :=
 /-! ## Data Deconstruction Expression -/
 
 def dataDeconstructMIR : Expr :=
-  let foo  : VarId := ⟨20, "foo"⟩
-  let flds : VarId := ⟨21, "flds"⟩
-  let fA   : VarId := ⟨22, "fA"⟩
-  let fC   : VarId := ⟨23, "fC"⟩
-  let fD   : VarId := ⟨24, "fD"⟩
+  let foo  : VarId := ⟨20, .source, "foo"⟩
+  let flds : VarId := ⟨21, .source, "flds"⟩
+  let fA   : VarId := ⟨22, .source, "fA"⟩
+  let fC   : VarId := ⟨23, .source, "fC"⟩
+  let fD   : VarId := ⟨24, .source, "fD"⟩
   let sndP := Expr.Force (.Force (.Builtin .SndPair))
   let hd   := Expr.Force (.Builtin .HeadList)
   let tl   := Expr.Force (.Builtin .TailList)

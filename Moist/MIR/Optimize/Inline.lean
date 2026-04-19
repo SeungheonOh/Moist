@@ -120,7 +120,7 @@ occursUnderFix v (Fix v body)                   = false  (v is rebound)
 -/
 
 mutual
-  partial def occursUnderFixAux (v : VarId) (underFix : Bool) : Expr → Bool
+  def occursUnderFixAux (v : VarId) (underFix : Bool) : Expr → Bool
     | .Var x => underFix && x == v
     | .Lit _ | .Builtin _ | .Error => false
     | .Lam x body =>
@@ -133,17 +133,25 @@ mutual
       occursUnderFixAux v underFix f || occursUnderFixAux v underFix x
     | .Force e => occursUnderFixAux v underFix e
     | .Delay e => occursUnderFixAux v underFix e
-    | .Constr _ args => args.any (occursUnderFixAux v underFix)
+    | .Constr _ args => occursUnderFixListAux v underFix args
     | .Case scrut alts =>
-      occursUnderFixAux v underFix scrut || alts.any (occursUnderFixAux v underFix)
+      occursUnderFixAux v underFix scrut || occursUnderFixListAux v underFix alts
     | .Let binds body => occursUnderFixLetAux v underFix binds body
+  termination_by e => sizeOf e
 
-  partial def occursUnderFixLetAux (v : VarId) (underFix : Bool)
+  def occursUnderFixListAux (v : VarId) (underFix : Bool) : List Expr → Bool
+    | [] => false
+    | e :: rest =>
+      occursUnderFixAux v underFix e || occursUnderFixListAux v underFix rest
+  termination_by es => sizeOf es
+
+  def occursUnderFixLetAux (v : VarId) (underFix : Bool)
       : List (VarId × Expr × Bool) → Expr → Bool
     | [], body => occursUnderFixAux v underFix body
     | (x, rhs, _) :: rest, body =>
       occursUnderFixAux v underFix rhs ||
       (if x == v then false else occursUnderFixLetAux v underFix rest body)
+  termination_by binds body => sizeOf binds + sizeOf body
 end
 
 /-- Return `true` when variable `v` has at least one free occurrence nested
@@ -196,8 +204,77 @@ reduction on `App` nodes.
 See the module-level documentation for the full decision table and examples.
 -/
 
+/-! ## Beta Reduction -/
+
+/-- Beta-reduce `App f x`: when `f` is `Lam param body` and `x` is atomic,
+    substitute `x` for `param` in `body`. Atom restriction prevents
+    duplicating or re-evaluating non-atomic arguments. -/
+def betaReduce (f : Expr) (x : Expr) : FreshM (Expr × Bool) :=
+  match f with
+  | .Lam param body =>
+    if x.isAtom then do
+      let result ← subst param x body
+      pure (result, true)
+    else
+      pure (.App f x, false)
+  | _ => pure (.App f x, false)
+
+/-! ## Length-Preserving Substitution on Bindings
+
+`substInBindings v repl binds` applies `subst v repl` to each binding's
+RHS (preserving names and `er` flags) and returns a subtype that carries
+a proof of length preservation. The length proof is needed by `inlineLetGo`
+below: after deciding to inline a binding `(v, rhs, er)`, we recurse on
+the remaining bindings with `rhs` substituted into each RHS — the
+recursion's termination measure (first argument's list length) must
+decrease, which requires `rest'.length = rest.length`. -/
+def substInBindings (v : VarId) (repl : Expr)
+    : (binds : List (VarId × Expr × Bool)) →
+      FreshM { result : List (VarId × Expr × Bool) // result.length = binds.length }
+  | [] => pure ⟨[], rfl⟩
+  | (w, e, er) :: rest => do
+    let e' ← subst v repl e
+    let ⟨rest', hlen⟩ ← substInBindings v repl rest
+    pure ⟨(w, e', er) :: rest', by simp [List.length, hlen]⟩
+
+/-! ## Inline Let Bindings (Decision Loop) -/
+
+/-- Process let-bindings left-to-right, inlining or keeping each one
+    according to `shouldInline`. Terminates structurally on the first
+    argument (list length strictly decreases on each recursive call,
+    using the subtype length proof from `substInBindings`). -/
+def inlineLetGo : List (VarId × Expr × Bool) → List (VarId × Expr × Bool) → Expr → Bool
+    → FreshM (Expr × Bool)
+  | [], acc, body, changed =>
+    match acc.reverse with
+    | [] => pure (body, changed)
+    | kept => pure (.Let kept body, changed)
+  | (v, rhs, er) :: rest, acc, body, changed => do
+    let occ := countOccurrences v body +
+      rest.foldl (fun n (_, e, _) => n + countOccurrences v e) 0
+    let underFix := occursUnderFix v body ||
+      rest.any (fun (_, e, _) => occursUnderFix v e)
+    let inDeferred := occursInDeferred v body ||
+      rest.any (fun (_, e, _) => occursInDeferred v e)
+    if shouldInline rhs occ underFix inDeferred then do
+      let body' ← subst v rhs body
+      let ⟨rest', hlen⟩ ← substInBindings v rhs rest
+      have : rest'.length < ((v, rhs, er) :: rest).length := by
+        simp only [List.length_cons, hlen]; omega
+      inlineLetGo rest' acc body' true
+    else
+      inlineLetGo rest ((v, rhs, er) :: acc) body changed
+termination_by binds => binds.length
+
+/-- Walk a list of bindings left-to-right, either inlining (substituting
+    the RHS into the body and remaining bindings) or keeping the binding.
+    Returns the resulting expression and a flag. -/
+def inlineLetBindings (binds : List (VarId × Expr × Bool)) (body : Expr)
+    : FreshM (Expr × Bool) :=
+  inlineLetGo binds [] body false
+
 mutual
-  partial def inlinePass : Expr → FreshM (Expr × Bool)
+  def inlinePass : Expr → FreshM (Expr × Bool)
     | .Let binds body => do
       let (binds', changed1) ← inlineBindings binds
       let (body', changed2) ← inlinePass body
@@ -236,61 +313,23 @@ mutual
       pure (.Case scrut' alts', changed1 || changed2)
 
     | e => pure (e, false)
+  termination_by e => sizeOf e
 
-  partial def inlinePassList (es : List Expr) : FreshM (List Expr × Bool) := do
-    let mut result : List Expr := []
-    let mut changed := false
-    for e in es do
-      let (e', c) ← inlinePass e
-      result := result ++ [e']
-      changed := changed || c
-    pure (result, changed)
+  def inlinePassList : List Expr → FreshM (List Expr × Bool)
+    | [] => pure ([], false)
+    | e :: rest => do
+      let (e', c1) ← inlinePass e
+      let (rest', c2) ← inlinePassList rest
+      pure (e' :: rest', c1 || c2)
+  termination_by es => sizeOf es
 
-  partial def inlineBindings (binds : List (VarId × Expr × Bool))
-      : FreshM (List (VarId × Expr × Bool) × Bool) := do
-    let mut result : List (VarId × Expr × Bool) := []
-    let mut changed := false
-    for (v, rhs, er) in binds do
-      let (rhs', c) ← inlinePass rhs
-      result := result ++ [(v, rhs', er)]
-      changed := changed || c
-    pure (result, changed)
-
-  partial def inlineLetBindings (binds : List (VarId × Expr × Bool)) (body : Expr)
-      : FreshM (Expr × Bool) :=
-    go binds [] body false
-  where
-    go : List (VarId × Expr × Bool) → List (VarId × Expr × Bool) → Expr → Bool
-        → FreshM (Expr × Bool)
-      | [], acc, body, changed =>
-        match acc.reverse with
-        | [] => pure (body, changed)
-        | kept => pure (.Let kept body, changed)
-      | (v, rhs, er) :: rest, acc, body, changed => do
-        let occ := countOccurrences v body +
-          rest.foldl (fun n (_, e, _) => n + countOccurrences v e) 0
-        let underFix := occursUnderFix v body ||
-          rest.any (fun (_, e, _) => occursUnderFix v e)
-        let inDeferred := occursInDeferred v body ||
-          rest.any (fun (_, e, _) => occursInDeferred v e)
-        if shouldInline rhs occ underFix inDeferred then do
-          let body' ← subst v rhs body
-          let rest' ← rest.mapM fun (w, e, er2) => do
-            let e' ← subst v rhs e
-            pure (w, e', er2)
-          go rest' acc body' true
-        else
-          go rest ((v, rhs, er) :: acc) body changed
-
-  partial def betaReduce (f : Expr) (x : Expr) : FreshM (Expr × Bool) :=
-    match f with
-    | .Lam param body =>
-      if x.isAtom then do
-        let result ← subst param x body
-        pure (result, true)
-      else
-        pure (.App f x, false)
-    | _ => pure (.App f x, false)
+  def inlineBindings : List (VarId × Expr × Bool) → FreshM (List (VarId × Expr × Bool) × Bool)
+    | [] => pure ([], false)
+    | (v, rhs, er) :: rest => do
+      let (rhs', c1) ← inlinePass rhs
+      let (rest', c2) ← inlineBindings rest
+      pure ((v, rhs', er) :: rest', c1 || c2)
+  termination_by bs => sizeOf bs
 end
 
 end Moist.MIR

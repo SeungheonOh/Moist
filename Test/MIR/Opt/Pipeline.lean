@@ -69,15 +69,15 @@ def tests : TestTree := suite "pipeline" do
     let _r := optimizeExpr factorialMIR 1000
     IO.println "PASS: pipe_factorial"
   test "pipe_inline_before_fd" do
-    let dd : VarId := ⟨60, "d"⟩
+    let dd : VarId := ⟨60, .source, "d"⟩
     let e := Expr.Let [(dd, .Delay (.Var x), false),
                         (v, .Var dd, false)]
                 (.Force (.Var v))
     let r := optimizeExpr e 1000
     checkAlphaEq "pipe_inline_before_fd" r (.Var x)
   test "pipe_inline_impure_partial_under_delay" do
-    let addall : VarId := ⟨61, "addall"⟩
-    let anf : VarId := ⟨62, "anf"⟩
+    let addall : VarId := ⟨61, .source, "addall"⟩
+    let anf : VarId := ⟨62, .source, "anf"⟩
     let rhs :=
       Expr.App (Expr.Builtin .AddInteger)
         (Expr.App (Expr.Force (Expr.Builtin .HeadList)) (.Var x))
@@ -89,10 +89,10 @@ def tests : TestTree := suite "pipeline" do
     let r := optimizeExpr e 1000
     checkAlphaEq "pipe_inline_impure_partial_under_delay" r (.Delay (.App rhs arg))
   test "pipe_beta_exposes_inline_in_recursive_delay_branch" do
-    let addall : VarId := ⟨63, "addall"⟩
-    let xs : VarId := ⟨64, "xs"⟩
-    let anf : VarId := ⟨65, "anf"⟩
-    let tail : VarId := ⟨66, "tail"⟩
+    let addall : VarId := ⟨63, .source, "addall"⟩
+    let xs : VarId := ⟨64, .source, "xs"⟩
+    let anf : VarId := ⟨65, .source, "anf"⟩
+    let tail : VarId := ⟨66, .source, "tail"⟩
     let rhs :=
       Expr.App (Expr.Builtin .AddInteger)
         (Expr.App (Expr.Force (Expr.Builtin .HeadList)) (.Var xs))
@@ -139,7 +139,7 @@ def tests : TestTree := suite "pipeline" do
     let r := optimizeExpr e 1000
     checkAlphaEq "pipe_fd_dce_chain" r (.Var x)
   test "pipe_no_inline_across_fix" do
-    let rep : VarId := ⟨60, "rep"⟩
+    let rep : VarId := ⟨60, .source, "rep"⟩
     let add := Expr.Builtin .AddInteger
     let expensive :=
       Expr.App (.App add (.App (.App add (.App (.App add (.App (.App add (intLit 1)) (intLit 1))) (intLit 1))) (intLit 1))) (intLit 1)
@@ -162,16 +162,16 @@ def tests : TestTree := suite "pipeline" do
     let _r := optimizeExpr e 1000
   test "pipe_shared_prefix_anf" do
     let hd := Expr.Var f
-    let t0 : VarId := ⟨60, "t"⟩
-    let t1' : VarId := ⟨61, "t"⟩
-    let t2' : VarId := ⟨62, "t"⟩
-    let t3 : VarId := ⟨63, "t"⟩
-    let t4 : VarId := ⟨64, "t"⟩
-    let t5 : VarId := ⟨65, "t"⟩
-    let t6 : VarId := ⟨66, "t"⟩
-    let t7 : VarId := ⟨67, "t"⟩
-    let t8 : VarId := ⟨68, "t"⟩
-    let rr : VarId := ⟨69, "r"⟩
+    let t0 : VarId := ⟨60, .source, "t"⟩
+    let t1' : VarId := ⟨61, .source, "t"⟩
+    let t2' : VarId := ⟨62, .source, "t"⟩
+    let t3 : VarId := ⟨63, .source, "t"⟩
+    let t4 : VarId := ⟨64, .source, "t"⟩
+    let t5 : VarId := ⟨65, .source, "t"⟩
+    let t6 : VarId := ⟨66, .source, "t"⟩
+    let t7 : VarId := ⟨67, .source, "t"⟩
+    let t8 : VarId := ⟨68, .source, "t"⟩
+    let rr : VarId := ⟨69, .source, "r"⟩
     let e := Expr.Let
       [(t0, .App hd (.Var x), false),
        (t1', .App hd (.Var t0), false),

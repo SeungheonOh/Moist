@@ -116,7 +116,7 @@ def noSelfRef (binds : List (VarId × Expr × Bool)) : Bool :=
 /-! ## Occurrence Counting -/
 
 mutual
-  partial def countOccurrences (v : VarId) : Expr → Nat
+  def countOccurrences (v : VarId) : Expr → Nat
     | .Var x => if x == v then 1 else 0
     | .Lit _ | .Builtin _ | .Error => 0
     | .Lam x body => if x == v then 0 else countOccurrences v body
@@ -124,33 +124,51 @@ mutual
     | .App f x => countOccurrences v f + countOccurrences v x
     | .Force e => countOccurrences v e
     | .Delay e => countOccurrences v e
-    | .Constr _ args => args.foldl (init := 0) fun acc e => acc + countOccurrences v e
+    | .Constr _ args => countOccurrencesList v args
     | .Case scrut alts =>
-      countOccurrences v scrut + alts.foldl (init := 0) fun acc e => acc + countOccurrences v e
+      countOccurrences v scrut + countOccurrencesList v alts
     | .Let binds body => countOccurrencesLet v binds body
+  termination_by e => sizeOf e
 
-  partial def countOccurrencesLet (v : VarId) : List (VarId × Expr × Bool) → Expr → Nat
+  def countOccurrencesList (v : VarId) : List Expr → Nat
+    | [] => 0
+    | e :: rest => countOccurrences v e + countOccurrencesList v rest
+  termination_by es => sizeOf es
+
+  def countOccurrencesLet (v : VarId) : List (VarId × Expr × Bool) → Expr → Nat
     | [], body => countOccurrences v body
     | (x, rhs, _) :: rest, body =>
       let rhsCount := countOccurrences v rhs
       if x == v then rhsCount
       else rhsCount + countOccurrencesLet v rest body
+  termination_by binds body => sizeOf binds + sizeOf body
 end
 
 /-! ## Expression Size -/
 
-partial def exprSize : Expr → Nat
-  | .Var _ | .Lit _ | .Builtin _ | .Error => 1
-  | .Lam _ body => 1 + exprSize body
-  | .Fix _ body => 1 + exprSize body
-  | .App f x => 1 + exprSize f + exprSize x
-  | .Force e => 1 + exprSize e
-  | .Delay e => 1 + exprSize e
-  | .Constr _ args => 1 + args.foldl (init := 0) fun acc e => acc + exprSize e
-  | .Case scrut alts =>
-    1 + exprSize scrut + alts.foldl (init := 0) fun acc e => acc + exprSize e
-  | .Let binds body =>
-    1 + binds.foldl (init := 0) (fun acc (_, e, _) => acc + exprSize e) + exprSize body
+mutual
+  def exprSize : Expr → Nat
+    | .Var _ | .Lit _ | .Builtin _ | .Error => 1
+    | .Lam _ body => 1 + exprSize body
+    | .Fix _ body => 1 + exprSize body
+    | .App f x => 1 + exprSize f + exprSize x
+    | .Force e => 1 + exprSize e
+    | .Delay e => 1 + exprSize e
+    | .Constr _ args => 1 + exprSizeList args
+    | .Case scrut alts => 1 + exprSize scrut + exprSizeList alts
+    | .Let binds body => 1 + exprSizeBinds binds + exprSize body
+  termination_by e => sizeOf e
+
+  def exprSizeList : List Expr → Nat
+    | [] => 0
+    | e :: rest => exprSize e + exprSizeList rest
+  termination_by es => sizeOf es
+
+  def exprSizeBinds : List (VarId × Expr × Bool) → Nat
+    | [] => 0
+    | (_, e, _) :: rest => exprSize e + exprSizeBinds rest
+  termination_by bs => sizeOf bs
+end
 
 /-! ## Node Count (rename-invariant termination measure) -/
 
@@ -462,7 +480,7 @@ mutual
 
   Used by inlining passes to prevent moving non-value computations into
   positions where their evaluation is not guaranteed or changes multiplicity. -/
-  partial def occursInDeferredAux (v : VarId) (deferred : Bool) : Expr → Bool
+  def occursInDeferredAux (v : VarId) (deferred : Bool) : Expr → Bool
     | .Var x => deferred && x == v
     | .Lit _ | .Builtin _ | .Error => false
     | .Lam x body =>
@@ -475,18 +493,26 @@ mutual
     | .App f x =>
       occursInDeferredAux v deferred f || occursInDeferredAux v deferred x
     | .Force e => occursInDeferredAux v deferred e
-    | .Constr _ args => args.any (occursInDeferredAux v deferred)
+    | .Constr _ args => occursInDeferredListAux v deferred args
     | .Case scrut alts =>
       occursInDeferredAux v deferred scrut ||
-      alts.any (occursInDeferredAux v true)
+      occursInDeferredListAux v true alts
     | .Let binds body => occursInDeferredLetAux v deferred binds body
+  termination_by e => sizeOf e
 
-  partial def occursInDeferredLetAux (v : VarId) (deferred : Bool)
+  def occursInDeferredListAux (v : VarId) (deferred : Bool) : List Expr → Bool
+    | [] => false
+    | e :: rest =>
+      occursInDeferredAux v deferred e || occursInDeferredListAux v deferred rest
+  termination_by es => sizeOf es
+
+  def occursInDeferredLetAux (v : VarId) (deferred : Bool)
       : List (VarId × Expr × Bool) → Expr → Bool
     | [], body => occursInDeferredAux v deferred body
     | (x, rhs, _) :: rest, body =>
       occursInDeferredAux v deferred rhs ||
       (if x == v then false else occursInDeferredLetAux v deferred rest body)
+  termination_by binds body => sizeOf binds + sizeOf body
 end
 
 /-- Return `true` when variable `v` has at least one free occurrence in a

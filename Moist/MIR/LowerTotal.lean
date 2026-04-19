@@ -84,8 +84,33 @@ end
 
 /-! ## envLookupT lemmas -/
 
-private theorem VarId.beq_true_iff (a b : VarId) : (a == b) = true ↔ a.uid = b.uid :=
-  ⟨fun h => of_decide_eq_true h, fun h => decide_eq_true h⟩
+private theorem VarOrigin.beq_true_iff (a b : VarOrigin) : (a == b) = true ↔ a = b := by
+  cases a <;> cases b <;> simp [BEq.beq]
+
+private theorem VarId.beq_true_iff (a b : VarId) :
+    (a == b) = true ↔ a.origin = b.origin ∧ a.uid = b.uid := by
+  show (a.origin == b.origin && a.uid == b.uid) = true ↔ _
+  rw [Bool.and_eq_true, VarOrigin.beq_true_iff, beq_iff_eq]
+
+private theorem VarId.beq_false_iff (a b : VarId) :
+    (a == b) = false ↔ a.origin ≠ b.origin ∨ a.uid ≠ b.uid := by
+  constructor
+  · intro hb
+    by_cases ho : a.origin = b.origin
+    · by_cases hu : a.uid = b.uid
+      · exfalso
+        have htrue := (VarId.beq_true_iff a b).mpr ⟨ho, hu⟩
+        rw [htrue] at hb; exact Bool.noConfusion hb
+      · exact Or.inr hu
+    · exact Or.inl ho
+  · intro h
+    cases hb : (a == b)
+    · rfl
+    · exfalso
+      have ⟨ho, hu⟩ := (VarId.beq_true_iff a b).mp hb
+      cases h with
+      | inl h' => exact h' ho
+      | inr h' => exact h' hu
 
 theorem envLookupT.go_shift (v : VarId) (env : List VarId) (n m : Nat) :
     envLookupT.go v env (n + m) = (envLookupT.go v env n).map (· + m) := by
@@ -129,7 +154,10 @@ theorem envLookupT.go_append_shadow (v x : VarId) (env : List VarId) (n : Nat)
       | head =>
         have : (x == v) = false := by
           cases h : (x == v); rfl
-          exact absurd (by rw [VarId.beq_true_iff] at hyx h ⊢; omega : (w == v) = true) hwv
+          exact absurd (by
+            rw [VarId.beq_true_iff] at hyx h ⊢
+            exact ⟨hyx.1.trans h.1, hyx.2.trans h.2⟩
+            : (w == v) = true) hwv
         exact envLookupT.go_append_neq v x rest (n + 1) this
       | tail _ hrest => exact ih (n + 1) ⟨y, hrest, hyx⟩
 
@@ -207,7 +235,8 @@ end
 
 private theorem VarId.beq_trans (a b c : VarId)
     (h1 : (a == b) = true) (h2 : (b == c) = true) : (a == c) = true := by
-  rw [VarId.beq_true_iff] at *; omega
+  rw [VarId.beq_true_iff] at *
+  exact ⟨h1.1.trans h2.1, h1.2.trans h2.2⟩
 
 private theorem List.any_beq_varid_trans (xs : List VarId) (v x : VarId)
     (hvx : (v == x) = true) (hv : xs.any (· == v) = true) : xs.any (· == x) = true := by
@@ -276,7 +305,9 @@ private theorem list_filter_any_false {xs : List VarId} {x y : VarId}
       · rfl
       · exfalso
         have hwy : (w == y) = true := by simp [bne] at hwny; exact hwny
-        have := VarId.beq_trans y w x (by rw [VarId.beq_true_iff] at hwy ⊢; omega) hwx
+        have := VarId.beq_trans y w x (by
+          rw [VarId.beq_true_iff] at hwy ⊢
+          exact ⟨hwy.1.symm, hwy.2.symm⟩) hwx
         rw [this] at hyx; exact Bool.noConfusion hyx
     · simp only [hwny, ite_true, List.any_cons, Bool.or_eq_false_iff] at hf; exact ⟨hf.1, ih hf.2⟩
 
@@ -361,8 +392,8 @@ mutual
       rw [VarSet.singleton_contains']
       show (y == v) = false
       simp only [maxUidExpr] at h
-      rw [show (y == v) = decide (y.uid = v.uid) from rfl]
-      exact decide_eq_false (by omega)
+      rw [VarId.beq_false_iff]
+      exact Or.inr (by omega)
     | .Lit _ => rw [freeVars]; rfl
     | .Builtin _ => rw [freeVars]; rfl
     | .Error => rw [freeVars]; rfl
@@ -496,7 +527,7 @@ mutual
         cases h : (x == v)
         · rfl
         · exfalso; rw [VarId.beq_true_iff] at h
-          have : (v == x) = true := by rw [VarId.beq_true_iff]; omega
+          have : (v == x) = true := by rw [VarId.beq_true_iff]; exact ⟨h.1.symm, h.2.symm⟩
           rw [this] at hunused; exact Bool.noConfusion hunused)
     | .Lit (c, ty) => simp only [lowerTotal.eq_2]
     | .Builtin b => simp only [lowerTotal.eq_3]
@@ -615,7 +646,9 @@ private theorem envLookupT_go_insert_isSome (v x : VarId) (pre post : List VarId
             · exact .inl rfl
             · exfalso
               rw [VarId.beq_true_iff] at hyx hxv
-              exact hwv (by rw [VarId.beq_true_iff]; omega)
+              exact hwv (by
+                rw [VarId.beq_true_iff]
+                exact ⟨hyx.1.trans hxv.1, hyx.2.trans hxv.2⟩)
           | tail _ hrest => exact .inr ⟨y, hrest, hyx⟩
       exact ih (n + 1) hcond'
 
@@ -633,7 +666,7 @@ private theorem freeVars_var_unused_neq' (v x : VarId)
   cases hxv : (x == v)
   · rfl
   · exfalso; rw [VarId.beq_true_iff] at hxv
-    have : (v == x) = true := by rw [VarId.beq_true_iff]; omega
+    have : (v == x) = true := by rw [VarId.beq_true_iff]; exact ⟨hxv.1.symm, hxv.2.symm⟩
     rw [this] at h; exact Bool.noConfusion h
 
 -- Helper: convert option isSome to exists
@@ -947,7 +980,9 @@ private theorem envLookupT_go_insert_shift_shadow (v x : VarId) (pre post : List
           · rfl
           · exfalso
             rw [VarId.beq_true_iff] at hyx h
-            exact hwv (by rw [VarId.beq_true_iff]; omega)
+            exact hwv (by
+              rw [VarId.beq_true_iff]
+              exact ⟨hyx.1.trans h.1, hyx.2.trans h.2⟩)
         rw [envLookupT_go_insert_shift_neq v x pre' post (n + 1) hxv]
         cases envLookupT.go v (pre' ++ post) (n + 1) with
         | none => simp [Option.map]
@@ -979,7 +1014,7 @@ private theorem freeVars_var_unused_neq (v x : VarId)
   cases hxv : (x == v)
   · rfl
   · exfalso; rw [VarId.beq_true_iff] at hxv
-    have : (v == x) = true := by rw [VarId.beq_true_iff]; omega
+    have : (v == x) = true := by rw [VarId.beq_true_iff]; exact ⟨hxv.1.symm, hxv.2.symm⟩
     rw [this] at h; exact Bool.noConfusion h
 
 -- freeVars condition on list implies condition on each element
@@ -1368,10 +1403,13 @@ mutual
       let body' := expandFix body
       let base := maxUidExpr body' + 1
       -- Z combinator: (λz. z z) (λs. (λf. λx. body') (λv. s s v))
-      let s : VarId := ⟨base, "s"⟩
-      let v : VarId := ⟨base + 1, "v"⟩
+      -- The s/v/z binders are `.gen` origin: they partition away from any
+      -- `.source` VarId and are thus immune to `rename old new_` with
+      -- `.source`-origin `old`/`new_`.
+      let s : VarId := { uid := base, origin := .gen, hint := "s" }
+      let v : VarId := { uid := base + 1, origin := .gen, hint := "v" }
       let selfApp := Expr.Lam v (.App (.App (.Var s) (.Var s)) (.Var v))
-      let z : VarId := ⟨base + 2, "z"⟩
+      let z : VarId := { uid := base + 2, origin := .gen, hint := "z" }
       .App (.Lam z (.App (.Var z) (.Var z)))
            (.Lam s (.App (.Lam f (.Lam x body')) selfApp))
     | .Fix f body =>
@@ -1479,15 +1517,14 @@ theorem VarSet.erase_self_not_contains (s : VarSet) (y x : VarId)
     · simp only [hwy, ite_true, List.any_cons, Bool.or_eq_false_iff]
       refine ⟨?_, ih⟩
       show (w == x) = false
-      have hwy_uid : w.uid ≠ y.uid := by
-        simp only [bne, Bool.not_eq_true'] at hwy
-        rw [show (w == y) = decide (w.uid = y.uid) from rfl] at hwy
-        exact of_decide_eq_false hwy
-      have hyx_uid : y.uid = x.uid := by
-        rw [show (y == x) = decide (y.uid = x.uid) from rfl] at h
-        exact of_decide_eq_true h
-      rw [show (w == x) = decide (w.uid = x.uid) from rfl]
-      exact decide_eq_false (by omega)
+      simp only [bne, Bool.not_eq_true'] at hwy
+      -- hwy : (w == y) = false, h : (y == x) = true.
+      rw [VarId.beq_false_iff] at hwy
+      rw [VarId.beq_true_iff] at h
+      rw [VarId.beq_false_iff]
+      cases hwy with
+      | inl ho => exact Or.inl (fun heq => ho (heq.trans h.1.symm))
+      | inr hu => exact Or.inr (fun heq => hu (heq.trans h.2.symm))
     · simp only [show (w != y) = false from by cases hh : (w != y); rfl; exact absurd hh hwy]
       exact ih
 
@@ -1531,9 +1568,9 @@ private theorem expandFix_fix_lam_freeVars_not_contains
     (hinner : (freeVars inner_expanded).contains v = false ∨
               (x == v) = true ∨ (f == v) = true) :
     let base := maxUidExpr inner_expanded + 1
-    let s_c : VarId := ⟨base, "s"⟩
-    let v_c : VarId := ⟨base + 1, "v"⟩
-    let z_c : VarId := ⟨base + 2, "z"⟩
+    let s_c : VarId := ⟨base, .gen, "s"⟩
+    let v_c : VarId := ⟨base + 1, .gen, "v"⟩
+    let z_c : VarId := ⟨base + 2, .gen, "z"⟩
     (freeVars
       ((Expr.Lam z_c ((Expr.Var z_c).App (Expr.Var z_c))).App
         (Expr.Lam s_c
@@ -1759,7 +1796,7 @@ def fixLamWrapUplc (body_l : Moist.Plutus.Term.Term) : Moist.Plutus.Term.Term :=
 theorem envLookupT_cons_self (v : VarId) (env : List VarId) :
     envLookupT (v :: env) v = some 0 := by
   unfold envLookupT envLookupT.go
-  have : (v == v) = true := by rw [VarId.beq_true_iff]
+  have : (v == v) = true := by rw [VarId.beq_true_iff]; exact ⟨rfl, rfl⟩
   simp [this]
 
 /-- `envLookupT (y :: z :: env) z = some 1` when `y ≠ z`. -/
@@ -1777,30 +1814,30 @@ private theorem envLookupT_cons_second (y z : VarId) (env : List VarId)
     inner body's lowering under the canonical fresh `s` variable. -/
 theorem lowerTotalExpr_fix_lam_canonical (env : List VarId) (f x : VarId) (body : Expr) :
     lowerTotalExpr env (.Fix f (.Lam x body)) =
-      (lowerTotal (x :: f :: ⟨maxUidExpr (expandFix body) + 1, "s"⟩ :: env)
+      (lowerTotal (x :: f :: ⟨maxUidExpr (expandFix body) + 1, .gen, "s"⟩ :: env)
           (expandFix body)).map fixLamWrapUplc := by
   -- Unfold lowerTotalExpr and expandFix on the LHS
   have hunfold : lowerTotalExpr env (.Fix f (.Lam x body)) = lowerTotal env
-      ((Expr.Lam ⟨maxUidExpr (expandFix body) + 1 + 2, "z"⟩
-          ((Expr.Var ⟨maxUidExpr (expandFix body) + 1 + 2, "z"⟩).App
-            (Expr.Var ⟨maxUidExpr (expandFix body) + 1 + 2, "z"⟩))).App
-        (Expr.Lam ⟨maxUidExpr (expandFix body) + 1, "s"⟩
+      ((Expr.Lam ⟨maxUidExpr (expandFix body) + 1 + 2, .gen, "z"⟩
+          ((Expr.Var ⟨maxUidExpr (expandFix body) + 1 + 2, .gen, "z"⟩).App
+            (Expr.Var ⟨maxUidExpr (expandFix body) + 1 + 2, .gen, "z"⟩))).App
+        (Expr.Lam ⟨maxUidExpr (expandFix body) + 1, .gen, "s"⟩
           ((Expr.Lam f (Expr.Lam x (expandFix body))).App
-            (Expr.Lam ⟨maxUidExpr (expandFix body) + 1 + 1, "v"⟩
-              (((Expr.Var ⟨maxUidExpr (expandFix body) + 1, "s"⟩).App
-                  (Expr.Var ⟨maxUidExpr (expandFix body) + 1, "s"⟩)).App
-                (Expr.Var ⟨maxUidExpr (expandFix body) + 1 + 1, "v"⟩)))))) := by
+            (Expr.Lam ⟨maxUidExpr (expandFix body) + 1 + 1, .gen, "v"⟩
+              (((Expr.Var ⟨maxUidExpr (expandFix body) + 1, .gen, "s"⟩).App
+                  (Expr.Var ⟨maxUidExpr (expandFix body) + 1, .gen, "s"⟩)).App
+                (Expr.Var ⟨maxUidExpr (expandFix body) + 1 + 1, .gen, "v"⟩)))))) := by
     simp only [lowerTotalExpr, expandFix]
   rw [hunfold]
   -- Introduce abbreviations
   let body' := expandFix body
   let base : Nat := maxUidExpr body' + 1
-  let s_c : VarId := ⟨base, "s"⟩
-  let v_c : VarId := ⟨base + 1, "v"⟩
-  let z_c : VarId := ⟨base + 2, "z"⟩
+  let s_c : VarId := ⟨base, .gen, "s"⟩
+  let v_c : VarId := ⟨base + 1, .gen, "v"⟩
+  let z_c : VarId := ⟨base + 2, .gen, "z"⟩
   have hvs_ne : (v_c == s_c) = false := by
-    show decide (v_c.uid = s_c.uid) = false
-    exact decide_eq_false (show base + 1 ≠ base from by omega)
+    rw [VarId.beq_false_iff]
+    exact Or.inr (show base + 1 ≠ base from by omega)
   change lowerTotal env
       ((Expr.Lam z_c ((Expr.Var z_c).App (Expr.Var z_c))).App
         (Expr.Lam s_c
@@ -1830,14 +1867,14 @@ theorem lowerTotalExpr_fix_lam_with_fresh (env : List VarId) (f x : VarId) (body
       (lowerTotal (x :: f :: s_pick :: env) (expandFix body)).map fixLamWrapUplc := by
   rw [lowerTotalExpr_fix_lam_canonical]
   have hs_c : (freeVars (expandFix body)).contains
-      ⟨maxUidExpr (expandFix body) + 1, "s"⟩ = false :=
+      ⟨maxUidExpr (expandFix body) + 1, .gen, "s"⟩ = false :=
     maxUidExpr_fresh _ _ (show maxUidExpr (expandFix body) + 1 > maxUidExpr (expandFix body)
       from Nat.lt_succ_self _)
   -- By env_swap, we can replace s_canonical with s_pick
   have := lowerTotal_env_swap_unused [x, f] env
-    ⟨maxUidExpr (expandFix body) + 1, "s"⟩ s_pick (expandFix body) hs_c hs
-  rw [show (x :: f :: (⟨maxUidExpr (expandFix body) + 1, "s"⟩ : VarId) :: env) =
-        [x, f] ++ (⟨maxUidExpr (expandFix body) + 1, "s"⟩ : VarId) :: env from rfl]
+    ⟨maxUidExpr (expandFix body) + 1, .gen, "s"⟩ s_pick (expandFix body) hs_c hs
+  rw [show (x :: f :: (⟨maxUidExpr (expandFix body) + 1, .gen, "s"⟩ : VarId) :: env) =
+        [x, f] ++ (⟨maxUidExpr (expandFix body) + 1, .gen, "s"⟩ : VarId) :: env from rfl]
   rw [show (x :: f :: s_pick :: env) = [x, f] ++ s_pick :: env from rfl]
   rw [this]
 

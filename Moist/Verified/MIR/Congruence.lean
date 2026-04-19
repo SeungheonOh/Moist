@@ -534,7 +534,7 @@ theorem mirCtxRefines_fix_lam {f x : VarId} {body₁ body₂ : Expr}
   let body₁' := Moist.MIR.expandFix body₁
   let body₂' := Moist.MIR.expandFix body₂
   let s_common : VarId :=
-    ⟨max (Moist.MIR.maxUidExpr body₁') (Moist.MIR.maxUidExpr body₂') + 1, "s"⟩
+    ⟨max (Moist.MIR.maxUidExpr body₁') (Moist.MIR.maxUidExpr body₂') + 1, .gen, "s"⟩
   have hs₁ : (Moist.MIR.freeVars body₁').contains s_common = false :=
     Moist.MIR.maxUidExpr_fresh body₁' s_common (by simp [s_common]; omega)
   have hs₂ : (Moist.MIR.freeVars body₂').contains s_common = false :=

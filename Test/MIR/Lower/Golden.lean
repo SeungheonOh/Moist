@@ -76,7 +76,7 @@ def goldenTree : TestTree := suite "golden" do
     (.Fix f (.Lam x (.App (.Var f) (.Var x))))
   mkLowerGolden "lower_factorial" factorialMIR
   mkLowerGolden "lower_unbound"
-    (.Var ⟨999, "oops"⟩)
+    (.Var ⟨999, .source, "oops"⟩)
   mkLowerGolden "lower_let_chain"
     (.Let [(a, .Delay (intLit 1), false)]
       (.Let [(b, .Delay (.Var a), false)]
