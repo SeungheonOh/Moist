@@ -227,6 +227,9 @@ inductive SubstBisimValue : CekValue → CekValue → Prop
   | vbuiltin : ∀ (b : BuiltinFun) (ea : ExpectedArgs) {args₁ args₂ : List CekValue},
       SubstBisimValueList args₁ args₂ →
       SubstBisimValue (.VBuiltin b args₁ ea) (.VBuiltin b args₂ ea)
+  /-- Reflexivity: any well-formed value is related to itself. Used for
+      closures captured in env positions untouched by substitution. -/
+  | refl : ∀ {v : CekValue}, ValueWellFormed v → SubstBisimValue v v
 
 inductive SubstBisimValueList : List CekValue → List CekValue → Prop
   | nil : SubstBisimValueList [] []
@@ -302,12 +305,18 @@ theorem substBisimValueList_cons_inv_right : ∀ {w : CekValue} {ws xs : List Ce
   | _, _, _ :: _, h => by cases h with | cons hv hr => exact ⟨_, _, rfl, hv, hr⟩
 
 theorem substBisimValue_vcon_inv : ∀ {c : Const} {v : CekValue},
-    SubstBisimValue (.VCon c) v → v = .VCon c
-  | _, _, h => by cases h; rfl
+    SubstBisimValue (.VCon c) v → v = .VCon c := by
+  intro c v h
+  cases h with
+  | vcon _ => rfl
+  | refl _ => rfl
 
 theorem substBisimValue_vcon_inv_right : ∀ {c : Const} {v : CekValue},
-    SubstBisimValue v (.VCon c) → v = .VCon c
-  | _, _, h => by cases h; rfl
+    SubstBisimValue v (.VCon c) → v = .VCon c := by
+  intro c v h
+  cases h with
+  | vcon _ => rfl
+  | refl _ => rfl
 
 /-- Length preservation. -/
 theorem substBisimValueList_length_eq : ∀ {xs₁ xs₂ : List CekValue},
@@ -556,6 +565,15 @@ theorem substBisimValueList_extractConsts :
     | vdelay _ _ _ _ _ => rfl
     | vconstr _ _ => rfl
     | vbuiltin _ _ _ => rfl
+    | @refl v hv_wf =>
+      cases v with
+      | VCon c =>
+        simp only [extractConsts]
+        rw [ih hrest]
+      | VLam _ _ => rfl
+      | VDelay _ _ => rfl
+      | VConstr _ _ => rfl
+      | VBuiltin _ _ _ => rfl
 
 --------------------------------------------------------------------------------
 -- 8. constToTagAndFields fields are SubstBisimValueList-reflexive
@@ -1383,33 +1401,18 @@ theorem substBisimState_to_obsRefines :
 -- doesn't reach any of the value's captured variables).
 --------------------------------------------------------------------------------
 
-mutual
+/-- Reflexivity of SubstBisimValue for well-formed values via the new
+    `refl` constructor. -/
+theorem substBisimValue_refl_wf (v : CekValue) :
+    ValueWellFormed v → SubstBisimValue v v := fun h => SubstBisimValue.refl h
 
-/-- Reflexivity of SubstBisimValue for well-formed values (no binding is
-    actually substituted). Requires pos > captured-depth. -/
-theorem substBisimValue_refl_wf_aux : ∀ {v : CekValue}
-    (h : ValueWellFormed v), SubstBisimValue v v
-  | _, .vcon c => SubstBisimValue.vcon c
-  | _, .vconstr tag hfs =>
-    SubstBisimValue.vconstr tag (substBisimValueList_refl_wf_aux hfs)
-  | _, .vbuiltin b ea hargs =>
-    SubstBisimValue.vbuiltin b ea (substBisimValueList_refl_wf_aux hargs)
-  | _, .vlam _ _ _ => sorry  -- closure reflexivity: parallels shift's vlam
-  | _, .vdelay _ _ _ => sorry  -- closure reflexivity
-
-theorem substBisimValueList_refl_wf_aux : ∀ {vs : List CekValue}
-    (h : ValueListWellFormed vs), SubstBisimValueList vs vs
+/-- List reflexivity derived trivially. -/
+theorem substBisimValueList_refl_wf : ∀ {vs : List CekValue},
+    ValueListWellFormed vs → SubstBisimValueList vs vs
   | _, .nil => SubstBisimValueList.nil
   | _, .cons hv hrest =>
-    SubstBisimValueList.cons (substBisimValue_refl_wf_aux hv)
-      (substBisimValueList_refl_wf_aux hrest)
-
-end
-
-/-- Public alias. -/
-theorem substBisimValue_refl_wf (v : CekValue) :
-    ValueWellFormed v → SubstBisimValue v v :=
-  substBisimValue_refl_wf_aux
+    SubstBisimValueList.cons (substBisimValue_refl_wf _ hv)
+      (substBisimValueList_refl_wf hrest)
 
 /-- Construct initial `SubstBisimEnv` for β-substitution: the outer env
     (ρ.extend v_rhs, ρ) is related at position 1 with replacement = rhs,
