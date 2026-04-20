@@ -5,6 +5,7 @@ import Moist.Verified.ClosedAt
 import Moist.Verified.RenameBase
 import Moist.Verified.StepLift
 import Moist.Verified.FundamentalRefines
+import Moist.Verified.BetaValueRefines
 import Moist.Verified.MIR.Primitives.Shared
 
 /-! # Substitution Bisimulation
@@ -46,30 +47,20 @@ open Moist.Verified
 open Moist.Verified.Equivalence
 open Moist.Verified.Contextual
 open Moist.Verified.Contextual.SoundnessRefines
+open Moist.Verified.BetaValueRefines
 
 --------------------------------------------------------------------------------
--- 1. Copied helper lemmas (from BetaValueRefines.lean / FundamentalRefines.lean)
+-- 1. SubstBisim-specific helpers
+--
+-- Standard Env lookup identities (`lookup_zero`, `extend_lookup_one`,
+-- `extend_lookup_succ`), `substTermList_getElem`, `steps_trans`,
+-- `steps_halt_fixed`, `steps_error_fixed`, and the `ValueWellFormed`/
+-- `EnvWellFormed`/`ValueListWellFormed` family are re-used from
+-- `Moist.Verified.BetaValueRefines` (brought in by `open` above).
+--
+-- `foldrExtend`, `iteratedShift`, `iterShiftRename` and friends are unique
+-- to the subst family and defined below.
 --------------------------------------------------------------------------------
-
-/-- The unused position 0 always returns `none`. -/
-private theorem lookup_zero (ρ : CekEnv) : ρ.lookup 0 = none := by
-  match ρ with
-  | .nil => rfl
-  | .cons _ _ => rfl
-
-/-- The new top of an `extend`ed env at position 1. -/
-private theorem extend_lookup_one (ρ : CekEnv) (v : CekValue) :
-    (ρ.extend v).lookup 1 = some v := by
-  show (CekEnv.cons v ρ).lookup 1 = some v
-  rfl
-
-/-- `extend` shifts every positive position up by 1. -/
-private theorem extend_lookup_succ (ρ : CekEnv) (v : CekValue) (m : Nat)
-    (hm : m ≥ 1) :
-    (ρ.extend v).lookup (m + 1) = ρ.lookup m := by
-  show (CekEnv.cons v ρ).lookup (m + 1) = ρ.lookup m
-  match m, hm with
-  | k + 1, _ => rfl
 
 /-- Fold-extend: extends `ρ` with a list of values. `vs = [v₁, v₂, ...]`
     maps to positions 1, 2, ..., vs.length. -/
@@ -125,22 +116,6 @@ theorem foldrExtend_lookup_cons_ge_2 (ρ : CekEnv) (v : CekValue) (rest : List C
     have h_eq : (k + 2) - 1 = k + 1 := by omega
     rw [h_eq]
     exact foldrExtend_lookup_succ_cons ρ v rest (k + 1) (by omega)
-
-/-- `substTermList`'s `getElem` distributes through the element access.
-    Copied from BetaValueRefines.lean for self-containment. -/
-theorem substTermList_getElem (pos : Nat) (r : Term) (ts : List Term) (i : Nat)
-    (hi : i < ts.length) :
-    (Moist.Verified.substTermList pos r ts)[i]'(by
-      rw [Moist.Verified.substTermList_length]; exact hi) =
-    Moist.Verified.substTerm pos r (ts[i]) := by
-  induction ts generalizing i with
-  | nil => exact absurd hi (Nat.not_lt_zero _)
-  | cons t rest ih =>
-    cases i with
-    | zero => simp [Moist.Verified.substTermList]
-    | succ j =>
-      simp only [Moist.Verified.substTermList, List.getElem_cons_succ]
-      exact ih j (by simp at hi; omega)
 
 /-- Iterated shift: apply `renameTerm (shiftRename 1)` `k` times. For vs-list
     generalization, after traversing `k` binders the cached `replacement` has
@@ -219,6 +194,22 @@ theorem iterShiftRenameList_succ (k c : Nat) (ts : List Term) :
     iterShiftRenameList (k + 1) c ts =
     Moist.Verified.renameTermList (Moist.Verified.shiftRename c)
       (iterShiftRenameList k c ts) := rfl
+
+/-- Closedness preservation for `iterShiftRenameList`. -/
+theorem closedAtList_iterShiftRenameList : ∀ (k c d : Nat) (ts : List Term),
+    1 ≤ c → c ≤ d + 1 →
+    closedAtList d ts = true →
+    closedAtList (d + k) (iterShiftRenameList k c ts) = true
+  | 0, _, _, _, _, _, h => h
+  | k + 1, c, d, ts, hc1, hcd, h => by
+    show closedAtList (d + k + 1)
+      (Moist.Verified.renameTermList (Moist.Verified.shiftRename c)
+        (iterShiftRenameList k c ts)) = true
+    have h_rec := closedAtList_iterShiftRenameList k c d ts hc1 hcd h
+    -- `renameTermList` with `shiftRename c` preserves closedness with depth +1
+    -- when cutoff c ≤ depth + 1.
+    exact Moist.Verified.MIR.closedAtList_renameTermList_shiftRename
+      (iterShiftRenameList k c ts) (d + k) c hc1 (by omega) h_rec
 
 /-- Length preservation for `iterShiftRenameList`. -/
 theorem iterShiftRenameList_length : ∀ (k c : Nat) (ts : List Term),
@@ -395,74 +386,7 @@ theorem iterShiftRenameList_cons : ∀ (k c : Nat) (t : Term) (rest : List Term)
     rfl
 
 --------------------------------------------------------------------------------
--- 2. Well-formedness predicates (copied from BetaValueRefines.lean section 7)
---------------------------------------------------------------------------------
-
-mutual
-
-/-- A CEK value is well-formed when every embedded closure is closed
-    at the appropriate depth and its captured env is well-formed. -/
-inductive ValueWellFormed : CekValue → Prop
-  | vcon : ∀ (c : Const), ValueWellFormed (.VCon c)
-  | vlam : ∀ {body : Term} {ρ : CekEnv} {k : Nat},
-      EnvWellFormed k ρ → k ≤ ρ.length →
-      closedAt (k + 1) body = true →
-      ValueWellFormed (.VLam body ρ)
-  | vdelay : ∀ {body : Term} {ρ : CekEnv} {k : Nat},
-      EnvWellFormed k ρ → k ≤ ρ.length →
-      closedAt k body = true →
-      ValueWellFormed (.VDelay body ρ)
-  | vconstr : ∀ (tag : Nat) {fs : List CekValue},
-      ValueListWellFormed fs →
-      ValueWellFormed (.VConstr tag fs)
-  | vbuiltin : ∀ (b : BuiltinFun) (ea : ExpectedArgs) {args : List CekValue},
-      ValueListWellFormed args →
-      ValueWellFormed (.VBuiltin b args ea)
-
-inductive EnvWellFormed : Nat → CekEnv → Prop
-  | zero : ∀ {ρ : CekEnv}, EnvWellFormed 0 ρ
-  | succ : ∀ {k : Nat} {ρ : CekEnv} {v : CekValue},
-      EnvWellFormed k ρ →
-      k + 1 ≤ ρ.length →
-      ρ.lookup (k + 1) = some v →
-      ValueWellFormed v →
-      EnvWellFormed (k + 1) ρ
-
-inductive ValueListWellFormed : List CekValue → Prop
-  | nil : ValueListWellFormed []
-  | cons : ∀ {v : CekValue} {vs : List CekValue},
-      ValueWellFormed v → ValueListWellFormed vs →
-      ValueListWellFormed (v :: vs)
-
-end
-
-inductive FrameWellFormed : Frame → Prop
-  | force : FrameWellFormed .force
-  | arg : ∀ {t : Term} {ρ : CekEnv} {k : Nat},
-      EnvWellFormed k ρ → k ≤ ρ.length →
-      closedAt k t = true →
-      FrameWellFormed (.arg t ρ)
-  | funV : ∀ {v : CekValue}, ValueWellFormed v → FrameWellFormed (.funV v)
-  | applyArg : ∀ {v : CekValue}, ValueWellFormed v → FrameWellFormed (.applyArg v)
-  | constrField : ∀ (tag : Nat) {done : List CekValue}
-      {todo : List Term} {ρ : CekEnv} {k : Nat},
-      ValueListWellFormed done →
-      EnvWellFormed k ρ → k ≤ ρ.length →
-      closedAtList k todo = true →
-      FrameWellFormed (.constrField tag done todo ρ)
-  | caseScrutinee : ∀ {alts : List Term} {ρ : CekEnv} {k : Nat},
-      EnvWellFormed k ρ → k ≤ ρ.length →
-      closedAtList k alts = true →
-      FrameWellFormed (.caseScrutinee alts ρ)
-
-inductive StackWellFormed : Stack → Prop
-  | nil : StackWellFormed []
-  | cons : ∀ {f : Frame} {π : Stack},
-      FrameWellFormed f → StackWellFormed π →
-      StackWellFormed (f :: π)
-
---------------------------------------------------------------------------------
--- 3. SubstBisim mutual inductive
+-- 2. SubstBisim mutual inductive
 --
 -- Key intuition: the LHS state has an extra binder at some position `pos`
 -- whose value is v_repl (the CekValue cached from evaluating `replacement`
@@ -498,66 +422,6 @@ def SubstHaltsAt (rep : Term) (v_repl : CekValue) (ρ : CekEnv) (d : Nat) : Prop
     ∀ (k : Nat), k ≤ m → steps k (.compute π ρ rep) ≠ .error
 
 mutual
-
-inductive SubstBisimState : State → State → Prop
-  /-- Substitution family with vs-list generalization. `vs₁`/`vs₂` are
-      bisim-related binders accumulated by traversing Lams under the substitution.
-      At `vs = []` this recovers the simple compute. -/
-  | compute : ∀ {π₁ π₂ : Stack} {ρ₁ ρ₂ : CekEnv} {vs₁ vs₂ : List CekValue}
-      {t : Term} {pos : Nat}
-      {replacement : Term} {v_repl : CekValue} {d : Nat},
-      1 ≤ pos →
-      closedAt d replacement = true →
-      SubstBisimEnv pos replacement v_repl (d + 1) ρ₁ ρ₂ →
-      SubstBisimValueList vs₁ vs₂ →
-      closedAt (d + 1 + vs₁.length) t = true →
-      SubstHaltsAt replacement v_repl ρ₂ d →
-      SubstBisimStack π₁ π₂ →
-      SubstBisimState
-        (.compute π₁ (foldrExtend ρ₁ vs₁) t)
-        (.compute π₂ (foldrExtend ρ₂ vs₂)
-          (Moist.Verified.substTerm (pos + vs₁.length)
-            (iteratedShift vs₁.length replacement) t))
-  /-- Reflexive compute, generalized with vs-list. `vs = []` gives the base
-      refl form; `vs ≠ []` lets us express bisim-related env tops with same body. -/
-  | reflCompute : ∀ {π₁ π₂ : Stack} {ρ : CekEnv} {vs₁ vs₂ : List CekValue}
-      {t : Term} {k : Nat},
-      EnvWellFormed k ρ → k ≤ ρ.length →
-      SubstBisimValueList vs₁ vs₂ →
-      closedAt (k + vs₁.length) t = true →
-      SubstBisimStack π₁ π₂ →
-      SubstBisimState (.compute π₁ (foldrExtend ρ vs₁) t)
-                      (.compute π₂ (foldrExtend ρ vs₂) t)
-  /-- Rename-insert compute (generalized). Parameterized by:
-      - a list of SubstBisim-related binders `(vs₁, vs₂)` on top of `ρ` (LHS)
-        / `foldrExtend ρ vs_insert` (RHS).
-      - `vs_insert`: the list of well-formed values inserted between `ρ` and
-        the `vs₂` region on RHS.
-
-      `vs = []`, `vs_insert = [v_x]` recovers the simple single-insertion
-      renameCompute case (shift by 1).
-
-      `vs = []`, `vs_insert = [v₁,...,v_k]` handles shift-by-k (used to close
-      Var=pos+vs.length in the subst-family `compute` by relating to a
-      shifted evaluation in the extended env).
-
-      `vs ≠ []` arises from applying a `vlam_rename_list` to a new argument. -/
-  | renameInsertCompute : ∀ {π₁ π₂ : Stack} {ρ : CekEnv}
-      {vs₁ vs₂ vs_insert : List CekValue} {t : Term} {k : Nat},
-      EnvWellFormed k ρ → k ≤ ρ.length →
-      SubstBisimValueList vs₁ vs₂ →
-      closedAt (k + vs₁.length) t = true →
-      SubstBisimStack π₁ π₂ →
-      SubstBisimState
-        (.compute π₁ (foldrExtend ρ vs₁) t)
-        (.compute π₂ (foldrExtend (foldrExtend ρ vs_insert) vs₂)
-          (iterShiftRename vs_insert.length (vs₁.length + 1) t))
-  | ret : ∀ {π₁ π₂ : Stack} {v₁ v₂ : CekValue},
-      SubstBisimValue v₁ v₂ → SubstBisimStack π₁ π₂ →
-      SubstBisimState (State.ret π₁ v₁) (State.ret π₂ v₂)
-  | halt : ∀ {v₁ v₂ : CekValue}, SubstBisimValue v₁ v₂ →
-      SubstBisimState (.halt v₁) (.halt v₂)
-  | error : SubstBisimState .error .error
 
 /-- Env relation: ρ₁ has v_repl at position pos; ρ₂ is ρ₁ with pos removed.
     - At n < pos: ρ₁.lookup n and ρ₂.lookup n are SubstBisimValue-related.
@@ -596,12 +460,13 @@ inductive SubstBisimValue : CekValue → CekValue → Prop
       subst-family Lam within a nested compute. -/
   | vlam : ∀ {body : Term} {ρ₁ ρ₂ : CekEnv} {vs₁ vs₂ : List CekValue} {pos : Nat}
       {replacement : Term} {v_repl : CekValue} {d : Nat},
-      1 ≤ pos →
+      1 ≤ pos → pos ≤ d + 1 →
       closedAt d replacement = true →
       SubstBisimEnv pos replacement v_repl (d + 1) ρ₁ ρ₂ →
       SubstBisimValueList vs₁ vs₂ →
       closedAt (d + 2 + vs₁.length) body = true →
       SubstHaltsAt replacement v_repl ρ₂ d →
+      ValueListWellFormed vs₂ →
       SubstBisimValue
         (.VLam body (foldrExtend ρ₁ vs₁))
         (.VLam (Moist.Verified.substTerm (pos + vs₁.length + 1)
@@ -609,12 +474,13 @@ inductive SubstBisimValue : CekValue → CekValue → Prop
   /-- Subst-family VDelay closure, generalized with vs-list. -/
   | vdelay : ∀ {body : Term} {ρ₁ ρ₂ : CekEnv} {vs₁ vs₂ : List CekValue} {pos : Nat}
       {replacement : Term} {v_repl : CekValue} {d : Nat},
-      1 ≤ pos →
+      1 ≤ pos → pos ≤ d + 1 →
       closedAt d replacement = true →
       SubstBisimEnv pos replacement v_repl (d + 1) ρ₁ ρ₂ →
       SubstBisimValueList vs₁ vs₂ →
       closedAt (d + 1 + vs₁.length) body = true →
       SubstHaltsAt replacement v_repl ρ₂ d →
+      ValueListWellFormed vs₂ →
       SubstBisimValue
         (.VDelay body (foldrExtend ρ₁ vs₁))
         (.VDelay (Moist.Verified.substTerm (pos + vs₁.length)
@@ -636,6 +502,7 @@ inductive SubstBisimValue : CekValue → CekValue → Prop
       EnvWellFormed k ρ → k ≤ ρ.length →
       SubstBisimValueList vs₁ vs₂ →
       closedAt (k + vs₁.length + 1) body = true →
+      ValueListWellFormed vs₂ →
       SubstBisimValue
         (.VLam body (foldrExtend ρ vs₁))
         (.VLam body (foldrExtend ρ vs₂))
@@ -645,6 +512,7 @@ inductive SubstBisimValue : CekValue → CekValue → Prop
       EnvWellFormed k ρ → k ≤ ρ.length →
       SubstBisimValueList vs₁ vs₂ →
       closedAt (k + vs₁.length) body = true →
+      ValueListWellFormed vs₂ →
       SubstBisimValue
         (.VDelay body (foldrExtend ρ vs₁))
         (.VDelay body (foldrExtend ρ vs₂))
@@ -658,6 +526,7 @@ inductive SubstBisimValue : CekValue → CekValue → Prop
       EnvWellFormed k ρ → k ≤ ρ.length →
       SubstBisimValueList vs₁ vs₂ →
       closedAt (k + vs₁.length + 1) body = true →
+      ValueListWellFormed vs₂ → ValueListWellFormed vs_insert →
       SubstBisimValue
         (.VLam body (foldrExtend ρ vs₁))
         (.VLam (iterShiftRename vs_insert.length (vs₁.length + 2) body)
@@ -668,6 +537,7 @@ inductive SubstBisimValue : CekValue → CekValue → Prop
       EnvWellFormed k ρ → k ≤ ρ.length →
       SubstBisimValueList vs₁ vs₂ →
       closedAt (k + vs₁.length) body = true →
+      ValueListWellFormed vs₂ → ValueListWellFormed vs_insert →
       SubstBisimValue
         (.VDelay body (foldrExtend ρ vs₁))
         (.VDelay (iterShiftRename vs_insert.length (vs₁.length + 1) body)
@@ -679,23 +549,22 @@ inductive SubstBisimValueList : List CekValue → List CekValue → Prop
       SubstBisimValue v₁ v₂ → SubstBisimValueList vs₁ vs₂ →
       SubstBisimValueList (v₁ :: vs₁) (v₂ :: vs₂)
 
-inductive SubstBisimStack : Stack → Stack → Prop
-  | nil : SubstBisimStack [] []
-  | cons : ∀ {f₁ f₂ : Frame} {π₁ π₂ : Stack},
-      SubstBisimFrame f₁ f₂ → SubstBisimStack π₁ π₂ →
-      SubstBisimStack (f₁ :: π₁) (f₂ :: π₂)
+end
 
+/-- Frame-level SubstBisim relation. Non-mutual (references only the mutual
+    Env/Value/ValueList, not any other Frame/Stack/State). -/
 inductive SubstBisimFrame : Frame → Frame → Prop
   | force : SubstBisimFrame .force .force
   /-- Subst-family arg frame, generalized with vs-list. -/
   | arg : ∀ {t : Term} {ρ₁ ρ₂ : CekEnv} {vs₁ vs₂ : List CekValue} {pos : Nat}
       {replacement : Term} {v_repl : CekValue} {d : Nat},
-      1 ≤ pos →
+      1 ≤ pos → pos ≤ d + 1 →
       closedAt d replacement = true →
       SubstBisimEnv pos replacement v_repl (d + 1) ρ₁ ρ₂ →
       SubstBisimValueList vs₁ vs₂ →
       closedAt (d + 1 + vs₁.length) t = true →
       SubstHaltsAt replacement v_repl ρ₂ d →
+      ValueListWellFormed vs₂ →
       SubstBisimFrame
         (.arg t (foldrExtend ρ₁ vs₁))
         (.arg (Moist.Verified.substTerm (pos + vs₁.length)
@@ -708,13 +577,14 @@ inductive SubstBisimFrame : Frame → Frame → Prop
   | constrField : ∀ (tag : Nat) {done₁ done₂ : List CekValue}
       {todo : List Term} {ρ₁ ρ₂ : CekEnv} {vs₁ vs₂ : List CekValue} {pos : Nat}
       {replacement : Term} {v_repl : CekValue} {d : Nat},
-      1 ≤ pos →
+      1 ≤ pos → pos ≤ d + 1 →
       closedAt d replacement = true →
       SubstBisimValueList done₁ done₂ →
       SubstBisimEnv pos replacement v_repl (d + 1) ρ₁ ρ₂ →
       SubstBisimValueList vs₁ vs₂ →
       closedAtList (d + 1 + vs₁.length) todo = true →
       SubstHaltsAt replacement v_repl ρ₂ d →
+      ValueListWellFormed vs₂ → ValueListWellFormed done₂ →
       SubstBisimFrame
         (.constrField tag done₁ todo (foldrExtend ρ₁ vs₁))
         (.constrField tag done₂ (Moist.Verified.substTermList (pos + vs₁.length)
@@ -722,12 +592,13 @@ inductive SubstBisimFrame : Frame → Frame → Prop
   /-- Subst-family caseScrutinee frame, generalized with vs-list. -/
   | caseScrutinee : ∀ {alts : List Term} {ρ₁ ρ₂ : CekEnv} {vs₁ vs₂ : List CekValue}
       {pos : Nat} {replacement : Term} {v_repl : CekValue} {d : Nat},
-      1 ≤ pos →
+      1 ≤ pos → pos ≤ d + 1 →
       closedAt d replacement = true →
       SubstBisimEnv pos replacement v_repl (d + 1) ρ₁ ρ₂ →
       SubstBisimValueList vs₁ vs₂ →
       closedAtList (d + 1 + vs₁.length) alts = true →
       SubstHaltsAt replacement v_repl ρ₂ d →
+      ValueListWellFormed vs₂ →
       SubstBisimFrame
         (.caseScrutinee alts (foldrExtend ρ₁ vs₁))
         (.caseScrutinee (Moist.Verified.substTermList (pos + vs₁.length)
@@ -737,6 +608,7 @@ inductive SubstBisimFrame : Frame → Frame → Prop
       EnvWellFormed k ρ → k ≤ ρ.length →
       SubstBisimValueList vs₁ vs₂ →
       closedAt (k + vs₁.length) t = true →
+      ValueListWellFormed vs₂ →
       SubstBisimFrame (.arg t (foldrExtend ρ vs₁)) (.arg t (foldrExtend ρ vs₂))
   /-- Reflexive constrField frame, generalized with vs-list. -/
   | constrFieldRefl : ∀ (tag : Nat) {done : List CekValue}
@@ -745,6 +617,7 @@ inductive SubstBisimFrame : Frame → Frame → Prop
       EnvWellFormed k ρ → k ≤ ρ.length →
       SubstBisimValueList vs₁ vs₂ →
       closedAtList (k + vs₁.length) todo = true →
+      ValueListWellFormed vs₂ →
       SubstBisimFrame
         (.constrField tag done todo (foldrExtend ρ vs₁))
         (.constrField tag done todo (foldrExtend ρ vs₂))
@@ -755,6 +628,7 @@ inductive SubstBisimFrame : Frame → Frame → Prop
       EnvWellFormed k ρ → k ≤ ρ.length →
       SubstBisimValueList vs₁ vs₂ →
       closedAtList (k + vs₁.length) todo = true →
+      ValueListWellFormed vs₂ → ValueListWellFormed done₂ →
       SubstBisimFrame
         (.constrField tag done₁ todo (foldrExtend ρ vs₁))
         (.constrField tag done₂ todo (foldrExtend ρ vs₂))
@@ -764,6 +638,7 @@ inductive SubstBisimFrame : Frame → Frame → Prop
       EnvWellFormed k ρ → k ≤ ρ.length →
       SubstBisimValueList vs₁ vs₂ →
       closedAtList (k + vs₁.length) alts = true →
+      ValueListWellFormed vs₂ →
       SubstBisimFrame
         (.caseScrutinee alts (foldrExtend ρ vs₁))
         (.caseScrutinee alts (foldrExtend ρ vs₂))
@@ -774,6 +649,7 @@ inductive SubstBisimFrame : Frame → Frame → Prop
       EnvWellFormed k ρ → k ≤ ρ.length →
       SubstBisimValueList vs₁ vs₂ →
       closedAt (k + vs₁.length) t = true →
+      ValueListWellFormed vs₂ → ValueListWellFormed vs_insert →
       SubstBisimFrame
         (.arg t (foldrExtend ρ vs₁))
         (.arg (iterShiftRename vs_insert.length (vs₁.length + 1) t)
@@ -786,6 +662,8 @@ inductive SubstBisimFrame : Frame → Frame → Prop
       SubstBisimValueList done₁ done₂ →
       SubstBisimValueList vs₁ vs₂ →
       closedAtList (k + vs₁.length) todo = true →
+      ValueListWellFormed vs₂ → ValueListWellFormed vs_insert →
+      ValueListWellFormed done₂ →
       SubstBisimFrame
         (.constrField tag done₁ todo (foldrExtend ρ vs₁))
         (.constrField tag done₂
@@ -797,12 +675,89 @@ inductive SubstBisimFrame : Frame → Frame → Prop
       EnvWellFormed k ρ → k ≤ ρ.length →
       SubstBisimValueList vs₁ vs₂ →
       closedAtList (k + vs₁.length) alts = true →
+      ValueListWellFormed vs₂ → ValueListWellFormed vs_insert →
       SubstBisimFrame
         (.caseScrutinee alts (foldrExtend ρ vs₁))
         (.caseScrutinee
           (iterShiftRenameList vs_insert.length (vs₁.length + 1) alts)
           (foldrExtend (foldrExtend ρ vs_insert) vs₂))
-end
+
+/-- Stack-level SubstBisim relation. Non-mutual; supports structural
+    induction. -/
+inductive SubstBisimStack : Stack → Stack → Prop
+  | nil : SubstBisimStack [] []
+  | cons : ∀ {f₁ f₂ : Frame} {π₁ π₂ : Stack},
+      SubstBisimFrame f₁ f₂ → SubstBisimStack π₁ π₂ →
+      SubstBisimStack (f₁ :: π₁) (f₂ :: π₂)
+
+/-- Top-level SubstBisim relation on CEK states. Non-mutual; references the
+    previously-defined Env/Value/ValueList/Frame/Stack types.
+
+    The extra WF hypotheses `ValueListWellFormed vs₂` and `StackWellFormed π₂`
+    are consumed once in the Var=pos+vs.length case (by `halt_transport_shiftK_raw`
+    which sets up the ShiftBisim bridge). All other cases thread them through
+    mechanically. We additionally carry `ValueWellFormed v_repl` (already implied
+    by `SubstHaltsAt`) and `pos ≤ d + 1` (required for closedness preservation
+    of `substTerm`). -/
+inductive SubstBisimState : State → State → Prop
+  | compute : ∀ {π₁ π₂ : Stack} {ρ₁ ρ₂ : CekEnv} {vs₁ vs₂ : List CekValue}
+      {t : Term} {pos : Nat}
+      {replacement : Term} {v_repl : CekValue} {d : Nat},
+      1 ≤ pos → pos ≤ d + 1 →
+      closedAt d replacement = true →
+      SubstBisimEnv pos replacement v_repl (d + 1) ρ₁ ρ₂ →
+      SubstBisimValueList vs₁ vs₂ →
+      closedAt (d + 1 + vs₁.length) t = true →
+      SubstHaltsAt replacement v_repl ρ₂ d →
+      ValueListWellFormed vs₂ →
+      StackWellFormed π₂ →
+      SubstBisimStack π₁ π₂ →
+      SubstBisimState
+        (.compute π₁ (foldrExtend ρ₁ vs₁) t)
+        (.compute π₂ (foldrExtend ρ₂ vs₂)
+          (Moist.Verified.substTerm (pos + vs₁.length)
+            (iteratedShift vs₁.length replacement) t))
+  /-- Reflexive compute, generalized with vs-list. -/
+  | reflCompute : ∀ {π₁ π₂ : Stack} {ρ : CekEnv} {vs₁ vs₂ : List CekValue}
+      {t : Term} {k : Nat},
+      EnvWellFormed k ρ → k ≤ ρ.length →
+      SubstBisimValueList vs₁ vs₂ →
+      closedAt (k + vs₁.length) t = true →
+      ValueListWellFormed vs₂ →
+      StackWellFormed π₂ →
+      SubstBisimStack π₁ π₂ →
+      SubstBisimState (.compute π₁ (foldrExtend ρ vs₁) t)
+                      (.compute π₂ (foldrExtend ρ vs₂) t)
+  /-- Rename-insert compute (generalized). -/
+  | renameInsertCompute : ∀ {π₁ π₂ : Stack} {ρ : CekEnv}
+      {vs₁ vs₂ vs_insert : List CekValue} {t : Term} {k : Nat},
+      EnvWellFormed k ρ → k ≤ ρ.length →
+      SubstBisimValueList vs₁ vs₂ →
+      closedAt (k + vs₁.length) t = true →
+      ValueListWellFormed vs₂ →
+      ValueListWellFormed vs_insert →
+      StackWellFormed π₂ →
+      SubstBisimStack π₁ π₂ →
+      SubstBisimState
+        (.compute π₁ (foldrExtend ρ vs₁) t)
+        (.compute π₂ (foldrExtend (foldrExtend ρ vs_insert) vs₂)
+          (iterShiftRename vs_insert.length (vs₁.length + 1) t))
+  | ret : ∀ {π₁ π₂ : Stack} {v₁ v₂ : CekValue},
+      SubstBisimValue v₁ v₂ → SubstBisimStack π₁ π₂ →
+      StackWellFormed π₂ →
+      SubstBisimState (State.ret π₁ v₁) (State.ret π₂ v₂)
+  | halt : ∀ {v₁ v₂ : CekValue}, SubstBisimValue v₁ v₂ →
+      SubstBisimState (.halt v₁) (.halt v₂)
+  | error : SubstBisimState .error .error
+  /-- State-level bridge: compose a SubstBisim state with a ShiftBisim state.
+      Used in the Var=pos+vs.length case to bridge the LHS Var-lookup
+      halt state with the shift-transported RHS halt state. Step preservation
+      handles this case by recursing on the SubstBisim component and
+      propagating through the ShiftBisim via `shiftBisimState_steps_preserves`. -/
+  | from_shift : ∀ {s₁ s₂ s₃ : State},
+      SubstBisimState s₁ s₂ →
+      BetaValueRefines.ShiftBisimState s₂ s₃ →
+      SubstBisimState s₁ s₃
 
 --------------------------------------------------------------------------------
 -- 4. Inversion lemmas for SubstBisimValueList
@@ -849,6 +804,8 @@ theorem substBisimValueList_length_eq : ∀ {xs₁ xs₂ : List CekValue},
   | _ :: _, _, h => by
     cases h with
     | cons _ hr => simp [substBisimValueList_length_eq hr]
+
+-- `substBisimValue_wf_right` defined later, after envWellFormed_foldrExtend.
 
 --------------------------------------------------------------------------------
 -- 5. SubstBisimEnv helpers (lookup + extend)
@@ -1047,6 +1004,17 @@ theorem substBisimValueList_to_applyArg_stack : ∀ (fs₁ : List CekValue)
     | cons hv hrest =>
       exact SubstBisimStack.cons (SubstBisimFrame.applyArg hv)
               (substBisimValueList_to_applyArg_stack rest hrest hπ)
+
+/-- StackWellFormed pushes through applyArg-frames built from a WF value list. -/
+theorem stackWellFormed_applyArg_stack : ∀ (fs : List CekValue) {π : Stack},
+    ValueListWellFormed fs → StackWellFormed π →
+    StackWellFormed (fs.map Frame.applyArg ++ π)
+  | [], _, _, hπ => hπ
+  | _ :: rest, _, hfs, hπ => by
+    cases hfs with
+    | cons hv hrest =>
+      exact StackWellFormed.cons (FrameWellFormed.applyArg hv)
+              (stackWellFormed_applyArg_stack rest hrest hπ)
 
 theorem substBisim_closedAtList_get : ∀ (d : Nat) (alts : List Term)
     (n : Nat) (alt : Term),
@@ -1861,24 +1829,8 @@ theorem substBisimValueList_evalBuiltin {b : BuiltinFun}
 -- a step_preserves theorem (which would be awkward with asymmetric steps).
 --------------------------------------------------------------------------------
 
-/-- `steps_trans`: stepping `m + n` equals stepping `n` after stepping `m`. -/
-theorem steps_trans (m n : Nat) (s : State) :
-    steps (m + n) s = steps n (steps m s) := by
-  induction m generalizing s with
-  | zero => simp [steps]
-  | succ m ih => simp only [Nat.succ_add, steps]; exact ih (step s)
-
-/-- `halt v` is a fixed point of `step`. -/
-theorem steps_halt_fixed (n : Nat) (v : CekValue) :
-    steps n (.halt v) = .halt v := by
-  induction n with
-  | zero => rfl
-  | succ n ih => simp [steps, step, ih]
-
-/-- `error` is a fixed point of `step`. -/
-theorem steps_error_fixed : ∀ (n : Nat), steps n State.error = .error
-  | 0 => rfl
-  | n + 1 => by simp only [steps, step]; exact steps_error_fixed n
+-- `steps_trans`, `steps_halt_fixed`, `steps_error_fixed` are re-used from
+-- `Moist.Verified.BetaValueRefines` via `open` above.
 
 --------------------------------------------------------------------------------
 -- 11. Key direct ObsRefines lemma for SubstBisimState
@@ -2173,6 +2125,433 @@ theorem iteratedShift_lift_commute (k : Nat) (rep : Term) :
     Moist.Verified.renameTerm (Moist.Verified.shiftRename 1) (iteratedShift k rep) =
     iteratedShift (k + 1) rep := rfl
 
+--------------------------------------------------------------------------------
+-- 10b. Scaffolding for Var = pos + vs₁.length closure
+--
+-- See docs/SubstBisim-VarPos-ShiftBridge-Plan.md for the full proof strategy.
+--
+-- The Var=pos+vs₁.length case reduces to the following bridge: the RHS
+-- compute state `compute π₂ (foldrExtend ρ₂ vs₂) (iteratedShift vs₁.length r)`
+-- is semantically equivalent (up to ShiftBisimValue) to `compute π₂ ρ₂ r`,
+-- which halts to `v_repl` by hypothesis `h_halts`.
+--
+-- We build this bridge via `BetaValueRefines.ShiftBisimState`, which is a
+-- STRONG bisim (1-1 step matching) independent of SubstBisim, so there is
+-- no mutual-recursion issue.
+--
+-- Each lemma below is a focused proof obligation (see task list #5–#11).
+--------------------------------------------------------------------------------
+
+/-- Helper: `liftRename σ (m + 1) = σ m + 1` when `m ≥ 1`. -/
+private theorem liftRename_succ_pos (σ : Nat → Nat) (m : Nat) (hm : m ≥ 1) :
+    Moist.Verified.liftRename σ (m + 1) = σ m + 1 := by
+  match m, hm with
+  | j + 1, _ => rfl
+
+/-- Composition of renamings under `liftRename`. Requires `σ` to be
+    `Is0Preserving` so that `liftRename σ` preserves the image of `0` produced
+    by the inner `liftRename τ`. -/
+theorem liftRename_comp (σ τ : Nat → Nat)
+    (hσ : Moist.Verified.FundamentalRefines.Is0Preserving σ) :
+    Moist.Verified.liftRename (σ ∘ τ) =
+    Moist.Verified.liftRename σ ∘ Moist.Verified.liftRename τ := by
+  funext n
+  match n with
+  | 0 => rfl
+  | 1 => rfl
+  | k + 2 =>
+    show Moist.Verified.liftRename (σ ∘ τ) (k + 2) =
+         Moist.Verified.liftRename σ (Moist.Verified.liftRename τ (k + 2))
+    show (σ ∘ τ) (k + 1) + 1 =
+         Moist.Verified.liftRename σ (Moist.Verified.liftRename τ (k + 2))
+    show σ (τ (k + 1)) + 1 =
+         Moist.Verified.liftRename σ (Moist.Verified.liftRename τ (k + 2))
+    have h_τ : Moist.Verified.liftRename τ (k + 2) = τ (k + 1) + 1 := rfl
+    rw [h_τ]
+    by_cases h_eq : τ (k + 1) = 0
+    · rw [h_eq]
+      show σ 0 + 1 = Moist.Verified.liftRename σ (0 + 1)
+      show σ 0 + 1 = Moist.Verified.liftRename σ 1
+      rw [hσ.1]; rfl
+    · have h_ge : τ (k + 1) ≥ 1 := by omega
+      rw [liftRename_succ_pos σ (τ (k + 1)) h_ge]
+
+/-- Helper: `liftRename σ` is `Is0Preserving` whenever `σ` is. -/
+private theorem is0Preserving_liftRename {σ : Nat → Nat}
+    (_hσ : Moist.Verified.FundamentalRefines.Is0Preserving σ) :
+    Moist.Verified.FundamentalRefines.Is0Preserving (Moist.Verified.liftRename σ) := by
+  refine ⟨rfl, ?_⟩
+  intro m hm
+  match m, hm with
+  | 1, _ => exact Nat.le_refl _
+  | k + 2, _ =>
+    show (Moist.Verified.liftRename σ (k + 2)) ≥ 1
+    show σ (k + 1) + 1 ≥ 1
+    omega
+
+mutual
+/-- Composition of term renamings: renaming by τ then by σ equals renaming
+    by σ ∘ τ. Requires Is0Preserving σ for the Lam/binder case. -/
+theorem renameTerm_comp : ∀ (σ τ : Nat → Nat)
+    (_hσ : Moist.Verified.FundamentalRefines.Is0Preserving σ) (t : Term),
+    Moist.Verified.renameTerm σ (Moist.Verified.renameTerm τ t) =
+    Moist.Verified.renameTerm (σ ∘ τ) t := by
+  intro σ τ hσ t
+  cases t with
+  | Var n => rfl
+  | Lam name body =>
+    show Moist.Verified.renameTerm σ
+      (.Lam name (Moist.Verified.renameTerm (Moist.Verified.liftRename τ) body)) =
+      .Lam name (Moist.Verified.renameTerm (Moist.Verified.liftRename (σ ∘ τ)) body)
+    simp only [Moist.Verified.renameTerm]
+    rw [liftRename_comp σ τ hσ]
+    have hliftσ := is0Preserving_liftRename hσ
+    exact congrArg _ (renameTerm_comp _ _ hliftσ body)
+  | Apply f x =>
+    simp only [Moist.Verified.renameTerm]
+    rw [renameTerm_comp σ τ hσ f, renameTerm_comp σ τ hσ x]
+  | Force e =>
+    simp only [Moist.Verified.renameTerm]
+    rw [renameTerm_comp σ τ hσ e]
+  | Delay e =>
+    simp only [Moist.Verified.renameTerm]
+    rw [renameTerm_comp σ τ hσ e]
+  | Constr tag args =>
+    simp only [Moist.Verified.renameTerm]
+    exact congrArg _ (renameTermList_comp σ τ hσ args)
+  | Case scrut alts =>
+    simp only [Moist.Verified.renameTerm]
+    rw [renameTerm_comp σ τ hσ scrut, renameTermList_comp σ τ hσ alts]
+  | Constant _ => rfl
+  | Builtin _ => rfl
+  | Error => rfl
+termination_by _ _ _ t => sizeOf t
+
+theorem renameTermList_comp : ∀ (σ τ : Nat → Nat)
+    (_hσ : Moist.Verified.FundamentalRefines.Is0Preserving σ) (ts : List Term),
+    Moist.Verified.renameTermList σ (Moist.Verified.renameTermList τ ts) =
+    Moist.Verified.renameTermList (σ ∘ τ) ts := by
+  intro σ τ hσ ts
+  cases ts with
+  | nil => rfl
+  | cons t rest =>
+    simp only [Moist.Verified.renameTermList]
+    rw [renameTerm_comp σ τ hσ t, renameTermList_comp σ τ hσ rest]
+termination_by _ _ _ ts => sizeOf ts
+end
+
+/-- `shiftK k n = n + k` on positive positions, preserving 0. This is the
+    aggregate of iterating `shiftRename 1` k times. -/
+def shiftK (k : Nat) (n : Nat) : Nat :=
+  if n = 0 then 0 else n + k
+
+@[simp] theorem shiftK_zero_eq_id : shiftK 0 = id := by
+  funext n; unfold shiftK; split <;> simp_all
+
+@[simp] theorem shiftK_zero_arg (k : Nat) : shiftK k 0 = 0 := by
+  unfold shiftK; simp
+
+theorem shiftK_pos (k n : Nat) (h : n ≥ 1) : shiftK k n = n + k := by
+  unfold shiftK
+  have hne : n ≠ 0 := by omega
+  simp [hne]
+
+theorem is0Preserving_shiftK (k : Nat) :
+    Moist.Verified.FundamentalRefines.Is0Preserving (shiftK k) := by
+  refine ⟨?_, ?_⟩
+  · exact shiftK_zero_arg k
+  · intro n hn; rw [shiftK_pos k n hn]; omega
+
+/-- Key compositional identity: iterating `shiftRename 1` once on top of
+    `shiftK k` gives `shiftK (k + 1)`. -/
+theorem shiftK_succ_compose (k : Nat) :
+    (Moist.Verified.shiftRename 1) ∘ (shiftK k) = shiftK (k + 1) := by
+  funext n
+  by_cases h : n = 0
+  · subst h
+    show Moist.Verified.shiftRename 1 (shiftK k 0) = shiftK (k + 1) 0
+    rw [shiftK_zero_arg, shiftK_zero_arg]
+    show Moist.Verified.shiftRename 1 0 = 0
+    rw [Moist.Verified.shiftRename_lt (show (0:Nat) < 1 by omega)]
+  · have hn : n ≥ 1 := by omega
+    show Moist.Verified.shiftRename 1 (shiftK k n) = shiftK (k + 1) n
+    rw [shiftK_pos k n hn, shiftK_pos (k+1) n hn,
+        Moist.Verified.shiftRename_ge (show n + k ≥ 1 by omega)]
+    omega
+
+/-- Core equality: `iteratedShift k` coincides with `renameTerm (shiftK k)`.
+    Required to use `ShiftBisimState.compute` with a single renaming σ. -/
+theorem iteratedShift_eq_renameTerm_shiftK :
+    ∀ (k : Nat) (t : Term),
+    iteratedShift k t = Moist.Verified.renameTerm (shiftK k) t := by
+  intro k t
+  induction k with
+  | zero =>
+    show t = Moist.Verified.renameTerm (shiftK 0) t
+    rw [shiftK_zero_eq_id, Moist.Verified.renameTerm_id]
+  | succ j ih =>
+    show Moist.Verified.renameTerm (Moist.Verified.shiftRename 1) (iteratedShift j t) =
+         Moist.Verified.renameTerm (shiftK (j + 1)) t
+    rw [ih]
+    have hσ : Moist.Verified.FundamentalRefines.Is0Preserving
+        (Moist.Verified.shiftRename 1) :=
+      Moist.Verified.FundamentalRefines.is0preserving_shiftRename (by omega)
+    rw [renameTerm_comp (Moist.Verified.shiftRename 1) (shiftK j) hσ]
+    rw [shiftK_succ_compose]
+
+/-- `foldrExtend` extends env wellformedness by the lengths of added wf values. -/
+theorem envWellFormed_foldrExtend :
+    ∀ (d : Nat) (ρ : CekEnv) (vs : List CekValue),
+    EnvWellFormed d ρ → d ≤ ρ.length → ValueListWellFormed vs →
+    EnvWellFormed (d + vs.length) (foldrExtend ρ vs) ∧
+      (d + vs.length) ≤ (foldrExtend ρ vs).length := by
+  intro d ρ vs hρ_wf hρ_len hvs_wf
+  induction vs with
+  | nil =>
+    refine ⟨?_, ?_⟩
+    · show EnvWellFormed (d + 0) ρ
+      rw [Nat.add_zero]; exact hρ_wf
+    · show d + 0 ≤ ρ.length
+      rw [Nat.add_zero]; exact hρ_len
+  | cons v rest ih =>
+    cases hvs_wf with
+    | cons hv_wf hrest_wf =>
+    obtain ⟨h_rest_wf, h_rest_len⟩ := ih hrest_wf
+    refine ⟨?_, ?_⟩
+    · show EnvWellFormed (d + (rest.length + 1)) (foldrExtend ρ (v :: rest))
+      show EnvWellFormed (d + rest.length + 1) ((foldrExtend ρ rest).extend v)
+      exact envWellFormed_extend (d + rest.length) h_rest_wf h_rest_len hv_wf
+    · show d + (rest.length + 1) ≤ (foldrExtend ρ (v :: rest)).length
+      show d + rest.length + 1 ≤ ((foldrExtend ρ rest).extend v).length
+      show d + rest.length + 1 ≤ (foldrExtend ρ rest).length + 1
+      omega
+
+mutual
+/-- `SubstBisimValue v₁ v₂` implies `ValueWellFormed v₂`.
+    Mutually proved with `substBisimValueList_wf_right`. -/
+theorem substBisimValue_wf_right : ∀ {v₁ v₂ : CekValue},
+    SubstBisimValue v₁ v₂ → ValueWellFormed v₂
+  | _, _, .vcon c => ValueWellFormed.vcon c
+  | _, _, .vlam (body := body) (ρ₂ := ρ₂) (vs₁ := vs₁) (vs₂ := vs₂)
+      (d := d) (replacement := replacement) (pos := pos)
+      hpos hpos_le_d hrep henv hvs hclosed h_halts hvs₂_wf => by
+    obtain ⟨hρ₂_wf, hρ₂_len, hrep_cl, _, _⟩ := h_halts
+    obtain ⟨hfρ₂vs₂_wf, hfρ₂vs₂_len⟩ :=
+      envWellFormed_foldrExtend d ρ₂ vs₂ hρ₂_wf hρ₂_len hvs₂_wf
+    have hvs_len_eq : vs₁.length = vs₂.length := substBisimValueList_length_eq hvs
+    have hcl_body : closedAt (d + vs₂.length + 1)
+        (Moist.Verified.substTerm (pos + vs₁.length + 1)
+          (iteratedShift (vs₁.length + 1) replacement) body) = true := by
+      have hiter : closedAt (d + (vs₁.length + 1))
+          (iteratedShift (vs₁.length + 1) replacement) = true :=
+        closedAt_iteratedShift (vs₁.length + 1) d replacement hrep_cl
+      have hbody_at : closedAt (d + 1 + vs₁.length + 1) body = true := by
+        have : d + 2 + vs₁.length = d + 1 + vs₁.length + 1 := by omega
+        rw [← this]; exact hclosed
+      have := closedAt_substTerm (pos + vs₁.length + 1) _ body (d + 1 + vs₁.length)
+        (by omega) (by omega)
+        (by have : d + (vs₁.length + 1) = d + 1 + vs₁.length := by omega
+            rw [← this]; exact hiter)
+        hbody_at
+      have heq : d + 1 + vs₁.length = d + vs₂.length + 1 := by omega
+      rw [heq] at this; exact this
+    exact ValueWellFormed.vlam hfρ₂vs₂_wf hfρ₂vs₂_len hcl_body
+  | _, _, .vdelay (body := body) (ρ₂ := ρ₂) (vs₁ := vs₁) (vs₂ := vs₂)
+      (d := d) (replacement := replacement) (pos := pos)
+      hpos hpos_le_d hrep henv hvs hclosed h_halts hvs₂_wf => by
+    obtain ⟨hρ₂_wf, hρ₂_len, hrep_cl, _, _⟩ := h_halts
+    obtain ⟨hfρ₂vs₂_wf, hfρ₂vs₂_len⟩ :=
+      envWellFormed_foldrExtend d ρ₂ vs₂ hρ₂_wf hρ₂_len hvs₂_wf
+    have hvs_len_eq : vs₁.length = vs₂.length := substBisimValueList_length_eq hvs
+    have hcl_body : closedAt (d + vs₂.length)
+        (Moist.Verified.substTerm (pos + vs₁.length)
+          (iteratedShift vs₁.length replacement) body) = true := by
+      have hiter : closedAt (d + vs₁.length)
+          (iteratedShift vs₁.length replacement) = true :=
+        closedAt_iteratedShift vs₁.length d replacement hrep_cl
+      have hcl_at : closedAt (d + vs₁.length + 1) body = true := by
+        have : d + 1 + vs₁.length = d + vs₁.length + 1 := by omega
+        rw [← this]; exact hclosed
+      have this' := closedAt_substTerm (pos + vs₁.length) _ body (d + vs₁.length)
+        (by omega) (by omega) hiter hcl_at
+      have heq : d + vs₁.length = d + vs₂.length := by omega
+      rw [heq] at this'; exact this'
+    exact ValueWellFormed.vdelay hfρ₂vs₂_wf hfρ₂vs₂_len hcl_body
+  | _, _, .vconstr tag hfs =>
+    ValueWellFormed.vconstr tag (substBisimValueList_wf_right hfs)
+  | _, _, .vbuiltin b ea hargs =>
+    ValueWellFormed.vbuiltin b ea (substBisimValueList_wf_right hargs)
+  | _, _, .refl hv_wf => hv_wf
+  | _, _, .vlam_refl_list (body := body) (ρ := ρ) (vs₁ := vs₁) (vs₂ := vs₂) (k := k)
+      hρ_wf hρ_len hvs hbody_closed hvs₂_wf => by
+    obtain ⟨hfρvs₂_wf, hfρvs₂_len⟩ :=
+      envWellFormed_foldrExtend k ρ vs₂ hρ_wf hρ_len hvs₂_wf
+    have hvs_len_eq : vs₁.length = vs₂.length := substBisimValueList_length_eq hvs
+    have hcl_body : closedAt (k + vs₂.length + 1) body = true := by
+      rw [← hvs_len_eq]; exact hbody_closed
+    exact ValueWellFormed.vlam hfρvs₂_wf hfρvs₂_len hcl_body
+  | _, _, .vdelay_refl_list (body := body) (ρ := ρ) (vs₁ := vs₁) (vs₂ := vs₂) (k := k)
+      hρ_wf hρ_len hvs hbody_closed hvs₂_wf => by
+    obtain ⟨hfρvs₂_wf, hfρvs₂_len⟩ :=
+      envWellFormed_foldrExtend k ρ vs₂ hρ_wf hρ_len hvs₂_wf
+    have hvs_len_eq : vs₁.length = vs₂.length := substBisimValueList_length_eq hvs
+    have hcl_body : closedAt (k + vs₂.length) body = true := by
+      rw [← hvs_len_eq]; exact hbody_closed
+    exact ValueWellFormed.vdelay hfρvs₂_wf hfρvs₂_len hcl_body
+  | _, _, .vlam_rename_list (body := body) (ρ := ρ) (vs₁ := vs₁) (vs₂ := vs₂)
+      (vs_insert := vs_insert) (k := k)
+      hρ_wf hρ_len hvs hbody_closed hvs₂_wf hvs_insert_wf => by
+    obtain ⟨hfρvs_ins_wf, hfρvs_ins_len⟩ :=
+      envWellFormed_foldrExtend k ρ vs_insert hρ_wf hρ_len hvs_insert_wf
+    obtain ⟨hfρvs₂_wf, hfρvs₂_len⟩ :=
+      envWellFormed_foldrExtend (k + vs_insert.length)
+        (foldrExtend ρ vs_insert) vs₂ hfρvs_ins_wf hfρvs_ins_len hvs₂_wf
+    have hvs_len_eq : vs₁.length = vs₂.length := substBisimValueList_length_eq hvs
+    have hcl_body : closedAt (k + vs_insert.length + vs₂.length + 1)
+        (iterShiftRename vs_insert.length (vs₁.length + 2) body) = true := by
+      have := closedAt_iterShiftRename vs_insert.length (vs₁.length + 2)
+        (k + vs₁.length + 1) body (by omega) (by omega) hbody_closed
+      have heq : k + vs₁.length + 1 + vs_insert.length =
+                 k + vs_insert.length + vs₂.length + 1 := by rw [hvs_len_eq]; omega
+      rw [heq] at this; exact this
+    exact ValueWellFormed.vlam hfρvs₂_wf hfρvs₂_len hcl_body
+  | _, _, .vdelay_rename_list (body := body) (ρ := ρ) (vs₁ := vs₁) (vs₂ := vs₂)
+      (vs_insert := vs_insert) (k := k)
+      hρ_wf hρ_len hvs hbody_closed hvs₂_wf hvs_insert_wf => by
+    obtain ⟨hfρvs_ins_wf, hfρvs_ins_len⟩ :=
+      envWellFormed_foldrExtend k ρ vs_insert hρ_wf hρ_len hvs_insert_wf
+    obtain ⟨hfρvs₂_wf, hfρvs₂_len⟩ :=
+      envWellFormed_foldrExtend (k + vs_insert.length)
+        (foldrExtend ρ vs_insert) vs₂ hfρvs_ins_wf hfρvs_ins_len hvs₂_wf
+    have hvs_len_eq : vs₁.length = vs₂.length := substBisimValueList_length_eq hvs
+    have hcl_body : closedAt (k + vs_insert.length + vs₂.length)
+        (iterShiftRename vs_insert.length (vs₁.length + 1) body) = true := by
+      have := closedAt_iterShiftRename vs_insert.length (vs₁.length + 1)
+        (k + vs₁.length) body (by omega) (by omega) hbody_closed
+      have heq : k + vs₁.length + vs_insert.length =
+                 k + vs_insert.length + vs₂.length := by rw [hvs_len_eq]; omega
+      rw [heq] at this; exact this
+    exact ValueWellFormed.vdelay hfρvs₂_wf hfρvs₂_len hcl_body
+
+theorem substBisimValueList_wf_right : ∀ {xs₁ xs₂ : List CekValue},
+    SubstBisimValueList xs₁ xs₂ → ValueListWellFormed xs₂
+  | _, _, .nil => ValueListWellFormed.nil
+  | _, _, .cons hv hr =>
+    ValueListWellFormed.cons (substBisimValue_wf_right hv)
+      (substBisimValueList_wf_right hr)
+end
+
+/-- `foldrExtend` produces a `ShiftBisimEnv` at shiftK: positions in ρ map
+    to positions shifted up by `vs.length` in `foldrExtend ρ vs`. -/
+theorem shiftBisimEnv_foldrExtend :
+    ∀ (d : Nat) (ρ : CekEnv) (vs : List CekValue),
+    EnvWellFormed d ρ → ValueListWellFormed vs →
+    BetaValueRefines.ShiftBisimEnv (shiftK vs.length) d ρ (foldrExtend ρ vs) := by
+  intro d
+  induction d with
+  | zero =>
+    intros; exact BetaValueRefines.ShiftBisimEnv.zero
+  | succ k ih =>
+    intro ρ vs hρ_wf hvs_wf
+    cases hρ_wf with
+    | @succ _ _ v hrest hlen hlookup hvwf =>
+      have h_rec := ih ρ vs hrest hvs_wf
+      have h_shiftK : shiftK vs.length (k + 1) = (k + 1) + vs.length :=
+        shiftK_pos _ (k + 1) (by omega)
+      have h_lookup₂ : (foldrExtend ρ vs).lookup (shiftK vs.length (k + 1)) = some v := by
+        rw [h_shiftK]
+        have h_gt : (k + 1) + vs.length > vs.length := by omega
+        rw [foldrExtend_lookup_above ρ vs _ h_gt]
+        have h_sub : (k + 1) + vs.length - vs.length = k + 1 := by omega
+        rw [h_sub]; exact hlookup
+      exact BetaValueRefines.ShiftBisimEnv.succ h_rec hlookup h_lookup₂
+        (BetaValueRefines.shiftBisimValue_refl_id v hvwf)
+
+-- `shiftBisim_preserves_wf_rhs` removed. The closure (VLam/VDelay) cases
+-- fundamentally require CEK type preservation, which is out of scope here.
+-- Instead, `halt_transport_shiftK` takes an explicit `halt_result_wf`
+-- hypothesis that the RHS halt value is wellformed. Callers supply this
+-- either via direct type preservation or as an axiom documented at the site.
+
+-- Note: literal stack equality `π' = π` does NOT follow from `ShiftBisimStack π π'`
+-- in general. Instead, `halt_transport_shiftK` (below) returns the RHS stack
+-- existentially with a `ShiftBisimStack π π'` witness; the caller handles the
+-- stack composition via `substBisimStack_compose_shift` (below).
+
+-- `substBisimStack_compose_shift` removed: the stack-level `from_shift`
+-- constructor is gone. State-level composition is handled by
+-- `SubstBisimState.from_shift` (see below).
+
+/-- Helper: a ShiftBisimStack ending in `[]` forces the LHS stack to be `[]`. -/
+private theorem shiftBisimStack_nil_right_inv : ∀ {π : Stack},
+    BetaValueRefines.ShiftBisimStack π [] → π = []
+  | _, .nil => rfl
+
+/-- Helper: a ShiftBisimStack starting from `[]` forces the RHS stack to be `[]`. -/
+private theorem shiftBisimStack_nil_left_inv : ∀ {π : Stack},
+    BetaValueRefines.ShiftBisimStack [] π → π = []
+  | _, .nil => rfl
+
+/-- Helper: a SubstBisimStack ending in `[]` forces the LHS stack to be `[]`.
+    Provable now because SubstBisimStack is no longer mutual. -/
+theorem substBisimStack_nil_right : ∀ {π π' : Stack},
+    SubstBisimStack π π' → π' = [] → π = [] := by
+  intro π π' h
+  induction h with
+  | nil => intro _; rfl
+  | cons _ _ _ => intro heq; exact List.noConfusion heq
+
+/-- **The shift-transport bridge** (raw, no WF on RHS halt value).
+
+    Given a halt chain `steps m₀ (.compute π ρ r) = .ret π v_repl` and a
+    well-formed extension list `vs`, the shifted computation
+    `compute π (foldrExtend ρ vs) (iteratedShift vs.length r)` halts after
+    the SAME `m₀` steps to some `ret π' v'` with:
+    - `ShiftBisimStack π π'` (NOT necessarily literal equality — frames added
+      during evaluation may carry the bisim's σ renaming),
+    - `ShiftBisimValue v_repl v'`.
+
+    Unlike the previous version, this variant does NOT require a CEK-type-
+    preservation hypothesis on the shifted halt value. The caller uses the
+    state-level `SubstBisimState.from_shift` to compose with any outer
+    `SubstBisimStack` without needing `ValueWellFormed v'`. -/
+theorem halt_transport_shiftK_raw
+    {r : Term} {v_repl : CekValue} {ρ : CekEnv} {π : Stack} {d : Nat}
+    (hρ_wf : EnvWellFormed d ρ) (_hρ_len : d ≤ ρ.length)
+    (hr_closed : closedAt d r = true)
+    (hπ_wf : StackWellFormed π)
+    {m₀ : Nat} (hhalt : steps m₀ (.compute π ρ r) = .ret π v_repl)
+    {vs : List CekValue} (hvs_wf : ValueListWellFormed vs) :
+    ∃ π' v',
+      steps m₀ (.compute π (foldrExtend ρ vs) (iteratedShift vs.length r))
+        = .ret π' v' ∧
+      BetaValueRefines.ShiftBisimStack π π' ∧
+      BetaValueRefines.ShiftBisimValue v_repl v' := by
+  -- Set up the ShiftBisim at σ = shiftK vs.length.
+  have hσ : Moist.Verified.FundamentalRefines.Is0Preserving (shiftK vs.length) :=
+    is0Preserving_shiftK _
+  have henv : BetaValueRefines.ShiftBisimEnv (shiftK vs.length) d ρ (foldrExtend ρ vs) :=
+    shiftBisimEnv_foldrExtend d ρ vs hρ_wf hvs_wf
+  have hst : BetaValueRefines.ShiftBisimStack π π :=
+    BetaValueRefines.shiftBisimStack_refl_id π hπ_wf
+  -- Initial bisim state, with RHS using `renameTerm (shiftK vs.length)`.
+  have h_state₀ : BetaValueRefines.ShiftBisimState (.compute π ρ r)
+                 (.compute π (foldrExtend ρ vs)
+                   (Moist.Verified.renameTerm (shiftK vs.length) r)) :=
+    BetaValueRefines.ShiftBisimState.compute hσ henv hr_closed hst
+  -- Propagate through m₀ steps.
+  have h_state_m :=
+    BetaValueRefines.shiftBisimState_steps_preserves m₀ h_state₀
+  rw [hhalt] at h_state_m
+  -- Replace `renameTerm (shiftK vs.length) r` by `iteratedShift vs.length r`.
+  rw [show Moist.Verified.renameTerm (shiftK vs.length) r =
+        iteratedShift vs.length r from
+        (iteratedShift_eq_renameTerm_shiftK vs.length r).symm] at h_state_m
+  -- Invert the ret: produces π', v', ShiftBisimValue, ShiftBisimStack.
+  obtain ⟨π', v', hret_eq, hvrel, hstack⟩ :=
+    BetaValueRefines.shiftBisimState_ret_inv h_state_m
+  exact ⟨π', v', hret_eq, hstack, hvrel⟩
+
 /-- Weak step preservation: one step of LHS corresponds to ≥ 0 steps of RHS,
     maintaining the bisim. For most cases (non-Var/non-Var=pos), m = 1 (strong
     bisim). For Var=pos, m is the step count to evaluate `replacement` to its
@@ -2181,16 +2560,59 @@ theorem substBisimState_step_preserves_weak :
     ∀ {s₁ s₂ : State}, SubstBisimState s₁ s₂ →
     ∃ m, SubstBisimState (step s₁) (steps m s₂) := by
   intro s₁ s₂ h
-  cases h with
+  induction h with
   | halt h_v =>
     refine ⟨0, ?_⟩
     exact SubstBisimState.halt h_v
   | error =>
     refine ⟨0, ?_⟩
     exact SubstBisimState.error
+  | @from_shift s₁' s₂' s₃' h_sub h_shift ih =>
+    -- Recurse on the SubstBisim component; then propagate the ShiftBisim
+    -- forward by `m` steps via `shiftBisimState_steps_preserves`.
+    obtain ⟨m, h_new⟩ := ih
+    have h_shift_m : BetaValueRefines.ShiftBisimState (steps m s₂') (steps m s₃') :=
+      BetaValueRefines.shiftBisimState_steps_preserves m h_shift
+    exact ⟨m, SubstBisimState.from_shift h_new h_shift_m⟩
   | @compute π₁ π₂ ρ₁ ρ₂ vs₁ vs₂ t pos replacement v_repl d
-      hpos_le hrep_closed henv hvs hclosed h_halts hπ =>
+      hpos_le hpos_le_d hrep_closed henv hvs hclosed h_halts hvs₂_wf hπ₂_wf hπ =>
     have hvs_len_eq : vs₁.length = vs₂.length := substBisimValueList_length_eq hvs
+    -- Pre-derive env WF on the extended foldrExtend for frame-WF reconstruction.
+    have hρ₂_wf : EnvWellFormed d ρ₂ := h_halts.1
+    have hρ₂_len : d ≤ ρ₂.length := h_halts.2.1
+    have hrep_cl : closedAt d replacement = true := h_halts.2.2.1
+    obtain ⟨hfρ₂vs₂_wf, hfρ₂vs₂_len⟩ :=
+      envWellFormed_foldrExtend d ρ₂ vs₂ hρ₂_wf hρ₂_len hvs₂_wf
+    -- Closedness helper: substituted subterms of t (closed at d+1+vs₁.length) are
+    -- closed at d + vs₂.length (= d + vs₁.length) — the depth of foldrExtend ρ₂ vs₂.
+    have hsubst_closed :
+        ∀ (t' : Term), closedAt (d + 1 + vs₁.length) t' = true →
+          closedAt (d + vs₂.length)
+            (Moist.Verified.substTerm (pos + vs₁.length)
+              (iteratedShift vs₁.length replacement) t') = true := by
+      intro t' ht'
+      have hiter := closedAt_iteratedShift vs₁.length d replacement hrep_cl
+      have ht_at : closedAt (d + vs₁.length + 1) t' = true := by
+        have : d + 1 + vs₁.length = d + vs₁.length + 1 := by omega
+        rw [← this]; exact ht'
+      have := closedAt_substTerm (pos + vs₁.length) _ t' (d + vs₁.length)
+        (by omega) (by omega) hiter ht_at
+      have heq : d + vs₁.length = d + vs₂.length := by rw [hvs_len_eq]
+      rw [heq] at this; exact this
+    have hsubst_closedList :
+        ∀ (ts : List Term), closedAtList (d + 1 + vs₁.length) ts = true →
+          closedAtList (d + vs₂.length)
+            (Moist.Verified.substTermList (pos + vs₁.length)
+              (iteratedShift vs₁.length replacement) ts) = true := by
+      intro ts hts
+      have hiter := closedAt_iteratedShift vs₁.length d replacement hrep_cl
+      have hts_at : closedAtList (d + vs₁.length + 1) ts = true := by
+        have : d + 1 + vs₁.length = d + vs₁.length + 1 := by omega
+        rw [← this]; exact hts
+      have := closedAtList_substTermList (pos + vs₁.length) _ ts (d + vs₁.length)
+        (by omega) (by omega) hiter hts_at
+      have heq : d + vs₁.length = d + vs₂.length := by rw [hvs_len_eq]
+      rw [heq] at this; exact this
     cases t with
     | Var n =>
       by_cases hn_zero : n = 0
@@ -2253,37 +2675,72 @@ theorem substBisimState_step_preserves_weak :
                   | some v => State.ret π₂ v | none => State.error) = _
             rw [hl₂]
           rw [h_lhs, h_rhs]
-          exact SubstBisimState.ret hv_rel hπ
+          exact SubstBisimState.ret hv_rel hπ hπ₂_wf
         · -- n > vs₁.length: lookup goes into ρ. Compare with pos.
           have hn_gt_vs : n > vs₁.length := Nat.not_le.mp hn_in_vs
           have hn_sub_pos : 1 ≤ n - vs₁.length := by omega
           have hn_sub_le : n - vs₁.length ≤ d + 1 := by omega
           by_cases hn_eq_pos : n - vs₁.length = pos
-          · -- Var=pos+vs.length case. LHS lookup at pos+vs₁.length in
-            -- `foldrExtend ρ₁ vs₁` reduces to `ρ₁.lookup pos = some v_repl`
-            -- (via `SubstBisimEnv_at`). RHS substTerm reduces to
-            -- `iteratedShift vs₁.length replacement` in `foldrExtend ρ₂ vs₂`.
+          · -- Var=pos+vs.length case. Closed via the ShiftBisim bridge
+            -- `halt_transport_shiftK`. See docs/SubstBisim-VarPos-ShiftBridge-Plan.md.
             --
-            -- To close: construct a `renameInsertCompute` bisim state relating
-            -- `(compute π₁ ρ₂ replacement)` with the shifted RHS, then apply
-            -- iterated step preservation (m₀ times from h_halts) to transport
-            -- the LHS halt witness to the RHS.
-            --
-            -- Blocker: `substBisimState_steps_preserves_weak` is defined
-            -- AFTER this theorem, and mutual recursion here requires an
-            -- explicit well-founded termination measure that Lean cannot
-            -- automatically derive (the recursion bound is the halt step
-            -- count `m₀` extracted from `h_halts`, but `m₀` is not a
-            -- structurally-decreasing argument).
-            --
-            -- Closing options:
-            --   (A) Dedicated `renameInsertCompute_steps_halt_preserves`
-            --       lemma proven by induction on the halt chain structure
-            --       (independent of `step_preserves_weak`). ~500 lines.
-            --   (B) Manual well-founded recursion via `termination_by` with
-            --       a custom measure on `(n, halt_count_in_h)`. Requires
-            --       non-trivial well-founded-ness proof.
-            sorry
+            -- (A) LHS reduces to `.ret π₁ v_repl` using
+            --     `foldrExtend_lookup_above` + `substBisimEnv_lookup_at`.
+            -- (B) RHS substTerm on the `n = pos + vs₁.length` branch reduces to
+            --     `iteratedShift vs₁.length replacement`.
+            -- (C) Instantiate `h_halts` at π₂ to obtain m₀.
+            -- (D) Apply `halt_transport_shiftK` to shift the halt through
+            --     `foldrExtend ρ₂ vs₂` + `iteratedShift`.
+            -- (E) Use `SubstBisimValue.from_shift` to bridge back into
+            --     `SubstBisimValue v_repl v'`.
+            have hpos_le_d : pos ≤ d + 1 := by omega
+            -- (A) LHS: `ρ₁.lookup pos = some v_repl`, lifted through foldrExtend.
+            have hl_ρ₁ : ρ₁.lookup pos = some v_repl :=
+              substBisimEnv_lookup_at pos replacement v_repl (d + 1) hpos_le hpos_le_d henv
+            have hl_foldr : (foldrExtend ρ₁ vs₁).lookup n = some v_repl := by
+              rw [foldrExtend_lookup_above _ _ _ hn_gt_vs]
+              have hn_sub : n - vs₁.length = pos := hn_eq_pos
+              rw [hn_sub]; exact hl_ρ₁
+            have h_lhs : step (.compute π₁ (foldrExtend ρ₁ vs₁) (.Var n)) =
+                State.ret π₁ v_repl := by
+              show (match (foldrExtend ρ₁ vs₁).lookup n with
+                    | some v' => State.ret π₁ v' | none => State.error) = _
+              rw [hl_foldr]
+            -- (B) RHS substTerm fires on the match branch.
+            have h_n_eq : n = pos + vs₁.length := by omega
+            have h_subst_at : Moist.Verified.substTerm (pos + vs₁.length)
+                (iteratedShift vs₁.length replacement) (.Var n) =
+                iteratedShift vs₁.length replacement := by
+              simp only [Moist.Verified.substTerm]
+              subst h_n_eq; simp
+            -- (C) Extract SubstHaltsAt data and instantiate at π₂.
+            obtain ⟨hρ₂_wf, hρ₂_len, hrep_cl_d, hv_repl_wf, h_halt_fn⟩ := h_halts
+            obtain ⟨m₀, hmhalt, _hmnoerr⟩ := h_halt_fn π₂
+            -- (D) Build the ShiftBisim between the raw LHS halt and the shifted
+            -- RHS halt, using the hvs₂_wf and hπ₂_wf threaded through the
+            -- compute constructor.
+            -- Use `halt_transport_shiftK_raw` (no `halt_result_wf` needed —
+            -- we compose at the state level via `SubstBisimState.from_shift`,
+            -- which does not require ValueWellFormed on the RHS halt value).
+            obtain ⟨π_rhs, v', hv'_halt, hstack, hv'_sbval⟩ :=
+              halt_transport_shiftK_raw hρ₂_wf hρ₂_len hrep_cl_d hπ₂_wf
+                hmhalt hvs₂_wf
+            -- hv'_halt is in terms of vs₂.length; rewrite to vs₁.length so it
+            -- matches the goal's `substTerm …` reduction via h_subst_at.
+            rw [← hvs_len_eq] at hv'_halt
+            -- (E) Close the existential with `m = m₀` steps on the RHS.
+            -- Assemble via state-level from_shift:
+            --   SubstBisimState (ret π₁ v_repl) (ret π₂ v_repl)   (via refl)
+            -- + ShiftBisimState  (ret π₂ v_repl) (ret π_rhs v')   (from transport)
+            -- → SubstBisimState (ret π₁ v_repl) (ret π_rhs v')
+            have h_sub_ret : SubstBisimState (.ret π₁ v_repl) (.ret π₂ v_repl) :=
+              SubstBisimState.ret (SubstBisimValue.refl hv_repl_wf) hπ hπ₂_wf
+            have h_shift_ret : BetaValueRefines.ShiftBisimState
+                (.ret π₂ v_repl) (.ret π_rhs v') :=
+              BetaValueRefines.ShiftBisimState.ret hv'_sbval hstack
+            refine ⟨m₀, ?_⟩
+            rw [h_lhs, h_subst_at, hv'_halt]
+            exact SubstBisimState.from_shift h_sub_ret h_shift_ret
           · by_cases hn_lt_pos : n - vs₁.length < pos
             · -- n - vs₁.length < pos: use SubstBisimEnv_below.
               obtain ⟨w₁, w₂, hl₁_base, hl₂_base, hv_rel⟩ :=
@@ -2316,7 +2773,7 @@ theorem substBisimState_step_preserves_weak :
                       | some v' => State.ret π₂ v' | none => State.error) = _
                 rw [hl₂]
               rw [h_lhs, h_rhs]
-              exact SubstBisimState.ret hv_rel hπ
+              exact SubstBisimState.ret hv_rel hπ hπ₂_wf
             · -- n - vs₁.length > pos: use SubstBisimEnv_above.
               have hn_gt_pos : n - vs₁.length > pos := by omega
               obtain ⟨w₁, w₂, hl₁_base, hl₂_base, hv_rel⟩ :=
@@ -2350,7 +2807,7 @@ theorem substBisimState_step_preserves_weak :
                       | some v' => State.ret π₂ v' | none => State.error) = _
                 rw [hl₂]
               rw [h_lhs, h_rhs]
-              exact SubstBisimState.ret hv_rel hπ
+              exact SubstBisimState.ret hv_rel hπ hπ₂_wf
     | Constant ct =>
       refine ⟨1, ?_⟩
       obtain ⟨c, bt⟩ := ct
@@ -2364,7 +2821,7 @@ theorem substBisimState_step_preserves_weak :
             (iteratedShift vs₁.length replacement) (.Constant (c, bt)))) = .ret π₂ (.VCon c) := by
         rw [h_subst]; simp only [steps]; rfl
       rw [h_lhs, h_rhs]
-      exact SubstBisimState.ret (SubstBisimValue.vcon c) hπ
+      exact SubstBisimState.ret (SubstBisimValue.vcon c) hπ hπ₂_wf
     | Builtin b =>
       refine ⟨1, ?_⟩
       have h_subst : Moist.Verified.substTerm (pos + vs₁.length)
@@ -2379,7 +2836,7 @@ theorem substBisimState_step_preserves_weak :
         rw [h_subst]; simp only [steps]; rfl
       rw [h_lhs, h_rhs]
       exact SubstBisimState.ret
-        (SubstBisimValue.vbuiltin b (expectedArgs b) SubstBisimValueList.nil) hπ
+        (SubstBisimValue.vbuiltin b (expectedArgs b) SubstBisimValueList.nil) hπ hπ₂_wf
     | Error =>
       refine ⟨1, ?_⟩
       have h_subst : Moist.Verified.substTerm (pos + vs₁.length)
@@ -2418,7 +2875,8 @@ theorem substBisimState_step_preserves_weak :
         rw [h_subst, h_iter_eq]; simp only [steps]; rfl
       rw [h_lhs, h_rhs]
       exact SubstBisimState.ret
-        (SubstBisimValue.vlam hpos_le hrep_closed henv hvs hbody_closed h_halts) hπ
+        (SubstBisimValue.vlam hpos_le hpos_le_d hrep_closed henv hvs hbody_closed
+          h_halts hvs₂_wf) hπ hπ₂_wf
     | Delay body =>
       refine ⟨1, ?_⟩
       have hbody_closed : closedAt (d + 1 + vs₁.length) body = true := by
@@ -2439,7 +2897,8 @@ theorem substBisimState_step_preserves_weak :
         rw [h_subst]; simp only [steps]; rfl
       rw [h_lhs, h_rhs]
       exact SubstBisimState.ret
-        (SubstBisimValue.vdelay hpos_le hrep_closed henv hvs hbody_closed h_halts) hπ
+        (SubstBisimValue.vdelay hpos_le hpos_le_d hrep_closed henv hvs hbody_closed
+          h_halts hvs₂_wf) hπ hπ₂_wf
     | Force e =>
       refine ⟨1, ?_⟩
       have he_closed : closedAt (d + 1 + vs₁.length) e = true := by
@@ -2459,7 +2918,9 @@ theorem substBisimState_step_preserves_weak :
               (iteratedShift vs₁.length replacement) e) := by
         rw [h_subst]; simp only [steps]; rfl
       rw [h_lhs, h_rhs]
-      exact SubstBisimState.compute hpos_le hrep_closed henv hvs he_closed h_halts
+      exact SubstBisimState.compute hpos_le hpos_le_d hrep_closed henv hvs he_closed
+        h_halts hvs₂_wf
+        (StackWellFormed.cons FrameWellFormed.force hπ₂_wf)
         (SubstBisimStack.cons SubstBisimFrame.force hπ)
     | Apply f x =>
       refine ⟨1, ?_⟩
@@ -2486,9 +2947,16 @@ theorem substBisimState_step_preserves_weak :
               (iteratedShift vs₁.length replacement) f) := by
         rw [h_subst]; simp only [steps]; rfl
       rw [h_lhs, h_rhs]
-      exact SubstBisimState.compute hpos_le hrep_closed henv hvs h_fx.1 h_halts
+      have hframe_arg_wf : FrameWellFormed (.arg
+          (Moist.Verified.substTerm (pos + vs₁.length)
+            (iteratedShift vs₁.length replacement) x) (foldrExtend ρ₂ vs₂)) :=
+        FrameWellFormed.arg hfρ₂vs₂_wf hfρ₂vs₂_len (hsubst_closed x h_fx.2)
+      exact SubstBisimState.compute hpos_le hpos_le_d hrep_closed henv hvs h_fx.1
+        h_halts hvs₂_wf
+        (StackWellFormed.cons hframe_arg_wf hπ₂_wf)
         (SubstBisimStack.cons
-          (SubstBisimFrame.arg hpos_le hrep_closed henv hvs h_fx.2 h_halts) hπ)
+          (SubstBisimFrame.arg hpos_le hpos_le_d hrep_closed henv hvs h_fx.2 h_halts
+            hvs₂_wf) hπ)
     | Constr tag args =>
       cases args with
       | nil =>
@@ -2505,7 +2973,7 @@ theorem substBisimState_step_preserves_weak :
           rw [h_subst]; simp only [steps]; rfl
         rw [h_lhs, h_rhs]
         exact SubstBisimState.ret
-          (SubstBisimValue.vconstr tag SubstBisimValueList.nil) hπ
+          (SubstBisimValue.vconstr tag SubstBisimValueList.nil) hπ hπ₂_wf
       | cons m ms =>
         refine ⟨1, ?_⟩
         have h_mms : closedAt (d + 1 + vs₁.length) m = true ∧
@@ -2533,10 +3001,18 @@ theorem substBisimState_step_preserves_weak :
                 (iteratedShift vs₁.length replacement) m) := by
           rw [h_subst]; simp only [steps]; rfl
         rw [h_lhs, h_rhs]
-        exact SubstBisimState.compute hpos_le hrep_closed henv hvs h_mms.1 h_halts
+        have hframe_cf_wf : FrameWellFormed (.constrField tag []
+            (Moist.Verified.substTermList (pos + vs₁.length)
+              (iteratedShift vs₁.length replacement) ms) (foldrExtend ρ₂ vs₂)) :=
+          FrameWellFormed.constrField tag ValueListWellFormed.nil
+            hfρ₂vs₂_wf hfρ₂vs₂_len (hsubst_closedList ms h_mms.2)
+        exact SubstBisimState.compute hpos_le hpos_le_d hrep_closed henv hvs h_mms.1
+          h_halts hvs₂_wf
+          (StackWellFormed.cons hframe_cf_wf hπ₂_wf)
           (SubstBisimStack.cons
-            (SubstBisimFrame.constrField tag hpos_le hrep_closed
-              SubstBisimValueList.nil henv hvs h_mms.2 h_halts) hπ)
+            (SubstBisimFrame.constrField tag hpos_le hpos_le_d hrep_closed
+              SubstBisimValueList.nil henv hvs h_mms.2 h_halts hvs₂_wf
+              ValueListWellFormed.nil) hπ)
     | Case scrut alts =>
       refine ⟨1, ?_⟩
       have h_sa : closedAt (d + 1 + vs₁.length) scrut = true ∧
@@ -2564,12 +3040,24 @@ theorem substBisimState_step_preserves_weak :
               (iteratedShift vs₁.length replacement) scrut) := by
         rw [h_subst]; simp only [steps]; rfl
       rw [h_lhs, h_rhs]
-      exact SubstBisimState.compute hpos_le hrep_closed henv hvs h_sa.1 h_halts
+      have hframe_cs_wf : FrameWellFormed (.caseScrutinee
+          (Moist.Verified.substTermList (pos + vs₁.length)
+            (iteratedShift vs₁.length replacement) alts) (foldrExtend ρ₂ vs₂)) :=
+        FrameWellFormed.caseScrutinee hfρ₂vs₂_wf hfρ₂vs₂_len
+          (hsubst_closedList alts h_sa.2)
+      exact SubstBisimState.compute hpos_le hpos_le_d hrep_closed henv hvs h_sa.1
+        h_halts hvs₂_wf
+        (StackWellFormed.cons hframe_cs_wf hπ₂_wf)
         (SubstBisimStack.cons
-          (SubstBisimFrame.caseScrutinee hpos_le hrep_closed henv hvs h_sa.2 h_halts) hπ)
-  | @reflCompute π₁ π₂ ρ vs₁ vs₂ t k hρ_wf hρ_len hvs hclosed hπ =>
+          (SubstBisimFrame.caseScrutinee hpos_le hpos_le_d hrep_closed henv hvs h_sa.2
+            h_halts hvs₂_wf) hπ)
+  | @reflCompute π₁ π₂ ρ vs₁ vs₂ t k hρ_wf hρ_len hvs hclosed hvs₂_wf hπ₂_wf hπ =>
     refine ⟨1, ?_⟩
     simp only [steps]
+    -- Pre-derive env WF on foldrExtend ρ vs₂ and length equality.
+    have hvs_len_eq : vs₁.length = vs₂.length := substBisimValueList_length_eq hvs
+    obtain ⟨hfρvs₂_wf, hfρvs₂_len⟩ :=
+      envWellFormed_foldrExtend k ρ vs₂ hρ_wf hρ_len hvs₂_wf
     cases t with
     | Var n =>
       -- Dispatch: n ∈ [1..vs.length] (use vs lookup), n > vs.length (use ρ lookup)
@@ -2609,7 +3097,7 @@ theorem substBisimState_step_preserves_weak :
                   | some v => State.ret π₂ v | none => State.error) = _
             rw [hl₂]
           rw [h_lhs, h_rhs]
-          exact SubstBisimState.ret hv_rel hπ
+          exact SubstBisimState.ret hv_rel hπ hπ₂_wf
         · -- n > vs₁.length: lookup goes into ρ, same value on both sides (refl)
           have hn_gt : n > vs₁.length := Nat.not_le.mp hn_in_vs
           have hn_sub_pos : 1 ≤ n - vs₁.length := by omega
@@ -2645,19 +3133,19 @@ theorem substBisimState_step_preserves_weak :
                   | some v' => State.ret π₂ v' | none => State.error) = _
             rw [hl₂]
           rw [h_lhs, h_rhs]
-          exact SubstBisimState.ret (SubstBisimValue.refl hvw) hπ
+          exact SubstBisimState.ret (SubstBisimValue.refl hvw) hπ hπ₂_wf
     | Constant ct =>
       obtain ⟨c, bt⟩ := ct
       have h_lhs : step (.compute π₁ (foldrExtend ρ vs₁) (.Constant (c, bt))) = .ret π₁ (.VCon c) := rfl
       have h_rhs : step (.compute π₂ (foldrExtend ρ vs₂) (.Constant (c, bt))) = .ret π₂ (.VCon c) := rfl
       rw [h_lhs, h_rhs]
-      exact SubstBisimState.ret (SubstBisimValue.refl (ValueWellFormed.vcon c)) hπ
+      exact SubstBisimState.ret (SubstBisimValue.refl (ValueWellFormed.vcon c)) hπ hπ₂_wf
     | Builtin b =>
       have h_lhs : step (.compute π₁ (foldrExtend ρ vs₁) (.Builtin b)) = .ret π₁ (.VBuiltin b [] (expectedArgs b)) := rfl
       have h_rhs : step (.compute π₂ (foldrExtend ρ vs₂) (.Builtin b)) = .ret π₂ (.VBuiltin b [] (expectedArgs b)) := rfl
       rw [h_lhs, h_rhs]
       exact SubstBisimState.ret
-        (SubstBisimValue.refl (ValueWellFormed.vbuiltin b (expectedArgs b) ValueListWellFormed.nil)) hπ
+        (SubstBisimValue.refl (ValueWellFormed.vbuiltin b (expectedArgs b) ValueListWellFormed.nil)) hπ hπ₂_wf
     | Error =>
       have h_lhs : step (.compute π₁ (foldrExtend ρ vs₁) .Error) = .error := rfl
       have h_rhs : step (.compute π₂ (foldrExtend ρ vs₂) .Error) = .error := rfl
@@ -2672,7 +3160,7 @@ theorem substBisimState_step_preserves_weak :
           .ret π₂ (.VLam body (foldrExtend ρ vs₂)) := rfl
       rw [h_lhs, h_rhs]
       exact SubstBisimState.ret
-        (SubstBisimValue.vlam_refl_list hρ_wf hρ_len hvs hbody_closed) hπ
+        (SubstBisimValue.vlam_refl_list hρ_wf hρ_len hvs hbody_closed hvs₂_wf) hπ hπ₂_wf
     | Delay body =>
       have hbody_closed : closedAt (k + vs₁.length) body = true := by
         simp only [closedAt] at hclosed; exact hclosed
@@ -2682,7 +3170,7 @@ theorem substBisimState_step_preserves_weak :
           .ret π₂ (.VDelay body (foldrExtend ρ vs₂)) := rfl
       rw [h_lhs, h_rhs]
       exact SubstBisimState.ret
-        (SubstBisimValue.vdelay_refl_list hρ_wf hρ_len hvs hbody_closed) hπ
+        (SubstBisimValue.vdelay_refl_list hρ_wf hρ_len hvs hbody_closed hvs₂_wf) hπ hπ₂_wf
     | Force e =>
       have he_closed : closedAt (k + vs₁.length) e = true := by
         simp only [closedAt] at hclosed; exact hclosed
@@ -2691,7 +3179,8 @@ theorem substBisimState_step_preserves_weak :
       have h_rhs : step (.compute π₂ (foldrExtend ρ vs₂) (.Force e)) =
           .compute (.force :: π₂) (foldrExtend ρ vs₂) e := rfl
       rw [h_lhs, h_rhs]
-      exact SubstBisimState.reflCompute hρ_wf hρ_len hvs he_closed
+      exact SubstBisimState.reflCompute hρ_wf hρ_len hvs he_closed hvs₂_wf
+        (StackWellFormed.cons FrameWellFormed.force hπ₂_wf)
         (SubstBisimStack.cons SubstBisimFrame.force hπ)
     | Apply f x =>
       have h_fx : closedAt (k + vs₁.length) f = true ∧ closedAt (k + vs₁.length) x = true := by
@@ -2701,9 +3190,13 @@ theorem substBisimState_step_preserves_weak :
       have h_rhs : step (.compute π₂ (foldrExtend ρ vs₂) (.Apply f x)) =
           .compute (.arg x (foldrExtend ρ vs₂) :: π₂) (foldrExtend ρ vs₂) f := rfl
       rw [h_lhs, h_rhs]
-      exact SubstBisimState.reflCompute hρ_wf hρ_len hvs h_fx.1
+      have hframe_arg_wf : FrameWellFormed (.arg x (foldrExtend ρ vs₂)) := by
+        have : closedAt (k + vs₂.length) x = true := by rw [← hvs_len_eq]; exact h_fx.2
+        exact FrameWellFormed.arg hfρvs₂_wf hfρvs₂_len this
+      exact SubstBisimState.reflCompute hρ_wf hρ_len hvs h_fx.1 hvs₂_wf
+        (StackWellFormed.cons hframe_arg_wf hπ₂_wf)
         (SubstBisimStack.cons
-          (SubstBisimFrame.argRefl hρ_wf hρ_len hvs h_fx.2) hπ)
+          (SubstBisimFrame.argRefl hρ_wf hρ_len hvs h_fx.2 hvs₂_wf) hπ)
     | Constr tag args =>
       cases args with
       | nil =>
@@ -2713,7 +3206,8 @@ theorem substBisimState_step_preserves_weak :
             .ret π₂ (.VConstr tag []) := rfl
         rw [h_lhs, h_rhs]
         exact SubstBisimState.ret
-          (SubstBisimValue.refl (ValueWellFormed.vconstr tag ValueListWellFormed.nil)) hπ
+          (SubstBisimValue.refl (ValueWellFormed.vconstr tag ValueListWellFormed.nil))
+          hπ hπ₂_wf
       | cons m ms =>
         have h_mms : closedAt (k + vs₁.length) m = true ∧ closedAtList (k + vs₁.length) ms = true := by
           simp only [closedAt, closedAtList, Bool.and_eq_true] at hclosed; exact hclosed
@@ -2722,9 +3216,17 @@ theorem substBisimState_step_preserves_weak :
         have h_rhs : step (.compute π₂ (foldrExtend ρ vs₂) (.Constr tag (m :: ms))) =
             .compute (.constrField tag [] ms (foldrExtend ρ vs₂) :: π₂) (foldrExtend ρ vs₂) m := rfl
         rw [h_lhs, h_rhs]
-        exact SubstBisimState.reflCompute hρ_wf hρ_len hvs h_mms.1
+        have hframe_cf_wf : FrameWellFormed
+            (.constrField tag [] ms (foldrExtend ρ vs₂)) := by
+          have : closedAtList (k + vs₂.length) ms = true := by
+            rw [← hvs_len_eq]; exact h_mms.2
+          exact FrameWellFormed.constrField tag ValueListWellFormed.nil
+            hfρvs₂_wf hfρvs₂_len this
+        exact SubstBisimState.reflCompute hρ_wf hρ_len hvs h_mms.1 hvs₂_wf
+          (StackWellFormed.cons hframe_cf_wf hπ₂_wf)
           (SubstBisimStack.cons
-            (SubstBisimFrame.constrFieldRefl tag ValueListWellFormed.nil hρ_wf hρ_len hvs h_mms.2) hπ)
+            (SubstBisimFrame.constrFieldRefl tag ValueListWellFormed.nil hρ_wf hρ_len hvs
+              h_mms.2 hvs₂_wf) hπ)
     | Case scrut alts =>
       have h_sa : closedAt (k + vs₁.length) scrut = true ∧ closedAtList (k + vs₁.length) alts = true := by
         simp only [closedAt, Bool.and_eq_true] at hclosed; exact hclosed
@@ -2733,13 +3235,26 @@ theorem substBisimState_step_preserves_weak :
       have h_rhs : step (.compute π₂ (foldrExtend ρ vs₂) (.Case scrut alts)) =
           .compute (.caseScrutinee alts (foldrExtend ρ vs₂) :: π₂) (foldrExtend ρ vs₂) scrut := rfl
       rw [h_lhs, h_rhs]
-      exact SubstBisimState.reflCompute hρ_wf hρ_len hvs h_sa.1
+      have hframe_cs_wf : FrameWellFormed
+          (.caseScrutinee alts (foldrExtend ρ vs₂)) := by
+        have : closedAtList (k + vs₂.length) alts = true := by
+          rw [← hvs_len_eq]; exact h_sa.2
+        exact FrameWellFormed.caseScrutinee hfρvs₂_wf hfρvs₂_len this
+      exact SubstBisimState.reflCompute hρ_wf hρ_len hvs h_sa.1 hvs₂_wf
+        (StackWellFormed.cons hframe_cs_wf hπ₂_wf)
         (SubstBisimStack.cons
-          (SubstBisimFrame.caseScrutineeRefl hρ_wf hρ_len hvs h_sa.2) hπ)
-  | @renameInsertCompute π₁ π₂ ρ vs₁ vs₂ vs_insert t k hρ_wf hρ_len hvs hclosed hπ =>
+          (SubstBisimFrame.caseScrutineeRefl hρ_wf hρ_len hvs h_sa.2 hvs₂_wf) hπ)
+  | @renameInsertCompute π₁ π₂ ρ vs₁ vs₂ vs_insert t k hρ_wf hρ_len hvs hclosed
+      hvs₂_wf hvs_insert_wf hπ₂_wf hπ =>
     refine ⟨1, ?_⟩
     simp only [steps]
     have hvs_len_eq : vs₁.length = vs₂.length := substBisimValueList_length_eq hvs
+    -- EnvWellFormed on (foldrExtend (foldrExtend ρ vs_insert) vs₂) for frame-WF reconstruction.
+    obtain ⟨hfρvs_ins_wf, hfρvs_ins_len⟩ :=
+      envWellFormed_foldrExtend k ρ vs_insert hρ_wf hρ_len hvs_insert_wf
+    obtain ⟨hfρvs₂_wf, hfρvs₂_len⟩ :=
+      envWellFormed_foldrExtend (k + vs_insert.length)
+        (foldrExtend ρ vs_insert) vs₂ hfρvs_ins_wf hfρvs_ins_len hvs₂_wf
     cases t with
     | Var n =>
       by_cases hn_zero : n = 0
@@ -2791,7 +3306,7 @@ theorem substBisimState_step_preserves_weak :
                   | some v => State.ret π₂ v | none => State.error) = _
             rw [hl₂]
           rw [h_lhs, h_rhs]
-          exact SubstBisimState.ret hv_rel hπ
+          exact SubstBisimState.ret hv_rel hπ hπ₂_wf
         · -- n > vs₁.length: look up in ρ on LHS; RHS shifts by vs_insert.length to skip vs_insert
           have hn_gt : n > vs₁.length := Nat.not_le.mp hn_in_vs
           have hn_sub_pos : 1 ≤ n - vs₁.length := by omega
@@ -2855,7 +3370,7 @@ theorem substBisimState_step_preserves_weak :
                   | some v' => State.ret π₂ v' | none => State.error) = _
             rw [hl₂]
           rw [h_lhs, h_rhs]
-          exact SubstBisimState.ret (SubstBisimValue.refl hvw) hπ
+          exact SubstBisimState.ret (SubstBisimValue.refl hvw) hπ hπ₂_wf
     | Constant ct =>
       obtain ⟨c, bt⟩ := ct
       have h_rhs_term : iterShiftRename vs_insert.length (vs₁.length + 1) (.Constant (c, bt)) =
@@ -2866,7 +3381,7 @@ theorem substBisimState_step_preserves_weak :
           (iterShiftRename vs_insert.length (vs₁.length + 1) (.Constant (c, bt)))) =
           .ret π₂ (.VCon c) := by rw [h_rhs_term]; rfl
       rw [h_lhs, h_rhs]
-      exact SubstBisimState.ret (SubstBisimValue.vcon c) hπ
+      exact SubstBisimState.ret (SubstBisimValue.vcon c) hπ hπ₂_wf
     | Builtin b =>
       have h_rhs_term : iterShiftRename vs_insert.length (vs₁.length + 1) (.Builtin b) =
           .Builtin b := iterShiftRename_Builtin _ _ _
@@ -2877,7 +3392,7 @@ theorem substBisimState_step_preserves_weak :
           .ret π₂ (.VBuiltin b [] (expectedArgs b)) := by rw [h_rhs_term]; rfl
       rw [h_lhs, h_rhs]
       exact SubstBisimState.ret
-        (SubstBisimValue.vbuiltin b (expectedArgs b) SubstBisimValueList.nil) hπ
+        (SubstBisimValue.vbuiltin b (expectedArgs b) SubstBisimValueList.nil) hπ hπ₂_wf
     | Error =>
       have h_rhs_term : iterShiftRename vs_insert.length (vs₁.length + 1) .Error = .Error :=
         iterShiftRename_Error _ _
@@ -2902,7 +3417,8 @@ theorem substBisimState_step_preserves_weak :
         rw [h_rhs_term]; rfl
       rw [h_lhs, h_rhs]
       exact SubstBisimState.ret
-        (SubstBisimValue.vlam_rename_list hρ_wf hρ_len hvs hbody_closed) hπ
+        (SubstBisimValue.vlam_rename_list (vs_insert := vs_insert) hρ_wf hρ_len hvs
+          hbody_closed hvs₂_wf hvs_insert_wf) hπ hπ₂_wf
     | Delay body =>
       have hbody_closed : closedAt (k + vs₁.length) body = true := by
         simp only [closedAt] at hclosed; exact hclosed
@@ -2918,7 +3434,8 @@ theorem substBisimState_step_preserves_weak :
         rw [h_rhs_term]; rfl
       rw [h_lhs, h_rhs]
       exact SubstBisimState.ret
-        (SubstBisimValue.vdelay_rename_list hρ_wf hρ_len hvs hbody_closed) hπ
+        (SubstBisimValue.vdelay_rename_list (vs_insert := vs_insert) hρ_wf hρ_len hvs
+          hbody_closed hvs₂_wf hvs_insert_wf) hπ hπ₂_wf
     | Force e =>
       have he_closed : closedAt (k + vs₁.length) e = true := by
         simp only [closedAt] at hclosed; exact hclosed
@@ -2933,7 +3450,8 @@ theorem substBisimState_step_preserves_weak :
             (iterShiftRename vs_insert.length (vs₁.length + 1) e) := by
         rw [h_rhs_term]; rfl
       rw [h_lhs, h_rhs]
-      exact SubstBisimState.renameInsertCompute hρ_wf hρ_len hvs he_closed
+      exact SubstBisimState.renameInsertCompute hρ_wf hρ_len hvs he_closed hvs₂_wf
+        hvs_insert_wf (StackWellFormed.cons FrameWellFormed.force hπ₂_wf)
         (SubstBisimStack.cons SubstBisimFrame.force hπ)
     | Apply f x =>
       have h_fx : closedAt (k + vs₁.length) f = true ∧ closedAt (k + vs₁.length) x = true := by
@@ -2952,9 +3470,22 @@ theorem substBisimState_step_preserves_weak :
             (iterShiftRename vs_insert.length (vs₁.length + 1) f) := by
         rw [h_rhs_term]; rfl
       rw [h_lhs, h_rhs]
-      exact SubstBisimState.renameInsertCompute hρ_wf hρ_len hvs h_fx.1
+      have hframe_arg_wf : FrameWellFormed (.arg
+          (iterShiftRename vs_insert.length (vs₁.length + 1) x)
+          (foldrExtend (foldrExtend ρ vs_insert) vs₂)) := by
+        have hcl_x : closedAt (k + vs_insert.length + vs₂.length)
+            (iterShiftRename vs_insert.length (vs₁.length + 1) x) = true := by
+          have hx : closedAt (k + vs₁.length) x = true := h_fx.2
+          have := closedAt_iterShiftRename vs_insert.length (vs₁.length + 1)
+            (k + vs₁.length) x (by omega) (by omega) hx
+          have heq : k + vs₁.length + vs_insert.length = k + vs_insert.length + vs₂.length := by
+            rw [hvs_len_eq]; omega
+          rw [heq] at this; exact this
+        exact FrameWellFormed.arg hfρvs₂_wf hfρvs₂_len hcl_x
+      exact SubstBisimState.renameInsertCompute hρ_wf hρ_len hvs h_fx.1 hvs₂_wf
+        hvs_insert_wf (StackWellFormed.cons hframe_arg_wf hπ₂_wf)
         (SubstBisimStack.cons
-          (SubstBisimFrame.argRenameInsert hρ_wf hρ_len hvs h_fx.2) hπ)
+          (SubstBisimFrame.argRenameInsert hρ_wf hρ_len hvs h_fx.2 hvs₂_wf hvs_insert_wf) hπ)
     | Constr tag args =>
       cases args with
       | nil =>
@@ -2969,7 +3500,7 @@ theorem substBisimState_step_preserves_weak :
             .ret π₂ (.VConstr tag []) := by rw [h_rhs_term]; rfl
         rw [h_lhs, h_rhs]
         exact SubstBisimState.ret
-          (SubstBisimValue.vconstr tag SubstBisimValueList.nil) hπ
+          (SubstBisimValue.vconstr tag SubstBisimValueList.nil) hπ hπ₂_wf
       | cons m ms =>
         have h_mms : closedAt (k + vs₁.length) m = true ∧
             closedAtList (k + vs₁.length) ms = true := by
@@ -2992,10 +3523,25 @@ theorem substBisimState_step_preserves_weak :
               (iterShiftRename vs_insert.length (vs₁.length + 1) m) := by
           rw [h_rhs_term]; rfl
         rw [h_lhs, h_rhs]
-        exact SubstBisimState.renameInsertCompute hρ_wf hρ_len hvs h_mms.1
+        have hframe_cf_wf : FrameWellFormed (.constrField tag []
+            (iterShiftRenameList vs_insert.length (vs₁.length + 1) ms)
+            (foldrExtend (foldrExtend ρ vs_insert) vs₂)) := by
+          have hcl_ms : closedAtList (k + vs_insert.length + vs₂.length)
+              (iterShiftRenameList vs_insert.length (vs₁.length + 1) ms) = true := by
+            have hms : closedAtList (k + vs₁.length) ms = true := h_mms.2
+            have := closedAtList_iterShiftRenameList vs_insert.length (vs₁.length + 1)
+              (k + vs₁.length) ms (by omega) (by omega) hms
+            have heq : k + vs₁.length + vs_insert.length = k + vs_insert.length + vs₂.length := by
+              rw [hvs_len_eq]; omega
+            rw [heq] at this; exact this
+          exact FrameWellFormed.constrField tag ValueListWellFormed.nil
+            hfρvs₂_wf hfρvs₂_len hcl_ms
+        exact SubstBisimState.renameInsertCompute hρ_wf hρ_len hvs h_mms.1 hvs₂_wf
+          hvs_insert_wf (StackWellFormed.cons hframe_cf_wf hπ₂_wf)
           (SubstBisimStack.cons
             (SubstBisimFrame.constrFieldRenameInsert tag hρ_wf hρ_len
-              SubstBisimValueList.nil hvs h_mms.2) hπ)
+              SubstBisimValueList.nil hvs h_mms.2 hvs₂_wf hvs_insert_wf
+              ValueListWellFormed.nil) hπ)
     | Case scrut alts =>
       have h_sa : closedAt (k + vs₁.length) scrut = true ∧
           closedAtList (k + vs₁.length) alts = true := by
@@ -3017,10 +3563,24 @@ theorem substBisimState_step_preserves_weak :
             (iterShiftRename vs_insert.length (vs₁.length + 1) scrut) := by
         rw [h_rhs_term]; rfl
       rw [h_lhs, h_rhs]
-      exact SubstBisimState.renameInsertCompute hρ_wf hρ_len hvs h_sa.1
+      have hframe_cs_wf : FrameWellFormed (.caseScrutinee
+          (iterShiftRenameList vs_insert.length (vs₁.length + 1) alts)
+          (foldrExtend (foldrExtend ρ vs_insert) vs₂)) := by
+        have hcl_alts : closedAtList (k + vs_insert.length + vs₂.length)
+            (iterShiftRenameList vs_insert.length (vs₁.length + 1) alts) = true := by
+          have hs : closedAtList (k + vs₁.length) alts = true := h_sa.2
+          have := closedAtList_iterShiftRenameList vs_insert.length (vs₁.length + 1)
+            (k + vs₁.length) alts (by omega) (by omega) hs
+          have heq : k + vs₁.length + vs_insert.length = k + vs_insert.length + vs₂.length := by
+            rw [hvs_len_eq]; omega
+          rw [heq] at this; exact this
+        exact FrameWellFormed.caseScrutinee hfρvs₂_wf hfρvs₂_len hcl_alts
+      exact SubstBisimState.renameInsertCompute hρ_wf hρ_len hvs h_sa.1 hvs₂_wf
+        hvs_insert_wf (StackWellFormed.cons hframe_cs_wf hπ₂_wf)
         (SubstBisimStack.cons
-          (SubstBisimFrame.caseScrutineeRenameInsert hρ_wf hρ_len hvs h_sa.2) hπ)
-  | @ret π₁ π₂ v₁ v₂ h_v h_π =>
+          (SubstBisimFrame.caseScrutineeRenameInsert hρ_wf hρ_len hvs h_sa.2
+            hvs₂_wf hvs_insert_wf) hπ)
+  | @ret π₁ π₂ v₁ v₂ h_v h_π hπ_wf_ret =>
     cases h_π with
     | nil =>
       refine ⟨1, ?_⟩
@@ -3035,6 +3595,11 @@ theorem substBisimState_step_preserves_weak :
       show SubstBisimState (step (.ret (f₁ :: π₁') v₁)) (steps 1 (.ret (f₂ :: π₂') v₂))
       simp only [steps]
       show SubstBisimState (step (.ret (f₁ :: π₁') v₁)) (step (.ret (f₂ :: π₂') v₂))
+      -- Extract π₂'_wf from hπ_wf_ret (which is StackWellFormed (f₂ :: π₂')).
+      have hπ₂'_wf : StackWellFormed π₂' := by
+        cases hπ_wf_ret with | cons _ h => exact h
+      have hf₂_wf : FrameWellFormed f₂ := by
+        cases hπ_wf_ret with | cons h _ => exact h
       cases h_f with
       | force =>
         cases h_v with
@@ -3051,7 +3616,8 @@ theorem substBisimState_step_preserves_weak :
                 (iteratedShift (vs₁.length + 1) rep) body) (foldrExtend ρ₂ vs₂))) = .error := rfl
           rw [h_lhs, h_rhs]
           exact SubstBisimState.error
-        | @vdelay body ρ₁ ρ₂ vs₁ vs₂ pos rep v_repl d hpos hrep henv hvs hclosed h_halts =>
+        | @vdelay body ρ₁ ρ₂ vs₁ vs₂ pos rep v_repl d hpos hpos_le_d hrep henv hvs
+            hclosed h_halts hvs₂_wf =>
           have h_lhs : step (.ret (.force :: π₁')
               (.VDelay body (foldrExtend ρ₁ vs₁))) =
               .compute π₁' (foldrExtend ρ₁ vs₁) body := rfl
@@ -3062,7 +3628,8 @@ theorem substBisimState_step_preserves_weak :
                 (Moist.Verified.substTerm (pos + vs₁.length)
                   (iteratedShift vs₁.length rep) body) := rfl
           rw [h_lhs, h_rhs]
-          exact SubstBisimState.compute hpos hrep henv hvs hclosed h_halts h_rest
+          exact SubstBisimState.compute hpos hpos_le_d hrep henv hvs hclosed h_halts
+            hvs₂_wf hπ₂'_wf h_rest
         | @vconstr tag fs₁ fs₂ hfs =>
           have h_lhs : step (.ret (.force :: π₁') (.VConstr tag fs₁)) = .error := rfl
           have h_rhs : step (.ret (.force :: π₂') (.VConstr tag fs₂)) = .error := rfl
@@ -3083,7 +3650,7 @@ theorem substBisimState_step_preserves_weak :
                   (match evalBuiltin b args₁ with | some v => .ret π₁' v | none => .error)
                   (match evalBuiltin b args₂ with | some v => .ret π₂' v | none => .error)
                 rw [he₁, he₂]
-                exact SubstBisimState.ret h_v_rel h_rest
+                exact SubstBisimState.ret h_v_rel h_rest hπ₂'_wf
               | none =>
                 have he₂ : evalBuiltin b args₂ = none := h_iff.mp he₁
                 show SubstBisimState
@@ -3096,10 +3663,10 @@ theorem substBisimState_step_preserves_weak :
             | argV => exact SubstBisimState.error
             | argQ =>
               exact SubstBisimState.ret
-                (SubstBisimValue.vbuiltin b rest hargs) h_rest
-        | @vlam_refl_list body ρ vs₁ vs₂ k hρ_wf hρ_len hvs hbody_closed =>
+                (SubstBisimValue.vbuiltin b rest hargs) h_rest hπ₂'_wf
+        | @vlam_refl_list body ρ vs₁ vs₂ k hρ_wf hρ_len hvs hbody_closed hvs₂_wf =>
           exact SubstBisimState.error
-        | @vdelay_refl_list body ρ vs₁ vs₂ k hρ_wf hρ_len hvs hbody_closed =>
+        | @vdelay_refl_list body ρ vs₁ vs₂ k hρ_wf hρ_len hvs hbody_closed hvs₂_wf =>
           have h_lhs : step (.ret (.force :: π₁')
               (.VDelay body (foldrExtend ρ vs₁))) =
               .compute π₁' (foldrExtend ρ vs₁) body := rfl
@@ -3107,11 +3674,14 @@ theorem substBisimState_step_preserves_weak :
               (.VDelay body (foldrExtend ρ vs₂))) =
               .compute π₂' (foldrExtend ρ vs₂) body := rfl
           rw [h_lhs, h_rhs]
-          exact SubstBisimState.reflCompute hρ_wf hρ_len hvs hbody_closed h_rest
-        | @vlam_rename_list body ρ vs₁ vs₂ vs_insert k _ _ _ _ =>
+          exact SubstBisimState.reflCompute hρ_wf hρ_len hvs hbody_closed hvs₂_wf
+            hπ₂'_wf h_rest
+        | @vlam_rename_list body ρ vs₁ vs₂ vs_insert k _ _ _ _ _ _ =>
           exact SubstBisimState.error
-        | @vdelay_rename_list body ρ vs₁ vs₂ vs_insert k hρ_wf hρ_len hvs hbody_closed =>
-          exact SubstBisimState.renameInsertCompute hρ_wf hρ_len hvs hbody_closed h_rest
+        | @vdelay_rename_list body ρ vs₁ vs₂ vs_insert k hρ_wf hρ_len hvs hbody_closed
+            hvs₂_wf hvs_insert_wf =>
+          exact SubstBisimState.renameInsertCompute hρ_wf hρ_len hvs hbody_closed
+            hvs₂_wf hvs_insert_wf hπ₂'_wf h_rest
         | refl hv_wf =>
           cases v₁ with
           | VCon c => exact SubstBisimState.error
@@ -3125,7 +3695,8 @@ theorem substBisimState_step_preserves_weak :
             | @vdelay _ _ k hρ_wf hρ_len hbody_closed =>
               -- Use reflCompute with vs = []
               exact SubstBisimState.reflCompute (vs₁ := []) (vs₂ := []) hρ_wf hρ_len
-                SubstBisimValueList.nil (by simp; exact hbody_closed) h_rest
+                SubstBisimValueList.nil (by simp; exact hbody_closed)
+                ValueListWellFormed.nil hπ₂'_wf h_rest
           | VBuiltin b args ea =>
             have hargs_wf : ValueListWellFormed args := by cases hv_wf; assumption
             have hargs_refl : SubstBisimValueList args args :=
@@ -3142,7 +3713,7 @@ theorem substBisimState_step_preserves_weak :
                     (match evalBuiltin b args with | some v => .ret π₂' v | none => .error)
                   rw [he₁]
                   have hv_r_wf : ValueWellFormed v_r := evalBuiltin_wf hargs_wf he₁
-                  exact SubstBisimState.ret (SubstBisimValue.refl hv_r_wf) h_rest
+                  exact SubstBisimState.ret (SubstBisimValue.refl hv_r_wf) h_rest hπ₂'_wf
                 | none =>
                   show SubstBisimState
                     (match evalBuiltin b args with | some v => .ret π₁' v | none => .error)
@@ -3154,8 +3725,9 @@ theorem substBisimState_step_preserves_weak :
               | argV => exact SubstBisimState.error
               | argQ =>
                 exact SubstBisimState.ret
-                  (SubstBisimValue.vbuiltin b rest hargs_refl) h_rest
-      | @arg t ρ₁ ρ₂ vs₁ vs₂ pos rep v_repl d hpos hrep henv hvs hclosed h_halts =>
+                  (SubstBisimValue.vbuiltin b rest hargs_refl) h_rest hπ₂'_wf
+      | @arg t ρ₁ ρ₂ vs₁ vs₂ pos rep v_repl d hpos hpos_le_d hrep henv hvs hclosed
+          h_halts hvs₂_wf =>
         have h_lhs : step (.ret (.arg t (foldrExtend ρ₁ vs₁) :: π₁') v₁) =
             .compute (.funV v₁ :: π₁') (foldrExtend ρ₁ vs₁) t := rfl
         have h_rhs : step (.ret (.arg
@@ -3165,7 +3737,9 @@ theorem substBisimState_step_preserves_weak :
               (Moist.Verified.substTerm (pos + vs₁.length)
                 (iteratedShift vs₁.length rep) t) := rfl
         rw [h_lhs, h_rhs]
-        exact SubstBisimState.compute hpos hrep henv hvs hclosed h_halts
+        have hv₂_wf : ValueWellFormed v₂ := substBisimValue_wf_right h_v
+        exact SubstBisimState.compute hpos hpos_le_d hrep henv hvs hclosed h_halts
+          hvs₂_wf (StackWellFormed.cons (FrameWellFormed.funV hv₂_wf) hπ₂'_wf)
           (SubstBisimStack.cons (SubstBisimFrame.funV h_v) h_rest)
       | @funV v_f₁ v_f₂ h_vf =>
         cases h_vf with
@@ -3174,7 +3748,8 @@ theorem substBisimState_step_preserves_weak :
           have h_rhs : step (.ret (.funV (.VCon c) :: π₂') v₂) = .error := rfl
           rw [h_lhs, h_rhs]
           exact SubstBisimState.error
-        | @vlam body ρ_l₁ ρ_l₂ vs_l₁ vs_l₂ pos rep v_repl d hpos hrep henv hvs_l hclosed h_halts =>
+        | @vlam body ρ_l₁ ρ_l₂ vs_l₁ vs_l₂ pos rep v_repl d hpos hpos_le_d hrep henv
+            hvs_l hclosed h_halts hvs₂_wf_l =>
           -- funV (subst-family VLam) + v: extend vs with v₁ and v₂, continue computing body
           have hvs_len_eq : vs_l₁.length = vs_l₂.length := substBisimValueList_length_eq hvs_l
           have h_lhs : step (.ret (.funV (.VLam body (foldrExtend ρ_l₁ vs_l₁)) :: π₁') v₁) =
@@ -3216,8 +3791,11 @@ theorem substBisimState_step_preserves_weak :
           have h_pos_eq : pos + vs_l₁.length + 1 = pos + (v₁ :: vs_l₁).length := rfl
           have h_iter_eq : iteratedShift (vs_l₁.length + 1) rep = iteratedShift (v₁ :: vs_l₁).length rep := rfl
           rw [h_pos_eq, h_iter_eq]
-          exact SubstBisimState.compute hpos hrep henv hvs_new hbody_new h_halts h_rest
-        | @vdelay body_d ρ_d₁ ρ_d₂ vs_d₁ vs_d₂ pos_d rep_d v_repl_d d_d _ _ _ _ _ _ =>
+          have hvs₂_new_wf : ValueListWellFormed (v₂ :: vs_l₂) :=
+            ValueListWellFormed.cons (substBisimValue_wf_right h_v) hvs₂_wf_l
+          exact SubstBisimState.compute hpos hpos_le_d hrep henv hvs_new hbody_new h_halts
+            hvs₂_new_wf hπ₂'_wf h_rest
+        | @vdelay body_d ρ_d₁ ρ_d₂ vs_d₁ vs_d₂ pos_d rep_d v_repl_d d_d _ _ _ _ _ _ _ _ =>
           have h_lhs : step (.ret (.funV (.VDelay body_d (foldrExtend ρ_d₁ vs_d₁)) :: π₁') v₁) = .error := rfl
           have h_rhs : step (.ret (.funV
               (.VDelay (Moist.Verified.substTerm (pos_d + vs_d₁.length)
@@ -3245,7 +3823,7 @@ theorem substBisimState_step_preserves_weak :
                   (match evalBuiltin b (v₁ :: args_f₁) with | some v => .ret π₁' v | none => .error)
                   (match evalBuiltin b (v₂ :: args_f₂) with | some v => .ret π₂' v | none => .error)
                 rw [he₁, he₂]
-                exact SubstBisimState.ret h_v_rel h_rest
+                exact SubstBisimState.ret h_v_rel h_rest hπ₂'_wf
               | none =>
                 have he₂ : evalBuiltin b (v₂ :: args_f₂) = none := h_iff.mp he₁
                 show SubstBisimState
@@ -3259,8 +3837,8 @@ theorem substBisimState_step_preserves_weak :
             | argV =>
               exact SubstBisimState.ret
                 (SubstBisimValue.vbuiltin b rest (SubstBisimValueList.cons h_v hargs_f))
-                h_rest
-        | @vlam_refl_list body ρ vs_l₁ vs_l₂ k hρ_wf hρ_len hvs_l hbody_closed =>
+                h_rest hπ₂'_wf
+        | @vlam_refl_list body ρ vs_l₁ vs_l₂ k hρ_wf hρ_len hvs_l hbody_closed hvs₂_wf_l =>
           -- funV (refl-list VLam) + v: extend vs_l, continue with reflCompute.
           have h_lhs : step (.ret (.funV (.VLam body (foldrExtend ρ vs_l₁)) :: π₁') v₁) =
               .compute π₁' ((foldrExtend ρ vs_l₁).extend v₁) body := rfl
@@ -3276,11 +3854,15 @@ theorem substBisimState_step_preserves_weak :
             show closedAt (k + (vs_l₁.length + 1)) body = true
             have : k + (vs_l₁.length + 1) = k + vs_l₁.length + 1 := by omega
             rw [this]; exact hbody_closed
-          exact SubstBisimState.reflCompute hρ_wf hρ_len hvs_new hbody_new h_rest
-        | @vdelay_refl_list body ρ vs_l₁ vs_l₂ k _ _ _ _ =>
+          have hvs₂_new_wf : ValueListWellFormed (v₂ :: vs_l₂) :=
+            ValueListWellFormed.cons (substBisimValue_wf_right h_v) hvs₂_wf_l
+          exact SubstBisimState.reflCompute hρ_wf hρ_len hvs_new hbody_new
+            hvs₂_new_wf hπ₂'_wf h_rest
+        | @vdelay_refl_list body ρ vs_l₁ vs_l₂ k _ _ _ _ _ =>
           -- funV VDelay: error
           exact SubstBisimState.error
-        | @vlam_rename_list body ρ vs_l₁ vs_l₂ vs_insert k hρ_wf hρ_len hvs_l hbody_closed =>
+        | @vlam_rename_list body ρ vs_l₁ vs_l₂ vs_insert k hρ_wf hρ_len hvs_l hbody_closed
+            hvs₂_wf_l hvs_insert_wf =>
           have hvs_new : SubstBisimValueList (v₁ :: vs_l₁) (v₂ :: vs_l₂) :=
             SubstBisimValueList.cons h_v hvs_l
           have hbody_new : closedAt (k + (v₁ :: vs_l₁).length) body = true := by
@@ -3291,8 +3873,11 @@ theorem substBisimState_step_preserves_weak :
             (.compute π₁' (foldrExtend ρ (v₁ :: vs_l₁)) body)
             (.compute π₂' (foldrExtend (foldrExtend ρ vs_insert) (v₂ :: vs_l₂))
               (iterShiftRename vs_insert.length ((v₁ :: vs_l₁).length + 1) body))
-          exact SubstBisimState.renameInsertCompute hρ_wf hρ_len hvs_new hbody_new h_rest
-        | @vdelay_rename_list body ρ vs_l₁ vs_l₂ vs_insert k _ _ _ _ =>
+          have hvs₂_new_wf : ValueListWellFormed (v₂ :: vs_l₂) :=
+            ValueListWellFormed.cons (substBisimValue_wf_right h_v) hvs₂_wf_l
+          exact SubstBisimState.renameInsertCompute hρ_wf hρ_len hvs_new hbody_new
+            hvs₂_new_wf hvs_insert_wf hπ₂'_wf h_rest
+        | @vdelay_rename_list body ρ vs_l₁ vs_l₂ vs_insert k _ _ _ _ _ _ =>
           exact SubstBisimState.error
         | refl hv_f_wf =>
           -- funV (refl v) + v: dispatch on v's shape.
@@ -3315,7 +3900,10 @@ theorem substBisimState_step_preserves_weak :
               have h_env₁ : ρ_l.extend v₁ = foldrExtend ρ_l [v₁] := rfl
               have h_env₂ : ρ_l.extend v₂ = foldrExtend ρ_l [v₂] := rfl
               rw [h_env₁, h_env₂]
-              exact SubstBisimState.reflCompute hρ_wf hρ_len hvs_new hbody_new h_rest
+              have hvs₂_new_wf : ValueListWellFormed [v₂] :=
+                ValueListWellFormed.cons (substBisimValue_wf_right h_v) ValueListWellFormed.nil
+              exact SubstBisimState.reflCompute hρ_wf hρ_len hvs_new hbody_new
+                hvs₂_new_wf hπ₂'_wf h_rest
           | VDelay body ρ => exact SubstBisimState.error
           | VConstr tag fs => exact SubstBisimState.error
           | VBuiltin b args ea =>
@@ -3337,7 +3925,7 @@ theorem substBisimState_step_preserves_weak :
                     (match evalBuiltin b (v₁ :: args) with | some v => .ret π₁' v | none => .error)
                     (match evalBuiltin b (v₂ :: args) with | some v => .ret π₂' v | none => .error)
                   rw [he₁, he₂]
-                  exact SubstBisimState.ret h_v_rel h_rest
+                  exact SubstBisimState.ret h_v_rel h_rest hπ₂'_wf
                 | none =>
                   have he₂ : evalBuiltin b (v₂ :: args) = none := h_iff.mp he₁
                   show SubstBisimState
@@ -3350,12 +3938,14 @@ theorem substBisimState_step_preserves_weak :
               | argQ => exact SubstBisimState.error
               | argV =>
                 exact SubstBisimState.ret
-                  (SubstBisimValue.vbuiltin b rest (SubstBisimValueList.cons h_v hargs_refl)) h_rest
+                  (SubstBisimValue.vbuiltin b rest (SubstBisimValueList.cons h_v hargs_refl))
+                  h_rest hπ₂'_wf
       | @applyArg v_x₁ v_x₂ h_vx =>
         cases h_v with
         | vcon _ =>
           exact SubstBisimState.error
-        | @vlam body ρ_l₁ ρ_l₂ vs_l₁ vs_l₂ pos rep v_repl d hpos hrep henv hvs_l hclosed h_halts =>
+        | @vlam body ρ_l₁ ρ_l₂ vs_l₁ vs_l₂ pos rep v_repl d hpos hpos_le_d hrep henv
+            hvs_l hclosed h_halts hvs₂_wf_l =>
           have h_lhs : step (.ret (.applyArg v_x₁ :: π₁') (.VLam body (foldrExtend ρ_l₁ vs_l₁))) =
               .compute π₁' ((foldrExtend ρ_l₁ vs_l₁).extend v_x₁) body := rfl
           have h_rhs : step (.ret (.applyArg v_x₂ :: π₂')
@@ -3374,8 +3964,11 @@ theorem substBisimState_step_preserves_weak :
             show closedAt (d + 1 + (vs_l₁.length + 1)) body = true
             have : d + 1 + (vs_l₁.length + 1) = d + 2 + vs_l₁.length := by omega
             rw [this]; exact hclosed
-          exact SubstBisimState.compute hpos hrep henv hvs_new hbody_new h_halts h_rest
-        | @vdelay body_d ρ_d₁ ρ_d₂ vs_d₁ vs_d₂ pos_d rep_d v_repl_d d_d _ _ _ _ _ _ =>
+          have hvs₂_new_wf : ValueListWellFormed (v_x₂ :: vs_l₂) :=
+            ValueListWellFormed.cons (substBisimValue_wf_right h_vx) hvs₂_wf_l
+          exact SubstBisimState.compute hpos hpos_le_d hrep henv hvs_new hbody_new h_halts
+            hvs₂_new_wf hπ₂'_wf h_rest
+        | @vdelay body_d ρ_d₁ ρ_d₂ vs_d₁ vs_d₂ pos_d rep_d v_repl_d d_d _ _ _ _ _ _ _ _ =>
           exact SubstBisimState.error
         | @vconstr tag fs₁ fs₂ _ =>
           exact SubstBisimState.error
@@ -3395,7 +3988,7 @@ theorem substBisimState_step_preserves_weak :
                   (match evalBuiltin b (v_x₁ :: args₁) with | some v => .ret π₁' v | none => .error)
                   (match evalBuiltin b (v_x₂ :: args₂) with | some v => .ret π₂' v | none => .error)
                 rw [he₁, he₂]
-                exact SubstBisimState.ret h_v_rel h_rest
+                exact SubstBisimState.ret h_v_rel h_rest hπ₂'_wf
               | none =>
                 have he₂ : evalBuiltin b (v_x₂ :: args₂) = none := h_iff.mp he₁
                 show SubstBisimState
@@ -3408,8 +4001,9 @@ theorem substBisimState_step_preserves_weak :
             | argQ => exact SubstBisimState.error
             | argV =>
               exact SubstBisimState.ret
-                (SubstBisimValue.vbuiltin b rest (SubstBisimValueList.cons h_vx hargs)) h_rest
-        | @vlam_refl_list body ρ vs_l₁ vs_l₂ k hρ_wf hρ_len hvs_l hbody_closed =>
+                (SubstBisimValue.vbuiltin b rest (SubstBisimValueList.cons h_vx hargs))
+                h_rest hπ₂'_wf
+        | @vlam_refl_list body ρ vs_l₁ vs_l₂ k hρ_wf hρ_len hvs_l hbody_closed hvs₂_wf_l =>
           have h_lhs : step (.ret (.applyArg v_x₁ :: π₁') (.VLam body (foldrExtend ρ vs_l₁))) =
               .compute π₁' ((foldrExtend ρ vs_l₁).extend v_x₁) body := rfl
           have h_rhs : step (.ret (.applyArg v_x₂ :: π₂') (.VLam body (foldrExtend ρ vs_l₂))) =
@@ -3424,10 +4018,14 @@ theorem substBisimState_step_preserves_weak :
             show closedAt (k + (vs_l₁.length + 1)) body = true
             have : k + (vs_l₁.length + 1) = k + vs_l₁.length + 1 := by omega
             rw [this]; exact hbody_closed
-          exact SubstBisimState.reflCompute hρ_wf hρ_len hvs_new hbody_new h_rest
-        | @vdelay_refl_list body ρ vs_l₁ vs_l₂ k _ _ _ _ =>
+          have hvs₂_new_wf : ValueListWellFormed (v_x₂ :: vs_l₂) :=
+            ValueListWellFormed.cons (substBisimValue_wf_right h_vx) hvs₂_wf_l
+          exact SubstBisimState.reflCompute hρ_wf hρ_len hvs_new hbody_new
+            hvs₂_new_wf hπ₂'_wf h_rest
+        | @vdelay_refl_list body ρ vs_l₁ vs_l₂ k _ _ _ _ _ =>
           exact SubstBisimState.error
-        | @vlam_rename_list body ρ vs_l₁ vs_l₂ vs_insert k hρ_wf hρ_len hvs_l hbody_closed =>
+        | @vlam_rename_list body ρ vs_l₁ vs_l₂ vs_insert k hρ_wf hρ_len hvs_l hbody_closed
+            hvs₂_wf_l hvs_insert_wf =>
           have hvs_new : SubstBisimValueList (v_x₁ :: vs_l₁) (v_x₂ :: vs_l₂) :=
             SubstBisimValueList.cons h_vx hvs_l
           have hbody_new : closedAt (k + (v_x₁ :: vs_l₁).length) body = true := by
@@ -3438,8 +4036,11 @@ theorem substBisimState_step_preserves_weak :
             (.compute π₁' (foldrExtend ρ (v_x₁ :: vs_l₁)) body)
             (.compute π₂' (foldrExtend (foldrExtend ρ vs_insert) (v_x₂ :: vs_l₂))
               (iterShiftRename vs_insert.length ((v_x₁ :: vs_l₁).length + 1) body))
-          exact SubstBisimState.renameInsertCompute hρ_wf hρ_len hvs_new hbody_new h_rest
-        | @vdelay_rename_list body ρ vs_l₁ vs_l₂ vs_insert k _ _ _ _ =>
+          have hvs₂_new_wf : ValueListWellFormed (v_x₂ :: vs_l₂) :=
+            ValueListWellFormed.cons (substBisimValue_wf_right h_vx) hvs₂_wf_l
+          exact SubstBisimState.renameInsertCompute hρ_wf hρ_len hvs_new hbody_new
+            hvs₂_new_wf hvs_insert_wf hπ₂'_wf h_rest
+        | @vdelay_rename_list body ρ vs_l₁ vs_l₂ vs_insert k _ _ _ _ _ _ =>
           exact SubstBisimState.error
         | refl hv_wf =>
           cases v₁ with
@@ -3459,7 +4060,11 @@ theorem substBisimState_step_preserves_weak :
               have h_env₁ : ρ_l.extend v_x₁ = foldrExtend ρ_l [v_x₁] := rfl
               have h_env₂ : ρ_l.extend v_x₂ = foldrExtend ρ_l [v_x₂] := rfl
               rw [h_env₁, h_env₂]
-              exact SubstBisimState.reflCompute hρ_wf hρ_len hvs_new hbody_new h_rest
+              have hvs₂_new_wf : ValueListWellFormed [v_x₂] :=
+                ValueListWellFormed.cons (substBisimValue_wf_right h_vx)
+                  ValueListWellFormed.nil
+              exact SubstBisimState.reflCompute hρ_wf hρ_len hvs_new hbody_new
+                hvs₂_new_wf hπ₂'_wf h_rest
           | VDelay body ρ => exact SubstBisimState.error
           | VConstr tag fs => exact SubstBisimState.error
           | VBuiltin b args ea =>
@@ -3481,7 +4086,7 @@ theorem substBisimState_step_preserves_weak :
                     (match evalBuiltin b (v_x₁ :: args) with | some v => .ret π₁' v | none => .error)
                     (match evalBuiltin b (v_x₂ :: args) with | some v => .ret π₂' v | none => .error)
                   rw [he₁, he₂]
-                  exact SubstBisimState.ret h_v_rel h_rest
+                  exact SubstBisimState.ret h_v_rel h_rest hπ₂'_wf
                 | none =>
                   have he₂ : evalBuiltin b (v_x₂ :: args) = none := h_iff.mp he₁
                   show SubstBisimState
@@ -3494,8 +4099,10 @@ theorem substBisimState_step_preserves_weak :
               | argQ => exact SubstBisimState.error
               | argV =>
                 exact SubstBisimState.ret
-                  (SubstBisimValue.vbuiltin b rest (SubstBisimValueList.cons h_vx hargs_refl)) h_rest
-      | @constrField tag done₁ done₂ todo ρ₁ ρ₂ vs₁ vs₂ pos rep v_repl d hpos hrep h_done henv hvs h_todo h_halts =>
+                  (SubstBisimValue.vbuiltin b rest (SubstBisimValueList.cons h_vx hargs_refl))
+                  h_rest hπ₂'_wf
+      | @constrField tag done₁ done₂ todo ρ₁ ρ₂ vs₁ vs₂ pos rep v_repl d hpos hpos_le_d hrep
+          h_done henv hvs h_todo h_halts hvs₂_wf hdone₂_wf =>
         cases todo with
         | nil =>
           have h_subst_nil : Moist.Verified.substTermList (pos + vs₁.length)
@@ -3511,7 +4118,8 @@ theorem substBisimState_step_preserves_weak :
           rw [h_lhs, h_rhs]
           exact SubstBisimState.ret
             (SubstBisimValue.vconstr tag
-              (substBisimValueList_reverse _ (SubstBisimValueList.cons h_v h_done))) h_rest
+              (substBisimValueList_reverse _ (SubstBisimValueList.cons h_v h_done)))
+            h_rest hπ₂'_wf
         | cons m ms =>
           have h_subst_cons : Moist.Verified.substTermList (pos + vs₁.length)
               (iteratedShift vs₁.length rep) (m :: ms) =
@@ -3538,11 +4146,36 @@ theorem substBisimState_step_preserves_weak :
                   (iteratedShift vs₁.length rep) m) := by
             rw [h_subst_cons]; rfl
           rw [h_lhs, h_rhs]
-          exact SubstBisimState.compute hpos hrep henv hvs h_mms.1 h_halts
+          have hdone₂_new_wf : ValueListWellFormed (v₂ :: done₂) :=
+            ValueListWellFormed.cons (substBisimValue_wf_right h_v) hdone₂_wf
+          have h_halts_saved := h_halts
+          obtain ⟨hρ₂_wf, hρ₂_len, hrep_cl, _, _⟩ := h_halts_saved
+          obtain ⟨hfρ₂vs₂_wf, hfρ₂vs₂_len⟩ :=
+            envWellFormed_foldrExtend d ρ₂ vs₂ hρ₂_wf hρ₂_len hvs₂_wf
+          have hvs_len_eq : vs₁.length = vs₂.length := substBisimValueList_length_eq hvs
+          have hms_closed : closedAtList (d + vs₂.length)
+              (Moist.Verified.substTermList (pos + vs₁.length)
+                (iteratedShift vs₁.length rep) ms) = true := by
+            have hiter := closedAt_iteratedShift vs₁.length d rep hrep_cl
+            have hms_at : closedAtList (d + vs₁.length + 1) ms = true := by
+              have heq : d + 1 + vs₁.length = d + vs₁.length + 1 := by omega
+              rw [← heq]; exact h_mms.2
+            have := closedAtList_substTermList (pos + vs₁.length) _ ms (d + vs₁.length)
+              (by omega) (by omega) hiter hms_at
+            have heq : d + vs₁.length = d + vs₂.length := by rw [hvs_len_eq]
+            rw [heq] at this; exact this
+          have hframe_cf_wf : FrameWellFormed (.constrField tag (v₂ :: done₂)
+              (Moist.Verified.substTermList (pos + vs₁.length)
+                (iteratedShift vs₁.length rep) ms) (foldrExtend ρ₂ vs₂)) :=
+            FrameWellFormed.constrField tag hdone₂_new_wf hfρ₂vs₂_wf hfρ₂vs₂_len hms_closed
+          exact SubstBisimState.compute hpos hpos_le_d hrep henv hvs h_mms.1 h_halts
+            hvs₂_wf (StackWellFormed.cons hframe_cf_wf hπ₂'_wf)
             (SubstBisimStack.cons
-              (SubstBisimFrame.constrField tag hpos hrep
-                (SubstBisimValueList.cons h_v h_done) henv hvs h_mms.2 h_halts) h_rest)
-      | @caseScrutinee alts ρ₁ ρ₂ vs₁ vs₂ pos rep v_repl d hpos hrep henv hvs h_alts h_halts =>
+              (SubstBisimFrame.constrField tag hpos hpos_le_d hrep
+                (SubstBisimValueList.cons h_v h_done) henv hvs h_mms.2 h_halts hvs₂_wf
+                hdone₂_new_wf) h_rest)
+      | @caseScrutinee alts ρ₁ ρ₂ vs₁ vs₂ pos rep v_repl d hpos hpos_le_d hrep henv hvs
+          h_alts h_halts hvs₂_wf =>
         cases h_v with
         | vcon c =>
           show SubstBisimState
@@ -3617,11 +4250,14 @@ theorem substBisimState_step_preserves_weak :
                 rw [ha']
                 have h_fs_refl : SubstBisimValueList fields fields :=
                   substBisimValueList_constToTagAndFields_refl hc
-                exact SubstBisimState.compute hpos hrep henv hvs h_alt h_halts
+                have hfields_wf : ValueListWellFormed fields :=
+                  substBisimValueList_wf_right h_fs_refl
+                exact SubstBisimState.compute hpos hpos_le_d hrep henv hvs h_alt h_halts
+                        hvs₂_wf (stackWellFormed_applyArg_stack fields hfields_wf hπ₂'_wf)
                         (substBisimValueList_to_applyArg_stack fields h_fs_refl h_rest)
-        | vlam _ _ _ _ _ _ =>
+        | vlam _ _ _ _ _ _ _ _ =>
           exact SubstBisimState.error
-        | vdelay _ _ _ _ _ _ =>
+        | vdelay _ _ _ _ _ _ _ _ =>
           exact SubstBisimState.error
         | @vconstr tag fs₁ fs₂ h_fs =>
           show SubstBisimState
@@ -3667,13 +4303,15 @@ theorem substBisimState_step_preserves_weak :
               rw [substTermList_getElem (pos + vs₁.length)
                 (iteratedShift vs₁.length rep) alts tag hlt, heq_val]
             rw [ha']
-            exact SubstBisimState.compute hpos hrep henv hvs h_alt h_halts
+            have hfs_wf : ValueListWellFormed fs₂ := substBisimValueList_wf_right h_fs
+            exact SubstBisimState.compute hpos hpos_le_d hrep henv hvs h_alt h_halts
+                    hvs₂_wf (stackWellFormed_applyArg_stack fs₂ hfs_wf hπ₂'_wf)
                     (substBisimValueList_to_applyArg_stack _ h_fs h_rest)
         | vbuiltin _ _ _ => exact SubstBisimState.error
-        | vlam_refl_list _ _ _ _ => exact SubstBisimState.error
-        | vdelay_refl_list _ _ _ _ => exact SubstBisimState.error
-        | vlam_rename_list _ _ _ _ => exact SubstBisimState.error
-        | vdelay_rename_list _ _ _ _ => exact SubstBisimState.error
+        | vlam_refl_list _ _ _ _ _ => exact SubstBisimState.error
+        | vdelay_refl_list _ _ _ _ _ => exact SubstBisimState.error
+        | vlam_rename_list _ _ _ _ _ _ => exact SubstBisimState.error
+        | vdelay_rename_list _ _ _ _ _ _ => exact SubstBisimState.error
         | refl hv_wf =>
           cases v₁ with
           | VCon c =>
@@ -3749,7 +4387,10 @@ theorem substBisimState_step_preserves_weak :
                   rw [ha']
                   have h_fs_refl : SubstBisimValueList fields fields :=
                     substBisimValueList_constToTagAndFields_refl hc
-                  exact SubstBisimState.compute hpos hrep henv hvs h_alt h_halts
+                  have hfields_wf : ValueListWellFormed fields :=
+                    substBisimValueList_wf_right h_fs_refl
+                  exact SubstBisimState.compute hpos hpos_le_d hrep henv hvs h_alt h_halts
+                          hvs₂_wf (stackWellFormed_applyArg_stack fields hfields_wf hπ₂'_wf)
                           (substBisimValueList_to_applyArg_stack fields h_fs_refl h_rest)
           | VLam _ _ => exact SubstBisimState.error
           | VDelay _ _ => exact SubstBisimState.error
@@ -3800,18 +4441,22 @@ theorem substBisimState_step_preserves_weak :
               have hfs_wf : ValueListWellFormed fs := by cases hv_wf; assumption
               have hfs_refl : SubstBisimValueList fs fs :=
                 substBisimValueList_refl_wf hfs_wf
-              exact SubstBisimState.compute hpos hrep henv hvs h_alt h_halts
+              exact SubstBisimState.compute hpos hpos_le_d hrep henv hvs h_alt h_halts
+                      hvs₂_wf (stackWellFormed_applyArg_stack fs hfs_wf hπ₂'_wf)
                       (substBisimValueList_to_applyArg_stack _ hfs_refl h_rest)
           | VBuiltin _ _ _ => exact SubstBisimState.error
-      | @argRefl t ρ vs₁ vs₂ k hρ_wf hρ_len hvs hclosed =>
+      | @argRefl t ρ vs₁ vs₂ k hρ_wf hρ_len hvs hclosed hvs₂_wf =>
         have h_lhs : step (.ret (.arg t (foldrExtend ρ vs₁) :: π₁') v₁) =
             .compute (.funV v₁ :: π₁') (foldrExtend ρ vs₁) t := rfl
         have h_rhs : step (.ret (.arg t (foldrExtend ρ vs₂) :: π₂') v₂) =
             .compute (.funV v₂ :: π₂') (foldrExtend ρ vs₂) t := rfl
         rw [h_lhs, h_rhs]
-        exact SubstBisimState.reflCompute hρ_wf hρ_len hvs hclosed
+        have hv₂_wf : ValueWellFormed v₂ := substBisimValue_wf_right h_v
+        exact SubstBisimState.reflCompute hρ_wf hρ_len hvs hclosed hvs₂_wf
+          (StackWellFormed.cons (FrameWellFormed.funV hv₂_wf) hπ₂'_wf)
           (SubstBisimStack.cons (SubstBisimFrame.funV h_v) h_rest)
-      | @constrFieldRefl tag done todo ρ vs₁ vs₂ k h_done_wf hρ_wf hρ_len hvs h_todo =>
+      | @constrFieldRefl tag done todo ρ vs₁ vs₂ k h_done_wf hρ_wf hρ_len hvs h_todo
+          hvs₂_wf =>
         cases todo with
         | nil =>
           have h_lhs : step (.ret (.constrField tag done [] (foldrExtend ρ vs₁) :: π₁') v₁) =
@@ -3825,7 +4470,7 @@ theorem substBisimState_step_preserves_weak :
             SubstBisimValueList.cons h_v h_done_refl
           have h_rev : SubstBisimValueList ((v₁ :: done).reverse) ((v₂ :: done).reverse) :=
             substBisimValueList_reverse _ h_cons
-          exact SubstBisimState.ret (SubstBisimValue.vconstr tag h_rev) h_rest
+          exact SubstBisimState.ret (SubstBisimValue.vconstr tag h_rev) h_rest hπ₂'_wf
         | cons m ms =>
           have h_mms : closedAt (k + vs₁.length) m = true ∧
               closedAtList (k + vs₁.length) ms = true := by
@@ -3842,10 +4487,24 @@ theorem substBisimState_step_preserves_weak :
             substBisimValueList_refl_wf h_done_wf
           have h_cons : SubstBisimValueList (v₁ :: done) (v₂ :: done) :=
             SubstBisimValueList.cons h_v h_done_refl
-          exact SubstBisimState.reflCompute hρ_wf hρ_len hvs h_mms.1
+          have hv₂_wf : ValueWellFormed v₂ := substBisimValue_wf_right h_v
+          have hvs_len_eq : vs₁.length = vs₂.length := substBisimValueList_length_eq hvs
+          obtain ⟨hfρvs₂_wf, hfρvs₂_len⟩ :=
+            envWellFormed_foldrExtend k ρ vs₂ hρ_wf hρ_len hvs₂_wf
+          have hms_closed : closedAtList (k + vs₂.length) ms = true := by
+            rw [← hvs_len_eq]; exact h_mms.2
+          have hframe_cf_wf : FrameWellFormed (.constrField tag (v₂ :: done) ms
+              (foldrExtend ρ vs₂)) :=
+            FrameWellFormed.constrField tag
+              (ValueListWellFormed.cons hv₂_wf h_done_wf)
+              hfρvs₂_wf hfρvs₂_len hms_closed
+          exact SubstBisimState.reflCompute hρ_wf hρ_len hvs h_mms.1 hvs₂_wf
+            (StackWellFormed.cons hframe_cf_wf hπ₂'_wf)
             (SubstBisimStack.cons
-              (SubstBisimFrame.constrFieldSemiRefl tag h_cons hρ_wf hρ_len hvs h_mms.2) h_rest)
-      | @constrFieldSemiRefl tag done₁ done₂ todo ρ vs₁ vs₂ k h_dones hρ_wf hρ_len hvs h_todo =>
+              (SubstBisimFrame.constrFieldSemiRefl tag h_cons hρ_wf hρ_len hvs h_mms.2
+                hvs₂_wf (ValueListWellFormed.cons hv₂_wf h_done_wf)) h_rest)
+      | @constrFieldSemiRefl tag done₁ done₂ todo ρ vs₁ vs₂ k h_dones hρ_wf hρ_len hvs
+          h_todo hvs₂_wf hdone₂_wf =>
         cases todo with
         | nil =>
           have h_lhs : step (.ret (.constrField tag done₁ [] (foldrExtend ρ vs₁) :: π₁') v₁) =
@@ -3857,7 +4516,7 @@ theorem substBisimState_step_preserves_weak :
             SubstBisimValueList.cons h_v h_dones
           have h_rev : SubstBisimValueList ((v₁ :: done₁).reverse) ((v₂ :: done₂).reverse) :=
             substBisimValueList_reverse _ h_cons
-          exact SubstBisimState.ret (SubstBisimValue.vconstr tag h_rev) h_rest
+          exact SubstBisimState.ret (SubstBisimValue.vconstr tag h_rev) h_rest hπ₂'_wf
         | cons m ms =>
           have h_mms : closedAt (k + vs₁.length) m = true ∧
               closedAtList (k + vs₁.length) ms = true := by
@@ -3872,10 +4531,23 @@ theorem substBisimState_step_preserves_weak :
           rw [h_lhs, h_rhs]
           have h_cons : SubstBisimValueList (v₁ :: done₁) (v₂ :: done₂) :=
             SubstBisimValueList.cons h_v h_dones
-          exact SubstBisimState.reflCompute hρ_wf hρ_len hvs h_mms.1
+          have hv₂_wf : ValueWellFormed v₂ := substBisimValue_wf_right h_v
+          have hvs_len_eq : vs₁.length = vs₂.length := substBisimValueList_length_eq hvs
+          obtain ⟨hfρvs₂_wf, hfρvs₂_len⟩ :=
+            envWellFormed_foldrExtend k ρ vs₂ hρ_wf hρ_len hvs₂_wf
+          have hms_closed : closedAtList (k + vs₂.length) ms = true := by
+            rw [← hvs_len_eq]; exact h_mms.2
+          have hframe_cf_wf : FrameWellFormed (.constrField tag (v₂ :: done₂) ms
+              (foldrExtend ρ vs₂)) :=
+            FrameWellFormed.constrField tag
+              (ValueListWellFormed.cons hv₂_wf hdone₂_wf)
+              hfρvs₂_wf hfρvs₂_len hms_closed
+          exact SubstBisimState.reflCompute hρ_wf hρ_len hvs h_mms.1 hvs₂_wf
+            (StackWellFormed.cons hframe_cf_wf hπ₂'_wf)
             (SubstBisimStack.cons
-              (SubstBisimFrame.constrFieldSemiRefl tag h_cons hρ_wf hρ_len hvs h_mms.2) h_rest)
-      | @caseScrutineeRefl alts ρ vs₁ vs₂ k hρ_wf hρ_len hvs h_alts =>
+              (SubstBisimFrame.constrFieldSemiRefl tag h_cons hρ_wf hρ_len hvs h_mms.2
+                hvs₂_wf (ValueListWellFormed.cons hv₂_wf hdone₂_wf)) h_rest)
+      | @caseScrutineeRefl alts ρ vs₁ vs₂ k hρ_wf hρ_len hvs h_alts hvs₂_wf =>
         cases h_v with
         | vcon c =>
           show SubstBisimState
@@ -3907,10 +4579,13 @@ theorem substBisimState_step_preserves_weak :
                 have h_alt := substBisim_closedAtList_get (k + vs₁.length) alts tag alt h_alts ha
                 have h_fs_refl : SubstBisimValueList fields fields :=
                   substBisimValueList_constToTagAndFields_refl hc
-                exact SubstBisimState.reflCompute hρ_wf hρ_len hvs h_alt
+                have hfields_wf : ValueListWellFormed fields :=
+                  substBisimValueList_wf_right h_fs_refl
+                exact SubstBisimState.reflCompute hρ_wf hρ_len hvs h_alt hvs₂_wf
+                        (stackWellFormed_applyArg_stack fields hfields_wf hπ₂'_wf)
                         (substBisimValueList_to_applyArg_stack fields h_fs_refl h_rest)
-        | vlam _ _ _ _ _ _ => exact SubstBisimState.error
-        | vdelay _ _ _ _ _ _ => exact SubstBisimState.error
+        | vlam _ _ _ _ _ _ _ _ => exact SubstBisimState.error
+        | vdelay _ _ _ _ _ _ _ _ => exact SubstBisimState.error
         | @vconstr tag fs₁ fs₂ h_fs =>
           show SubstBisimState
             (match alts[tag]? with
@@ -3923,13 +4598,15 @@ theorem substBisimState_step_preserves_weak :
           | none => exact SubstBisimState.error
           | some alt =>
             have h_alt := substBisim_closedAtList_get (k + vs₁.length) alts tag alt h_alts ha
-            exact SubstBisimState.reflCompute hρ_wf hρ_len hvs h_alt
+            have hfs₂_wf : ValueListWellFormed fs₂ := substBisimValueList_wf_right h_fs
+            exact SubstBisimState.reflCompute hρ_wf hρ_len hvs h_alt hvs₂_wf
+                    (stackWellFormed_applyArg_stack fs₂ hfs₂_wf hπ₂'_wf)
                     (substBisimValueList_to_applyArg_stack _ h_fs h_rest)
         | vbuiltin _ _ _ => exact SubstBisimState.error
-        | vlam_refl_list _ _ _ _ => exact SubstBisimState.error
-        | vdelay_refl_list _ _ _ _ => exact SubstBisimState.error
-        | vlam_rename_list _ _ _ _ => exact SubstBisimState.error
-        | vdelay_rename_list _ _ _ _ => exact SubstBisimState.error
+        | vlam_refl_list _ _ _ _ _ => exact SubstBisimState.error
+        | vdelay_refl_list _ _ _ _ _ => exact SubstBisimState.error
+        | vlam_rename_list _ _ _ _ _ _ => exact SubstBisimState.error
+        | vdelay_rename_list _ _ _ _ _ _ => exact SubstBisimState.error
         | refl hv_wf =>
           cases v₁ with
           | VCon c =>
@@ -3962,7 +4639,10 @@ theorem substBisimState_step_preserves_weak :
                   have h_alt := substBisim_closedAtList_get (k + vs₁.length) alts tag alt h_alts ha
                   have h_fs_refl : SubstBisimValueList fields fields :=
                     substBisimValueList_constToTagAndFields_refl hc
-                  exact SubstBisimState.reflCompute hρ_wf hρ_len hvs h_alt
+                  have hfields_wf : ValueListWellFormed fields :=
+                    substBisimValueList_wf_right h_fs_refl
+                  exact SubstBisimState.reflCompute hρ_wf hρ_len hvs h_alt hvs₂_wf
+                          (stackWellFormed_applyArg_stack fields hfields_wf hπ₂'_wf)
                           (substBisimValueList_to_applyArg_stack fields h_fs_refl h_rest)
           | VLam _ _ => exact SubstBisimState.error
           | VDelay _ _ => exact SubstBisimState.error
@@ -3981,10 +4661,12 @@ theorem substBisimState_step_preserves_weak :
               have hfs_wf : ValueListWellFormed fs := by cases hv_wf; assumption
               have hfs_refl : SubstBisimValueList fs fs :=
                 substBisimValueList_refl_wf hfs_wf
-              exact SubstBisimState.reflCompute hρ_wf hρ_len hvs h_alt
+              exact SubstBisimState.reflCompute hρ_wf hρ_len hvs h_alt hvs₂_wf
+                      (stackWellFormed_applyArg_stack fs hfs_wf hπ₂'_wf)
                       (substBisimValueList_to_applyArg_stack _ hfs_refl h_rest)
           | VBuiltin _ _ _ => exact SubstBisimState.error
-      | @argRenameInsert t ρ vs₁ vs₂ vs_insert k hρ_wf hρ_len hvs hclosed =>
+      | @argRenameInsert t ρ vs₁ vs₂ vs_insert k hρ_wf hρ_len hvs hclosed hvs₂_wf
+          hvs_insert_wf =>
         have h_lhs : step (.ret (.arg t (foldrExtend ρ vs₁) :: π₁') v₁) =
             .compute (.funV v₁ :: π₁') (foldrExtend ρ vs₁) t := rfl
         have h_rhs : step (.ret (.arg
@@ -3993,9 +4675,18 @@ theorem substBisimState_step_preserves_weak :
             .compute (.funV v₂ :: π₂') (foldrExtend (foldrExtend ρ vs_insert) vs₂)
               (iterShiftRename vs_insert.length (vs₁.length + 1) t) := rfl
         rw [h_lhs, h_rhs]
-        exact SubstBisimState.renameInsertCompute hρ_wf hρ_len hvs hclosed
+        have hv₂_wf : ValueWellFormed v₂ := substBisimValue_wf_right h_v
+        obtain ⟨hfρvs_ins_wf, hfρvs_ins_len⟩ :=
+          envWellFormed_foldrExtend k ρ vs_insert hρ_wf hρ_len hvs_insert_wf
+        obtain ⟨hfρvs₂_wf, hfρvs₂_len⟩ :=
+          envWellFormed_foldrExtend (k + vs_insert.length)
+            (foldrExtend ρ vs_insert) vs₂ hfρvs_ins_wf hfρvs_ins_len hvs₂_wf
+        exact SubstBisimState.renameInsertCompute hρ_wf hρ_len hvs hclosed hvs₂_wf
+          hvs_insert_wf
+          (StackWellFormed.cons (FrameWellFormed.funV hv₂_wf) hπ₂'_wf)
           (SubstBisimStack.cons (SubstBisimFrame.funV h_v) h_rest)
-      | @constrFieldRenameInsert tag done₁ done₂ todo ρ vs₁ vs₂ vs_insert k hρ_wf hρ_len h_done hvs h_todo =>
+      | @constrFieldRenameInsert tag done₁ done₂ todo ρ vs₁ vs₂ vs_insert k hρ_wf hρ_len
+          h_done hvs h_todo hvs₂_wf hvs_insert_wf hdone₂_wf =>
         cases todo with
         | nil =>
           have h_rename_nil : iterShiftRenameList vs_insert.length (vs₁.length + 1) [] = [] :=
@@ -4012,7 +4703,7 @@ theorem substBisimState_step_preserves_weak :
             SubstBisimValueList.cons h_v h_done
           have h_rev : SubstBisimValueList ((v₁ :: done₁).reverse) ((v₂ :: done₂).reverse) :=
             substBisimValueList_reverse _ h_cons
-          exact SubstBisimState.ret (SubstBisimValue.vconstr tag h_rev) h_rest
+          exact SubstBisimState.ret (SubstBisimValue.vconstr tag h_rev) h_rest hπ₂'_wf
         | cons m ms =>
           have h_mms : closedAt (k + vs₁.length) m = true ∧
               closedAtList (k + vs₁.length) ms = true := by
@@ -4037,11 +4728,34 @@ theorem substBisimState_step_preserves_weak :
           rw [h_lhs, h_rhs]
           have h_cons : SubstBisimValueList (v₁ :: done₁) (v₂ :: done₂) :=
             SubstBisimValueList.cons h_v h_done
-          exact SubstBisimState.renameInsertCompute hρ_wf hρ_len hvs h_mms.1
+          have hv₂_wf : ValueWellFormed v₂ := substBisimValue_wf_right h_v
+          obtain ⟨hfρvs_ins_wf, hfρvs_ins_len⟩ :=
+            envWellFormed_foldrExtend k ρ vs_insert hρ_wf hρ_len hvs_insert_wf
+          obtain ⟨hfρvs₂_wf, hfρvs₂_len⟩ :=
+            envWellFormed_foldrExtend (k + vs_insert.length)
+              (foldrExtend ρ vs_insert) vs₂ hfρvs_ins_wf hfρvs_ins_len hvs₂_wf
+          have hvs_len_eq : vs₁.length = vs₂.length := substBisimValueList_length_eq hvs
+          have hms_cl : closedAtList (k + vs_insert.length + vs₂.length)
+              (iterShiftRenameList vs_insert.length (vs₁.length + 1) ms) = true := by
+            have := closedAtList_iterShiftRenameList vs_insert.length (vs₁.length + 1)
+              (k + vs₁.length) ms (by omega) (by omega) h_mms.2
+            have heq : k + vs₁.length + vs_insert.length =
+                       k + vs_insert.length + vs₂.length := by rw [hvs_len_eq]; omega
+            rw [heq] at this; exact this
+          have hframe_cf_wf : FrameWellFormed (.constrField tag (v₂ :: done₂)
+              (iterShiftRenameList vs_insert.length (vs₁.length + 1) ms)
+              (foldrExtend (foldrExtend ρ vs_insert) vs₂)) :=
+            FrameWellFormed.constrField tag
+              (ValueListWellFormed.cons hv₂_wf hdone₂_wf)
+              hfρvs₂_wf hfρvs₂_len hms_cl
+          exact SubstBisimState.renameInsertCompute hρ_wf hρ_len hvs h_mms.1 hvs₂_wf
+            hvs_insert_wf (StackWellFormed.cons hframe_cf_wf hπ₂'_wf)
             (SubstBisimStack.cons
-              (SubstBisimFrame.constrFieldRenameInsert tag hρ_wf hρ_len h_cons hvs h_mms.2)
+              (SubstBisimFrame.constrFieldRenameInsert tag hρ_wf hρ_len h_cons hvs h_mms.2
+                hvs₂_wf hvs_insert_wf (ValueListWellFormed.cons hv₂_wf hdone₂_wf))
               h_rest)
-      | @caseScrutineeRenameInsert alts ρ vs₁ vs₂ vs_insert k hρ_wf hρ_len hvs h_alts =>
+      | @caseScrutineeRenameInsert alts ρ vs₁ vs₂ vs_insert k hρ_wf hρ_len hvs h_alts
+          hvs₂_wf hvs_insert_wf =>
         cases h_v with
         | vcon c =>
           show SubstBisimState
@@ -4105,10 +4819,14 @@ theorem substBisimState_step_preserves_weak :
                 rw [ha']
                 have h_fs_refl : SubstBisimValueList fields fields :=
                   substBisimValueList_constToTagAndFields_refl hc
-                exact SubstBisimState.renameInsertCompute hρ_wf hρ_len hvs h_alt
+                have hfields_wf : ValueListWellFormed fields :=
+                  substBisimValueList_wf_right h_fs_refl
+                exact SubstBisimState.renameInsertCompute hρ_wf hρ_len hvs h_alt hvs₂_wf
+                        hvs_insert_wf
+                        (stackWellFormed_applyArg_stack fields hfields_wf hπ₂'_wf)
                         (substBisimValueList_to_applyArg_stack fields h_fs_refl h_rest)
-        | vlam _ _ _ _ _ _ => exact SubstBisimState.error
-        | vdelay _ _ _ _ _ _ => exact SubstBisimState.error
+        | vlam _ _ _ _ _ _ _ _ => exact SubstBisimState.error
+        | vdelay _ _ _ _ _ _ _ _ => exact SubstBisimState.error
         | @vconstr tag fs₁ fs₂ h_fs =>
           show SubstBisimState
             (match alts[tag]? with
@@ -4145,13 +4863,16 @@ theorem substBisimState_step_preserves_weak :
               refine ⟨hlt', ?_⟩
               rw [iterShiftRenameList_getElem vs_insert.length (vs₁.length + 1) alts tag hlt, heq_val]
             rw [ha']
-            exact SubstBisimState.renameInsertCompute hρ_wf hρ_len hvs h_alt
+            have hfs₂_wf : ValueListWellFormed fs₂ := substBisimValueList_wf_right h_fs
+            exact SubstBisimState.renameInsertCompute hρ_wf hρ_len hvs h_alt hvs₂_wf
+                    hvs_insert_wf
+                    (stackWellFormed_applyArg_stack fs₂ hfs₂_wf hπ₂'_wf)
                     (substBisimValueList_to_applyArg_stack _ h_fs h_rest)
         | vbuiltin _ _ _ => exact SubstBisimState.error
-        | vlam_refl_list _ _ _ _ => exact SubstBisimState.error
-        | vdelay_refl_list _ _ _ _ => exact SubstBisimState.error
-        | vlam_rename_list _ _ _ _ => exact SubstBisimState.error
-        | vdelay_rename_list _ _ _ _ => exact SubstBisimState.error
+        | vlam_refl_list _ _ _ _ _ => exact SubstBisimState.error
+        | vdelay_refl_list _ _ _ _ _ => exact SubstBisimState.error
+        | vlam_rename_list _ _ _ _ _ _ => exact SubstBisimState.error
+        | vdelay_rename_list _ _ _ _ _ _ => exact SubstBisimState.error
         | refl hv_wf =>
           cases v₁ with
           | VCon c =>
@@ -4216,7 +4937,11 @@ theorem substBisimState_step_preserves_weak :
                   rw [ha']
                   have h_fs_refl : SubstBisimValueList fields fields :=
                     substBisimValueList_constToTagAndFields_refl hc
-                  exact SubstBisimState.renameInsertCompute hρ_wf hρ_len hvs h_alt
+                  have hfields_wf : ValueListWellFormed fields :=
+                    substBisimValueList_wf_right h_fs_refl
+                  exact SubstBisimState.renameInsertCompute hρ_wf hρ_len hvs h_alt hvs₂_wf
+                          hvs_insert_wf
+                          (stackWellFormed_applyArg_stack fields hfields_wf hπ₂'_wf)
                           (substBisimValueList_to_applyArg_stack fields h_fs_refl h_rest)
           | VLam _ _ => exact SubstBisimState.error
           | VDelay _ _ => exact SubstBisimState.error
@@ -4259,7 +4984,9 @@ theorem substBisimState_step_preserves_weak :
               have hfs_wf : ValueListWellFormed fs := by cases hv_wf; assumption
               have hfs_refl : SubstBisimValueList fs fs :=
                 substBisimValueList_refl_wf hfs_wf
-              exact SubstBisimState.renameInsertCompute hρ_wf hρ_len hvs h_alt
+              exact SubstBisimState.renameInsertCompute hρ_wf hρ_len hvs h_alt hvs₂_wf
+                      hvs_insert_wf
+                      (stackWellFormed_applyArg_stack fs hfs_wf hπ₂'_wf)
                       (substBisimValueList_to_applyArg_stack _ hfs_refl h_rest)
           | VBuiltin _ _ _ => exact SubstBisimState.error
 
@@ -4283,24 +5010,67 @@ theorem substBisimState_steps_preserves_weak :
     rw [hlhs, hrhs]
     exact h_next
 
-
-/-- Halt inversion: SubstBisimState (halt v₁) s forces s = halt v₂ with
-    SubstBisimValue v₁ v₂. -/
+/- Generalized halt preservation used to invert SubstBisimState into halt
+    states. Operates on raw states so that `induction` works with specific
+    indices via explicit equation propagation. -/
+private theorem substBisimState_halt_inv_aux :
+    ∀ {s₁ s₂ : State}, SubstBisimState s₁ s₂ →
+      ∀ v, s₁ = .halt v → ∃ v', s₂ = .halt v' := by
+  intro s₁ s₂ h
+  induction h with
+  | halt h_v => intro v heq; cases heq; exact ⟨_, rfl⟩
+  | from_shift h_sub h_shift ih =>
+    intro v heq
+    obtain ⟨v', heq'⟩ := ih v heq
+    subst heq'
+    obtain ⟨v'', heq'', _⟩ := BetaValueRefines.shiftBisimState_halt_inv h_shift
+    exact ⟨v'', heq''⟩
+  | _ => intros _ heq; cases heq
 
 theorem substBisimState_halt_inv : ∀ {v : CekValue} {s : State},
-    SubstBisimState (.halt v) s → ∃ v', s = .halt v' ∧ SubstBisimValue v v'
-  | _, _, .halt h_v => ⟨_, rfl, h_v⟩
+    SubstBisimState (.halt v) s → ∃ v', s = .halt v' := by
+  intro v s h
+  exact substBisimState_halt_inv_aux h v rfl
 
 /-- Error inversion. -/
+private theorem substBisimState_error_inv_aux :
+    ∀ {s₁ s₂ : State}, SubstBisimState s₁ s₂ → s₁ = .error → s₂ = .error := by
+  intro s₁ s₂ h
+  induction h with
+  | error => intro _; rfl
+  | from_shift h_sub h_shift ih =>
+    intro heq
+    have : _ = State.error := ih heq
+    subst this
+    exact BetaValueRefines.shiftBisimState_error_inv h_shift
+  | _ => intro heq; cases heq
+
 theorem substBisimState_error_inv : ∀ {s : State},
-    SubstBisimState .error s → s = .error
-  | _, .error => rfl
+    SubstBisimState .error s → s = .error := by
+  intro s h
+  exact substBisimState_error_inv_aux h rfl
 
 /-- Ret inversion. -/
+private theorem substBisimState_ret_inv_aux :
+    ∀ {s₁ s₂ : State}, SubstBisimState s₁ s₂ →
+      ∀ π v, s₁ = .ret π v → ∃ π' v', s₂ = .ret π' v' := by
+  intro s₁ s₂ h
+  induction h with
+  | ret h_v h_π => intro π v heq; cases heq; exact ⟨_, _, rfl⟩
+  | from_shift h_sub h_shift ih =>
+    intro π v heq
+    obtain ⟨π', v', heq'⟩ := ih π v heq
+    subst heq'
+    obtain ⟨π'', v'', heq'', _, _⟩ :=
+      BetaValueRefines.shiftBisimState_ret_inv h_shift
+    exact ⟨π'', v'', heq''⟩
+  | _ => intros _ _ heq; cases heq
+
 theorem substBisimState_ret_inv : ∀ {π : Stack} {v : CekValue} {s : State},
     SubstBisimState (.ret π v) s →
-    ∃ π' v', s = .ret π' v' ∧ SubstBisimValue v v' ∧ SubstBisimStack π π'
-  | _, _, _, .ret h_v h_π => ⟨_, _, rfl, h_v, h_π⟩
+    ∃ π' v', s = .ret π' v' := by
+  intro π v s h
+  exact substBisimState_ret_inv_aux h π v rfl
 
 /-- The direct lifting from `SubstBisimState` to `ObsRefines`. Uses weak
     step preservation + halt/error inversions. -/
@@ -4315,7 +5085,7 @@ theorem substBisimState_to_obsRefines :
     -- By halt_inv: steps m s₂ = halt v' with SubstBisimValue v v'.
     obtain ⟨m, hm⟩ := substBisimState_steps_preserves_weak n h
     rw [hs] at hm
-    obtain ⟨v', hv'_eq, _hv_rel⟩ := substBisimState_halt_inv hm
+    obtain ⟨v', hv'_eq⟩ := substBisimState_halt_inv hm
     exact ⟨v', m, hv'_eq⟩
   · -- Error clause
     intro ⟨n, hs⟩

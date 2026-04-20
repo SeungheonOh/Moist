@@ -2074,71 +2074,6 @@ theorem rHaltsRel_mono {j k d : Nat} (hjk : j ≤ k) {t_rhs : Moist.Plutus.Term.
   obtain ⟨m, v_rhs', hm, hne, hrel⟩ := h ρ π hρ
   exact ⟨m, v_rhs', hm, hne, valueRefinesK_mono hjk v_rhs v_rhs' hrel⟩
 
---------------------------------------------------------------------------------
--- 16b. `RHaltsRelWF` — strengthened `RHaltsRel` bundling well-formedness.
---
--- This is the hypothesis shape used by the state-level shift proof. In
--- addition to the halt witness and the value-refinement to `v_rhs`, this
--- variant bundles:
---   * `closedAt d t_rhs` — closedness of the RHS term at depth `d`.
---   * `ValueWellFormed v_rhs` — well-formedness of the fixed witness value.
---   * `ValueWellFormed v_rhs'` — well-formedness of the halt value.
--- The universal ρ/π clause takes `EnvWellFormed d ρ` and `StackWellFormed π`
--- as hypotheses (rather than the weaker "every position ≤ d is some").
---------------------------------------------------------------------------------
-
-/-- Strengthened `RHaltsRel` bundling well-formedness on both sides: the
-    RHS term is closed at depth `d`, the witness `v_rhs` and halt value
-    `v_rhs'` are both well-formed, and the universal ρ/π clause ranges
-    over well-formed environments and stacks. -/
-def RHaltsRelWF (t_rhs : Moist.Plutus.Term.Term) (v_rhs : CekValue)
-    (k d : Nat) : Prop :=
-  closedAt d t_rhs = true ∧
-  ValueWellFormed v_rhs ∧
-  ∀ (ρ : CekEnv) (π : Stack),
-    EnvWellFormed d ρ → StackWellFormed π →
-    ∃ (m : Nat) (v_rhs' : CekValue),
-      steps m (.compute π ρ t_rhs) = .ret π v_rhs' ∧
-      (∀ k' ≤ m, steps k' (.compute π ρ t_rhs) ≠ .error) ∧
-      ValueRefinesK k v_rhs v_rhs' ∧
-      ValueWellFormed v_rhs'
-
-/-- Monotonicity of `RHaltsRelWF` in the step index. -/
-theorem rHaltsRelWF_mono {j k d : Nat} (hjk : j ≤ k)
-    {t_rhs : Moist.Plutus.Term.Term} {v_rhs : CekValue}
-    (h : RHaltsRelWF t_rhs v_rhs k d) :
-    RHaltsRelWF t_rhs v_rhs j d := by
-  obtain ⟨hclosed, hv_rhs, heval⟩ := h
-  refine ⟨hclosed, hv_rhs, ?_⟩
-  intro ρ π hρ hπ
-  obtain ⟨m, v_rhs', hm, hne, hrel, hwf⟩ := heval ρ π hρ hπ
-  exact ⟨m, v_rhs', hm, hne, valueRefinesK_mono hjk v_rhs v_rhs' hrel, hwf⟩
-
-/-- Closedness extraction from `RHaltsRelWF`. -/
-theorem rHaltsRelWF_closed {t_rhs : Moist.Plutus.Term.Term} {v_rhs : CekValue}
-    {k d : Nat} (h : RHaltsRelWF t_rhs v_rhs k d) :
-    closedAt d t_rhs = true := h.1
-
-/-- Witness well-formedness extraction from `RHaltsRelWF`. -/
-theorem rHaltsRelWF_wf {t_rhs : Moist.Plutus.Term.Term} {v_rhs : CekValue}
-    {k d : Nat} (h : RHaltsRelWF t_rhs v_rhs k d) :
-    ValueWellFormed v_rhs := h.2.1
-
-/-- Forgetting well-formedness: `RHaltsRelWF` implies the underlying
-    `RHaltsRel`-style quantification (restricted to well-formed envs
-    and stacks). -/
-theorem rHaltsRel_of_rHaltsRelWF_wfEnv
-    {t_rhs : Moist.Plutus.Term.Term} {v_rhs : CekValue} {k d : Nat}
-    (h : RHaltsRelWF t_rhs v_rhs k d) :
-    ∀ (ρ : CekEnv) (π : Stack), EnvWellFormed d ρ → StackWellFormed π →
-      ∃ (m : Nat) (v_rhs' : CekValue),
-        steps m (.compute π ρ t_rhs) = .ret π v_rhs' ∧
-        (∀ k' ≤ m, steps k' (.compute π ρ t_rhs) ≠ .error) ∧
-        ValueRefinesK k v_rhs v_rhs' := by
-  intro ρ π hρ hπ
-  obtain ⟨m, v_rhs', hm, hne, hrel, _⟩ := h.2.2 ρ π hρ hπ
-  exact ⟨m, v_rhs', hm, hne, hrel⟩
-
 /-- A well-formed env at depth `d` satisfies the sized-lookup predicate at
     depth `d`. Bridge used when adapting `RHaltsRel`-style hypotheses. -/
 private theorem envWellFormed_sized_lookup {d : Nat} {ρ : CekEnv}
@@ -2314,80 +2249,6 @@ theorem closedAt_shift {d : Nat} {t : Moist.Plutus.Term.Term}
   · have hn_pos : n ≥ 1 := by omega
     rw [Moist.Verified.shiftRename_ge hn_pos]
     omega
-
-/-- **Conditional state-level shift lemma**: given the external
-    value-shift obligation `h_preserve`, `RHaltsRelWF t_rhs v_rhs k d`
-    lifts to `RHaltsRelWF (shift t_rhs) v_rhs k (d + 1)`.
-
-    The proof:
-    1. Decomposes `ρ_full` as `.cons v0 ρ_tail` via `envWellFormed_succ_cons`.
-    2. Recognizes `.cons v0 ρ_tail = ρ_tail.extend v0`.
-    3. Applies `h` at `ρ_tail` with π = [] to obtain the LHS halt witness
-       `.ret [] v0'`, stepping once more to `.halt v0'`.
-    4. Extracts the halt existence on the RHS via `halt_reach_shift`.
-    5. Transports the π = [] halt witness to the general π via
-       `value_stack_poly`, yielding `.ret π v_final` on the shifted RHS.
-    6. Uses `h_preserve` at `(ρ_full, π)` to upgrade `v_final` into a
-       `ValueRefinesK`-related, well-formed value. -/
-theorem rHalts_shift_WF_cond {k d : Nat} {t_rhs : Moist.Plutus.Term.Term}
-    {v_rhs : CekValue}
-    (h : RHaltsRelWF t_rhs v_rhs k d)
-    (h_preserve : ValueShiftsPreserve t_rhs v_rhs k d) :
-    RHaltsRelWF (Moist.Verified.renameTerm (Moist.Verified.shiftRename 1) t_rhs)
-      v_rhs k (d + 1) := by
-  obtain ⟨hclosed, hv_rhs, heval⟩ := h
-  refine ⟨closedAt_shift hclosed, hv_rhs, ?_⟩
-  intro ρ_full π hwf_full hwf_π
-  -- Decompose ρ_full = cons v0 ρ_tail.
-  obtain ⟨v0, ρ_tail, hρ_eq⟩ := envWellFormed_succ_cons hwf_full
-  subst hρ_eq
-  obtain ⟨hwf_tail, hwf_v0⟩ := envWellFormed_cons_decompose hwf_full
-  -- Get LHS halt witness at ρ_tail, π = [] to use halt_reach_shift.
-  obtain ⟨m0, v0', h0_steps, _h0_noerr, _h0_rel, _h0_wf⟩ :=
-    heval ρ_tail [] hwf_tail StackWellFormed.nil
-  -- Bridge .ret [] v0' to .halt v0' in one more step.
-  have h0_halt : steps (m0 + 1) (.compute [] ρ_tail t_rhs) = .halt v0' :=
-    steps_ret_empty_halt h0_steps
-  -- Apply halt_reach_shift at step index m0 + 1.
-  have hreach :=
-    halt_reach_shift_existence t_rhs d hclosed (m0 + 1) ρ_tail v0 []
-      hwf_tail hwf_v0 StackWellFormed.nil h0_halt (Nat.le_refl _)
-  obtain ⟨v_shifted, h_reaches⟩ := hreach
-  -- Establish closedAt (d+1) on the shifted term.
-  have h_closed_shift := closedAt_shift hclosed
-  -- No-error at π = [] for the shifted term: derived from the halt trace.
-  have h_noerr_0 : ∀ k_, steps k_ (.compute [] (ρ_tail.extend v0)
-      (Moist.Verified.renameTerm (Moist.Verified.shiftRename 1) t_rhs)) ≠ .error := by
-    intro k_ h_err
-    obtain ⟨n_halt, h_halt_full⟩ := h_reaches
-    by_cases h_le : k_ ≤ n_halt
-    · have h_split : n_halt = k_ + (n_halt - k_) := by omega
-      have h_via_err : steps n_halt (.compute [] (ρ_tail.extend v0)
-          (Moist.Verified.renameTerm (Moist.Verified.shiftRename 1) t_rhs)) = .error := by
-        rw [h_split, steps_trans, h_err, steps_error_eq]
-      rw [h_halt_full] at h_via_err
-      exact State.noConfusion h_via_err
-    · have h_gt : n_halt < k_ := Nat.lt_of_not_ge h_le
-      have h_split : k_ = n_halt + (k_ - n_halt) := by omega
-      have : steps k_ (.compute [] (ρ_tail.extend v0)
-          (Moist.Verified.renameTerm (Moist.Verified.shiftRename 1) t_rhs)) = .halt v_shifted := by
-        rw [h_split, steps_trans, h_halt_full, steps_halt_fixed]
-      rw [this] at h_err
-      exact State.noConfusion h_err
-  -- Apply value_stack_poly to lift halt from π = [] to given π.
-  have hwf_size : Moist.Verified.Semantics.WellSizedEnv (d + 1) (ρ_tail.extend v0) := by
-    intro n hn hnd
-    have hn_pos : 0 < n := by omega
-    obtain ⟨v, hl, _⟩ := envWellFormed_lookup (d + 1) hwf_full hn_pos hnd
-    exact ⟨v, hl⟩
-  obtain ⟨m_final, v_final, h_final_steps, h_final_noerr⟩ :=
-    value_stack_poly (ρ_tail.extend v0)
-      (Moist.Verified.renameTerm (Moist.Verified.shiftRename 1) t_rhs) (d + 1)
-      hwf_size h_closed_shift ⟨v_shifted, h_reaches⟩ h_noerr_0 π
-  -- Use h_preserve at (ρ_full, π) to extract ValueRefinesK and ValueWellFormed.
-  obtain ⟨h_vref, h_vwf⟩ :=
-    h_preserve (ρ_tail.extend v0) π hwf_full hwf_π m_final v_final h_final_steps
-  exact ⟨m_final, v_final, h_final_steps, h_final_noerr, h_vref, h_vwf⟩
 
 --------------------------------------------------------------------------------
 -- 16f. `ValueRefinesK` inversions for constant witnesses.
@@ -2597,12 +2458,12 @@ private theorem shiftValue_eq_VCon_iff (v0 : CekValue) (v : CekValue) (c : Moist
   constructor
   · intro h
     cases v with
-    | VCon c' => simp [shiftValue] at h; rw [h]
+    | VCon c' => simp at h; rw [h]
     | VLam _ _ => simp [shiftValue] at h
     | VDelay _ _ => simp [shiftValue] at h
     | VConstr _ _ => simp [shiftValue] at h
     | VBuiltin _ _ _ => simp [shiftValue] at h
-  · intro h; subst h; simp [shiftValue]
+  · intro h; subst h; simp
 
 /-- Extracting constants commutes with shifting the argument list. -/
 private theorem extractConsts_shift (v0 : CekValue) (args : List CekValue) :
@@ -4814,9 +4675,6 @@ theorem valueRefinesK_trans_shiftBisim :
           -- to require well-formedness hypotheses on args. See
           -- `Moist.Verified.Contextual.BisimRef` for the existing LocalValue-based
           -- analog (which is symmetric and uses local refl via closedAt).
-          -- For the specific inline-pass use case, the outer composition via
-          -- `rHalts_shift_WF` can bypass this via the RHaltsRelWF structure
-          -- guaranteeing ValueWellFormed on v_rhs' at each step.
           sorry
         | _ => simp [ValueRefinesK] at h_ab
       | _ => simp [ValueRefinesK] at h_ab
@@ -4851,52 +4709,5 @@ theorem valueRefinesK_trans_shiftBisim :
           exact listRel_valueRefinesK_trans_shiftBisim ih args_a h_ls_ab h_args
         | _ => simp [ValueRefinesK] at h_ab
       | _ => simp [ValueRefinesK] at h_ab
-
---------------------------------------------------------------------------------
--- 19k. `rHalts_shift_WF` — the unconditional form via shift bisim.
---------------------------------------------------------------------------------
-
-/-- **`rHalts_shift_WF`**: `RHaltsRelWF t_rhs v_rhs k d` lifts to
-    `RHaltsRelWF (shift t_rhs) v_rhs k (d + 1)`. Composes `rHalts_shift_WF_cond`
-    with a proof of `ValueShiftsPreserve` via the shift bisim. -/
-theorem rHalts_shift_WF {k d : Nat} {t_rhs : Moist.Plutus.Term.Term}
-    {v_rhs : CekValue}
-    (h : RHaltsRelWF t_rhs v_rhs k d) :
-    RHaltsRelWF (Moist.Verified.renameTerm (Moist.Verified.shiftRename 1) t_rhs)
-      v_rhs k (d + 1) := by
-  refine rHalts_shift_WF_cond h ?_
-  intro ρ_full π hwf_full hwf_π m v' hsteps_m
-  -- Decompose ρ_full, build initial bisim, apply preservation, extract via ret_inv.
-  obtain ⟨v0, ρ_tail, hρ_eq⟩ := envWellFormed_succ_cons hwf_full
-  subst hρ_eq
-  obtain ⟨hwf_tail, hwf_v0⟩ := envWellFormed_cons_decompose hwf_full
-  obtain ⟨hclosed, hv_rhs_wf, heval⟩ := h
-  have henv_init : ShiftBisimEnv (Moist.Verified.shiftRename 1) d ρ_tail (ρ_tail.extend v0) :=
-    shiftBisimEnv_shift_extend d ρ_tail v0 hwf_tail
-  have hstack_refl : ShiftBisimStack π π := shiftBisimStack_refl_id π hwf_π
-  have hstate_init : ShiftBisimState
-      (.compute π ρ_tail t_rhs)
-      (.compute π (ρ_tail.extend v0)
-        (Moist.Verified.renameTerm (Moist.Verified.shiftRename 1) t_rhs)) :=
-    ShiftBisimState.compute
-      (Moist.Verified.FundamentalRefines.is0preserving_shiftRename (by omega))
-      henv_init hclosed hstack_refl
-  have hstate_m := shiftBisimState_steps_preserves m hstate_init
-  -- Note: `.extend` = `.cons`, and `hsteps_m` uses `cons`; equate them.
-  have hstate_m' : ShiftBisimState (steps m (.compute π ρ_tail t_rhs))
-      (.ret π v') := by
-    show ShiftBisimState _ (.ret π v')
-    have hextend : (ρ_tail.extend v0) = CekEnv.cons v0 ρ_tail := rfl
-    rw [← hextend] at hsteps_m
-    exact hsteps_m ▸ hstate_m
-  have hs_lhs : ∃ π_lhs v_lhs, steps m (.compute π ρ_tail t_rhs) = .ret π_lhs v_lhs ∧
-      ShiftBisimStack π_lhs π ∧ ShiftBisimValue v_lhs v' := by
-    generalize hs : steps m (.compute π ρ_tail t_rhs) = s_lhs at hstate_m'
-    cases hstate_m' with
-    | ret h_v h_π => exact ⟨_, _, rfl, h_π, h_v⟩
-  obtain ⟨π_lhs, v_lhs, _h_lhs_steps, _h_π_rel, h_v_rel⟩ := hs_lhs
-  -- Final composition: requires matching m with heval's m_h and valueRefinesK
-  -- transitivity at VLam/VDelay, which remains as one sorry.
-  sorry
 
 end Moist.Verified.BetaValueRefines
