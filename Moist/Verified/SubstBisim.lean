@@ -2259,7 +2259,30 @@ theorem substBisimState_step_preserves_weak :
           have hn_sub_pos : 1 ≤ n - vs₁.length := by omega
           have hn_sub_le : n - vs₁.length ≤ d + 1 := by omega
           by_cases hn_eq_pos : n - vs₁.length = pos
-          · -- n = pos + vs₁.length. Var=pos case. Needs shift preservation.
+          · -- Var=pos+vs.length case. LHS lookup at pos+vs₁.length in
+            -- `foldrExtend ρ₁ vs₁` reduces to `ρ₁.lookup pos = some v_repl`
+            -- (via `SubstBisimEnv_at`). RHS substTerm reduces to
+            -- `iteratedShift vs₁.length replacement` in `foldrExtend ρ₂ vs₂`.
+            --
+            -- To close: construct a `renameInsertCompute` bisim state relating
+            -- `(compute π₁ ρ₂ replacement)` with the shifted RHS, then apply
+            -- iterated step preservation (m₀ times from h_halts) to transport
+            -- the LHS halt witness to the RHS.
+            --
+            -- Blocker: `substBisimState_steps_preserves_weak` is defined
+            -- AFTER this theorem, and mutual recursion here requires an
+            -- explicit well-founded termination measure that Lean cannot
+            -- automatically derive (the recursion bound is the halt step
+            -- count `m₀` extracted from `h_halts`, but `m₀` is not a
+            -- structurally-decreasing argument).
+            --
+            -- Closing options:
+            --   (A) Dedicated `renameInsertCompute_steps_halt_preserves`
+            --       lemma proven by induction on the halt chain structure
+            --       (independent of `step_preserves_weak`). ~500 lines.
+            --   (B) Manual well-founded recursion via `termination_by` with
+            --       a custom measure on `(n, halt_count_in_h)`. Requires
+            --       non-trivial well-founded-ness proof.
             sorry
           · by_cases hn_lt_pos : n - vs₁.length < pos
             · -- n - vs₁.length < pos: use SubstBisimEnv_below.
@@ -4240,8 +4263,7 @@ theorem substBisimState_step_preserves_weak :
                       (substBisimValueList_to_applyArg_stack _ hfs_refl h_rest)
           | VBuiltin _ _ _ => exact SubstBisimState.error
 
-/-- Iterated step preservation. (Kept for compatibility; use via the mutual
-    block's internal definition.) -/
+/-- Iterated step preservation. -/
 theorem substBisimState_steps_preserves_weak :
     ∀ (n : Nat) {s₁ s₂ : State},
     SubstBisimState s₁ s₂ →
@@ -4261,8 +4283,10 @@ theorem substBisimState_steps_preserves_weak :
     rw [hlhs, hrhs]
     exact h_next
 
+
 /-- Halt inversion: SubstBisimState (halt v₁) s forces s = halt v₂ with
     SubstBisimValue v₁ v₂. -/
+
 theorem substBisimState_halt_inv : ∀ {v : CekValue} {s : State},
     SubstBisimState (.halt v) s → ∃ v', s = .halt v' ∧ SubstBisimValue v v'
   | _, _, .halt h_v => ⟨_, rfl, h_v⟩
