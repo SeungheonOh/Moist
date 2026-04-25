@@ -32,20 +32,23 @@ body are not erroneously renamed to an outer `.Let`'s target name.
 -/
 
 /-- Look up `v` in the substitution list, returning the renamed
-    variable if present or `v` itself otherwise. -/
+    variable if present or `v` itself otherwise. The match uses the
+    full `VarId` BEq (origin + uid), matching the behaviour of
+    `envLookupT` in the lowering. -/
 def substLookup : List (VarId × VarId) → VarId → VarId
   | [], v => v
   | (old, new) :: rest, v =>
-    if old.uid = v.uid then new else substLookup rest v
+    if (old == v) = true then new else substLookup rest v
 
-/-- Remove any mapping for `v.uid` from the substitution. Used when a
-    binder shadows an outer variable with the same uid. Recursive
-    form (not `List.filter`) so that soundness proofs can do direct
-    structural induction. -/
+/-- Remove any mapping for `v` from the substitution. Used when a
+    binder shadows an outer variable with the same identity. Match
+    uses full `VarId` BEq (origin + uid). Recursive form (not
+    `List.filter`) so that soundness proofs can do direct structural
+    induction. -/
 def substShadow : List (VarId × VarId) → VarId → List (VarId × VarId)
   | [], _ => []
   | (old, new) :: rest, v =>
-    if old.uid = v.uid then substShadow rest v
+    if (old == v) = true then substShadow rest v
     else (old, new) :: substShadow rest v
 
 mutual

@@ -15,37 +15,74 @@ open Moist.MIR
    maxUidExpr maxUidExprList maxUidExprBinds
    freshVar FreshM FreshState runFresh expandFix fixCount)
 
+/-! ## VarId BEq helpers (local re-exposure) -/
+
+theorem VarId_beq_true_iff (a b : VarId) :
+    (a == b) = true ↔ a.origin = b.origin ∧ a.uid = b.uid := by
+  show (a.origin == b.origin && a.uid == b.uid) = true ↔ _
+  rw [Bool.and_eq_true]
+  constructor
+  · rintro ⟨ho, hu⟩
+    refine ⟨?_, of_decide_eq_true hu⟩
+    revert ho
+    cases a.origin <;> cases b.origin <;> intro ho <;> first | rfl | cases ho
+  · rintro ⟨ho, hu⟩
+    refine ⟨?_, decide_eq_true hu⟩
+    rw [ho]; cases b.origin <;> rfl
+
+theorem VarId_beq_false_iff (a b : VarId) :
+    (a == b) = false ↔ a.origin ≠ b.origin ∨ a.uid ≠ b.uid := by
+  constructor
+  · intro hb
+    by_cases ho : a.origin = b.origin
+    · by_cases hu : a.uid = b.uid
+      · exfalso
+        have := (VarId_beq_true_iff a b).mpr ⟨ho, hu⟩
+        rw [this] at hb; exact Bool.noConfusion hb
+      · exact Or.inr hu
+    · exact Or.inl ho
+  · intro h
+    cases hb : (a == b)
+    · rfl
+    · exfalso
+      have ⟨ho, hu⟩ := (VarId_beq_true_iff a b).mp hb
+      cases h with
+      | inl h' => exact h' ho
+      | inr h' => exact h' hu
+
 /-! ## substLookup / substShadow helpers -/
 
 theorem substLookup_cons_match
     (old new : VarId) (rest : List (VarId × VarId)) (v : VarId)
-    (h : old.uid = v.uid) :
+    (h : (old == v) = true) :
     substLookup ((old, new) :: rest) v = new := by
-  show (if old.uid = v.uid then new else substLookup rest v) = new
+  show (if (old == v) = true then new else substLookup rest v) = new
   rw [if_pos h]
 
 theorem substLookup_cons_nomatch
     (old new : VarId) (rest : List (VarId × VarId)) (v : VarId)
-    (h : old.uid ≠ v.uid) :
+    (h : (old == v) = false) :
     substLookup ((old, new) :: rest) v = substLookup rest v := by
-  show (if old.uid = v.uid then new else substLookup rest v) = substLookup rest v
-  rw [if_neg h]
+  show (if (old == v) = true then new else substLookup rest v) = substLookup rest v
+  rw [if_neg (by simp [h])]
 
 theorem substShadow_nil (v : VarId) : substShadow [] v = [] := rfl
 
 theorem substShadow_cons_match (old new : VarId)
-    (rest : List (VarId × VarId)) (v : VarId) (h : old.uid = v.uid) :
+    (rest : List (VarId × VarId)) (v : VarId) (h : (old == v) = true) :
     substShadow ((old, new) :: rest) v = substShadow rest v := by
   simp only [substShadow, if_pos h]
 
 theorem substShadow_cons_nomatch (old new : VarId)
-    (rest : List (VarId × VarId)) (v : VarId) (h : old.uid ≠ v.uid) :
+    (rest : List (VarId × VarId)) (v : VarId) (h : (old == v) = false) :
     substShadow ((old, new) :: rest) v = (old, new) :: substShadow rest v := by
-  simp only [substShadow, if_neg h]
+  show (if (old == v) = true then substShadow rest v
+        else (old, new) :: substShadow rest v) = (old, new) :: substShadow rest v
+  rw [if_neg (by simp [h])]
 
 theorem substShadow_mem_iff {σ : List (VarId × VarId)} {v : VarId}
     {p : VarId × VarId} :
-    p ∈ substShadow σ v ↔ p ∈ σ ∧ p.1.uid ≠ v.uid := by
+    p ∈ substShadow σ v ↔ p ∈ σ ∧ (p.1 == v) = false := by
   induction σ with
   | nil =>
     rw [substShadow_nil]
@@ -54,7 +91,7 @@ theorem substShadow_mem_iff {σ : List (VarId × VarId)} {v : VarId}
     · intro ⟨hm, _⟩; exact absurd hm List.not_mem_nil
   | cons q rest ih =>
     obtain ⟨old, new⟩ := q
-    by_cases hov : old.uid = v.uid
+    by_cases hov : (old == v) = true
     · rw [substShadow_cons_match old new rest v hov]
       rw [ih]
       constructor
@@ -62,16 +99,17 @@ theorem substShadow_mem_iff {σ : List (VarId × VarId)} {v : VarId}
       · intro ⟨hm, hne⟩
         rcases List.mem_cons.mp hm with heq | hm'
         · exfalso
-          -- heq : p = (old, new), hne : p.1.uid ≠ v.uid, but old.uid = v.uid
           subst heq
-          exact hne hov
+          rw [hov] at hne
+          exact Bool.noConfusion hne
         · exact ⟨hm', hne⟩
-    · rw [substShadow_cons_nomatch old new rest v hov]
+    · have hov' : (old == v) = false := by cases h : (old == v); rfl; exact absurd h hov
+      rw [substShadow_cons_nomatch old new rest v hov']
       constructor
       · intro hm
         rcases List.mem_cons.mp hm with heq | hm'
         · rw [heq]
-          exact ⟨List.mem_cons_self, hov⟩
+          exact ⟨List.mem_cons_self, hov'⟩
         · obtain ⟨hm'', hne⟩ := ih.mp hm'
           exact ⟨List.mem_cons_of_mem _ hm'', hne⟩
       · intro ⟨hm, hne⟩
@@ -81,13 +119,13 @@ theorem substShadow_mem_iff {σ : List (VarId × VarId)} {v : VarId}
 
 theorem substLookup_identity_of_no_match
     (σ : List (VarId × VarId)) (w : VarId)
-    (hnone : ∀ p ∈ σ, p.1.uid ≠ w.uid) :
+    (hnone : ∀ p ∈ σ, (p.1 == w) = false) :
     substLookup σ w = w := by
   induction σ with
   | nil => rfl
   | cons p rest ih =>
     obtain ⟨old, new⟩ := p
-    have hne : old.uid ≠ w.uid := hnone _ List.mem_cons_self
+    have hne : (old == w) = false := hnone _ List.mem_cons_self
     rw [substLookup_cons_nomatch old new rest w hne]
     exact ih (fun q hq => hnone q (List.mem_cons_of_mem _ hq))
 
@@ -99,43 +137,58 @@ theorem substLookup_result_in_image_or_self
   | nil => exact .inl rfl
   | cons p rest ih =>
     obtain ⟨old, new⟩ := p
-    by_cases hov : old.uid = w.uid
+    by_cases hov : (old == w) = true
     · right
       refine ⟨(old, new), List.mem_cons_self, ?_⟩
       rw [substLookup_cons_match old new rest w hov]
-    · rw [substLookup_cons_nomatch old new rest w hov]
+    · have hov' : (old == w) = false := by cases h : (old == w); rfl; exact absurd h hov
+      rw [substLookup_cons_nomatch old new rest w hov']
       rcases ih with heq | ⟨q, hq, hqeq⟩
       · exact .inl heq
       · exact .inr ⟨q, List.mem_cons_of_mem _ hq, hqeq⟩
 
 theorem substLookup_substShadow_neq
-    (σ : List (VarId × VarId)) (v w : VarId) (h : v.uid ≠ w.uid) :
+    (σ : List (VarId × VarId)) (v w : VarId) (h : (v == w) = false) :
     substLookup (substShadow σ v) w = substLookup σ w := by
   induction σ with
   | nil => rfl
   | cons p rest ih =>
     obtain ⟨old, new⟩ := p
-    by_cases hov : old.uid = v.uid
+    by_cases hov : (old == v) = true
     · rw [substShadow_cons_match old new rest v hov, ih]
-      have hneq : old.uid ≠ w.uid := by
-        intro heq; rw [hov] at heq; exact h heq
+      have hneq : (old == w) = false := by
+        -- If old == v and old == w, then v == w (by BEq transitivity).
+        cases hw : (old == w)
+        · rfl
+        · exfalso
+          -- old == v (true) means origin+uid match; same for old == w. So v == w.
+          have : (v == w) = true := by
+            rw [VarId_beq_true_iff] at hov hw
+            rw [VarId_beq_true_iff]
+            exact ⟨hov.1.symm.trans hw.1, hov.2.symm.trans hw.2⟩
+          rw [this] at h; exact Bool.noConfusion h
       exact (substLookup_cons_nomatch old new rest w hneq).symm
-    · rw [substShadow_cons_nomatch old new rest v hov]
-      by_cases how : old.uid = w.uid
+    · have hov' : (old == v) = false := by cases h : (old == v); rfl; exact absurd h hov
+      rw [substShadow_cons_nomatch old new rest v hov']
+      by_cases how : (old == w) = true
       · rw [substLookup_cons_match old new _ w how,
             substLookup_cons_match old new rest w how]
-      · rw [substLookup_cons_nomatch old new _ w how,
-            substLookup_cons_nomatch old new rest w how]
+      · have how' : (old == w) = false := by cases h : (old == w); rfl; exact absurd h how
+        rw [substLookup_cons_nomatch old new _ w how',
+            substLookup_cons_nomatch old new rest w how']
         exact ih
 
 /-! ## envLookupT helpers -/
 
 theorem envLookupT_cons_same_uid (v w : VarId) (env : List VarId)
-    (h : v.uid = w.uid) :
+    (ho : v.origin = w.origin) (h : v.uid = w.uid) :
     envLookupT (v :: env) w = some 0 := by
   have hbeq : (v == w) = true := by
-    show decide (v.uid = w.uid) = true
-    exact decide_eq_true h
+    show (v.origin == w.origin && v.uid == w.uid) = true
+    rw [Bool.and_eq_true]
+    refine ⟨?_, decide_eq_true h⟩
+    rw [ho]
+    cases w.origin <;> rfl
   show (if (v == w) = true then some 0
         else envLookupT.go w env (0 + 1)) = some 0
   rw [if_pos hbeq]
@@ -144,8 +197,9 @@ theorem envLookupT_cons_diff_uid (v w : VarId) (env : List VarId)
     (h : v.uid ≠ w.uid) :
     envLookupT (v :: env) w = (envLookupT env w).map (· + 1) := by
   have hbeq : (v == w) = false := by
-    show decide (v.uid = w.uid) = false
-    exact decide_eq_false h
+    show (v.origin == w.origin && v.uid == w.uid) = false
+    rw [Bool.and_eq_false_iff]
+    exact Or.inr (decide_eq_false h)
   exact Moist.MIR.envLookupT_cons_neq v w env hbeq
 
 /-! ## Main soundness theorem -/
@@ -260,16 +314,16 @@ private theorem alphaRenameBinds_cons_eq
     (rest : List (VarId × Expr × Bool))
     (s : Moist.MIR.FreshState) :
     (alphaRenameBinds σ ((v, rhs, er) :: rest)) s =
-      ((((⟨(alphaRename σ rhs s).2.next, v.hint⟩ : VarId),
+      ((((⟨(alphaRename σ rhs s).2.next, .gen, v.hint⟩ : VarId),
           (alphaRename σ rhs s).1, er) ::
         (alphaRenameBinds
-          ((v, (⟨(alphaRename σ rhs s).2.next, v.hint⟩ : VarId)) :: σ)
+          ((v, (⟨(alphaRename σ rhs s).2.next, .gen, v.hint⟩ : VarId)) :: σ)
           rest ⟨(alphaRename σ rhs s).2.next + 1⟩).1.1,
        (alphaRenameBinds
-          ((v, (⟨(alphaRename σ rhs s).2.next, v.hint⟩ : VarId)) :: σ)
+          ((v, (⟨(alphaRename σ rhs s).2.next, .gen, v.hint⟩ : VarId)) :: σ)
           rest ⟨(alphaRename σ rhs s).2.next + 1⟩).1.2),
        (alphaRenameBinds
-          ((v, (⟨(alphaRename σ rhs s).2.next, v.hint⟩ : VarId)) :: σ)
+          ((v, (⟨(alphaRename σ rhs s).2.next, .gen, v.hint⟩ : VarId)) :: σ)
           rest ⟨(alphaRename σ rhs s).2.next + 1⟩).2) := by
   show (do
       let rhs' ← alphaRename σ rhs
@@ -301,29 +355,41 @@ private theorem Compat_lam
     (hsubst_lo : ∀ p ∈ σ, B < p.2.uid)
     : Compat (substShadow σ v) (v :: env1) (v :: env2) B := by
   intro w hw
-  by_cases hwv : w.uid = v.uid
-  · have hvw : v.uid = w.uid := hwv.symm
-    rw [envLookupT_cons_same_uid v w env1 hvw]
+  by_cases hvw_beq : (v == w) = true
+  · have ⟨ho, hu⟩ := (VarId_beq_true_iff v w).mp hvw_beq
+    rw [envLookupT_cons_same_uid v w env1 ho hu]
     have hshad : substLookup (substShadow σ v) w = w := by
       apply substLookup_identity_of_no_match
-      intro q hq heq
+      intro q hq
       rw [substShadow_mem_iff] at hq
-      exact hq.2 (heq.trans hwv)
-    rw [hshad, envLookupT_cons_same_uid v w env2 hvw]
-  · have hvw_ne : v.uid ≠ w.uid := fun h => hwv h.symm
-    rw [envLookupT_cons_diff_uid v w env1 hvw_ne]
-    rw [substLookup_substShadow_neq σ v w hvw_ne]
-    have hw'_ne_v : (substLookup σ w).uid ≠ v.uid := by
+      cases hqw : (q.1 == w)
+      · rfl
+      · exfalso
+        have ⟨ho_qw, hu_qw⟩ := (VarId_beq_true_iff q.1 w).mp hqw
+        have hqv : (q.1 == v) = true := by
+          rw [VarId_beq_true_iff]
+          exact ⟨ho_qw.trans ho.symm, hu_qw.trans hu.symm⟩
+        rw [hqv] at hq
+        exact Bool.noConfusion hq.2
+    rw [hshad, envLookupT_cons_same_uid v w env2 ho hu]
+  · have hvw_false : (v == w) = false := by
+      cases hb : (v == w); rfl; exact absurd hb hvw_beq
+    -- General case: (v == w) = false. LHS = (envLookupT env1 w).map (·+1).
+    rw [Moist.MIR.envLookupT_cons_neq v w env1 hvw_false]
+    rw [substLookup_substShadow_neq σ v w hvw_false]
+    -- Need: envLookupT (v :: env2) (substLookup σ w) = (envLookupT env1 w).map (·+1).
+    -- Via Compat: envLookupT env1 w = envLookupT env2 (substLookup σ w).
+    -- So reduces to showing (v == substLookup σ w) = false.
+    have hv_ne_u : (v == substLookup σ w) = false := by
       rcases substLookup_result_in_image_or_self σ w with heq | ⟨p, hp, hpeq⟩
-      · rw [heq]; exact hvw_ne.symm
+      · rw [heq]; exact hvw_false
       · rw [hpeq]
-        have := hsubst_lo p hp  -- B < p.2.uid
-        intro heq2
-        rw [heq2] at this
-        -- this : B < v.uid, but hv : v.uid ≤ B
-        exact absurd this (Nat.not_lt.mpr hv)
-    have hv_ne_w' : v.uid ≠ (substLookup σ w).uid := fun h => hw'_ne_v h.symm
-    rw [envLookupT_cons_diff_uid v (substLookup σ w) env2 hv_ne_w']
+        -- v.uid ≤ B < p.2.uid, so v.uid ≠ p.2.uid.
+        rw [VarId_beq_false_iff]
+        refine Or.inr ?_
+        have := hsubst_lo p hp
+        omega
+    rw [Moist.MIR.envLookupT_cons_neq v (substLookup σ w) env2 hv_ne_u]
     rw [hcompat w hw]
 
 /-- Extending `Compat` by a `.Let` binder (renames `v` to fresh `v'`). -/
@@ -335,28 +401,36 @@ private theorem Compat_let
     (hsubst : SubstFreshAbove σ s B)
     : Compat ((v, v') :: σ) (v :: env1) (v' :: env2) B := by
   intro w hw
-  by_cases hwv : w.uid = v.uid
-  · have hvw : v.uid = w.uid := hwv.symm
-    rw [envLookupT_cons_same_uid v w env1 hvw]
-    rw [substLookup_cons_match v v' σ w hvw]
-    rw [envLookupT_cons_same_uid v' v' env2 rfl]
-  · have hvw_ne : v.uid ≠ w.uid := fun h => hwv h.symm
-    rw [envLookupT_cons_diff_uid v w env1 hvw_ne]
-    rw [substLookup_cons_nomatch v v' σ w hvw_ne]
-    -- Show (substLookup σ w).uid ≠ v'.uid
-    have hw'_ne_v' : (substLookup σ w).uid ≠ v'.uid := by
-      rw [hv'_uid]
+  by_cases hvw_beq : (v == w) = true
+  · have ⟨ho, hu⟩ := (VarId_beq_true_iff v w).mp hvw_beq
+    rw [envLookupT_cons_same_uid v w env1 ho hu]
+    rw [substLookup_cons_match v v' σ w hvw_beq]
+    rw [envLookupT_cons_same_uid v' v' env2 rfl rfl]
+  · have hvw_false : (v == w) = false := by
+      cases hb : (v == w); rfl; exact absurd hb hvw_beq
+    -- General case: (v == w) = false.
+    rw [Moist.MIR.envLookupT_cons_neq v w env1 hvw_false]
+    rw [substLookup_cons_nomatch v v' σ w hvw_false]
+    -- Need: envLookupT (v' :: env2) (substLookup σ w) = (envLookupT env1 w).map (·+1).
+    -- Via Compat: envLookupT env1 w = envLookupT env2 (substLookup σ w).
+    -- Reduces to showing (v' == substLookup σ w) = false.
+    have hv'_ne_u : (v' == substLookup σ w) = false := by
       rcases substLookup_result_in_image_or_self σ w with heq | ⟨p, hp, hpeq⟩
       · rw [heq]
-        -- w.uid ≤ B < s.next
-        intro h_eq
+        -- v'.uid = s.next > B ≥ w.uid, so v'.uid ≠ w.uid.
+        rw [VarId_beq_false_iff]
+        refine Or.inr ?_
+        rw [hv'_uid]
         have : w.uid < s.next := Nat.lt_of_le_of_lt hw hs
-        exact absurd h_eq (Nat.ne_of_lt this)
+        omega
       · rw [hpeq]
-        have := (hsubst p hp).2  -- p.2.uid < s.next
-        exact Nat.ne_of_lt this
-    have hv'_ne_w' : v'.uid ≠ (substLookup σ w).uid := fun h => hw'_ne_v' h.symm
-    rw [envLookupT_cons_diff_uid v' (substLookup σ w) env2 hv'_ne_w']
+        -- v'.uid = s.next, p.2.uid < s.next.
+        rw [VarId_beq_false_iff]
+        refine Or.inr ?_
+        rw [hv'_uid]
+        have := (hsubst p hp).2
+        omega
+    rw [Moist.MIR.envLookupT_cons_neq v' (substLookup σ w) env2 hv'_ne_u]
     rw [hcompat w hw]
 
 /-! ## The main mutual induction -/
@@ -628,7 +702,7 @@ theorem alphaRenameBinds_lowerTotalLet_eq (B : Nat)
       show B < (alphaRename σ rhs s).2.next + 1
       omega
     have hv'_uid :
-        (⟨(alphaRename σ rhs s).2.next, v.hint⟩ : VarId).uid
+        (⟨(alphaRename σ rhs s).2.next, .gen, v.hint⟩ : VarId).uid
           = (alphaRename σ rhs s).2.next := rfl
     have hsubst1 : SubstFreshAbove σ (alphaRename σ rhs s).2 B := by
       intro p hp
@@ -636,7 +710,7 @@ theorem alphaRenameBinds_lowerTotalLet_eq (B : Nat)
       exact Nat.lt_of_lt_of_le (hsubst p hp).2 hrhs_mono
     have hsubst_ext :
         SubstFreshAbove
-          ((v, (⟨(alphaRename σ rhs s).2.next, v.hint⟩ : VarId)) :: σ)
+          ((v, (⟨(alphaRename σ rhs s).2.next, .gen, v.hint⟩ : VarId)) :: σ)
           (⟨(alphaRename σ rhs s).2.next + 1⟩ : Moist.MIR.FreshState)
           B := by
       intro q hq
@@ -653,17 +727,17 @@ theorem alphaRenameBinds_lowerTotalLet_eq (B : Nat)
         omega
     have hcompat_ext :
         Compat
-          ((v, (⟨(alphaRename σ rhs s).2.next, v.hint⟩ : VarId)) :: σ)
+          ((v, (⟨(alphaRename σ rhs s).2.next, .gen, v.hint⟩ : VarId)) :: σ)
           (v :: env1)
-          ((⟨(alphaRename σ rhs s).2.next, v.hint⟩ : VarId) :: env2) B :=
+          ((⟨(alphaRename σ rhs s).2.next, .gen, v.hint⟩ : VarId) :: env2) B :=
       Compat_let σ env1 env2 B (alphaRename σ rhs s).2 hs1_lt v
-        ⟨(alphaRename σ rhs s).2.next, v.hint⟩ hv_le hv'_uid hcompat hsubst1
+        ⟨(alphaRename σ rhs s).2.next, .gen, v.hint⟩ hv_le hv'_uid hcompat hsubst1
     have ⟨hrest_eq, hrest_mono⟩ :=
       alphaRenameBinds_lowerTotalLet_eq B rest body
-        ((v, (⟨(alphaRename σ rhs s).2.next, v.hint⟩ : VarId)) :: σ)
+        ((v, (⟨(alphaRename σ rhs s).2.next, .gen, v.hint⟩ : VarId)) :: σ)
         ⟨(alphaRename σ rhs s).2.next + 1⟩
         (v :: env1)
-        ((⟨(alphaRename σ rhs s).2.next, v.hint⟩ : VarId) :: env2)
+        ((⟨(alphaRename σ rhs s).2.next, .gen, v.hint⟩ : VarId) :: env2)
         hrest_le hbody hs2_lt hsubst_ext hcompat_ext
     refine ⟨?_, ?_⟩
     · -- Forward equality. With the projection-based `alphaRenameBinds_cons_eq`
@@ -787,7 +861,7 @@ theorem alphaRenameBinds_fixCountBinds_zero (σ : List (VarId × VarId))
     have ihrhs := alphaRename_fixCount_zero σ rhs s hrhs
     have ihrest :=
       alphaRenameBinds_fixCountBinds_zero
-        ((v, (⟨(alphaRename σ rhs s).2.next, v.hint⟩ : VarId)) :: σ)
+        ((v, (⟨(alphaRename σ rhs s).2.next, .gen, v.hint⟩ : VarId)) :: σ)
         rest ⟨(alphaRename σ rhs s).2.next + 1⟩ hrest
     show fixCountBinds (_ :: _) = 0
     simp only [Moist.MIR.fixCountBinds]; omega
@@ -848,6 +922,3 @@ theorem alphaRenameTop_mirCtxEq (e : Expr) (K : Moist.MIR.FreshState)
     | some t => exact Moist.Verified.Contextual.ctxEq_refl t
 
 end Moist.Verified.MIR
-
-
-

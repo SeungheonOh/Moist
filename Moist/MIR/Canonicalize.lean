@@ -6,193 +6,85 @@ namespace Moist.MIR
 
 /-! # Canonicalize
 
-Rewrites every bound-variable binder to a canonical positional uid
-(`origin = .gen`, `uid = binder depth`). Free variables retain their
-original identity. After canonicalization, alpha-equivalence of closed
-terms reduces to syntactic `=`.
-
-Design: `canonicalizeAux env d` maintains the invariant `env.length = d`
-by construction. The env records the original binders currently in
-scope, head = innermost. For a lookup at index `i`, the canonical uid
-is `d - 1 - i`, giving the innermost binder uid `d - 1` (i.e., index 0
-↦ uid d-1) and the outermost uid 0.
+Rewrites every bound-variable binder to a globally unique uid
+(`origin = .gen`), assigned by a counter threaded through the tree.
+Free variables retain their original identity. The counter ensures
+that sibling sub-expressions (e.g. both children of App) get distinct
+binder uids, satisfying the Barendregt variable convention.
 -/
 
-private def canonBinder (d : Nat) (hint : String) : VarId :=
-  { uid := d, origin := .gen, hint := hint }
+private def canonBinder (uid : Nat) (hint : String) : VarId :=
+  { uid := uid, origin := .gen, hint := hint }
+
+private abbrev CanonEnv := List (VarId × Nat)
+
+private def canonEnvLookup (env : CanonEnv) (x : VarId) : Option Nat :=
+  match env with
+  | [] => none
+  | (v, uid) :: rest => if v == x then some uid else canonEnvLookup rest x
 
 mutual
-  def canonicalizeAux (env : List VarId) (d : Nat) : Expr → Expr
+  def canonicalizeAux (env : CanonEnv) (c : Nat) : Expr → Expr × Nat
     | .Var x =>
-      match env.findIdx? (· == x) with
-      | some i => .Var (canonBinder (d - 1 - i) x.hint)
-      | none   => .Var x
-    | .Lit c        => .Lit c
-    | .Builtin b    => .Builtin b
-    | .Error        => .Error
+      match canonEnvLookup env x with
+      | some uid => (.Var (canonBinder uid x.hint), c)
+      | none     => (.Var x, c)
+    | .Lit l        => (.Lit l, c)
+    | .Builtin b    => (.Builtin b, c)
+    | .Error        => (.Error, c)
     | .Lam x body   =>
-      let x' := canonBinder d x.hint
-      .Lam x' (canonicalizeAux (x :: env) (d + 1) body)
+      let x' := canonBinder c x.hint
+      let (body', c') := canonicalizeAux ((x, c) :: env) (c + 1) body
+      (.Lam x' body', c')
     | .Fix f body   =>
-      let f' := canonBinder d f.hint
-      .Fix f' (canonicalizeAux (f :: env) (d + 1) body)
+      let f' := canonBinder c f.hint
+      let (body', c') := canonicalizeAux ((f, c) :: env) (c + 1) body
+      (.Fix f' body', c')
     | .App f x      =>
-      .App (canonicalizeAux env d f) (canonicalizeAux env d x)
-    | .Force e      => .Force (canonicalizeAux env d e)
-    | .Delay e      => .Delay (canonicalizeAux env d e)
-    | .Constr t as  => .Constr t (canonicalizeList env d as)
+      let (f', c1) := canonicalizeAux env c f
+      let (x', c2) := canonicalizeAux env c1 x
+      (.App f' x', c2)
+    | .Force e      =>
+      let (e', c') := canonicalizeAux env c e
+      (.Force e', c')
+    | .Delay e      =>
+      let (e', c') := canonicalizeAux env c e
+      (.Delay e', c')
+    | .Constr t as  =>
+      let (as', c') := canonicalizeList env c as
+      (.Constr t as', c')
     | .Case s alts  =>
-      .Case (canonicalizeAux env d s) (canonicalizeList env d alts)
-    | .Let binds body => canonicalizeLet env d binds body
+      let (s', c1) := canonicalizeAux env c s
+      let (alts', c2) := canonicalizeList env c1 alts
+      (.Case s' alts', c2)
+    | .Let binds body => canonicalizeLet env c binds body
   termination_by e => sizeOf e
 
-  def canonicalizeList (env : List VarId) (d : Nat) : List Expr → List Expr
-    | []       => []
-    | e :: es  => canonicalizeAux env d e :: canonicalizeList env d es
+  def canonicalizeList (env : CanonEnv) (c : Nat) : List Expr → List Expr × Nat
+    | []       => ([], c)
+    | e :: es  =>
+      let (e', c1) := canonicalizeAux env c e
+      let (es', c2) := canonicalizeList env c1 es
+      (e' :: es', c2)
   termination_by es => sizeOf es
 
-  def canonicalizeLet (env : List VarId) (d : Nat)
-      : List (VarId × Expr × Bool) → Expr → Expr
-    | [], body => canonicalizeAux env d body
+  def canonicalizeLet (env : CanonEnv) (c : Nat)
+      : List (VarId × Expr × Bool) → Expr → Expr × Nat
+    | [], body =>
+      let (body', c') := canonicalizeAux env c body
+      (.Let [] body', c')
     | (x, rhs, er) :: rest, body =>
-      let rhs' := canonicalizeAux env d rhs
-      let x'   := canonBinder d x.hint
-      .Let [(x', rhs', er)]
-           (canonicalizeLet (x :: env) (d + 1) rest body)
+      let (rhs', c1) := canonicalizeAux env c rhs
+      let x' := canonBinder c1 x.hint
+      let (inner, c2) := canonicalizeLet ((x, c1) :: env) (c1 + 1) rest body
+      (.Let [(x', rhs', er)] inner, c2)
   termination_by bs body => sizeOf bs + sizeOf body
 end
 
-def canonicalize (e : Expr) : Expr := canonicalizeAux [] 0 e
+def canonicalize (e : Expr) : Expr := (canonicalizeAux [] (maxUidExpr e + 1) e).1
 
-/-! ### Unfold equations for canonicalizeAux -/
+/-! ## BEq helpers -/
 
-private theorem canonAux_var (env : List VarId) (d : Nat) (x : VarId) :
-    canonicalizeAux env d (.Var x)
-      = match env.findIdx? (· == x) with
-        | some i => .Var (canonBinder (d - 1 - i) x.hint)
-        | none   => .Var x := by
-  rw [canonicalizeAux]
-
-private theorem canonAux_lit (env : List VarId) (d : Nat) (c) :
-    canonicalizeAux env d (.Lit c) = .Lit c := by
-  rw [canonicalizeAux]
-
-private theorem canonAux_builtin (env : List VarId) (d : Nat) (b) :
-    canonicalizeAux env d (.Builtin b) = .Builtin b := by
-  rw [canonicalizeAux]
-
-private theorem canonAux_error (env : List VarId) (d : Nat) :
-    canonicalizeAux env d .Error = .Error := by
-  rw [canonicalizeAux]
-
-private theorem canonAux_lam (env : List VarId) (d : Nat) (x : VarId) (body : Expr) :
-    canonicalizeAux env d (.Lam x body)
-      = .Lam (canonBinder d x.hint) (canonicalizeAux (x :: env) (d + 1) body) := by
-  rw [canonicalizeAux]
-
-private theorem canonAux_fix (env : List VarId) (d : Nat) (f : VarId) (body : Expr) :
-    canonicalizeAux env d (.Fix f body)
-      = .Fix (canonBinder d f.hint) (canonicalizeAux (f :: env) (d + 1) body) := by
-  rw [canonicalizeAux]
-
-private theorem canonAux_app (env : List VarId) (d : Nat) (f x : Expr) :
-    canonicalizeAux env d (.App f x)
-      = .App (canonicalizeAux env d f) (canonicalizeAux env d x) := by
-  rw [canonicalizeAux]
-
-private theorem canonAux_force (env : List VarId) (d : Nat) (e : Expr) :
-    canonicalizeAux env d (.Force e) = .Force (canonicalizeAux env d e) := by
-  rw [canonicalizeAux]
-
-private theorem canonAux_delay (env : List VarId) (d : Nat) (e : Expr) :
-    canonicalizeAux env d (.Delay e) = .Delay (canonicalizeAux env d e) := by
-  rw [canonicalizeAux]
-
-private theorem canonAux_constr (env : List VarId) (d : Nat) (t : Nat) (as : List Expr) :
-    canonicalizeAux env d (.Constr t as) = .Constr t (canonicalizeList env d as) := by
-  rw [canonicalizeAux]
-
-private theorem canonAux_case (env : List VarId) (d : Nat) (s : Expr) (alts : List Expr) :
-    canonicalizeAux env d (.Case s alts)
-      = .Case (canonicalizeAux env d s) (canonicalizeList env d alts) := by
-  rw [canonicalizeAux]
-
-private theorem canonAux_let (env : List VarId) (d : Nat)
-    (binds : List (VarId × Expr × Bool)) (body : Expr) :
-    canonicalizeAux env d (.Let binds body) = canonicalizeLet env d binds body := by
-  rw [canonicalizeAux]
-
-private theorem canonList_nil (env : List VarId) (d : Nat) :
-    canonicalizeList env d [] = [] := by
-  rw [canonicalizeList]
-
-private theorem canonList_cons (env : List VarId) (d : Nat) (e : Expr) (es : List Expr) :
-    canonicalizeList env d (e :: es)
-      = canonicalizeAux env d e :: canonicalizeList env d es := by
-  rw [canonicalizeList]
-
-private theorem canonLet_nil (env : List VarId) (d : Nat) (body : Expr) :
-    canonicalizeLet env d [] body = canonicalizeAux env d body := by
-  rw [canonicalizeLet]
-
-private theorem canonLet_cons (env : List VarId) (d : Nat) (x : VarId) (rhs : Expr) (er : Bool)
-    (rest : List (VarId × Expr × Bool)) (body : Expr) :
-    canonicalizeLet env d ((x, rhs, er) :: rest) body
-      = .Let [(canonBinder d x.hint, canonicalizeAux env d rhs, er)]
-             (canonicalizeLet (x :: env) (d + 1) rest body) := by
-  rw [canonicalizeLet]
-
-/-! ## Idempotency
-
-The proof strategy: define `canonEnvFrom top env` recursively, with the
-invariant that position `i` gets uid `top - i`. The main mutual induction
-shows that for an expression `e'` obtained by one pass of
-`canonicalizeAux env d`, applying the same pass with the canonicalized
-env (`canonEnv d env`) yields `e'` back.
--/
-
-/-- canonEnvFrom top env: position 0 gets uid `top`, position 1 gets
-`top - 1`, etc. -/
-private def canonEnvFrom : Nat → List VarId → List VarId
-  | _,   []      => []
-  | top, v :: vs => canonBinder top v.hint :: canonEnvFrom (top - 1) vs
-
-@[simp]
-private theorem canonEnvFrom_nil (top : Nat) : canonEnvFrom top [] = [] := rfl
-
-@[simp]
-private theorem canonEnvFrom_cons (top : Nat) (v : VarId) (vs : List VarId) :
-    canonEnvFrom top (v :: vs)
-      = canonBinder top v.hint :: canonEnvFrom (top - 1) vs := rfl
-
-@[simp]
-private theorem canonEnvFrom_length (top : Nat) (env : List VarId) :
-    (canonEnvFrom top env).length = env.length := by
-  induction env generalizing top with
-  | nil => rfl
-  | cons v vs ih =>
-    simp [canonEnvFrom_cons, List.length_cons, ih]
-
-/-- The canonEnv at depth d is canonEnvFrom (d - 1). -/
-private def canonEnv (d : Nat) (env : List VarId) : List VarId :=
-  canonEnvFrom (d - 1) env
-
-@[simp]
-private theorem canonEnv_nil (d : Nat) : canonEnv d [] = [] := rfl
-
-/-- canonEnv (d+1) (x :: env) = canonBinder d x.hint :: canonEnv d env. -/
-private theorem canonEnv_succ_cons (d : Nat) (x : VarId) (env : List VarId) :
-    canonEnv (d + 1) (x :: env) = canonBinder d x.hint :: canonEnv d env := by
-  simp [canonEnv, canonEnvFrom_cons]
-
-@[simp]
-private theorem canonEnv_length (d : Nat) (env : List VarId) :
-    (canonEnv d env).length = env.length := by
-  simp [canonEnv]
-
-/-! ### Var lookup properties -/
-
-/-- BEq on VarId equals iff origin and uid match (hint ignored). -/
 private theorem varid_beq_iff {a b : VarId} :
     (a == b) = true ↔ a.origin = b.origin ∧ a.uid = b.uid := by
   constructor
@@ -215,1237 +107,971 @@ private theorem varid_beq_iff {a b : VarId} :
     rw [ho]
     cases b.origin <;> rfl
 
-/-- Two canonBinders are BEq iff they have the same uid (hints ignored). -/
 private theorem canonBinder_beq_canonBinder (d1 d2 : Nat) (h1 h2 : String) :
     (canonBinder d1 h1 == canonBinder d2 h2) = true ↔ d1 = d2 := by
-  rw [varid_beq_iff]
-  simp [canonBinder]
+  rw [varid_beq_iff]; simp [canonBinder]
 
-/-- A VarId y matches canonBinder top h iff y has .gen origin and uid = top. -/
-private theorem canonBinder_beq_varid (top : Nat) (h : String) (y : VarId) :
-    (canonBinder top h == y) = true ↔ y.origin = .gen ∧ y.uid = top := by
-  rw [varid_beq_iff]
-  simp [canonBinder]
+private theorem canonBinder_beq_varid (uid : Nat) (h : String) (y : VarId) :
+    (canonBinder uid h == y) = true ↔ y.origin = .gen ∧ y.uid = uid := by
+  rw [varid_beq_iff]; simp [canonBinder]
   constructor
   · intro ⟨ho, hu⟩; exact ⟨ho.symm, hu.symm⟩
   · intro ⟨ho, hu⟩; exact ⟨ho.symm, hu.symm⟩
 
-/-- If `vs.findIdx? (· == x) = some i` with `vs.length ≤ top + 1`, then
-`(canonEnvFrom top vs).findIdx? (· == canonBinder (top - i) hint) = some i`.
-(Hint is ignored by BEq.) -/
-private theorem findIdx_canonEnvFrom_some_of_findIdx
-    (vs : List VarId) (top : Nat) (x : VarId) (i : Nat) (hint : String)
-    (hlen : vs.length ≤ top + 1)
-    (h : vs.findIdx? (· == x) = some i) :
-    (canonEnvFrom top vs).findIdx? (· == canonBinder (top - i) hint) = some i := by
-  induction vs generalizing i top with
-  | nil =>
-    simp [List.findIdx?_nil] at h
-  | cons v vs' ih =>
-    rw [List.length_cons] at hlen
-    rw [List.findIdx?_cons] at h
-    rw [canonEnvFrom_cons, List.findIdx?_cons]
-    by_cases hv : (v == x) = true
-    · simp [hv] at h
-      subst h
-      -- Need (canonBinder top v.hint == canonBinder (top - 0) hint) = true
-      rw [Nat.sub_zero]
-      have : (canonBinder top v.hint == canonBinder top hint) = true := by
-        rw [canonBinder_beq_canonBinder]
-      rw [this]
-      rfl
-    · simp [hv] at h
-      obtain ⟨j, hj, hji⟩ := h
-      subst hji
-      have hjlt : j < vs'.length :=
-        (List.findIdx?_eq_some_iff_findIdx_eq.mp hj).1
-      have htop : vs'.length ≤ top := by omega
-      have hne : top ≠ top - (j + 1) := by omega
-      have hmatch : (canonBinder top v.hint == canonBinder (top - (j + 1)) hint) = false := by
-        rw [Bool.eq_false_iff]
-        intro habs
-        have := (canonBinder_beq_canonBinder _ _ _ _).mp habs
-        exact hne this
-      rw [hmatch]
-      simp only [Bool.false_eq_true, ↓reduceIte]
-      have hlen' : vs'.length ≤ (top - 1) + 1 := by omega
-      have ih_applied := ih (top := top - 1) (i := j) hlen' hj
-      have heq : (top - 1) - j = top - (j + 1) := by omega
-      rw [heq] at ih_applied
-      rw [ih_applied]
-      rfl
+/-! ## Counter monotonicity -/
 
-/-- Specialized for canonEnv d. -/
-private theorem findIdx_canonEnv_some_of_findIdx
-    (env : List VarId) (d : Nat) (x : VarId) (i : Nat)
-    (hlen : env.length ≤ d)
-    (h : env.findIdx? (· == x) = some i) :
-    (canonEnv d env).findIdx? (· == canonBinder (d - 1 - i) x.hint) = some i := by
-  unfold canonEnv
-  have hlen' : env.length ≤ (d - 1) + 1 := by
-    cases env with
-    | nil => simp [List.findIdx?_nil] at h
-    | cons =>
-      rw [List.length_cons]
-      rw [List.length_cons] at hlen
+mutual
+private theorem canonicalizeAux_counter_le (env : CanonEnv) (c : Nat) (e : Expr) :
+    c ≤ (canonicalizeAux env c e).2 := by
+  cases e with
+  | Var x =>
+    unfold canonicalizeAux; cases canonEnvLookup env x <;> dsimp <;> omega
+  | Lit _ | Builtin _ | Error => unfold canonicalizeAux; dsimp; omega
+  | Lam x body =>
+    unfold canonicalizeAux
+    show c ≤ (canonicalizeAux ((x, c) :: env) (c + 1) body).2
+    have := canonicalizeAux_counter_le ((x, c) :: env) (c + 1) body; omega
+  | Fix f body =>
+    unfold canonicalizeAux
+    show c ≤ (canonicalizeAux ((f, c) :: env) (c + 1) body).2
+    have := canonicalizeAux_counter_le ((f, c) :: env) (c + 1) body; omega
+  | App f x =>
+    unfold canonicalizeAux
+    show c ≤ (canonicalizeAux env (canonicalizeAux env c f).2 x).2
+    have h1 := canonicalizeAux_counter_le env c f
+    have h2 := canonicalizeAux_counter_le env (canonicalizeAux env c f).2 x; omega
+  | Force e =>
+    unfold canonicalizeAux
+    show c ≤ (canonicalizeAux env c e).2
+    exact canonicalizeAux_counter_le env c e
+  | Delay e =>
+    unfold canonicalizeAux
+    show c ≤ (canonicalizeAux env c e).2
+    exact canonicalizeAux_counter_le env c e
+  | Constr _ args =>
+    unfold canonicalizeAux
+    show c ≤ (canonicalizeList env c args).2
+    exact canonicalizeList_counter_le env c args
+  | Case scrut alts =>
+    unfold canonicalizeAux
+    show c ≤ (canonicalizeList env (canonicalizeAux env c scrut).2 alts).2
+    have h1 := canonicalizeAux_counter_le env c scrut
+    have h2 := canonicalizeList_counter_le env (canonicalizeAux env c scrut).2 alts; omega
+  | Let binds body =>
+    unfold canonicalizeAux
+    exact canonicalizeLet_counter_le env c binds body
+termination_by sizeOf e
+
+private theorem canonicalizeList_counter_le (env : CanonEnv) (c : Nat) (es : List Expr) :
+    c ≤ (canonicalizeList env c es).2 := by
+  cases es with
+  | nil => unfold canonicalizeList; dsimp; omega
+  | cons e rest =>
+    unfold canonicalizeList
+    show c ≤ (canonicalizeList env (canonicalizeAux env c e).2 rest).2
+    have h1 := canonicalizeAux_counter_le env c e
+    have h2 := canonicalizeList_counter_le env (canonicalizeAux env c e).2 rest; omega
+termination_by sizeOf es
+
+private theorem canonicalizeLet_counter_le (env : CanonEnv) (c : Nat)
+    (binds : List (VarId × Expr × Bool)) (body : Expr) :
+    c ≤ (canonicalizeLet env c binds body).2 := by
+  cases binds with
+  | nil => unfold canonicalizeLet; exact canonicalizeAux_counter_le env c body
+  | cons b rest =>
+    have _hlt1 : sizeOf b.2.1 < sizeOf (b :: rest) + sizeOf body := by
+      have : sizeOf b.2.1 < sizeOf b := by
+        cases b with | mk a p => cases p with | mk e c => simp_wf; omega
+      have : sizeOf b < sizeOf (b :: rest) := by simp_wf; omega
       omega
-  exact findIdx_canonEnvFrom_some_of_findIdx env (d - 1) x i x.hint hlen' h
+    unfold canonicalizeLet
+    show c ≤ (canonicalizeLet ((b.1, (canonicalizeAux env c b.2.1).2) :: env)
+      ((canonicalizeAux env c b.2.1).2 + 1) rest body).2
+    have h1 := canonicalizeAux_counter_le env c b.2.1
+    have h2 := canonicalizeLet_counter_le ((b.1, (canonicalizeAux env c b.2.1).2) :: env)
+      ((canonicalizeAux env c b.2.1).2 + 1) rest body; omega
+termination_by sizeOf binds + sizeOf body
+end
 
-/-- If findIdx? finds a match in canonEnvFrom at position j, then the VarId
-has .gen origin, uid = top - j, and j < vs.length. -/
-private theorem findIdx_canonEnvFrom_gen_uid
-    (vs : List VarId) (top : Nat) (y : VarId) (j : Nat)
-    (h : (canonEnvFrom top vs).findIdx? (· == y) = some j) :
-    y.origin = .gen ∧ y.uid = top - j ∧ j < vs.length := by
-  induction vs generalizing j top with
-  | nil =>
-    simp at h
-  | cons v vs' ih =>
-    rw [canonEnvFrom_cons, List.findIdx?_cons] at h
-    by_cases hb : (canonBinder top v.hint == y) = true
-    · simp [hb] at h
-      subst h
-      have ⟨horig, huid⟩ := (canonBinder_beq_varid _ _ _).mp hb
-      refine ⟨horig, ?_, ?_⟩
-      · -- y.uid = top, goal is y.uid = top - 0
-        rw [huid, Nat.sub_zero]
-      · simp [List.length_cons]
-    · simp [hb] at h
-      obtain ⟨k, hk, hkj⟩ := h
-      subst hkj
-      have ⟨horig, huid, hklt⟩ := ih (top := top - 1) (j := k) hk
-      refine ⟨horig, ?_, ?_⟩
-      · rw [huid]; omega
-      · rw [List.length_cons]; omega
+/-! ## Source-only invariant -/
 
-/-- Specialized for canonEnv. -/
-private theorem findIdx_canonEnv_gen_uid
-    (env : List VarId) (d : Nat) (y : VarId) (j : Nat)
-    (h : (canonEnv d env).findIdx? (· == y) = some j) :
-    y.origin = .gen ∧ y.uid = d - 1 - j ∧ j < env.length := by
-  unfold canonEnv at h
-  exact findIdx_canonEnvFrom_gen_uid env (d - 1) y j h
-
-/-! ### Idempotency: main mutual induction -/
-
-/-- Mutual induction predicates. -/
-private def IdemExpr (e : Expr) : Prop :=
-  ∀ (env : List VarId) (d : Nat), env.length = d →
-    canonicalizeAux (canonEnv d env) d (canonicalizeAux env d e)
-      = canonicalizeAux env d e
-
-private def IdemList (es : List Expr) : Prop :=
-  ∀ (env : List VarId) (d : Nat), env.length = d →
-    canonicalizeList (canonEnv d env) d (canonicalizeList env d es)
-      = canonicalizeList env d es
-
-private def IdemLet (binds : List (VarId × Expr × Bool)) (body : Expr) : Prop :=
-  ∀ (env : List VarId) (d : Nat), env.length = d →
-    canonicalizeAux (canonEnv d env) d (canonicalizeLet env d binds body)
-      = canonicalizeLet env d binds body
-
-/-- Key lemma for Var: idempotency under any (env, d) with env.length = d. -/
-private theorem idem_var (x : VarId) : IdemExpr (.Var x) := by
-  intro env d hlen
-  -- canonicalizeAux env d (.Var x) = match env.findIdx? ... with | some i => ... | none => .Var x
-  rw [canonAux_var]
-  cases hfi : env.findIdx? (· == x) with
-  | some i =>
-    -- Simplify the LHS inner match
-    simp only
-    -- Now LHS = canonicalizeAux (canonEnv d env) d (.Var (canonBinder (d-1-i) x.hint))
-    rw [canonAux_var]
-    have hlen' : env.length ≤ d := by omega
-    have hfind := findIdx_canonEnv_some_of_findIdx env d x i hlen' hfi
-    rw [hfind]
-    -- LHS = .Var (canonBinder (d - 1 - i) (canonBinder (d - 1 - i) x.hint).hint)
-    -- hint is x.hint, so LHS = .Var (canonBinder (d-1-i) x.hint) = RHS
-    rfl
-  | none =>
-    simp only
-    -- LHS = canonicalizeAux (canonEnv d env) d (.Var x)
-    rw [canonAux_var]
-    -- LHS = match (canonEnv d env).findIdx? ... with | some j => ... | none => .Var x
-    cases hfi2 : (canonEnv d env).findIdx? (· == x) with
-    | none =>
-      simp only
-    | some j =>
-      simp only
-      have ⟨horig, huid, _⟩ := findIdx_canonEnv_gen_uid env d x j hfi2
-      have heq : canonBinder (d - 1 - j) x.hint = x := by
-        cases x with
-        | mk xuid xorigin xhint =>
-          simp only [canonBinder] at horig huid ⊢
-          rcases huid with rfl
-          rcases horig with rfl
-          rfl
-      rw [heq]
-
-/-- Main mutual induction by strong induction on size. -/
-private theorem canonicalize_idem_main :
-    (∀ e : Expr, IdemExpr e) ∧
-    (∀ es : List Expr, IdemList es) ∧
-    (∀ binds body, IdemLet binds body) := by
-  suffices h : ∀ n : Nat,
-      (∀ e : Expr, sizeOf e ≤ n → IdemExpr e) ∧
-      (∀ es : List Expr, sizeOf es ≤ n → IdemList es) ∧
-      (∀ binds body, sizeOf binds + sizeOf body ≤ n → IdemLet binds body) by
-    refine ⟨?_, ?_, ?_⟩
-    · intro e; exact (h (sizeOf e)).1 e (Nat.le_refl _)
-    · intro es; exact (h (sizeOf es)).2.1 es (Nat.le_refl _)
-    · intro binds body; exact (h (sizeOf binds + sizeOf body)).2.2 binds body (Nat.le_refl _)
-  intro n
-  induction n with
-  | zero =>
-    refine ⟨?_, ?_, ?_⟩
-    · intro e hsz
-      cases e <;> simp at hsz
-    · intro es hsz
-      cases es with
-      | nil =>
-        intro env d _hlen
-        rw [canonList_nil, canonList_nil]
-      | cons _ _ => simp at hsz
-    · intro binds body hsz
-      -- sizeOf binds + sizeOf body ≤ 0 is impossible since sizeOf body ≥ 1
-      exfalso
-      have : sizeOf body ≥ 1 := by cases body <;> simp <;> omega
-      omega
-  | succ n ih =>
-    obtain ⟨ihExpr, ihList, ihLet⟩ := ih
-    refine ⟨?_, ?_, ?_⟩
-    · -- ∀ e, sizeOf e ≤ n+1 → IdemExpr e
-      intro e hsz
-      cases e with
-      | Var x => exact idem_var x
-      | Lit c =>
-        intro env d _hlen
-        rw [canonAux_lit, canonAux_lit]
-      | Builtin b =>
-        intro env d _hlen
-        rw [canonAux_builtin, canonAux_builtin]
-      | Error =>
-        intro env d _hlen
-        rw [canonAux_error, canonAux_error]
-      | Lam x body =>
-        intro env d hlen
-        rw [canonAux_lam]
-        -- LHS: canonicalizeAux (canonEnv d env) d (.Lam (canonBinder d x.hint) body')
-        rw [canonAux_lam]
-        -- = .Lam (canonBinder d (canonBinder d x.hint).hint) (canonicalizeAux ((canonBinder d x.hint) :: canonEnv d env) (d+1) body')
-        have hhint : (canonBinder d x.hint).hint = x.hint := rfl
-        rw [hhint]
-        congr 1
-        rw [← canonEnv_succ_cons]
-        have hbsz : sizeOf body ≤ n := by
-          have : sizeOf (Expr.Lam x body) = 1 + sizeOf x + sizeOf body := by simp
-          omega
-        have ihbody := ihExpr body hbsz
-        have hbody_hyp : (x :: env).length = d + 1 := by
-          rw [List.length_cons]; omega
-        exact ihbody (x :: env) (d + 1) hbody_hyp
-      | Fix f body =>
-        intro env d hlen
-        rw [canonAux_fix]
-        rw [canonAux_fix]
-        have hhint : (canonBinder d f.hint).hint = f.hint := rfl
-        rw [hhint]
-        congr 1
-        rw [← canonEnv_succ_cons]
-        have hbsz : sizeOf body ≤ n := by
-          have : sizeOf (Expr.Fix f body) = 1 + sizeOf f + sizeOf body := by simp
-          omega
-        have ihbody := ihExpr body hbsz
-        have hbody_hyp : (f :: env).length = d + 1 := by
-          rw [List.length_cons]; omega
-        exact ihbody (f :: env) (d + 1) hbody_hyp
-      | App f x =>
-        intro env d hlen
-        rw [canonAux_app]
-        rw [canonAux_app]
-        have hfsz : sizeOf f ≤ n := by
-          have : sizeOf (Expr.App f x) = 1 + sizeOf f + sizeOf x := by simp
-          omega
-        have hxsz : sizeOf x ≤ n := by
-          have : sizeOf (Expr.App f x) = 1 + sizeOf f + sizeOf x := by simp
-          omega
-        congr 1
-        · exact ihExpr f hfsz env d hlen
-        · exact ihExpr x hxsz env d hlen
-      | Force e =>
-        intro env d hlen
-        rw [canonAux_force]
-        rw [canonAux_force]
-        have hesz : sizeOf e ≤ n := by
-          have : sizeOf (Expr.Force e) = 1 + sizeOf e := by simp
-          omega
-        congr 1
-        exact ihExpr e hesz env d hlen
-      | Delay e =>
-        intro env d hlen
-        rw [canonAux_delay]
-        rw [canonAux_delay]
-        have hesz : sizeOf e ≤ n := by
-          have : sizeOf (Expr.Delay e) = 1 + sizeOf e := by simp
-          omega
-        congr 1
-        exact ihExpr e hesz env d hlen
-      | Constr t as =>
-        intro env d hlen
-        rw [canonAux_constr]
-        rw [canonAux_constr]
-        have hsz' : sizeOf as ≤ n := by
-          have : sizeOf (Expr.Constr t as) = 1 + sizeOf t + sizeOf as := by simp
-          omega
-        congr 1
-        exact ihList as hsz' env d hlen
-      | Case s alts =>
-        intro env d hlen
-        rw [canonAux_case]
-        rw [canonAux_case]
-        have hssz : sizeOf s ≤ n := by
-          have : sizeOf (Expr.Case s alts) = 1 + sizeOf s + sizeOf alts := by simp
-          omega
-        have haltsz : sizeOf alts ≤ n := by
-          have : sizeOf (Expr.Case s alts) = 1 + sizeOf s + sizeOf alts := by simp
-          omega
-        congr 1
-        · exact ihExpr s hssz env d hlen
-        · exact ihList alts haltsz env d hlen
-      | Let binds body =>
-        intro env d hlen
-        rw [canonAux_let]
-        have hsz' : sizeOf binds + sizeOf body ≤ n := by
-          have : sizeOf (Expr.Let binds body) = 1 + sizeOf binds + sizeOf body := by simp
-          omega
-        exact ihLet binds body hsz' env d hlen
-    · -- List
-      intro es hsz
-      cases es with
-      | nil =>
-        intro env d _hlen
-        rw [canonList_nil, canonList_nil]
-      | cons e es' =>
-        intro env d hlen
-        rw [canonList_cons]
-        rw [canonList_cons]
-        have hesz : sizeOf e ≤ n := by
-          have : sizeOf (e :: es') = 1 + sizeOf e + sizeOf es' := by simp
-          omega
-        have hes'sz : sizeOf es' ≤ n := by
-          have : sizeOf (e :: es') = 1 + sizeOf e + sizeOf es' := by simp
-          omega
-        congr 1
-        · exact ihExpr e hesz env d hlen
-        · exact ihList es' hes'sz env d hlen
-    · -- Let
-      intro binds body hsz
-      cases binds with
-      | nil =>
-        intro env d hlen
-        rw [canonLet_nil]
-        have hbsz : sizeOf body ≤ n := by
-          have : sizeOf (([] : List (VarId × Expr × Bool))) + sizeOf body
-              = 1 + sizeOf body := by simp
-          omega
-        exact ihExpr body hbsz env d hlen
-      | cons head rest =>
-        intro env d hlen
-        obtain ⟨x, rhs, er⟩ := head
-        rw [canonLet_cons]
-        rw [canonAux_let]
-        rw [canonLet_cons]
-        rw [canonLet_nil]
-        have hhint : (canonBinder d x.hint).hint = x.hint := rfl
-        rw [hhint]
-        have hrsz : sizeOf rhs ≤ n := by
-          have hhead : sizeOf ((x, rhs, er) :: rest) + sizeOf body
-              = 1 + sizeOf (x, rhs, er) + sizeOf rest + sizeOf body := by simp
-          have hprod : sizeOf (x, rhs, er) = 1 + sizeOf x + (1 + sizeOf rhs + sizeOf er) := by simp
-          omega
-        have hrest_sz : sizeOf rest + sizeOf body ≤ n := by
-          have hhead : sizeOf ((x, rhs, er) :: rest) + sizeOf body
-              = 1 + sizeOf (x, rhs, er) + sizeOf rest + sizeOf body := by simp
-          omega
-        have hlen_ext : (x :: env).length = d + 1 := by
-          rw [List.length_cons]; omega
-        have hrhs := ihExpr rhs hrsz env d hlen
-        have hsub := ihLet rest body hrest_sz (x :: env) (d + 1) hlen_ext
-        -- Target: .Let [(canonBinder d x.hint, canonicalizeAux (canonEnv d env) d (canonicalizeAux env d rhs), er)]
-        --             (canonicalizeAux ((canonBinder d x.hint) :: canonEnv d env) (d + 1) ...)
-        --        = .Let [(canonBinder d x.hint, canonicalizeAux env d rhs, er)]
-        --             (canonicalizeLet (x :: env) (d + 1) rest body)
-        rw [hrhs]
-        rw [← canonEnv_succ_cons]
-        rw [hsub]
-
-/-- Main idempotency theorem. -/
-theorem canonicalize_idempotent (e : Expr) :
-    canonicalize (canonicalize e) = canonicalize e := by
-  have := canonicalize_idem_main.1 e [] 0 (by simp)
-  have hnil : canonEnv 0 ([] : List VarId) = [] := rfl
-  rw [hnil] at this
-  unfold canonicalize
-  exact this
-
-/-! # Source-only invariant and `lowerTotal_canonicalize` preservation
-
-We prove that `canonicalize` preserves `lowerTotal` behavior for expressions
-whose free variables are all `.source`-origin. This is the "source-only
-invariant": user-written / elaborator-produced expressions have `.source`
-free variables, and `.gen` origin is only introduced by internal passes
-(such as `canonicalize` itself or `expandFix`) to name fresh bound binders.
-
-Because BEq treats `.gen` and `.source` as distinct, the `.gen` canon
-binders introduced inside `canonicalize e` never accidentally match free
-(`.source`) variables in the outer env, and the free variables themselves
-pass through canonicalization unchanged.
--/
-
-/-- All free variables of `e` have `.source` origin. -/
 def allFreeVarsSource (e : Expr) : Prop :=
   ∀ y : VarId, (freeVars e).contains y = true → y.origin = .source
 
-/-- All free variables of `es` (as a list) have `.source` origin. -/
-def allFreeVarsSourceList (es : List Expr) : Prop :=
-  ∀ y : VarId, (freeVarsList es).contains y = true → y.origin = .source
-
-/-- All free variables of the Let-chain `binds body` have `.source` origin. -/
-def allFreeVarsSourceLet (binds : List (VarId × Expr × Bool)) (body : Expr) : Prop :=
-  ∀ y : VarId, (freeVarsLet binds body).contains y = true → y.origin = .source
-
-/-! ### `envLookupT.go` append lemmas -/
-
-/-- If `v` is not found in `env` (starting from offset `n`), then looking up
-`v` in `env ++ env'` behaves like looking up in `env'` with the shifted offset. -/
-private theorem envLookupT.go_append_none (v : VarId) (env env' : List VarId) (n : Nat)
-    (h : envLookupT.go v env n = none) :
-    envLookupT.go v (env ++ env') n = envLookupT.go v env' (n + env.length) := by
-  induction env generalizing n with
-  | nil => simp [envLookupT.go] at h ⊢
-  | cons y rest ih =>
-    rw [List.cons_append]
-    simp only [envLookupT.go] at h ⊢
-    by_cases hyv : (y == v) = true
-    · rw [show (y == v) = true from hyv] at h
-      exact absurd h (by simp)
-    · have hyv' : (y == v) = false := by
-        cases hh : (y == v); rfl; exact absurd hh hyv
-      rw [show (y == v) = false from hyv']
-      rw [show (y == v) = false from hyv'] at h
-      simp only [Bool.false_eq_true, ↓reduceIte] at h ⊢
-      have := ih (n + 1) h
-      rw [this, List.length_cons]
-      have heq : n + 1 + rest.length = n + (rest.length + 1) := by omega
-      rw [heq]
-
-/-- If `v` is found in `env` at offset `n+i`, lookup in `env ++ env'` gives
-the same result. -/
-private theorem envLookupT.go_append_some (v : VarId) (env env' : List VarId)
-    (n idx : Nat) (h : envLookupT.go v env n = some idx) :
-    envLookupT.go v (env ++ env') n = some idx := by
-  induction env generalizing n with
-  | nil => simp [envLookupT.go] at h
-  | cons y rest ih =>
-    rw [List.cons_append]
-    simp only [envLookupT.go] at h ⊢
-    by_cases hyv : (y == v) = true
-    · rw [show (y == v) = true from hyv] at h
-      rw [show (y == v) = true from hyv]
-      simp only at h ⊢
-      exact h
-    · have hyv' : (y == v) = false := by
-        cases hh : (y == v); rfl; exact absurd hh hyv
-      rw [show (y == v) = false from hyv'] at h
-      rw [show (y == v) = false from hyv']
-      simp only [Bool.false_eq_true, ↓reduceIte] at h ⊢
-      exact ih (n + 1) h
-
-/-- `envLookupT.go v env 0 = env.findIdx? (· == v)`. Both walk the list and
-return the first index matching `· == v`. -/
-private theorem envLookupT.go_eq_findIdx? (v : VarId) (env : List VarId) :
-    envLookupT.go v env 0 = env.findIdx? (· == v) := by
-  have key : ∀ (env : List VarId) (n : Nat),
-      envLookupT.go v env n = (env.findIdx? (· == v)).map (· + n) := by
-    intro env
-    induction env with
-    | nil => intro n; simp [envLookupT.go, List.findIdx?_nil]
-    | cons y rest ih =>
-      intro n
-      simp only [envLookupT.go, List.findIdx?_cons]
-      by_cases hyv : (y == v) = true
-      · simp [hyv]
-      · have hyv' : (y == v) = false := by
-          cases hh : (y == v)
-          · rfl
-          · exact absurd hh hyv
-        simp only [hyv']
-        rw [ih (n + 1)]
-        simp only [ite_false, Bool.false_eq_true]
-        cases hfi : rest.findIdx? (· == v) with
-        | none => simp
-        | some j =>
-          simp only [Option.map]
-          congr 1
-          omega
-  rw [key]
-  cases h : env.findIdx? (· == v) <;> simp
-
-/-- Reformulation: `envLookupT env v = env.findIdx? (· == v)`. -/
-private theorem envLookupT_eq_findIdx? (env : List VarId) (v : VarId) :
-    envLookupT env v = env.findIdx? (· == v) := by
-  unfold envLookupT
-  exact envLookupT.go_eq_findIdx? v env
-
-/-! ### VarSet union/insert helpers (forward direction) -/
-
-/-- BEq transitivity lifted to List.any. (Local copy — the same lemma is
-private in `LowerTotal`.) -/
-private theorem list_any_beq_varid_trans (xs : List VarId) (v x : VarId)
-    (hvx : (v == x) = true) (hv : xs.any (· == v) = true) : xs.any (· == x) = true := by
-  induction xs with
-  | nil => simp at hv
-  | cons h t ih =>
-    simp only [List.any_cons, Bool.or_eq_true] at *
-    cases hv with
-    | inl hl =>
-      left
-      rw [varid_beq_iff] at hvx hl ⊢
-      exact ⟨hl.1.trans hvx.1, hl.2.trans hvx.2⟩
-    | inr hr => exact .inr (ih hr)
-
-/-- `insert` preserves `contains`-true: if `s.contains y = true`, then
-`(s.insert v).contains y = true`. -/
-private theorem VarSet.insert_contains_of_contains (s : VarSet) (v y : VarId)
-    (h : s.contains y = true) :
-    (s.insert v).contains y = true := by
-  unfold VarSet.insert
-  split
-  · exact h
-  · -- Array push case
-    unfold VarSet.contains
-    rw [← Array.any_toList, Array.toList_push, List.any_append,
-        List.any_cons, List.any_nil, Bool.or_false]
-    unfold VarSet.contains at h
-    rw [← Array.any_toList] at h
-    simp [h]
-
-/-- For folded insert, `contains` persists through the fold. -/
-private theorem VarSet.foldl_list_insert_contains_of_contains_left :
-    ∀ (elems : List VarId) (acc : VarSet) (y : VarId),
-      acc.contains y = true →
-      (elems.foldl (fun a v => a.insert v) acc).contains y = true
-  | [], _, _, h => h
-  | v :: rest, acc, y, h => by
-    simp only [List.foldl_cons]
-    exact VarSet.foldl_list_insert_contains_of_contains_left rest _ y
-      (VarSet.insert_contains_of_contains acc v y h)
-
-/-- If `y` matches some element of `elems`, then folded insert contains `y`. -/
-private theorem VarSet.foldl_list_insert_contains_of_mem :
-    ∀ (elems : List VarId) (acc : VarSet) (y : VarId),
-      elems.any (· == y) = true →
-      (elems.foldl (fun a v => a.insert v) acc).contains y = true
-  | [], _, _, h => by simp at h
-  | v :: rest, acc, y, h => by
-    simp only [List.foldl_cons]
-    simp only [List.any_cons, Bool.or_eq_true] at h
-    cases h with
-    | inl hv =>
-      -- v == y, so v is inserted; then fold preserves contains y
-      apply VarSet.foldl_list_insert_contains_of_contains_left
-      -- (acc.insert v).contains y = true when (v == y) = true
-      unfold VarSet.insert
-      split
-      · rename_i hsv
-        unfold VarSet.contains at hsv
-        rw [← Array.any_toList] at hsv
-        unfold VarSet.contains
-        rw [← Array.any_toList]
-        exact list_any_beq_varid_trans acc.data.toList v y hv hsv
-      · unfold VarSet.contains
-        rw [← Array.any_toList, Array.toList_push, List.any_append,
-            List.any_cons, List.any_nil, Bool.or_false]
-        simp [hv]
-    | inr hrest =>
-      exact VarSet.foldl_list_insert_contains_of_mem rest _ y hrest
-
-/-- If `s2` contains `y`, the union `s1.union s2` also contains `y`. -/
-private theorem VarSet.union_contains_of_contains_right (s1 s2 : VarSet) (y : VarId)
-    (h : s2.contains y = true) :
-    (s1.union s2).contains y = true := by
-  unfold VarSet.union
-  rw [← Array.foldl_toList]
-  apply VarSet.foldl_list_insert_contains_of_mem
-  unfold VarSet.contains at h
-  rwa [← Array.any_toList] at h
-
-/-- If `s1` contains `y`, the union `s1.union s2` also contains `y`. -/
-private theorem VarSet.union_contains_of_contains_left (s1 s2 : VarSet) (y : VarId)
-    (h : s1.contains y = true) :
-    (s1.union s2).contains y = true := by
-  unfold VarSet.union
-  rw [← Array.foldl_toList]
-  exact VarSet.foldl_list_insert_contains_of_contains_left s2.data.toList s1 y h
-
-/-- Core list-level: if `L.any (· == y) = true` and `(x == y) = false`,
-then `(L.filter (· != x)).any (· == y) = true`. -/
-private theorem list_any_filter_other (L : List VarId) (x y : VarId)
-    (hcontains : L.any (· == y) = true) (hxy : (x == y) = false) :
-    (L.filter (· != x)).any (· == y) = true := by
-  induction L with
-  | nil => exact absurd hcontains (by simp)
-  | cons w rest ih =>
-    simp only [List.any_cons, Bool.or_eq_true] at hcontains
-    simp only [List.filter_cons]
-    by_cases hwy : (w == y) = true
-    · -- w matches y; we need w kept by filter. Show w != x.
-      have hwx : (w != x) = true := by
-        simp only [bne, Bool.not_eq_true']
-        cases hwx2 : (w == x) with
-        | false => rfl
-        | true =>
-          exfalso
-          -- Contradiction: w == x and w == y would give x == y.
-          have h1 : (x == y) = true := by
-            rw [varid_beq_iff] at hwx2 hwy
-            rw [varid_beq_iff]
-            exact ⟨hwx2.1.symm.trans hwy.1, hwx2.2.symm.trans hwy.2⟩
-          rw [h1] at hxy; exact Bool.noConfusion hxy
-      rw [show (w != x) = true from hwx]; simp only [ite_true, List.any_cons]
-      simp [hwy]
-    · -- w doesn't match y; premise is in rest; recurse
-      have hwy_f : (w == y) = false := by
-        cases hh : (w == y); rfl; exact absurd hh hwy
-      have hrest : rest.any (· == y) = true := by
-        cases hcontains with
-        | inl h => exact absurd h hwy
-        | inr h => exact h
-      by_cases hwx : (w != x) = true
-      · simp only [hwx, ite_true, List.any_cons, hwy_f, Bool.false_or]
-        exact ih hrest
-      · simp only [show (w != x) = false from by cases hh : (w != x); rfl; exact absurd hh hwx]
-        simp only [Bool.false_eq_true, ↓reduceIte]
-        exact ih hrest
-
-/-- If `s` contains `y` and `y ≠ x` (in BEq), then `(s.erase x)` still contains `y`. -/
-private theorem VarSet.erase_other_contains (s : VarSet) (x y : VarId)
-    (hcontains : s.contains y = true) (hxy : (x == y) = false) :
-    (s.erase x).contains y = true := by
-  unfold VarSet.erase VarSet.contains
-  rw [← Array.any_toList, Array.toList_filter]
-  unfold VarSet.contains at hcontains
-  rw [← Array.any_toList] at hcontains
-  exact list_any_filter_other s.data.toList x y hcontains hxy
-
-/-! ### canonEnv never matches a `.source` VarId -/
-
-/-- Every element of `canonEnvFrom top env` has `.gen` origin. -/
-private theorem canonEnvFrom_elements_gen (top : Nat) (env : List VarId)
-    (y : VarId) (h : y ∈ canonEnvFrom top env) : y.origin = .gen := by
-  induction env generalizing top with
-  | nil => simp [canonEnvFrom_nil] at h
-  | cons v vs ih =>
-    rw [canonEnvFrom_cons] at h
-    cases h with
-    | head _ => rfl
-    | tail _ htl => exact ih (top - 1) htl
-
-/-- Every element of `canonEnv d env` has `.gen` origin. -/
-private theorem canonEnv_elements_gen (d : Nat) (env : List VarId)
-    (y : VarId) (h : y ∈ canonEnv d env) : y.origin = .gen := by
-  unfold canonEnv at h
-  exact canonEnvFrom_elements_gen (d - 1) env y h
-
-/-- If `x.origin = .source`, then `x` is not found in `canonEnv d env`. -/
-private theorem findIdx_canonEnv_none_of_source (env : List VarId) (d : Nat)
-    (x : VarId) (hx : x.origin = .source) :
-    (canonEnv d env).findIdx? (· == x) = none := by
-  induction env generalizing d with
-  | nil => simp [canonEnv, canonEnvFrom_nil, List.findIdx?_nil]
-  | cons v vs ih =>
-    rw [canonEnv, canonEnvFrom_cons, List.findIdx?_cons]
-    have hne : (canonBinder (d - 1) v.hint == x) = false := by
-      rw [Bool.eq_false_iff]
-      intro habs
-      have := (canonBinder_beq_varid _ _ _).mp habs
-      rw [hx] at this
-      exact VarOrigin.noConfusion this.1
-    rw [hne]
-    simp only [Bool.false_eq_true, ↓reduceIte]
-    have ih' := ih (d := d - 1)
-    rw [canonEnv] at ih'
-    cases hfi : canonEnvFrom (d - 1 - 1) vs |>.findIdx? (· == x) with
-    | none => simp
-    | some j =>
-      rw [hfi] at ih'
-      exact absurd ih' (by simp)
-
-/-! ### Free-var source-hypothesis preservation under binder descent -/
-
-/-- If `(freeVars e).contains y → env.findIdx? = none → y.origin = .source`,
-then for body of `.Lam x body`, the same property holds with env = `x :: env`. -/
-private theorem hfv_descend_lam (env : List VarId) (x : VarId) (body : Expr)
-    (hfv : ∀ y, (freeVars (.Lam x body)).contains y = true →
-              env.findIdx? (· == y) = none → y.origin = .source) :
-    ∀ y, (freeVars body).contains y = true →
-        (x :: env).findIdx? (· == y) = none → y.origin = .source := by
-  intro y hy hfi
-  rw [List.findIdx?_cons] at hfi
-  have hxy : (x == y) = false := by
-    cases hxy : (x == y) with
-    | true => rw [hxy] at hfi; simp at hfi
-    | false => rfl
-  rw [hxy] at hfi
-  simp only [Bool.false_eq_true, ↓reduceIte] at hfi
-  have henv : env.findIdx? (· == y) = none := by
-    cases hfi' : env.findIdx? (· == y) with
-    | none => rfl
-    | some j =>
-      rw [hfi'] at hfi
-      simp at hfi
-  -- Show y in freeVars (.Lam x body), which = (freeVars body).erase x
-  apply hfv
-  · rw [freeVars.eq_5]
-    exact VarSet.erase_other_contains _ _ _ hy hxy
-  · exact henv
-
--- Helper: mirror for .Fix
-private theorem hfv_descend_fix (env : List VarId) (f : VarId) (body : Expr)
-    (hfv : ∀ y, (freeVars (.Fix f body)).contains y = true →
-              env.findIdx? (· == y) = none → y.origin = .source) :
-    ∀ y, (freeVars body).contains y = true →
-        (f :: env).findIdx? (· == y) = none → y.origin = .source := by
-  intro y hy hfi
-  rw [List.findIdx?_cons] at hfi
-  have hfy : (f == y) = false := by
-    cases hfy : (f == y) with
-    | true => rw [hfy] at hfi; simp at hfi
-    | false => rfl
-  rw [hfy] at hfi
-  simp only [Bool.false_eq_true, ↓reduceIte] at hfi
-  have henv : env.findIdx? (· == y) = none := by
-    cases hfi' : env.findIdx? (· == y) with
-    | none => rfl
-    | some j =>
-      rw [hfi'] at hfi
-      simp at hfi
-  apply hfv
-  · rw [freeVars.eq_6]
-    exact VarSet.erase_other_contains _ _ _ hy hfy
-  · exact henv
-
-/-! ### Main theorem: `lowerTotal_canonicalize` via mutual induction -/
-
-/-- Predicate: for fixed env_orig/d, the canonicalize-eq statement holds. -/
-private def LowerCanon (e : Expr) : Prop :=
-  ∀ (env_outer env_orig : List VarId) (d : Nat),
-    env_orig.length = d →
-    (∀ y, (freeVars e).contains y = true →
-        env_orig.findIdx? (· == y) = none → y.origin = .source) →
-    lowerTotal (canonEnv d env_orig ++ env_outer) (canonicalizeAux env_orig d e)
-      = lowerTotal (env_orig ++ env_outer) e
-
-private def LowerCanonList (es : List Expr) : Prop :=
-  ∀ (env_outer env_orig : List VarId) (d : Nat),
-    env_orig.length = d →
-    (∀ y, (freeVarsList es).contains y = true →
-        env_orig.findIdx? (· == y) = none → y.origin = .source) →
-    lowerTotalList (canonEnv d env_orig ++ env_outer) (canonicalizeList env_orig d es)
-      = lowerTotalList (env_orig ++ env_outer) es
-
-private def LowerCanonLet (binds : List (VarId × Expr × Bool)) (body : Expr) : Prop :=
-  ∀ (env_outer env_orig : List VarId) (d : Nat),
-    env_orig.length = d →
-    (∀ y, (freeVarsLet binds body).contains y = true →
-        env_orig.findIdx? (· == y) = none → y.origin = .source) →
-    lowerTotal (canonEnv d env_orig ++ env_outer) (canonicalizeLet env_orig d binds body)
-      = lowerTotalLet (env_orig ++ env_outer) binds body
-
-/-- Var case. -/
-private theorem lowerCanon_var (x : VarId) : LowerCanon (.Var x) := by
-  intro env_outer env_orig d hlen hfv
-  rw [canonAux_var]
-  cases hfi : env_orig.findIdx? (· == x) with
-  | some i =>
-    -- Bound case: canonicalizeAux produces .Var (canonBinder (d-1-i) x.hint)
-    simp only
-    rw [lowerTotal.eq_1, lowerTotal.eq_1]
-    have hi : i < env_orig.length := by
-      have := List.findIdx?_eq_some_iff_findIdx_eq.mp hfi
-      exact this.1
-    have hlen_le : env_orig.length ≤ d := by omega
-    have hcanon_find : (canonEnv d env_orig).findIdx? (· == canonBinder (d - 1 - i) x.hint) = some i :=
-      findIdx_canonEnv_some_of_findIdx env_orig d x i hlen_le hfi
-    -- Convert findIdx? to envLookupT.go 0
-    have hcanon_go : envLookupT.go (canonBinder (d - 1 - i) x.hint) (canonEnv d env_orig) 0 = some i := by
-      rw [envLookupT.go_eq_findIdx?]
-      exact hcanon_find
-    have hcanon_full : envLookupT (canonEnv d env_orig ++ env_outer) (canonBinder (d - 1 - i) x.hint) = some i := by
-      unfold envLookupT
-      exact envLookupT.go_append_some _ _ _ _ _ hcanon_go
-    rw [hcanon_full]
-    -- RHS: lookup x in env_orig ++ env_outer
-    have horig_go : envLookupT.go x env_orig 0 = some i := by
-      rw [envLookupT.go_eq_findIdx?]
-      exact hfi
-    have horig_full : envLookupT (env_orig ++ env_outer) x = some i := by
-      unfold envLookupT
-      exact envLookupT.go_append_some _ _ _ _ _ horig_go
-    rw [horig_full]
-  | none =>
-    -- Free case: x is not in env_orig; canonicalizeAux returns .Var x
-    simp only
-    rw [lowerTotal.eq_1, lowerTotal.eq_1]
-    have hx_src : x.origin = .source := by
-      apply hfv x
-      · rw [freeVars.eq_1, VarSet.singleton_contains']
-        show (x == x) = true
-        rw [varid_beq_iff]; exact ⟨rfl, rfl⟩
-      · exact hfi
-    -- LHS lookup: goes through canonEnv (none) then env_outer
-    have hcanon_none : envLookupT.go x (canonEnv d env_orig) 0 = none := by
-      rw [envLookupT.go_eq_findIdx?]
-      exact findIdx_canonEnv_none_of_source env_orig d x hx_src
-    have hcanon_full : envLookupT (canonEnv d env_orig ++ env_outer) x
-        = envLookupT.go x env_outer (0 + (canonEnv d env_orig).length) := by
-      unfold envLookupT
-      exact envLookupT.go_append_none _ _ _ _ hcanon_none
-    -- RHS lookup: goes through env_orig (none) then env_outer
-    have horig_none : envLookupT.go x env_orig 0 = none := by
-      rw [envLookupT.go_eq_findIdx?]
-      exact hfi
-    have horig_full : envLookupT (env_orig ++ env_outer) x
-        = envLookupT.go x env_outer (0 + env_orig.length) := by
-      unfold envLookupT
-      exact envLookupT.go_append_none _ _ _ _ horig_none
-    rw [hcanon_full, horig_full]
-    -- (canonEnv d env_orig).length = env_orig.length
-    rw [canonEnv_length]
-
-/-- Lit case (trivial). -/
-private theorem lowerCanon_lit (c : Moist.Plutus.Term.Const × Moist.Plutus.Term.BuiltinType) :
-    LowerCanon (.Lit c) := by
-  intro env_outer env_orig d _ _
-  rw [canonAux_lit]
-  obtain ⟨c1, ty⟩ := c
-  simp only [lowerTotal.eq_2]
-
-/-- Builtin case (trivial). -/
-private theorem lowerCanon_builtin (b : Moist.Plutus.Term.BuiltinFun) :
-    LowerCanon (.Builtin b) := by
-  intro env_outer env_orig d _ _
-  rw [canonAux_builtin]
-  simp only [lowerTotal.eq_3]
-
-/-- Error case (trivial). -/
-private theorem lowerCanon_error : LowerCanon (Expr.Error) := by
-  intro env_outer env_orig d _ _
-  rw [canonAux_error]
-  simp only [lowerTotal.eq_4]
-
-/-- Fix case: both sides reduce to none. -/
-private theorem lowerCanon_fix (f : VarId) (body : Expr) : LowerCanon (.Fix f body) := by
-  intro env_outer env_orig d _ _
-  rw [canonAux_fix]
-  simp only [lowerTotal.eq_12]
-
-/-- Lam case: descend into body with extended env. -/
-private theorem lowerCanon_lam (x : VarId) (body : Expr) (ih : LowerCanon body) :
-    LowerCanon (.Lam x body) := by
-  intro env_outer env_orig d hlen hfv
-  rw [canonAux_lam]
-  rw [lowerTotal.eq_5, lowerTotal.eq_5]
-  -- Apply IH with env_orig' = x :: env_orig, d' = d + 1.
-  have hlen' : (x :: env_orig).length = d + 1 := by
-    rw [List.length_cons]; omega
-  have hfv' : ∀ y, (freeVars body).contains y = true →
-                  (x :: env_orig).findIdx? (· == y) = none → y.origin = .source :=
-    hfv_descend_lam env_orig x body hfv
-  have ih_applied := ih env_outer (x :: env_orig) (d + 1) hlen' hfv'
-  -- canonEnv (d+1) (x :: env_orig) = canonBinder d x.hint :: canonEnv d env_orig
-  rw [canonEnv_succ_cons] at ih_applied
-  -- Normalize: `a :: b ++ c = (a :: b) ++ c = a :: (b ++ c)` via List.cons_append.
-  rw [List.cons_append] at ih_applied
-  rw [List.cons_append] at ih_applied
-  rw [ih_applied]
-
-/-- Force case. -/
-private theorem lowerCanon_force (e : Expr) (ih : LowerCanon e) :
-    LowerCanon (.Force e) := by
-  intro env_outer env_orig d hlen hfv
-  rw [canonAux_force]
-  rw [lowerTotal.eq_7, lowerTotal.eq_7]
-  have hfv' : ∀ y, (freeVars e).contains y = true →
-                  env_orig.findIdx? (· == y) = none → y.origin = .source := by
-    intro y hy hfi
-    apply hfv y
-    · rw [freeVars.eq_8]; exact hy
-    · exact hfi
-  rw [ih env_outer env_orig d hlen hfv']
-
-/-- Delay case. -/
-private theorem lowerCanon_delay (e : Expr) (ih : LowerCanon e) :
-    LowerCanon (.Delay e) := by
-  intro env_outer env_orig d hlen hfv
-  rw [canonAux_delay]
-  rw [lowerTotal.eq_8, lowerTotal.eq_8]
-  have hfv' : ∀ y, (freeVars e).contains y = true →
-                  env_orig.findIdx? (· == y) = none → y.origin = .source := by
-    intro y hy hfi
-    apply hfv y
-    · rw [freeVars.eq_9]; exact hy
-    · exact hfi
-  rw [ih env_outer env_orig d hlen hfv']
-
-/-- App case. -/
-private theorem lowerCanon_app (f a : Expr) (ihf : LowerCanon f) (iha : LowerCanon a) :
-    LowerCanon (.App f a) := by
-  intro env_outer env_orig d hlen hfv
-  rw [canonAux_app]
-  rw [lowerTotal.eq_6, lowerTotal.eq_6]
-  have hff : ∀ y, (freeVars f).contains y = true →
-                 env_orig.findIdx? (· == y) = none → y.origin = .source := by
-    intro y hy hfi
-    apply hfv y
-    · rw [freeVars.eq_7]
-      exact VarSet.union_contains_of_contains_left _ _ _ hy
-    · exact hfi
-  have hfa : ∀ y, (freeVars a).contains y = true →
-                 env_orig.findIdx? (· == y) = none → y.origin = .source := by
-    intro y hy hfi
-    apply hfv y
-    · rw [freeVars.eq_7]
-      exact VarSet.union_contains_of_contains_right _ _ _ hy
-    · exact hfi
-  rw [ihf env_outer env_orig d hlen hff, iha env_outer env_orig d hlen hfa]
-
-/-- Constr case. Uses list induction. -/
-private theorem lowerCanon_constr (t : Nat) (as : List Expr) (ih : LowerCanonList as) :
-    LowerCanon (.Constr t as) := by
-  intro env_outer env_orig d hlen hfv
-  rw [canonAux_constr]
-  rw [lowerTotal.eq_9, lowerTotal.eq_9]
-  have hfv' : ∀ y, (freeVarsList as).contains y = true →
-                  env_orig.findIdx? (· == y) = none → y.origin = .source := by
-    intro y hy hfi
-    apply hfv y
-    · rw [freeVars.eq_10]; exact hy
-    · exact hfi
-  rw [ih env_outer env_orig d hlen hfv']
-
-/-- Case case (scrutinee + alts). -/
-private theorem lowerCanon_case (s : Expr) (alts : List Expr)
-    (ihs : LowerCanon s) (iha : LowerCanonList alts) :
-    LowerCanon (.Case s alts) := by
-  intro env_outer env_orig d hlen hfv
-  rw [canonAux_case]
-  rw [lowerTotal.eq_10, lowerTotal.eq_10]
-  have hfvs : ∀ y, (freeVars s).contains y = true →
-                  env_orig.findIdx? (· == y) = none → y.origin = .source := by
-    intro y hy hfi
-    apply hfv y
-    · rw [freeVars.eq_11]
-      exact VarSet.union_contains_of_contains_left _ _ _ hy
-    · exact hfi
-  have hfva : ∀ y, (freeVarsList alts).contains y = true →
-                  env_orig.findIdx? (· == y) = none → y.origin = .source := by
-    intro y hy hfi
-    apply hfv y
-    · rw [freeVars.eq_11]
-      exact VarSet.union_contains_of_contains_right _ _ _ hy
-    · exact hfi
-  rw [ihs env_outer env_orig d hlen hfvs, iha env_outer env_orig d hlen hfva]
-
-/-- Let case (dispatches to Let-specific lemma). -/
-private theorem lowerCanon_let (binds : List (VarId × Expr × Bool)) (body : Expr)
-    (ih : LowerCanonLet binds body) : LowerCanon (.Let binds body) := by
-  intro env_outer env_orig d hlen hfv
-  rw [canonAux_let]
-  rw [lowerTotal.eq_11]
-  have hfv' : ∀ y, (freeVarsLet binds body).contains y = true →
-                  env_orig.findIdx? (· == y) = none → y.origin = .source := by
-    intro y hy hfi
-    apply hfv y
-    · rw [freeVars.eq_12]; exact hy
-    · exact hfi
-  exact ih env_outer env_orig d hlen hfv'
-
-/-! ### List-level and Let-level cases -/
-
-/-- List nil. -/
-private theorem lowerCanonList_nil : LowerCanonList [] := by
-  intro env_outer env_orig d _ _
-  rw [canonList_nil]
-  simp only [lowerTotalList.eq_1]
-
-/-- List cons. -/
-private theorem lowerCanonList_cons (e : Expr) (es : List Expr)
-    (ihe : LowerCanon e) (ihes : LowerCanonList es) : LowerCanonList (e :: es) := by
-  intro env_outer env_orig d hlen hfv
-  rw [canonList_cons]
-  rw [lowerTotalList.eq_2, lowerTotalList.eq_2]
-  have hfve : ∀ y, (freeVars e).contains y = true →
-                  env_orig.findIdx? (· == y) = none → y.origin = .source := by
-    intro y hy hfi
-    apply hfv y
-    · rw [freeVarsList.eq_2]
-      exact VarSet.union_contains_of_contains_left _ _ _ hy
-    · exact hfi
-  have hfves : ∀ y, (freeVarsList es).contains y = true →
-                   env_orig.findIdx? (· == y) = none → y.origin = .source := by
-    intro y hy hfi
-    apply hfv y
-    · rw [freeVarsList.eq_2]
-      exact VarSet.union_contains_of_contains_right _ _ _ hy
-    · exact hfi
-  rw [ihe env_outer env_orig d hlen hfve, ihes env_outer env_orig d hlen hfves]
-
-/-- Let nil: defers to the body expression. -/
-private theorem lowerCanonLet_nil (body : Expr) (ih : LowerCanon body) :
-    LowerCanonLet [] body := by
-  intro env_outer env_orig d hlen hfv
-  rw [canonLet_nil]
-  rw [lowerTotalLet.eq_1]
-  have hfv' : ∀ y, (freeVars body).contains y = true →
-                  env_orig.findIdx? (· == y) = none → y.origin = .source := by
-    intro y hy hfi
-    apply hfv y
-    · rw [freeVarsLet.eq_1]; exact hy
-    · exact hfi
-  exact ih env_outer env_orig d hlen hfv'
-
-/-- Let cons: pulls out the first binding, descends into the rest. -/
-private theorem lowerCanonLet_cons (x : VarId) (rhs : Expr) (er : Bool)
-    (rest : List (VarId × Expr × Bool)) (body : Expr)
-    (ihrhs : LowerCanon rhs) (ihrest : LowerCanonLet rest body) :
-    LowerCanonLet ((x, rhs, er) :: rest) body := by
-  intro env_outer env_orig d hlen hfv
-  rw [canonLet_cons]
-  rw [lowerTotal.eq_11]
-  rw [lowerTotalLet.eq_2, lowerTotalLet.eq_2]
-  -- IH for rhs
-  have hfvrhs : ∀ y, (freeVars rhs).contains y = true →
-                    env_orig.findIdx? (· == y) = none → y.origin = .source := by
-    intro y hy hfi
-    apply hfv y
-    · rw [freeVarsLet.eq_2]
-      exact VarSet.union_contains_of_contains_left _ _ _ hy
-    · exact hfi
-  -- IH for rest with env_orig' = x :: env_orig
-  have hlen' : (x :: env_orig).length = d + 1 := by
-    rw [List.length_cons]; omega
-  have hfvrest : ∀ y, (freeVarsLet rest body).contains y = true →
-                      (x :: env_orig).findIdx? (· == y) = none → y.origin = .source := by
-    intro y hy hfi
-    -- findIdx? on (x :: env_orig) = none means x != y and findIdx? env_orig = none
-    rw [List.findIdx?_cons] at hfi
-    have hxy : (x == y) = false := by
-      cases hxy : (x == y) with
-      | true => rw [hxy] at hfi; simp at hfi
-      | false => rfl
-    rw [hxy] at hfi
-    simp only [Bool.false_eq_true, ↓reduceIte] at hfi
-    have henv : env_orig.findIdx? (· == y) = none := by
-      cases hfi' : env_orig.findIdx? (· == y) with
-      | none => rfl
-      | some j =>
-        rw [hfi'] at hfi
-        simp at hfi
-    -- Show y in freeVarsLet ((x,rhs,er) :: rest) body
-    apply hfv
-    · rw [freeVarsLet.eq_2]
-      apply VarSet.union_contains_of_contains_right
-      exact VarSet.erase_other_contains _ _ _ hy hxy
-    · exact henv
-  have ih_rhs := ihrhs env_outer env_orig d hlen hfvrhs
-  have ih_rest := ihrest env_outer (x :: env_orig) (d + 1) hlen' hfvrest
-  -- ih_rest: lowerTotal (canonEnv (d+1) (x :: env_orig) ++ env_outer) ... = lowerTotalLet (x :: env_orig ++ env_outer) rest body
-  rw [canonEnv_succ_cons] at ih_rest
-  rw [List.cons_append] at ih_rest
-  rw [List.cons_append] at ih_rest
-  -- Goal:
-  -- (do rhs' ← lowerTotal env_canon (canonicalizeAux env_orig d rhs);
-  --     rest' ← lowerTotalLet (canonBinder d x.hint :: env_canon) [] (canonicalizeLet (x :: env_orig) (d+1) rest body);
-  --     some (.Apply (.Lam 0 rest') rhs'))
-  -- = (do rhs' ← lowerTotal env_orig++env_outer rhs;
-  --       rest' ← lowerTotalLet (x :: env_orig ++ env_outer) rest body;
-  --       some (.Apply (.Lam 0 rest') rhs'))
-  rw [ih_rhs]
-  -- Now for the rest: lowerTotalLet with empty list unfolds to lowerTotal
-  rw [lowerTotalLet.eq_1]
-  -- Now we have lowerTotal ((canonBinder d x.hint) :: (canonEnv d env_orig ++ env_outer))
-  --                        (canonicalizeLet (x :: env_orig) (d+1) rest body)
-  -- which equals ih_rest LHS by associativity
-  rw [ih_rest]
-
-/-! ### Main mutual induction via strong induction on size -/
-
-/-- Combined mutual statement for `LowerCanon`, `LowerCanonList`, `LowerCanonLet`. -/
-private theorem lowerCanon_mutual :
-    (∀ e : Expr, LowerCanon e) ∧
-    (∀ es : List Expr, LowerCanonList es) ∧
-    (∀ binds body, LowerCanonLet binds body) := by
-  suffices h : ∀ n : Nat,
-      (∀ e : Expr, sizeOf e ≤ n → LowerCanon e) ∧
-      (∀ es : List Expr, sizeOf es ≤ n → LowerCanonList es) ∧
-      (∀ binds body, sizeOf binds + sizeOf body ≤ n → LowerCanonLet binds body) by
-    refine ⟨?_, ?_, ?_⟩
-    · intro e; exact (h (sizeOf e)).1 e (Nat.le_refl _)
-    · intro es; exact (h (sizeOf es)).2.1 es (Nat.le_refl _)
-    · intro binds body; exact (h (sizeOf binds + sizeOf body)).2.2 binds body (Nat.le_refl _)
-  intro n
-  induction n with
-  | zero =>
-    refine ⟨?_, ?_, ?_⟩
-    · intro e hsz; cases e <;> simp at hsz
-    · intro es hsz
-      cases es with
-      | nil => exact lowerCanonList_nil
-      | cons _ _ => simp at hsz
-    · intro binds body hsz
-      exfalso
-      have : sizeOf body ≥ 1 := by cases body <;> simp <;> omega
-      omega
-  | succ n ih =>
-    obtain ⟨ihExpr, ihList, ihLet⟩ := ih
-    refine ⟨?_, ?_, ?_⟩
-    · -- Expr case
-      intro e hsz
-      cases e with
-      | Var x => exact lowerCanon_var x
-      | Lit c => exact lowerCanon_lit c
-      | Builtin b => exact lowerCanon_builtin b
-      | Error => exact lowerCanon_error
-      | Fix f body => exact lowerCanon_fix f body
-      | Lam x body =>
-        have hbsz : sizeOf body ≤ n := by
-          have : sizeOf (Expr.Lam x body) = 1 + sizeOf x + sizeOf body := by simp
-          omega
-        exact lowerCanon_lam x body (ihExpr body hbsz)
-      | App f a =>
-        have hfsz : sizeOf f ≤ n := by
-          have : sizeOf (Expr.App f a) = 1 + sizeOf f + sizeOf a := by simp
-          omega
-        have hasz : sizeOf a ≤ n := by
-          have : sizeOf (Expr.App f a) = 1 + sizeOf f + sizeOf a := by simp
-          omega
-        exact lowerCanon_app f a (ihExpr f hfsz) (ihExpr a hasz)
-      | Force e' =>
-        have hesz : sizeOf e' ≤ n := by
-          have : sizeOf (Expr.Force e') = 1 + sizeOf e' := by simp
-          omega
-        exact lowerCanon_force e' (ihExpr e' hesz)
-      | Delay e' =>
-        have hesz : sizeOf e' ≤ n := by
-          have : sizeOf (Expr.Delay e') = 1 + sizeOf e' := by simp
-          omega
-        exact lowerCanon_delay e' (ihExpr e' hesz)
-      | Constr t as =>
-        have hsz' : sizeOf as ≤ n := by
-          have : sizeOf (Expr.Constr t as) = 1 + sizeOf t + sizeOf as := by simp
-          omega
-        exact lowerCanon_constr t as (ihList as hsz')
-      | Case s alts =>
-        have hssz : sizeOf s ≤ n := by
-          have : sizeOf (Expr.Case s alts) = 1 + sizeOf s + sizeOf alts := by simp
-          omega
-        have haltsz : sizeOf alts ≤ n := by
-          have : sizeOf (Expr.Case s alts) = 1 + sizeOf s + sizeOf alts := by simp
-          omega
-        exact lowerCanon_case s alts (ihExpr s hssz) (ihList alts haltsz)
-      | Let binds body =>
-        have hsz' : sizeOf binds + sizeOf body ≤ n := by
-          have : sizeOf (Expr.Let binds body) = 1 + sizeOf binds + sizeOf body := by simp
-          omega
-        exact lowerCanon_let binds body (ihLet binds body hsz')
-    · -- List case
-      intro es hsz
-      cases es with
-      | nil => exact lowerCanonList_nil
-      | cons e es' =>
-        have hesz : sizeOf e ≤ n := by
-          have : sizeOf (e :: es') = 1 + sizeOf e + sizeOf es' := by simp
-          omega
-        have hes'sz : sizeOf es' ≤ n := by
-          have : sizeOf (e :: es') = 1 + sizeOf e + sizeOf es' := by simp
-          omega
-        exact lowerCanonList_cons e es' (ihExpr e hesz) (ihList es' hes'sz)
-    · -- Let case
-      intro binds body hsz
-      cases binds with
-      | nil =>
-        have hbsz : sizeOf body ≤ n := by
-          have : sizeOf (([] : List (VarId × Expr × Bool))) + sizeOf body
-              = 1 + sizeOf body := by simp
-          omega
-        exact lowerCanonLet_nil body (ihExpr body hbsz)
-      | cons head rest =>
-        obtain ⟨x, rhs, er⟩ := head
-        have hrsz : sizeOf rhs ≤ n := by
-          have hhead : sizeOf ((x, rhs, er) :: rest) + sizeOf body
-              = 1 + sizeOf (x, rhs, er) + sizeOf rest + sizeOf body := by simp
-          have hprod : sizeOf (x, rhs, er) = 1 + sizeOf x + (1 + sizeOf rhs + sizeOf er) := by simp
-          omega
-        have hrest_sz : sizeOf rest + sizeOf body ≤ n := by
-          have hhead : sizeOf ((x, rhs, er) :: rest) + sizeOf body
-              = 1 + sizeOf (x, rhs, er) + sizeOf rest + sizeOf body := by simp
-          omega
-        exact lowerCanonLet_cons x rhs er rest body (ihExpr rhs hrsz) (ihLet rest body hrest_sz)
-
-/-! ### User-facing theorems -/
-
-/-- Main theorem: canonicalize preserves `lowerTotal` for source-only expressions. -/
-theorem lowerTotal_canonicalize (env : List VarId) (e : Expr)
-    (hs : allFreeVarsSource e) :
-    lowerTotal env (canonicalize e) = lowerTotal env e := by
-  have hmain := lowerCanon_mutual.1 e env [] 0 (by simp)
-  -- hmain : lowerTotal (canonEnv 0 [] ++ env) (canonicalizeAux [] 0 e) = lowerTotal ([] ++ env) e
-  -- The hypothesis: ∀ y, (freeVars e).contains y = true → [].findIdx? (· == y) = none → y.origin = .source.
-  -- Since [].findIdx? is always none, this is just allFreeVarsSource e.
-  have hhyp : ∀ y, (freeVars e).contains y = true →
-                 ([] : List VarId).findIdx? (· == y) = none → y.origin = .source := by
-    intro y hy _
-    exact hs y hy
-  have := hmain hhyp
-  have hnil1 : canonEnv 0 ([] : List VarId) = [] := rfl
-  rw [hnil1] at this
-  simp only [List.nil_append] at this
-  unfold canonicalize
-  exact this
-
-/-- Closed version: with empty env. -/
-theorem lowerTotal_canonicalize_closed (e : Expr) (hs : allFreeVarsSource e) :
-    lowerTotal [] (canonicalize e) = lowerTotal [] e :=
-  lowerTotal_canonicalize [] e hs
-
-/-! ### Corollaries for expandFix composition -/
-
-/-- `expandFix` preserves `allFreeVarsSource`: if all free vars of `e` are
-`.source`, then all free vars of `expandFix e` are `.source` too. This
-follows because `expandFix` only introduces `.gen` binders for bound
-variables (Z-combinator expansion), and any free variable of the result
-was also free in the input. -/
 theorem allFreeVarsSource_expandFix (e : Expr) (hs : allFreeVarsSource e) :
     allFreeVarsSource (expandFix e) := by
   intro y hy
-  -- Contrapositive: if y is free in expandFix e, then y was free in e.
-  -- expandFix_freeVars_not_contains: (freeVars e).contains y = false → (freeVars (expandFix e)).contains y = false.
-  -- So contrapositive: (freeVars (expandFix e)).contains y = true → (freeVars e).contains y = true.
   have : (freeVars e).contains y = true := by
     cases hy' : (freeVars e).contains y with
     | true => rfl
     | false =>
       have := expandFix_freeVars_not_contains e y hy'
-      rw [this] at hy
-      exact absurd hy (by simp)
+      rw [this] at hy; exact absurd hy (by simp)
   exact hs y this
 
-/-- Wire canonicalize with expandFix: for source-only expressions,
-`canonicalize (expandFix e)` has the same lowering as `expandFix e`. -/
-theorem lowerTotal_canonicalize_expandFix (env : List VarId) (e : Expr)
-    (hs : allFreeVarsSource e) :
-    lowerTotal env (canonicalize (expandFix e)) = lowerTotal env (expandFix e) :=
-  lowerTotal_canonicalize env (expandFix e) (allFreeVarsSource_expandFix e hs)
+/-! ## wellScoped for canonicalized expressions
+
+Key insight: the counter starts at `maxUidExpr e + 1`, so all canonical
+binder uids are strictly greater than any uid in the original expression.
+Since `VarSet.contains` uses BEq (which checks both origin AND uid),
+no canonical binder can match any element of `freeVars e`. -/
+
+private theorem canonBinder_not_in_uid_lt_set (s : VarSet) (uid : Nat) (h : String)
+    (hs : ∀ w, s.contains w = true → w.uid < uid) :
+    s.contains (canonBinder uid h) = false := by
+  cases hc : s.contains (canonBinder uid h)
+  · rfl
+  · exact absurd (hs _ hc) (by simp [canonBinder])
+
+private theorem canonBinder_not_in_gen_uid_lt (s : VarSet) (uid : Nat) (h : String)
+    (hs : ∀ w, s.contains w = true → w.origin = .gen → w.uid < uid) :
+    s.contains (canonBinder uid h) = false := by
+  cases hc : s.contains (canonBinder uid h)
+  · rfl
+  · exact absurd (hs _ hc rfl) (by simp [canonBinder])
+
+private theorem insert_canonBinder_gen_bound (s : VarSet) (uid : Nat) (h : String)
+    (hs : ∀ w, s.contains w = true → w.origin = .gen → w.uid < uid) :
+    ∀ w, (s.insert (canonBinder uid h)).contains w = true → w.origin = .gen → w.uid < uid + 1 := by
+  intro w hw hwo
+  rcases (VarSet.contains_insert_elim s (canonBinder uid h) w).mp hw with hw | hw
+  · exact Nat.lt_succ_of_lt (hs w hw hwo)
+  · have ⟨_, huid⟩ := (canonBinder_beq_varid uid h w).mp hw; rw [huid]; omega
+
+/-! The wsc lemmas prove wellScopedAux succeeds on canonicalized output.
+The return type includes a bound on the returned seen-set so we can
+transfer the `hseen` invariant across sequential siblings. -/
+
+private abbrev SeenBound (s : VarSet) (c : Nat) : Prop :=
+  ∀ w, s.contains w = true → w.origin = .gen → w.uid < c
+
+mutual
+private theorem wsc_expr (env : CanonEnv) (c : Nat) (e : Expr) (seen fv : VarSet)
+    (henv : ∀ y v, canonEnvLookup env y = some v → v < c)
+    (hfv_uid : ∀ w, fv.contains w = true → w.uid < c)
+    (hseen : SeenBound seen c)
+    (hfv : ∀ y, (freeVars e).contains y = true → canonEnvLookup env y = none → y.uid < c) :
+    ∃ s, wellScopedAux seen fv (canonicalizeAux env c e).1 = some s ∧
+         SeenBound s (canonicalizeAux env c e).2 := by
+  cases e with
+  | Var x =>
+    unfold canonicalizeAux
+    cases hel : canonEnvLookup env x <;> (dsimp; unfold wellScopedAux; exact ⟨seen, rfl, hseen⟩)
+  | Lit _ | Builtin _ | Error =>
+    unfold canonicalizeAux; dsimp; unfold wellScopedAux; exact ⟨seen, rfl, hseen⟩
+  | Force inner =>
+    unfold canonicalizeAux; dsimp; unfold wellScopedAux
+    exact wsc_expr env c inner seen fv henv hfv_uid hseen
+      (fun y hy hel => hfv y (by rw [freeVars.eq_8]; exact hy) hel)
+  | Delay inner =>
+    unfold canonicalizeAux; dsimp; unfold wellScopedAux
+    exact wsc_expr env c inner seen fv henv hfv_uid hseen
+      (fun y hy hel => hfv y (by rw [freeVars.eq_9]; exact hy) hel)
+  | Lam x body =>
+    unfold canonicalizeAux; dsimp; unfold wellScopedAux
+    have hs := canonBinder_not_in_gen_uid_lt seen c x.hint hseen
+    have hf := canonBinder_not_in_uid_lt_set fv c x.hint hfv_uid
+    rw [hs, hf]; simp only [Bool.false_or]
+    have henv' : ∀ y v, canonEnvLookup ((x, c) :: env) y = some v → v < c + 1 := by
+      intro y v h; unfold canonEnvLookup at h; split at h
+      · injection h with h; omega
+      · exact Nat.lt_succ_of_lt (henv y v h)
+    exact wsc_expr ((x, c) :: env) (c + 1) body _ fv henv'
+      (fun w hw => Nat.lt_succ_of_lt (hfv_uid w hw))
+      (insert_canonBinder_gen_bound seen c x.hint hseen)
+      (fun y hy hel => by
+        unfold canonEnvLookup at hel
+        cases hxy : (x == y) <;> simp [hxy] at hel
+        exact Nat.lt_succ_of_lt (hfv y (by rw [freeVars.eq_5]; exact VarSet.contains_erase_ne _ x y hxy hy) hel))
+  | Fix f body =>
+    unfold canonicalizeAux; dsimp; unfold wellScopedAux
+    have hs := canonBinder_not_in_gen_uid_lt seen c f.hint hseen
+    have hf := canonBinder_not_in_uid_lt_set fv c f.hint hfv_uid
+    rw [hs, hf]; simp only [Bool.false_or]
+    have henv' : ∀ y v, canonEnvLookup ((f, c) :: env) y = some v → v < c + 1 := by
+      intro y v h; unfold canonEnvLookup at h; split at h
+      · injection h with h; omega
+      · exact Nat.lt_succ_of_lt (henv y v h)
+    exact wsc_expr ((f, c) :: env) (c + 1) body _ fv henv'
+      (fun w hw => Nat.lt_succ_of_lt (hfv_uid w hw))
+      (insert_canonBinder_gen_bound seen c f.hint hseen)
+      (fun y hy hel => by
+        unfold canonEnvLookup at hel
+        cases hfy : (f == y) <;> simp [hfy] at hel
+        exact Nat.lt_succ_of_lt (hfv y (by rw [freeVars.eq_6]; exact VarSet.contains_erase_ne _ f y hfy hy) hel))
+  | App f x =>
+    unfold canonicalizeAux; dsimp; unfold wellScopedAux
+    simp only [bind, Option.bind]
+    have hfvf := fun y hy hel => hfv y (by rw [freeVars.eq_7]; exact VarSet.contains_union_left _ _ _ hy) hel
+    have hfvx := fun y hy hel => hfv y (by rw [freeVars.eq_7]; exact VarSet.contains_union_right _ _ _ hy) hel
+    have ⟨s1, hs1, hb1⟩ := wsc_expr env c f seen fv henv hfv_uid hseen hfvf
+    rw [hs1]
+    have henv1 := fun y v h => Nat.lt_of_lt_of_le (henv y v h) (canonicalizeAux_counter_le env c f)
+    exact wsc_expr env _ x s1 fv henv1
+      (fun w hw => Nat.lt_of_lt_of_le (hfv_uid w hw) (canonicalizeAux_counter_le env c f))
+      hb1 (fun y hy hel => Nat.lt_of_lt_of_le (hfvx y hy hel) (canonicalizeAux_counter_le env c f))
+  | Constr _ args =>
+    unfold canonicalizeAux; dsimp; unfold wellScopedAux
+    exact wsc_list env c args seen fv henv hfv_uid hseen
+      (fun y hy hel => hfv y (by rw [freeVars.eq_10]; exact hy) hel)
+  | Case scrut alts =>
+    unfold canonicalizeAux; dsimp; unfold wellScopedAux
+    simp only [bind, Option.bind]
+    have hfvs := fun y hy hel => hfv y (by rw [freeVars.eq_11]; exact VarSet.contains_union_left _ _ _ hy) hel
+    have hfva := fun y hy hel => hfv y (by rw [freeVars.eq_11]; exact VarSet.contains_union_right _ _ _ hy) hel
+    have ⟨s1, hs1, hb1⟩ := wsc_expr env c scrut seen fv henv hfv_uid hseen hfvs
+    rw [hs1]
+    have henv1 := fun y v h => Nat.lt_of_lt_of_le (henv y v h) (canonicalizeAux_counter_le env c scrut)
+    exact wsc_list env _ alts s1 fv henv1
+      (fun w hw => Nat.lt_of_lt_of_le (hfv_uid w hw) (canonicalizeAux_counter_le env c scrut))
+      hb1 (fun y hy hel => Nat.lt_of_lt_of_le (hfva y hy hel) (canonicalizeAux_counter_le env c scrut))
+  | Let binds body =>
+    unfold canonicalizeAux
+    exact wsc_let env c binds body seen fv henv hfv_uid hseen
+      (fun y hy hel => hfv y (by rw [freeVars.eq_12]; exact hy) hel)
+termination_by sizeOf e
+
+private theorem wsc_list (env : CanonEnv) (c : Nat) (es : List Expr) (seen fv : VarSet)
+    (henv : ∀ y v, canonEnvLookup env y = some v → v < c)
+    (hfv_uid : ∀ w, fv.contains w = true → w.uid < c)
+    (hseen : SeenBound seen c)
+    (hfv : ∀ y, (freeVarsList es).contains y = true → canonEnvLookup env y = none → y.uid < c) :
+    ∃ s, wellScopedListAux seen fv (canonicalizeList env c es).1 = some s ∧
+         SeenBound s (canonicalizeList env c es).2 := by
+  cases es with
+  | nil =>
+    unfold canonicalizeList; dsimp; unfold wellScopedListAux
+    exact ⟨seen, rfl, hseen⟩
+  | cons e rest =>
+    unfold canonicalizeList; dsimp; unfold wellScopedListAux; simp only [bind, Option.bind]
+    have hfve := fun y hy hel => hfv y (by rw [freeVarsList.eq_2]; exact VarSet.contains_union_left _ _ _ hy) hel
+    have hfvr := fun y hy hel => hfv y (by rw [freeVarsList.eq_2]; exact VarSet.contains_union_right _ _ _ hy) hel
+    have ⟨s1, hs1, hb1⟩ := wsc_expr env c e seen fv henv hfv_uid hseen hfve
+    rw [hs1]
+    exact wsc_list env _ rest s1 fv
+      (fun y v h => Nat.lt_of_lt_of_le (henv y v h) (canonicalizeAux_counter_le env c e))
+      (fun w hw => Nat.lt_of_lt_of_le (hfv_uid w hw) (canonicalizeAux_counter_le env c e))
+      hb1 (fun y hy hel => Nat.lt_of_lt_of_le (hfvr y hy hel) (canonicalizeAux_counter_le env c e))
+termination_by sizeOf es
+
+private theorem wsc_let (env : CanonEnv) (c : Nat) (binds : List (VarId × Expr × Bool))
+    (body : Expr) (seen fv : VarSet)
+    (henv : ∀ y v, canonEnvLookup env y = some v → v < c)
+    (hfv_uid : ∀ w, fv.contains w = true → w.uid < c)
+    (hseen : SeenBound seen c)
+    (hfv : ∀ y, (freeVarsLet binds body).contains y = true → canonEnvLookup env y = none → y.uid < c) :
+    ∃ s, wellScopedAux seen fv (canonicalizeLet env c binds body).1 = some s ∧
+         SeenBound s (canonicalizeLet env c binds body).2 := by
+  cases binds with
+  | nil =>
+    unfold canonicalizeLet; dsimp; unfold wellScopedAux wellScopedLetAux
+    exact wsc_expr env c body seen fv henv hfv_uid hseen
+      (fun y hy hel => hfv y (by unfold freeVarsLet; exact hy) hel)
+  | cons b rest =>
+    have _hlt1 : sizeOf b.2.1 < sizeOf (b :: rest) + sizeOf body := by
+      have : sizeOf b.2.1 < sizeOf b := by
+        cases b with | mk a p => cases p with | mk e c => simp_wf; omega
+      have : sizeOf b < sizeOf (b :: rest) := by simp_wf; omega
+      omega
+    unfold canonicalizeLet; dsimp; unfold wellScopedAux wellScopedLetAux
+    simp only [bind, Option.bind]
+    have hfvr := fun y hy hel => hfv y (by rw [freeVarsLet.eq_2]; exact VarSet.contains_union_left _ _ _ hy) hel
+    have ⟨s1, hs1, hb1⟩ := wsc_expr env c b.2.1 seen fv henv hfv_uid hseen hfvr
+    rw [hs1]; simp only
+    have hcle := canonicalizeAux_counter_le env c b.2.1
+    have hs1c := canonBinder_not_in_gen_uid_lt s1 (canonicalizeAux env c b.2.1).2 b.1.hint hb1
+    have hfc := canonBinder_not_in_uid_lt_set fv (canonicalizeAux env c b.2.1).2 b.1.hint
+      (fun w hw => Nat.lt_of_lt_of_le (hfv_uid w hw) hcle)
+    simp only [hs1c, hfc, Bool.or_false]
+    unfold wellScopedLetAux
+    have henv' : ∀ y v, canonEnvLookup ((b.1, (canonicalizeAux env c b.2.1).2) :: env) y = some v →
+        v < (canonicalizeAux env c b.2.1).2 + 1 := by
+      intro y v h; unfold canonEnvLookup at h; split at h
+      · injection h with h; omega
+      · exact Nat.lt_succ_of_lt (Nat.lt_of_lt_of_le (henv y v h) hcle)
+    have hfvrest : ∀ y, (freeVarsLet rest body).contains y = true →
+        canonEnvLookup ((b.1, (canonicalizeAux env c b.2.1).2) :: env) y = none →
+        y.uid < (canonicalizeAux env c b.2.1).2 + 1 := by
+      intro y hy hel; unfold canonEnvLookup at hel
+      cases hby : (b.1 == y) <;> simp [hby] at hel
+      exact Nat.lt_succ_of_lt (Nat.lt_of_lt_of_le
+        (hfv y (by rw [freeVarsLet.eq_2]
+                   exact VarSet.contains_union_right _ _ _ (VarSet.contains_erase_ne _ b.1 y hby hy)) hel)
+        hcle)
+    exact wsc_let _ _ rest body _ fv henv'
+      (fun w hw => Nat.lt_of_lt_of_le (Nat.lt_of_lt_of_le (hfv_uid w hw) hcle) (Nat.le_succ _))
+      (insert_canonBinder_gen_bound s1 _ b.1.hint hb1) hfvrest
+termination_by sizeOf binds + sizeOf body
+end
+
+theorem freeVars_uid_le_maxUid (e : Expr) (y : VarId)
+    (hy : (freeVars e).contains y = true) : y.uid ≤ maxUidExpr e := by
+  exact Classical.byContradiction fun h => by
+    have h' : y.uid > maxUidExpr e := by omega
+    exact absurd hy (by rw [maxUidExpr_fresh e y h']; decide)
+
+/-! ## Helpers for freeVars_canonicalize_sub -/
+
+private theorem VarSet.contains_of_contains_erase (s : VarSet) (v x : VarId)
+    (h : (s.erase v).contains x = true) : s.contains x = true := by
+  cases hsx : s.contains x
+  · exact absurd h (by rw [VarSet.erase_not_contains_fwd s v x hsx]; decide)
+  · rfl
+
+private theorem VarSet.contains_union_elim (s1 s2 : VarSet) (x : VarId)
+    (h : (s1.union s2).contains x = true) :
+    s1.contains x = true ∨ s2.contains x = true := by
+  cases h1 : s1.contains x
+  · cases h2 : s2.contains x
+    · exact absurd h (by rw [VarSet.union_not_contains_fwd s1 s2 x h1 h2]; decide)
+    · exact Or.inr rfl
+  · exact Or.inl rfl
+
+private theorem list_any_beq_congr (l : List VarId) (x y : VarId)
+    (ho : x.origin = y.origin) (hu : x.uid = y.uid)
+    (h : l.any (· == x) = true) : l.any (· == y) = true := by
+  induction l with
+  | nil => exact h
+  | cons w rest ih =>
+    simp only [List.any_cons] at h ⊢
+    cases hwx : (w == x)
+    · simp only [hwx, Bool.false_or] at h
+      exact Bool.or_eq_true_iff.mpr (Or.inr (ih h))
+    · exact Bool.or_eq_true_iff.mpr (Or.inl
+        (varid_beq_iff.mpr ⟨(varid_beq_iff.mp hwx).1.trans ho, (varid_beq_iff.mp hwx).2.trans hu⟩))
+
+private theorem VarSet.contains_beq_congr (s : VarSet) (x y : VarId)
+    (hxy : (x == y) = true) (h : s.contains x = true) : s.contains y = true := by
+  have ⟨ho, hu⟩ := varid_beq_iff.mp hxy
+  unfold VarSet.contains at *; rw [← Array.any_toList] at *
+  exact list_any_beq_congr _ x y ho hu h
+
+/-! ## freeVars_canonicalize_sub: mutual induction
+
+The result type says: if v is free in the canonicalized expression, then there
+exists an original variable y that is free in the source expression, and either
+y maps directly to v (for unchanged free vars) or y was remapped by cenv to
+produce v (for bound variables viewed as canonical images). -/
+
+private abbrev CanonFVResult (cenv : CanonEnv) (fv : VarSet) (v : VarId) : Prop :=
+  ∃ y, fv.contains y = true ∧
+    (((y == v) = true ∧ canonEnvLookup cenv y = none) ∨
+     (∃ uid, canonEnvLookup cenv y = some uid ∧ (canonBinder uid y.hint == v) = true))
+
+private theorem canonFV_lift_union_left {cenv : CanonEnv} {s1 s2 : VarSet} {v : VarId}
+    (h : CanonFVResult cenv s1 v) : CanonFVResult cenv (s1.union s2) v := by
+  obtain ⟨y, hy, hc⟩ := h; exact ⟨y, VarSet.contains_union_left s1 s2 y hy, hc⟩
+
+private theorem canonFV_lift_union_right {cenv : CanonEnv} {s1 s2 : VarSet} {v : VarId}
+    (h : CanonFVResult cenv s2 v) : CanonFVResult cenv (s1.union s2) v := by
+  obtain ⟨y, hy, hc⟩ := h; exact ⟨y, VarSet.contains_union_right s1 s2 y hy, hc⟩
+
+private theorem canonFV_lift_erase {cenv : CanonEnv} {s : VarSet} {x v : VarId}
+    (h : CanonFVResult cenv s v)
+    (hne_free : ∀ y, (y == v) = true → canonEnvLookup cenv y = none →
+        s.contains y = true → (x == y) = false)
+    (hne_canon : ∀ y uid, canonEnvLookup cenv y = some uid →
+        (canonBinder uid y.hint == v) = true → s.contains y = true → (x == y) = false) :
+    CanonFVResult cenv (s.erase x) v := by
+  obtain ⟨y, hy, hcase⟩ := h
+  cases hcase with
+  | inl hfree =>
+    exact ⟨y, VarSet.contains_erase_ne s x y (hne_free y hfree.1 hfree.2 hy) hy,
+           Or.inl hfree⟩
+  | inr hcanon =>
+    obtain ⟨uid, hel, hbv⟩ := hcanon
+    exact ⟨y, VarSet.contains_erase_ne s x y (hne_canon y uid hel hbv hy) hy,
+           Or.inr ⟨uid, hel, hbv⟩⟩
+
+private theorem canonFV_binder_elim {cenv : CanonEnv} {s : VarSet} {binder : VarId}
+    {c : Nat} {v : VarId}
+    (ih : CanonFVResult ((binder, c) :: cenv) s v)
+    (hv_ne : (canonBinder c binder.hint == v) = false) :
+    CanonFVResult cenv (s.erase binder) v := by
+  obtain ⟨y, hy, hcase⟩ := ih
+  have hby : (binder == y) = false ∨ (binder == y) = true := by
+    cases (binder == y) <;> simp
+  cases hby with
+  | inr hby_true =>
+    cases hcase with
+    | inl hfree =>
+      obtain ⟨_, hcenv⟩ := hfree
+      unfold canonEnvLookup at hcenv; simp [hby_true] at hcenv
+    | inr hcanon =>
+      obtain ⟨uid, hel, hbv⟩ := hcanon
+      unfold canonEnvLookup at hel; simp [hby_true] at hel
+      subst hel
+      exact absurd ((canonBinder_beq_varid c binder.hint v).mpr
+        ((canonBinder_beq_varid c y.hint v).mp hbv))
+        (by simp [hv_ne])
+  | inl hby_false =>
+    cases hcase with
+    | inl hfree =>
+      obtain ⟨hyv, hcenv⟩ := hfree
+      unfold canonEnvLookup at hcenv; simp [hby_false] at hcenv
+      exact ⟨y, VarSet.contains_erase_ne s binder y hby_false hy, Or.inl ⟨hyv, hcenv⟩⟩
+    | inr hcanon =>
+      obtain ⟨uid, hel, hbv⟩ := hcanon
+      unfold canonEnvLookup at hel; simp [hby_false] at hel
+      exact ⟨y, VarSet.contains_erase_ne s binder y hby_false hy, Or.inr ⟨uid, hel, hbv⟩⟩
+
+mutual
+  private theorem freeVars_canon_aux_elim (cenv : CanonEnv) (c : Nat) (e : Expr) (v : VarId)
+      (hv : (freeVars (canonicalizeAux cenv c e).1).contains v = true)
+      (henv : ∀ y uid, canonEnvLookup cenv y = some uid → uid < c) :
+      CanonFVResult cenv (freeVars e) v := by
+    cases e with
+    | Var x =>
+      unfold canonicalizeAux at hv; unfold freeVars at hv ⊢
+      cases hel : canonEnvLookup cenv x <;> simp only [hel] at hv
+      · exact ⟨x, VarSet.contains_singleton_self x,
+               Or.inl ⟨by rw [VarSet.singleton_contains'] at hv; exact hv, hel⟩⟩
+      · rename_i uid
+        exact ⟨x, VarSet.contains_singleton_self x,
+               Or.inr ⟨uid, hel, by rw [VarSet.singleton_contains'] at hv; exact hv⟩⟩
+    | Lit _ => unfold canonicalizeAux at hv; dsimp at hv; unfold freeVars at hv; simp [VarSet.contains_empty] at hv
+    | Builtin _ => unfold canonicalizeAux at hv; dsimp at hv; unfold freeVars at hv; simp [VarSet.contains_empty] at hv
+    | Error => unfold canonicalizeAux at hv; dsimp at hv; unfold freeVars at hv; simp [VarSet.contains_empty] at hv
+    | Force inner =>
+      unfold canonicalizeAux at hv; dsimp at hv; unfold freeVars at hv ⊢
+      exact freeVars_canon_aux_elim cenv c inner v hv henv
+    | Delay inner =>
+      unfold canonicalizeAux at hv; dsimp at hv; unfold freeVars at hv ⊢
+      exact freeVars_canon_aux_elim cenv c inner v hv henv
+    | Lam x body =>
+      unfold canonicalizeAux at hv; dsimp at hv; unfold freeVars at hv ⊢
+      have hv_ne : (canonBinder c x.hint == v) = false := by
+        cases hb : (canonBinder c x.hint == v)
+        · rfl
+        · exact absurd hv (by rw [VarSet.erase_self_not_contains _ _ _ hb]; decide)
+      have henv' : ∀ y uid, canonEnvLookup ((x, c) :: cenv) y = some uid → uid < c + 1 := by
+        intro y uid h; unfold canonEnvLookup at h; split at h
+        · injection h with h; omega
+        · exact Nat.lt_succ_of_lt (henv y uid h)
+      have hv_body := VarSet.contains_of_contains_erase _ _ _ hv
+      exact canonFV_binder_elim
+        (freeVars_canon_aux_elim ((x, c) :: cenv) (c + 1) body v hv_body henv') hv_ne
+    | Fix f body =>
+      unfold canonicalizeAux at hv; dsimp at hv; unfold freeVars at hv ⊢
+      have hv_ne : (canonBinder c f.hint == v) = false := by
+        cases hb : (canonBinder c f.hint == v)
+        · rfl
+        · exact absurd hv (by rw [VarSet.erase_self_not_contains _ _ _ hb]; decide)
+      have henv' : ∀ y uid, canonEnvLookup ((f, c) :: cenv) y = some uid → uid < c + 1 := by
+        intro y uid h; unfold canonEnvLookup at h; split at h
+        · injection h with h; omega
+        · exact Nat.lt_succ_of_lt (henv y uid h)
+      have hv_body := VarSet.contains_of_contains_erase _ _ _ hv
+      exact canonFV_binder_elim
+        (freeVars_canon_aux_elim ((f, c) :: cenv) (c + 1) body v hv_body henv') hv_ne
+    | App f x =>
+      unfold canonicalizeAux at hv; dsimp at hv; unfold freeVars at hv ⊢
+      have hcle := canonicalizeAux_counter_le cenv c f
+      cases VarSet.contains_union_elim _ _ _ hv with
+      | inl hf =>
+        exact canonFV_lift_union_left (freeVars_canon_aux_elim cenv c f v hf henv)
+      | inr hx =>
+        exact canonFV_lift_union_right
+          (freeVars_canon_aux_elim cenv _ x v hx
+            (fun y uid h => Nat.lt_of_lt_of_le (henv y uid h) hcle))
+    | Constr _ args =>
+      unfold canonicalizeAux at hv; dsimp at hv; unfold freeVars at hv ⊢
+      exact freeVars_canon_list_elim cenv c args v hv henv
+    | Case scrut alts =>
+      unfold canonicalizeAux at hv; dsimp at hv; unfold freeVars at hv ⊢
+      have hcle := canonicalizeAux_counter_le cenv c scrut
+      cases VarSet.contains_union_elim _ _ _ hv with
+      | inl hs =>
+        exact canonFV_lift_union_left (freeVars_canon_aux_elim cenv c scrut v hs henv)
+      | inr ha =>
+        exact canonFV_lift_union_right
+          (freeVars_canon_list_elim cenv _ alts v ha
+            (fun y uid h => Nat.lt_of_lt_of_le (henv y uid h) hcle))
+    | Let binds body =>
+      unfold canonicalizeAux at hv; unfold freeVars at ⊢
+      exact freeVars_canon_let_elim cenv c binds body v hv henv
+  termination_by sizeOf e
+
+  private theorem freeVars_canon_list_elim (cenv : CanonEnv) (c : Nat) (es : List Expr)
+      (v : VarId)
+      (hv : (freeVarsList (canonicalizeList cenv c es).1).contains v = true)
+      (henv : ∀ y uid, canonEnvLookup cenv y = some uid → uid < c) :
+      CanonFVResult cenv (freeVarsList es) v := by
+    cases es with
+    | nil =>
+      unfold canonicalizeList at hv; dsimp at hv
+      rw [freeVarsList.eq_1] at hv; simp [VarSet.contains_empty] at hv
+    | cons e rest =>
+      unfold canonicalizeList at hv; dsimp at hv; unfold freeVarsList at hv ⊢
+      have hcle := canonicalizeAux_counter_le cenv c e
+      cases VarSet.contains_union_elim _ _ _ hv with
+      | inl he =>
+        exact canonFV_lift_union_left (freeVars_canon_aux_elim cenv c e v he henv)
+      | inr hr =>
+        exact canonFV_lift_union_right
+          (freeVars_canon_list_elim cenv _ rest v hr
+            (fun y uid h => Nat.lt_of_lt_of_le (henv y uid h) hcle))
+  termination_by sizeOf es
+
+  private theorem freeVars_canon_let_elim (cenv : CanonEnv) (c : Nat)
+      (binds : List (VarId × Expr × Bool)) (body : Expr) (v : VarId)
+      (hv : (freeVars (canonicalizeLet cenv c binds body).1).contains v = true)
+      (henv : ∀ y uid, canonEnvLookup cenv y = some uid → uid < c) :
+      CanonFVResult cenv (freeVarsLet binds body) v := by
+    cases binds with
+    | nil =>
+      unfold canonicalizeLet at hv; dsimp at hv; unfold freeVarsLet at ⊢
+      rw [freeVars.eq_12, freeVarsLet.eq_1] at hv
+      exact freeVars_canon_aux_elim cenv c body v hv henv
+    | cons b rest =>
+      have _hlt1 : sizeOf b.2.1 < sizeOf (b :: rest) + sizeOf body := by
+        have : sizeOf b.2.1 < sizeOf b := by
+          cases b with | mk a p => cases p with | mk e c => simp_wf; omega
+        have : sizeOf b < sizeOf (b :: rest) := by simp_wf; omega
+        omega
+      unfold canonicalizeLet at hv; dsimp at hv
+      rw [freeVars.eq_12, freeVarsLet] at hv; unfold freeVarsLet at ⊢
+      have hcle := canonicalizeAux_counter_le cenv c b.2.1
+      cases VarSet.contains_union_elim _ _ _ hv with
+      | inl hrhs =>
+        exact canonFV_lift_union_left (freeVars_canon_aux_elim cenv c b.2.1 v hrhs henv)
+      | inr hinner =>
+        have hv_ne : (canonBinder (canonicalizeAux cenv c b.2.1).2 b.1.hint == v) = false := by
+          cases hb : (canonBinder (canonicalizeAux cenv c b.2.1).2 b.1.hint == v)
+          · rfl
+          · exact absurd hinner (by rw [VarSet.erase_self_not_contains _ _ _ hb]; decide)
+        have henv' : ∀ y uid,
+            canonEnvLookup ((b.1, (canonicalizeAux cenv c b.2.1).2) :: cenv) y = some uid →
+            uid < (canonicalizeAux cenv c b.2.1).2 + 1 := by
+          intro y uid h; unfold canonEnvLookup at h; split at h
+          · injection h with h; omega
+          · exact Nat.lt_succ_of_lt (Nat.lt_of_lt_of_le (henv y uid h) hcle)
+        have hv_inner := VarSet.contains_of_contains_erase _ _ _ hinner
+        simp only [freeVarsLet.eq_1] at hv_inner
+        exact canonFV_lift_union_right (canonFV_binder_elim
+          (freeVars_canon_let_elim _ _ rest body v hv_inner henv') hv_ne)
+  termination_by sizeOf binds + sizeOf body
+end
+
+theorem freeVars_canonicalize_sub (e : Expr) (v : VarId)
+    (hv : (freeVars (canonicalize e)).contains v = true) :
+    (freeVars e).contains v = true := by
+  unfold canonicalize at hv
+  have h := freeVars_canon_aux_elim [] (maxUidExpr e + 1) e v hv
+    (by intro y uid h; unfold canonEnvLookup at h; simp at h)
+  obtain ⟨y, hy, hcase⟩ := h
+  cases hcase with
+  | inl hfree => exact VarSet.contains_beq_congr _ y v hfree.1 hy
+  | inr hcanon =>
+    obtain ⟨uid, hel, _⟩ := hcanon
+    exact absurd hel (by unfold canonEnvLookup; simp)
+
+theorem wellScopedAux_canonicalize_with_freeVars (e : Expr) :
+    ∃ s, wellScopedAux VarSet.empty (freeVars e)
+      (canonicalizeAux [] (maxUidExpr e + 1) e).1 = some s := by
+  have hfv_bound : ∀ w, (freeVars e).contains w = true → w.uid < maxUidExpr e + 1 :=
+    fun w hw => Nat.lt_succ_of_le (freeVars_uid_le_maxUid e w hw)
+  have ⟨s, hs, _⟩ := wsc_expr [] (maxUidExpr e + 1) e VarSet.empty (freeVars e)
+    (by intro y v h; unfold canonEnvLookup at h; simp at h)
+    hfv_bound
+    (by intro w hw _; simp [VarSet.contains_empty] at hw)
+    (fun y hy _ => hfv_bound y hy)
+  exact ⟨s, hs⟩
+
+/-! ## lowerTotalExpr_canonicalize: mutual induction -/
+
+private abbrev CLT (cenv : CanonEnv) (c : Nat) (env1 env2 : List VarId) (fv : VarSet) : Prop :=
+  (∀ v, fv.contains v = true →
+    (match canonEnvLookup cenv v with
+     | some uid => envLookupT env1 (canonBinder uid v.hint)
+     | none => envLookupT env1 v) = envLookupT env2 v) ∧
+  (∀ y uid, canonEnvLookup cenv y = some uid → uid < c) ∧
+  (∀ v, fv.contains v = true → canonEnvLookup cenv v = none → v.uid < c)
+
+private theorem CLT_sub {cenv c env1 env2 fv1 fv2}
+    (h : CLT cenv c env1 env2 fv1)
+    (hsub : ∀ v, fv2.contains v = true → fv1.contains v = true) :
+    CLT cenv c env1 env2 fv2 :=
+  ⟨fun v hv => h.1 v (hsub v hv), h.2.1, fun v hv hel => h.2.2 v (hsub v hv) hel⟩
+
+private theorem CLT_counter_le {cenv c1 c2 env1 env2 fv}
+    (h : CLT cenv c1 env1 env2 fv) (hle : c1 ≤ c2) :
+    CLT cenv c2 env1 env2 fv :=
+  ⟨h.1, fun y uid hy => Nat.lt_of_lt_of_le (h.2.1 y uid hy) hle,
+   fun v hv hel => Nat.lt_of_lt_of_le (h.2.2 v hv hel) hle⟩
+
+private theorem CLT_binder {cenv : CanonEnv} {c : Nat} {env1 env2 : List VarId}
+    {x : VarId} {fv_outer fv_body : VarSet}
+    (h : CLT cenv c env1 env2 fv_outer)
+    (_hfv_sub : ∀ v, fv_outer.contains v = true → fv_body.contains v = true)
+    (hfv_erase : ∀ v, fv_body.contains v = true → (x == v) = false →
+        fv_outer.contains v = true) :
+    CLT ((x, c) :: cenv) (c + 1) (canonBinder c x.hint :: env1)
+        (x :: env2) fv_body := by
+  refine ⟨fun v hv => ?_, fun y uid hy => ?_, fun v hv hel => ?_⟩
+  · -- agree: show the lookup agrees under extended envs
+    cases hxv : (x == v)
+    · -- v ≠ x
+      have hv_out := hfv_erase v hv hxv
+      have houter := h.1 v hv_out
+      -- Rewrite the outer canonEnvLookup to strip the (x, c) prefix
+      show (match canonEnvLookup ((x, c) :: cenv) v with
+            | some uid => envLookupT (canonBinder c x.hint :: env1) (canonBinder uid v.hint)
+            | none => envLookupT (canonBinder c x.hint :: env1) v) =
+           envLookupT (x :: env2) v
+      unfold canonEnvLookup; simp only [hxv]
+      -- Now the match is on canonEnvLookup cenv v, same as houter
+      -- Need to shift envLookupT through the extra cons
+      show (match canonEnvLookup cenv v with
+            | some uid => envLookupT (canonBinder c x.hint :: env1) (canonBinder uid v.hint)
+            | none => envLookupT (canonBinder c x.hint :: env1) v) =
+           envLookupT (x :: env2) v
+      -- houter : (match canonEnvLookup cenv v with
+      --           | some uid => envLookupT env1 (canonBinder uid v.hint)
+      --           | none => envLookupT env1 v) = envLookupT env2 v
+      rw [envLookupT_cons_neq x v env2 hxv]
+      cases hel' : canonEnvLookup cenv v with
+      | some uid =>
+        simp only [hel'] at houter ⊢
+        have huid_lt := h.2.1 v uid hel'
+        have : (canonBinder c x.hint == canonBinder uid v.hint) = false := by
+          cases hq : (canonBinder c x.hint == canonBinder uid v.hint)
+          · rfl
+          · exact absurd ((canonBinder_beq_canonBinder c uid x.hint v.hint).mp hq) (by omega)
+        rw [envLookupT_cons_neq _ _ _ this, houter]
+      | none =>
+        simp only [hel'] at houter ⊢
+        have hlt := h.2.2 v hv_out hel'
+        have : (canonBinder c x.hint == v) = false := by
+          cases hq : (canonBinder c x.hint == v)
+          · rfl
+          · have ⟨_, hu⟩ := varid_beq_iff.mp hq; simp [canonBinder] at hu; omega
+        rw [envLookupT_cons_neq _ _ _ this, houter]
+    · -- v == x
+      show (match canonEnvLookup ((x, c) :: cenv) v with
+            | some uid => envLookupT (canonBinder c x.hint :: env1) (canonBinder uid v.hint)
+            | none => envLookupT (canonBinder c x.hint :: env1) v) =
+           envLookupT (x :: env2) v
+      unfold canonEnvLookup; simp only [hxv, ite_true]
+      -- Goal: envLookupT (canonBinder c x.hint :: env1) (canonBinder c v.hint) = envLookupT (x :: env2) v
+      have hbeq : (canonBinder c x.hint == canonBinder c v.hint) = true :=
+        (canonBinder_beq_canonBinder c c x.hint v.hint).mpr rfl
+      rw [show envLookupT (canonBinder c x.hint :: env1) (canonBinder c v.hint) = some 0 from by
+        unfold envLookupT envLookupT.go; simp [hbeq]]
+      show some 0 = envLookupT (x :: env2) v
+      unfold envLookupT envLookupT.go; simp [hxv]
+  ·
+    unfold canonEnvLookup at hy; split at hy
+    · injection hy with hy; omega
+    · exact Nat.lt_succ_of_lt (h.2.1 y uid hy)
+  ·
+    unfold canonEnvLookup at hel; cases hxv : (x == v) <;> simp [hxv] at hel
+    exact Nat.lt_succ_of_lt (h.2.2 v (hfv_erase v hv hxv) hel)
+
+private theorem expandFix_let_eq (binds : List (VarId × Expr × Bool)) (body : Expr) :
+    expandFix (.Let binds body) = .Let (expandFixBinds binds) (expandFix body) := by
+  simp [expandFix]
+
+private theorem lowerTotal_let_eq (env : List VarId)
+    (binds : List (VarId × Expr × Bool)) (body : Expr) :
+    lowerTotal env (.Let binds body) = lowerTotalLet env binds body := by
+  simp [lowerTotal]
+
+private theorem canonicalizeAux_fix_eq (cenv : CanonEnv) (c : Nat) (f : VarId) (body : Expr) :
+    (canonicalizeAux cenv c (.Fix f body)).1 =
+      .Fix (canonBinder c f.hint) (canonicalizeAux ((f, c) :: cenv) (c + 1) body).1 := by
+  simp only [canonicalizeAux]
+
+private theorem lt_canon_fix_lam (cenv : CanonEnv) (c : Nat) (env1 env2 : List VarId)
+    (f : VarId) (x : VarId) (inner : Expr)
+    (_hinv : CLT cenv c env1 env2 (freeVars (.Fix f (.Lam x inner))))
+    (ih : lowerTotal
+        (canonBinder (c + 1) x.hint :: canonBinder c f.hint :: env1)
+        (expandFix (canonicalizeAux ((x, c + 1) :: (f, c) :: cenv) (c + 2) inner).1) =
+      lowerTotal (x :: f :: env2) (expandFix inner)) :
+    lowerTotal env1 (expandFix (canonicalizeAux cenv c (.Fix f (.Lam x inner))).1) =
+      lowerTotal env2 (expandFix (.Fix f (.Lam x inner))) := by
+  -- Step 1: Simplify LHS canonicalizeAux to reveal Fix f' (Lam x' inner')
+  have hc1 : (canonicalizeAux cenv c (.Fix f (.Lam x inner))).1 =
+      .Fix (canonBinder c f.hint) (.Lam (canonBinder (c+1) x.hint)
+        (canonicalizeAux ((x, c+1) :: (f, c) :: cenv) (c+2) inner).1) := by
+    simp only [canonicalizeAux]
+  -- Step 2: Rewrite to use lowerTotalExpr
+  -- lowerTotal env (expandFix e) = lowerTotalExpr env e by definition
+  have hle : ∀ env e, lowerTotal env (expandFix e) = lowerTotalExpr env e := fun _ _ => rfl
+  -- Reduce goal to lowerTotalExpr form and use fix_lam_canonical
+  rw [hc1]
+  let inner' := (canonicalizeAux ((x, c+1) :: (f, c) :: cenv) (c+2) inner).1
+  have hs1 := maxUidExpr_fresh (expandFix inner')
+    ⟨maxUidExpr (expandFix inner') + 1, .gen, "s"⟩ (Nat.lt_succ_self _)
+  have hs2 := maxUidExpr_fresh (expandFix inner)
+    ⟨maxUidExpr (expandFix inner) + 1, .gen, "s"⟩ (Nat.lt_succ_self _)
+  -- Chain: LHS = lowerTotalExpr = (...s1...).map = (...s2...).map = RHS (reversed)
+  cases hR : lowerTotal
+      (canonBinder (c+1) x.hint :: canonBinder c f.hint :: env1) (expandFix inner') with
+  | none =>
+    have hR2 : lowerTotal (x :: f :: env2) (expandFix inner) = none := ih ▸ hR
+    have h1 := lowerTotal_prepend_unused_none_gen
+      [canonBinder (c+1) x.hint, canonBinder c f.hint] env1
+      ⟨maxUidExpr (expandFix inner') + 1, .gen, "s"⟩ (expandFix inner') (.inl hs1) hR
+    have h2 := lowerTotal_prepend_unused_none_gen [x, f] env2
+      ⟨maxUidExpr (expandFix inner) + 1, .gen, "s"⟩ (expandFix inner) (.inl hs2) hR2
+    -- LHS: lowerTotal env1 (expandFix (Fix f' (Lam x' inner')))
+    --     = lowerTotalExpr env1 (Fix f' (Lam x' inner'))
+    --     = (lowerTotal (x'::f'::s1::env1) (expandFix inner')).map fixLamWrapUplc  [by canonical]
+    --     = none.map fixLamWrapUplc = none  [by h1]
+    -- Similarly RHS = none  [by h2]
+    have hlhs : lowerTotalExpr env1 (.Fix (canonBinder c f.hint) (.Lam (canonBinder (c+1) x.hint) inner')) =
+        none := by
+      rw [lowerTotalExpr_fix_lam_canonical]
+      simp only [List.cons_append, List.nil_append] at h1
+      rw [h1]; rfl
+    have hrhs : lowerTotalExpr env2 (.Fix f (.Lam x inner)) = none := by
+      rw [lowerTotalExpr_fix_lam_canonical]
+      simp only [List.cons_append, List.nil_append] at h2
+      rw [h2]; rfl
+    simp only [lowerTotalExpr] at hlhs hrhs; rw [hlhs, hrhs]
+  | some t =>
+    have hR2 : lowerTotal (x :: f :: env2) (expandFix inner) = some t := ih ▸ hR
+    have h1 := lowerTotal_prepend_unused_gen
+      [canonBinder (c+1) x.hint, canonBinder c f.hint] env1
+      ⟨maxUidExpr (expandFix inner') + 1, .gen, "s"⟩ (expandFix inner') (.inl hs1) t hR
+    have h2 := lowerTotal_prepend_unused_gen [x, f] env2
+      ⟨maxUidExpr (expandFix inner) + 1, .gen, "s"⟩ (expandFix inner) (.inl hs2) t hR2
+    let t' := Moist.Verified.renameTerm (Moist.Verified.shiftRename 3) t
+    have hlhs : lowerTotalExpr env1 (.Fix (canonBinder c f.hint) (.Lam (canonBinder (c+1) x.hint) inner')) =
+        some (fixLamWrapUplc t') := by
+      rw [lowerTotalExpr_fix_lam_canonical]
+      simp only [List.cons_append, List.nil_append] at h1
+      rw [h1]; rfl
+    have hrhs : lowerTotalExpr env2 (.Fix f (.Lam x inner)) =
+        some (fixLamWrapUplc t') := by
+      rw [lowerTotalExpr_fix_lam_canonical]
+      simp only [List.cons_append, List.nil_append] at h2
+      rw [h2]; rfl
+    simp only [lowerTotalExpr] at hlhs hrhs; rw [hlhs, hrhs]
+
+private theorem lt_canon_fix_nonlam (cenv : CanonEnv) (c : Nat) (env1 env2 : List VarId)
+    (f : VarId) (body : Expr) (hbody : ∀ x inner, body ≠ .Lam x inner)
+    (_hinv : CLT cenv c env1 env2 (freeVars (.Fix f body))) :
+    lowerTotal env1 (expandFix (canonicalizeAux cenv c (.Fix f body)).1) =
+      lowerTotal env2 (expandFix (.Fix f body)) := by
+  cases body with
+  | Lam x inner => exact absurd rfl (hbody x inner)
+  | Var _ => simp only [canonicalizeAux]; split <;> (dsimp; unfold expandFix; simp [lowerTotal])
+  | Lit _ =>
+    simp only [canonicalizeAux]; unfold expandFix; simp [lowerTotal]
+  | Builtin _ =>
+    simp only [canonicalizeAux]; unfold expandFix; simp [lowerTotal]
+  | Error =>
+    simp only [canonicalizeAux]; unfold expandFix; simp [lowerTotal]
+  | Force _ =>
+    simp only [canonicalizeAux]; unfold expandFix; simp [lowerTotal]
+  | Delay _ =>
+    simp only [canonicalizeAux]; unfold expandFix; simp [lowerTotal]
+  | Fix _ _ =>
+    simp only [canonicalizeAux]; unfold expandFix; simp [lowerTotal]
+  | App _ _ =>
+    simp only [canonicalizeAux]; unfold expandFix; simp [lowerTotal]
+  | Case _ _ =>
+    simp only [canonicalizeAux]; unfold expandFix; simp [lowerTotal]
+  | Constr _ _ =>
+    simp only [canonicalizeAux]; unfold expandFix; simp [lowerTotal]
+  | Let binds body =>
+    cases binds with
+    | nil =>
+      simp only [canonicalizeAux, canonicalizeLet]; unfold expandFix; simp [lowerTotal]
+    | cons b rest =>
+      obtain ⟨bv, brhs, ber⟩ := b
+      simp only [canonicalizeAux, canonicalizeLet]; unfold expandFix; simp [lowerTotal]
+
+mutual
+  private theorem lt_canon_expr (cenv : CanonEnv) (c : Nat) (env1 env2 : List VarId) (e : Expr)
+      (hinv : CLT cenv c env1 env2 (freeVars e)) :
+      lowerTotal env1 (expandFix (canonicalizeAux cenv c e).1) =
+        lowerTotal env2 (expandFix e) := by
+    cases e with
+    | Var x =>
+      unfold canonicalizeAux
+      cases hel : canonEnvLookup cenv x <;> simp only [expandFix, lowerTotal]
+      · have := hinv.1 x (by rw [freeVars]; exact VarSet.contains_singleton_self x)
+        simp [hel] at this; rw [this]
+      · have := hinv.1 x (by rw [freeVars]; exact VarSet.contains_singleton_self x)
+        simp [hel] at this; rw [this]
+    | Lit l =>
+      cases l with | mk c ty => unfold canonicalizeAux; simp [expandFix, lowerTotal]
+    | Builtin b => unfold canonicalizeAux; dsimp; simp [expandFix, lowerTotal]
+    | Error => unfold canonicalizeAux; dsimp; simp [expandFix, lowerTotal]
+    | Force inner =>
+      unfold canonicalizeAux; dsimp; simp only [expandFix, lowerTotal, Option.bind_eq_bind]
+      rw [lt_canon_expr cenv c env1 env2 inner
+        (CLT_sub hinv (fun v hv => by rw [freeVars.eq_8]; exact hv))]
+    | Delay inner =>
+      unfold canonicalizeAux; dsimp; simp only [expandFix, lowerTotal, Option.bind_eq_bind]
+      rw [lt_canon_expr cenv c env1 env2 inner
+        (CLT_sub hinv (fun v hv => by rw [freeVars.eq_9]; exact hv))]
+    | Lam x body =>
+      unfold canonicalizeAux; dsimp
+      simp only [expandFix, lowerTotal, Option.bind_eq_bind]
+      have hinv_body : CLT ((x, c) :: cenv) (c + 1)
+          (canonBinder c x.hint :: env1) (x :: env2) (freeVars body) :=
+        CLT_binder
+          (CLT_sub hinv (fun v hv => by rw [freeVars.eq_5]; exact hv))
+          (fun v hv => VarSet.contains_of_contains_erase _ _ _ hv)
+          (fun v hv hxv => VarSet.contains_erase_ne _ _ _ hxv hv)
+      rw [lt_canon_expr ((x, c) :: cenv) (c + 1) _ _ body hinv_body]
+    | App f a =>
+      unfold canonicalizeAux; dsimp
+      simp only [expandFix, lowerTotal, Option.bind_eq_bind]
+      rw [lt_canon_expr cenv c env1 env2 f
+            (CLT_sub hinv (fun v hv => by
+              rw [freeVars.eq_7]; exact VarSet.contains_union_left _ _ _ hv)),
+          lt_canon_expr cenv _ env1 env2 a
+            (CLT_counter_le
+              (CLT_sub hinv (fun v hv => by
+                rw [freeVars.eq_7]; exact VarSet.contains_union_right _ _ _ hv))
+              (canonicalizeAux_counter_le cenv c f))]
+    | Constr tag args =>
+      unfold canonicalizeAux; dsimp
+      simp only [expandFix, lowerTotal, Option.bind_eq_bind]
+      rw [lt_canon_list cenv c env1 env2 args
+        (CLT_sub hinv (fun v hv => by rw [freeVars.eq_10]; exact hv))]
+    | Case scrut alts =>
+      unfold canonicalizeAux; dsimp
+      simp only [expandFix, lowerTotal, Option.bind_eq_bind]
+      rw [lt_canon_expr cenv c env1 env2 scrut
+            (CLT_sub hinv (fun v hv => by
+              rw [freeVars.eq_11]; exact VarSet.contains_union_left _ _ _ hv)),
+          lt_canon_list cenv _ env1 env2 alts
+            (CLT_counter_le
+              (CLT_sub hinv (fun v hv => by
+                rw [freeVars.eq_11]; exact VarSet.contains_union_right _ _ _ hv))
+              (canonicalizeAux_counter_le cenv c scrut))]
+    | Let binds body =>
+      unfold canonicalizeAux
+      show lowerTotal env1 (expandFix (canonicalizeLet cenv c binds body).1) =
+        lowerTotal env2 (expandFix (.Let binds body))
+      exact lt_canon_let cenv c env1 env2 binds body
+        (CLT_sub hinv (fun v hv => by rw [freeVars.eq_12]; exact hv))
+    | Fix f body =>
+      cases body with
+      | Lam x inner =>
+        have hinv_f : CLT ((f, c) :: cenv) (c + 1)
+            (canonBinder c f.hint :: env1) (f :: env2) ((freeVars inner).erase x) :=
+          CLT_binder
+            (CLT_sub hinv (fun v hv => by rw [freeVars.eq_6, freeVars.eq_5]; exact hv))
+            (fun v hv => VarSet.contains_of_contains_erase _ f _ hv)
+            (fun v hv hfv => VarSet.contains_erase_ne _ f v hfv hv)
+        have hinv_body : CLT ((x, c + 1) :: (f, c) :: cenv) (c + 2)
+            (canonBinder (c + 1) x.hint :: canonBinder c f.hint :: env1)
+            (x :: f :: env2) (freeVars inner) :=
+          CLT_binder hinv_f
+            (fun v hv => VarSet.contains_of_contains_erase _ x _ hv)
+            (fun v hv hxv => VarSet.contains_erase_ne _ x v hxv hv)
+        exact lt_canon_fix_lam cenv c env1 env2 f x inner hinv
+          (lt_canon_expr _ _ _ _ inner hinv_body)
+      | _ =>
+        exact lt_canon_fix_nonlam cenv c env1 env2 f _ (by intro x inner; exact Expr.noConfusion) hinv
+  termination_by sizeOf e
+
+  private theorem lt_canon_list (cenv : CanonEnv) (c : Nat) (env1 env2 : List VarId)
+      (es : List Expr) (hinv : CLT cenv c env1 env2 (freeVarsList es)) :
+      lowerTotalList env1 (expandFixList (canonicalizeList cenv c es).1) =
+        lowerTotalList env2 (expandFixList es) := by
+    cases es with
+    | nil => unfold canonicalizeList; simp [expandFixList, lowerTotalList]
+    | cons e rest =>
+      unfold canonicalizeList; dsimp
+      simp only [expandFixList, lowerTotalList, Option.bind_eq_bind]
+      rw [lt_canon_expr cenv c env1 env2 e
+            (CLT_sub hinv (fun v hv => by
+              rw [freeVarsList.eq_2]; exact VarSet.contains_union_left _ _ _ hv)),
+          lt_canon_list cenv _ env1 env2 rest
+            (CLT_counter_le
+              (CLT_sub hinv (fun v hv => by
+                rw [freeVarsList.eq_2]; exact VarSet.contains_union_right _ _ _ hv))
+              (canonicalizeAux_counter_le cenv c e))]
+  termination_by sizeOf es
+
+  private theorem lt_canon_let (cenv : CanonEnv) (c : Nat) (env1 env2 : List VarId)
+      (binds : List (VarId × Expr × Bool)) (body : Expr)
+      (hinv : CLT cenv c env1 env2 (freeVarsLet binds body)) :
+      lowerTotal env1 (expandFix (canonicalizeLet cenv c binds body).1) =
+        lowerTotal env2 (expandFix (.Let binds body)) := by
+    cases binds with
+    | nil =>
+      -- Goal: lowerTotal env1 (expandFix (canonicalizeLet cenv c [] body).1) =
+      --       lowerTotal env2 (expandFix (.Let [] body))
+      -- canonicalizeLet cenv c [] body = (.Let [] (canonicalizeAux cenv c body).1, ...)
+      -- expandFix (.Let [] e) = .Let [] (expandFix e)
+      -- lowerTotal env (.Let [] body) = lowerTotalLet env [] body = lowerTotal env body
+      unfold canonicalizeLet
+      simp only [expandFix, expandFixBinds, lowerTotal, lowerTotalLet]
+      exact lt_canon_expr cenv c env1 env2 body
+        (CLT_sub hinv (fun v hv => by unfold freeVarsLet; exact hv))
+    | cons b rest =>
+      have _hlt1 : sizeOf b.2.1 < sizeOf (b :: rest) + sizeOf body := by
+        have : sizeOf b.2.1 < sizeOf b := by
+          cases b with | mk a p => cases p with | mk e c => simp_wf; omega
+        have : sizeOf b < sizeOf (b :: rest) := by simp_wf; omega
+        omega
+      have hcle := canonicalizeAux_counter_le cenv c b.2.1
+      have hinv_rhs : CLT cenv c env1 env2 (freeVars b.2.1) :=
+        CLT_sub hinv (fun v hv => by
+          rw [freeVarsLet.eq_2]; exact VarSet.contains_union_left _ _ _ hv)
+      have hinv_rest : CLT ((b.1, (canonicalizeAux cenv c b.2.1).2) :: cenv)
+          ((canonicalizeAux cenv c b.2.1).2 + 1)
+          (canonBinder (canonicalizeAux cenv c b.2.1).2 b.1.hint :: env1)
+          (b.1 :: env2) (freeVarsLet rest body) :=
+        CLT_binder
+          (CLT_counter_le
+            (CLT_sub hinv (fun v hv => by
+              rw [freeVarsLet.eq_2]; exact VarSet.contains_union_right _ _ _ hv))
+            hcle)
+          (fun v hv => VarSet.contains_of_contains_erase _ _ _ hv)
+          (fun v hv hxv => VarSet.contains_erase_ne _ _ _ hxv hv)
+      have ih_rhs := lt_canon_expr cenv c env1 env2 b.2.1 hinv_rhs
+      have ih_rest := lt_canon_let
+        ((b.1, (canonicalizeAux cenv c b.2.1).2) :: cenv)
+        ((canonicalizeAux cenv c b.2.1).2 + 1)
+        (canonBinder (canonicalizeAux cenv c b.2.1).2 b.1.hint :: env1)
+        (b.1 :: env2) rest body hinv_rest
+      unfold canonicalizeLet
+      rw [expandFix_let_eq, lowerTotal_let_eq]
+      simp only [expandFixBinds]
+      have ih_rest' :
+          lowerTotal (canonBinder (canonicalizeAux cenv c b.2.1).2 b.1.hint :: env1)
+              (expandFix
+                (canonicalizeLet ((b.1, (canonicalizeAux cenv c b.2.1).2) :: cenv)
+                  ((canonicalizeAux cenv c b.2.1).2 + 1) rest body).1) =
+            lowerTotalLet (b.1 :: env2) (expandFixBinds rest) (expandFix body) := by
+        simpa [expandFix_let_eq, lowerTotal_let_eq] using ih_rest
+      calc
+        lowerTotalLet env1
+            [(canonBinder (canonicalizeAux cenv c b.2.1).2 b.1.hint,
+              expandFix (canonicalizeAux cenv c b.2.1).1, b.2.2)]
+            (expandFix
+              (canonicalizeLet ((b.1, (canonicalizeAux cenv c b.2.1).2) :: cenv)
+                ((canonicalizeAux cenv c b.2.1).2 + 1) rest body).1) =
+          lowerTotalLet env2
+            ((b.1, expandFix b.2.1, b.2.2) :: expandFixBinds rest) (expandFix body) := by
+              simp [lowerTotalLet, ih_rhs, ih_rest', Option.bind_eq_bind]
+        _ = lowerTotal env2 (expandFix (.Let (b :: rest) body)) := by
+              rw [expandFix_let_eq, lowerTotal_let_eq]
+              cases b with
+              | mk x p =>
+                cases p with
+                | mk rhs er =>
+                  simp [expandFixBinds]
+  termination_by sizeOf binds + sizeOf body
+end
+
+theorem lowerTotalExpr_canonicalize (env : List VarId) (e : Expr) :
+    lowerTotalExpr env (canonicalize e) = lowerTotalExpr env e := by
+  simp only [lowerTotalExpr, canonicalize]
+  exact lt_canon_expr [] (maxUidExpr e + 1) env env e
+    ⟨fun v hv => by simp [canonEnvLookup],
+     fun y uid h => by simp [canonEnvLookup] at h,
+     fun v hv hel => Nat.lt_succ_of_le (freeVars_uid_le_maxUid e v hv)⟩
 
 end Moist.MIR

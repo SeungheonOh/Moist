@@ -1501,7 +1501,7 @@ def RHalts (r : Term) (v_rhs : CekValue) (k d : Nat) : Prop :=
 
 /-- Apply `SubstEnvRef` at `n < pos`: lookups on both sides give
     `ValueRefinesK`-related values. -/
-private theorem substEnvRef_below_pos {pos k d : Nat} {v_rhs : CekValue}
+theorem substEnvRef_below_pos {pos k d : Nat} {v_rhs : CekValue}
     {ρ₁ ρ₂ : CekEnv} (h : SubstEnvRef pos v_rhs k d ρ₁ ρ₂)
     {n : Nat} (hn : 0 < n) (hnd : n ≤ d) (h_lt : n < pos) :
     ∃ v₁ v₂, ρ₁.lookup n = some v₁ ∧ ρ₂.lookup n = some v₂ ∧
@@ -1518,7 +1518,7 @@ private theorem substEnvRef_below_pos {pos k d : Nat} {v_rhs : CekValue}
 
 /-- Apply `SubstEnvRef` at `n = pos`: lookup on LHS gives value related to
     `v_rhs`. -/
-private theorem substEnvRef_at_pos {pos k d : Nat} {v_rhs : CekValue}
+theorem substEnvRef_at_pos {pos k d : Nat} {v_rhs : CekValue}
     {ρ₁ ρ₂ : CekEnv} (h : SubstEnvRef pos v_rhs k d ρ₁ ρ₂)
     (hn : 0 < pos) (hnd : pos ≤ d) :
     ∃ v₁, ρ₁.lookup pos = some v₁ ∧ ValueRefinesK k v₁ v_rhs := by
@@ -1533,7 +1533,7 @@ private theorem substEnvRef_at_pos {pos k d : Nat} {v_rhs : CekValue}
 
 /-- Apply `SubstEnvRef` at `n > pos`: lookups give `ValueRefinesK`-related
     values at positions `n` on LHS and `n - 1` on RHS. -/
-private theorem substEnvRef_above_pos {pos k d : Nat} {v_rhs : CekValue}
+theorem substEnvRef_above_pos {pos k d : Nat} {v_rhs : CekValue}
     {ρ₁ ρ₂ : CekEnv} (h : SubstEnvRef pos v_rhs k d ρ₁ ρ₂)
     {n : Nat} (hn : 0 < n) (hnd : n ≤ d) (h_gt : n > pos) :
     ∃ v₁ v₂, ρ₁.lookup n = some v₁ ∧ ρ₂.lookup (n - 1) = some v₂ ∧
@@ -1551,7 +1551,7 @@ private theorem substEnvRef_above_pos {pos k d : Nat} {v_rhs : CekValue}
   | none, none => rw [hρ₁, hρ₂] at hcase; exact hcase.elim
 
 /-- `ρ₁` is sized at depth `d`: every index `1..d` has a value. -/
-private theorem sized_of_substEnvRef {pos k d : Nat} {v_rhs : CekValue}
+theorem sized_of_substEnvRef {pos k d : Nat} {v_rhs : CekValue}
     {ρ₁ ρ₂ : CekEnv} (h : SubstEnvRef pos v_rhs k d ρ₁ ρ₂)
     (hpos : 1 ≤ pos) (hposd : pos ≤ d) :
     ∀ n, 0 < n → n ≤ d → ∃ v, ρ₁.lookup n = some v := by
@@ -4602,112 +4602,111 @@ theorem listRel_valueRefinesK_trans_shiftBisim
         exact ⟨compose _ _ _ hvh_ab hvh_bc,
           listRel_valueRefinesK_trans_shiftBisim compose vs_a hvs_ab hvs_bc⟩
 
-/-- Compose `ValueRefinesK k v_a v_b` with `ShiftBisimValue v_b v_c` to get
-    `ValueRefinesK k v_a v_c`. The simple (non-closure) cases are direct;
-    the closure cases (VLam/VDelay) at step index k+1 require composing
-    ObsRefinesK between (a-compute) and (b-compute) with the rename-based
-    refinement from (b-compute) to (c-compute). -/
-theorem valueRefinesK_trans_shiftBisim :
-    ∀ (k : Nat) (v_a v_b v_c : CekValue),
-      ValueRefinesK k v_a v_b → ShiftBisimValue v_b v_c →
-      ValueRefinesK k v_a v_c := by
+private theorem renameEnvRefR_of_shiftBisimEnv_wf
+    {σ : Nat → Nat} {j d : Nat} {ρ₁ ρ₂ : CekEnv}
+    (conv : ∀ v₁ v₂, ValueWellFormed v₁ → ShiftBisimValue v₁ v₂ →
+        Contextual.SoundnessRefines.ValueRefinesK j v₁ v₂)
+    (hbisim : ShiftBisimEnv σ d ρ₁ ρ₂)
+    (hwf_at : ∀ n, 0 < n → n ≤ d → ∀ v, ρ₁.lookup n = some v → ValueWellFormed v) :
+    FundamentalRefines.RenameEnvRefR σ j d ρ₁ ρ₂ := by
+  induction d with
+  | zero => intro n hn; omega
+  | succ n ih =>
+    cases hbisim with
+    | @succ _ _ _ _ v₁ v₂ hrest hl₁ hl₂ hbv =>
+      intro m hm hmd
+      by_cases hm_eq : m = n + 1
+      · subst hm_eq
+        show match ρ₁.lookup (n + 1), ρ₂.lookup (σ (n + 1)) with
+             | some _, some _ => _ | none, none => True | _, _ => False
+        rw [hl₁, hl₂]
+        exact conv v₁ v₂ (hwf_at (n + 1) (by omega) (Nat.le_refl _) v₁ hl₁) hbv
+      · exact ih hrest (fun m' hm' hmd' v hv => hwf_at m' hm' (by omega) v hv) m hm (by omega)
+
+private theorem listRelVRK_of_shiftBisim_wf_aux (k : Nat)
+    (conv : ∀ v₁ v₂, ValueWellFormed v₁ → ShiftBisimValue v₁ v₂ →
+        Contextual.SoundnessRefines.ValueRefinesK k v₁ v₂) :
+    ∀ (vs₁ vs₂ : List CekValue),
+    ValueListWellFormed vs₁ → ShiftBisimValueList vs₁ vs₂ →
+    Equivalence.ListRel (Contextual.SoundnessRefines.ValueRefinesK k) vs₁ vs₂
+  | [], [], _, .nil => trivial
+  | _ :: _, _ :: _, hwf, .cons hv hvs => by
+    cases hwf with | cons hv_wf hvs_wf =>
+    exact ⟨conv _ _ hv_wf hv,
+           listRelVRK_of_shiftBisim_wf_aux k conv _ _ hvs_wf hvs⟩
+
+theorem valueRefinesK_of_shiftBisim_wf : ∀ (k : Nat) (v₁ v₂ : CekValue),
+    ValueWellFormed v₁ → ShiftBisimValue v₁ v₂ →
+    Contextual.SoundnessRefines.ValueRefinesK k v₁ v₂ := by
   intro k
   induction k with
   | zero =>
-    intro v_a v_b v_c h_ab h_bc
-    cases v_a with
-    | VCon c_a =>
-      cases v_b with
-      | VCon c_b =>
-        simp only [ValueRefinesK] at h_ab
-        have : v_c = .VCon c_b := shiftBisimValue_vcon_inv h_bc
-        rw [this]; simp only [ValueRefinesK]; exact h_ab
-      | _ => simp [ValueRefinesK] at h_ab
-    | VLam _ _ =>
-      cases v_b with
-      | VLam _ _ =>
-        cases h_bc with
-        | vlam _ _ _ => simp only [ValueRefinesK]
-        | _ => simp [ValueRefinesK] at h_ab
-      | _ => simp [ValueRefinesK] at h_ab
-    | VDelay _ _ =>
-      cases v_b with
-      | VDelay _ _ =>
-        cases h_bc with
-        | vdelay _ _ _ => simp only [ValueRefinesK]
-        | _ => simp [ValueRefinesK] at h_ab
-      | _ => simp [ValueRefinesK] at h_ab
-    | VConstr tag_a _ =>
-      cases v_b with
-      | VConstr tag_b _ =>
-        simp only [ValueRefinesK] at h_ab
-        cases h_bc with
-        | vconstr _ _ => simp only [ValueRefinesK]; exact h_ab
-        | _ => simp [ValueRefinesK] at h_ab
-      | _ => simp [ValueRefinesK] at h_ab
-    | VBuiltin b_a _ ea_a =>
-      cases v_b with
-      | VBuiltin b_b _ ea_b =>
-        simp only [ValueRefinesK] at h_ab
-        cases h_bc with
-        | vbuiltin _ _ _ => simp only [ValueRefinesK]; exact h_ab
-        | _ => simp [ValueRefinesK] at h_ab
-      | _ => simp [ValueRefinesK] at h_ab
+    intro v₁ v₂ _hwf hbisim
+    cases hbisim with
+    | vcon => simp [Contextual.SoundnessRefines.ValueRefinesK]
+    | vlam _ _ _ => simp [Contextual.SoundnessRefines.ValueRefinesK]
+    | vdelay _ _ _ => simp [Contextual.SoundnessRefines.ValueRefinesK]
+    | vconstr _ _ => simp [Contextual.SoundnessRefines.ValueRefinesK]
+    | vbuiltin _ _ _ => simp [Contextual.SoundnessRefines.ValueRefinesK]
   | succ k ih =>
-    intro v_a v_b v_c h_ab h_bc
-    cases v_a with
-    | VCon c_a =>
-      cases v_b with
-      | VCon c_b =>
-        simp only [ValueRefinesK] at h_ab
-        have : v_c = .VCon c_b := shiftBisimValue_vcon_inv h_bc
-        rw [this]; simp only [ValueRefinesK]; exact h_ab
-      | _ => simp [ValueRefinesK] at h_ab
-    | VLam _ _ =>
-      cases v_b with
-      | VLam _ _ =>
-        cases h_bc with
-        | vlam _ _ _ =>
-          -- Closure transitivity at k+1 for VLam. Compose h_ab (closure rel a-b)
-          -- with renameRefinesR (closure rel b-c via renaming σ). The chaining
-          -- requires ValueRefinesK j arg_c arg_c (self-refl) which we don't have
-          -- for arbitrary arg_c — general ValueRefinesK transitivity is known
-          -- to require well-formedness hypotheses on args. See
-          -- `Moist.Verified.Contextual.BisimRef` for the existing LocalValue-based
-          -- analog (which is symmetric and uses local refl via closedAt).
-          sorry
-        | _ => simp [ValueRefinesK] at h_ab
-      | _ => simp [ValueRefinesK] at h_ab
-    | VDelay _ _ =>
-      cases v_b with
-      | VDelay _ _ =>
-        cases h_bc with
-        | vdelay _ _ _ => sorry  -- Analogous to VLam; same obstruction.
-        | _ => simp [ValueRefinesK] at h_ab
-      | _ => simp [ValueRefinesK] at h_ab
-    | VConstr tag_a fields_a =>
-      cases v_b with
-      | VConstr tag_b fields_b =>
-        cases h_bc with
-        | @vconstr _ fs_b fs_c h_fs =>
-          simp only [ValueRefinesK] at h_ab ⊢
-          obtain ⟨h_tag, h_ls_ab⟩ := h_ab
-          subst h_tag
-          refine ⟨rfl, ?_⟩
-          exact listRel_valueRefinesK_trans_shiftBisim ih fields_a h_ls_ab h_fs
-        | _ => simp [ValueRefinesK] at h_ab
-      | _ => simp [ValueRefinesK] at h_ab
-    | VBuiltin b_a args_a ea_a =>
-      cases v_b with
-      | VBuiltin b_b args_b ea_b =>
-        cases h_bc with
-        | @vbuiltin _ _ args_b' args_c h_args =>
-          simp only [ValueRefinesK] at h_ab ⊢
-          obtain ⟨hb_eq, hea_eq, h_ls_ab⟩ := h_ab
-          subst hb_eq; subst hea_eq
-          refine ⟨rfl, rfl, ?_⟩
-          exact listRel_valueRefinesK_trans_shiftBisim ih args_a h_ls_ab h_args
-        | _ => simp [ValueRefinesK] at h_ab
-      | _ => simp [ValueRefinesK] at h_ab
+    intro v₁ v₂ hwf hbisim
+    cases hbisim with
+    | vcon => simp [Contextual.SoundnessRefines.ValueRefinesK]
+    | @vconstr tag fs₁ fs₂ hfs =>
+      cases hwf with | vconstr _ hwf_fs =>
+      simp only [Contextual.SoundnessRefines.ValueRefinesK]
+      exact ⟨trivial, listRelVRK_of_shiftBisim_wf_aux k ih fs₁ fs₂ hwf_fs hfs⟩
+    | @vbuiltin b ea args₁ args₂ hargs =>
+      cases hwf with | vbuiltin _ _ hwf_args =>
+      simp only [Contextual.SoundnessRefines.ValueRefinesK]
+      exact ⟨trivial, trivial, listRelVRK_of_shiftBisim_wf_aux k ih args₁ args₂ hwf_args hargs⟩
+    | @vlam body ρ₁ ρ₂ σ d hσ henv_bisim hclosed =>
+      cases hwf with | @vlam _ _ d_wf henv_wf hlen hclosed_wf =>
+      simp only [Contextual.SoundnessRefines.ValueRefinesK]
+      intro j hj arg₁ arg₂ hargs i hi π₁ π₂ hπ
+      by_cases hle : d ≤ d_wf
+      · have hwf_at : ∀ n, 0 < n → n ≤ d → ∀ v, ρ₁.lookup n = some v → ValueWellFormed v :=
+          fun n hn hnd v hv => by
+            obtain ⟨v', hv', hvwf'⟩ := envWellFormed_lookup d_wf henv_wf hn (by omega)
+            rw [hv] at hv'; cases hv'; exact hvwf'
+        have henvR_k := renameEnvRefR_of_shiftBisimEnv_wf ih henv_bisim hwf_at
+        have henvR_ext := FundamentalRefines.renameEnvRefR_extend hσ
+          (FundamentalRefines.renameEnvRefR_mono hj henvR_k) hargs
+        exact FundamentalRefines.renameRefinesR _ (FundamentalRefines.is0preserving_lift _)
+          _ body hclosed (k + 1) j (by omega) (ρ₁.extend arg₁) (ρ₂.extend arg₂)
+          henvR_ext i hi π₁ π₂ hπ
+      · have hle' : d_wf ≤ d := by omega
+        have henv_bisim' := shiftBisimEnv_narrow σ d henv_bisim hle'
+        have hwf_at : ∀ n, 0 < n → n ≤ d_wf → ∀ v, ρ₁.lookup n = some v → ValueWellFormed v :=
+          fun n hn hnd v hv => by
+            obtain ⟨v', hv', hvwf'⟩ := envWellFormed_lookup d_wf henv_wf hn hnd
+            rw [hv] at hv'; cases hv'; exact hvwf'
+        have henvR_k := renameEnvRefR_of_shiftBisimEnv_wf ih henv_bisim' hwf_at
+        have henvR_ext := FundamentalRefines.renameEnvRefR_extend hσ
+          (FundamentalRefines.renameEnvRefR_mono hj henvR_k) hargs
+        exact FundamentalRefines.renameRefinesR _ (FundamentalRefines.is0preserving_lift _)
+          _ body hclosed_wf (k + 1) j (by omega) (ρ₁.extend arg₁) (ρ₂.extend arg₂)
+          henvR_ext i hi π₁ π₂ hπ
+    | @vdelay body ρ₁ ρ₂ σ d hσ henv_bisim hclosed =>
+      cases hwf with | @vdelay _ _ d_wf henv_wf hlen hclosed_wf =>
+      simp only [Contextual.SoundnessRefines.ValueRefinesK]
+      intro j hj i hi π₁ π₂ hπ
+      by_cases hle : d ≤ d_wf
+      · have hwf_at : ∀ n, 0 < n → n ≤ d → ∀ v, ρ₁.lookup n = some v → ValueWellFormed v :=
+          fun n hn hnd v hv => by
+            obtain ⟨v', hv', hvwf'⟩ := envWellFormed_lookup d_wf henv_wf hn (by omega)
+            rw [hv] at hv'; cases hv'; exact hvwf'
+        have henvR_k := renameEnvRefR_of_shiftBisimEnv_wf ih henv_bisim hwf_at
+        exact FundamentalRefines.renameRefinesR _ hσ _ body hclosed (k + 1) j (by omega)
+          ρ₁ ρ₂ (FundamentalRefines.renameEnvRefR_mono hj henvR_k) i hi π₁ π₂ hπ
+      · have hle' : d_wf ≤ d := by omega
+        have henv_bisim' := shiftBisimEnv_narrow σ d henv_bisim hle'
+        have hwf_at : ∀ n, 0 < n → n ≤ d_wf → ∀ v, ρ₁.lookup n = some v → ValueWellFormed v :=
+          fun n hn hnd v hv => by
+            obtain ⟨v', hv', hvwf'⟩ := envWellFormed_lookup d_wf henv_wf hn hnd
+            rw [hv] at hv'; cases hv'; exact hvwf'
+        have henvR_k := renameEnvRefR_of_shiftBisimEnv_wf ih henv_bisim' hwf_at
+        exact FundamentalRefines.renameRefinesR _ hσ _ body hclosed_wf (k + 1) j (by omega)
+          ρ₁ ρ₂ (FundamentalRefines.renameEnvRefR_mono hj henvR_k) i hi π₁ π₂ hπ
 
 end Moist.Verified.BetaValueRefines

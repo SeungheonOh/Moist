@@ -493,7 +493,7 @@ avoids the need to define a separate `applyValue` helper. -/
     computation. At step K the inner state is inactive and not error,
     so it must be `halt ve` or `ret [] ve`, and `liftState base` maps
     it to `ret base ve`. -/
-private theorem extractValue (base : Stack) (s : State) (K : Nat)
+theorem extractValue (base : Stack) (s : State) (K : Nat)
     (hK_inact : isActive (steps K s) = false)
     (h_not_error : steps K s ≠ .error) :
     ∃ ve, (steps K s = .halt ve ∨ steps K s = .ret [] ve) ∧
@@ -540,7 +540,7 @@ private theorem halt_value_unique' {s : State} {K Ke : Nat} {ve ve' : CekValue}
 /-- Helper: given a sub-computation that eventually halts, find the first
     inactive step and show that `liftState` maps it to `ret base` with the
     same halted value. -/
-private theorem liftedHaltValue (base : Stack) (s : State) (N : Nat) (v : CekValue)
+theorem liftedHaltValue (base : Stack) (s : State) (N : Nat) (v : CekValue)
     (hN : steps N (liftState base s) = .halt v) :
     ∃ K ve, K ≤ N ∧
       (∀ j, j < K → isActive (steps j s) = true) ∧
@@ -582,7 +582,7 @@ private theorem liftedHaltValue (base : Stack) (s : State) (N : Nat) (v : CekVal
 /-- Helper: given a sub-computation that eventually reaches error (from a lifted
     context), find the first inactive step and determine whether it is an error
     or a halt with some value. -/
-private theorem liftedErrorValue (base : Stack) (s : State) (N : Nat)
+theorem liftedErrorValue (base : Stack) (s : State) (N : Nat)
     (hN : steps N (liftState base s) = .error) :
     ∃ K, K ≤ N ∧
       (∀ j, j < K → isActive (steps j s) = true) ∧

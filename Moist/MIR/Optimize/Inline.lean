@@ -1,6 +1,7 @@
 import Moist.MIR.Expr
 import Moist.MIR.Analysis
 import Moist.MIR.Optimize.Purity
+import Moist.MIR.Canonicalize
 
 namespace Moist.MIR
 
@@ -331,5 +332,8 @@ mutual
       pure ((v, rhs', er) :: rest', c1 || c2)
   termination_by bs => sizeOf bs
 end
+
+def inlinePassWithCanon (e : Expr) : FreshM (Expr × Bool) :=
+  inlinePass (canonicalize e)
 
 end Moist.MIR

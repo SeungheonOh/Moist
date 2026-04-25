@@ -33,8 +33,8 @@ private theorem anfAtom_builtin (b : _) (s : Moist.MIR.FreshState) :
 private theorem anfAtom_let (bs : List (VarId × Expr × Bool)) (body : Expr)
     (s : Moist.MIR.FreshState) :
     (Moist.MIR.anfAtom (Expr.Let bs body)) s =
-      ((Expr.Var ⟨s.next, "anf"⟩,
-        [(⟨s.next, "anf"⟩, Expr.Let bs body, false)]),
+      ((Expr.Var ⟨s.next, .gen, "anf"⟩,
+        [(⟨s.next, .gen, "anf"⟩, Expr.Let bs body, false)]),
        { next := s.next + 1 }) := by
   show (if (Expr.Let bs body).isAtom then pure (Expr.Let bs body, [])
     else do
@@ -48,8 +48,8 @@ private theorem anfAtom_nonletnon (e : Expr)
     (he : e.isAtom = false)
     (hnotlet : ∀ bs body, e ≠ Expr.Let bs body)
     (s : Moist.MIR.FreshState) :
-    (Moist.MIR.anfAtom e) s = ((Expr.Var ⟨s.next, "anf"⟩,
-        [(⟨s.next, "anf"⟩, e, false)]),
+    (Moist.MIR.anfAtom e) s = ((Expr.Var ⟨s.next, .gen, "anf"⟩,
+        [(⟨s.next, .gen, "anf"⟩, e, false)]),
       { next := s.next + 1 }) := by
   cases e with
   | Var _ => simp [Expr.isAtom] at he
@@ -194,15 +194,15 @@ theorem anfAtom_spec (e : Expr) (s₁ : Moist.MIR.FreshState) :
     rw [anfAtom_let bs body s₁]
     refine ⟨rfl, ?_, ?_⟩
     · show MIRCtxRefines (.Let bs body) (Moist.MIR.wrapLet _ _)
-      rw [wrapLet_cons]; exact mirCtxRefines_atomize_fwd (.Let bs body) ⟨s₁.next, "anf"⟩
+      rw [wrapLet_cons]; exact mirCtxRefines_atomize_fwd (.Let bs body) ⟨s₁.next, .gen, "anf"⟩
     · show MIRCtxRefines (Moist.MIR.wrapLet _ _) (.Let bs body)
-      rw [wrapLet_cons]; exact mirCtxRefines_atomize_bwd (.Let bs body) ⟨s₁.next, "anf"⟩
+      rw [wrapLet_cons]; exact mirCtxRefines_atomize_bwd (.Let bs body) ⟨s₁.next, .gen, "anf"⟩
   | .App _ _ | .Force _ | .Delay _ | .Lam _ _ | .Case _ _ | .Constr _ _
   | .Fix _ _ | .Error =>
     rw [anfAtom_nonletnon _ rfl (by intros; intro heq; cases heq) s₁]
     refine ⟨rfl, ?_, ?_⟩
-    · rw [wrapLet_cons]; exact mirCtxRefines_atomize_fwd _ ⟨s₁.next, "anf"⟩
-    · rw [wrapLet_cons]; exact mirCtxRefines_atomize_bwd _ ⟨s₁.next, "anf"⟩
+    · rw [wrapLet_cons]; exact mirCtxRefines_atomize_fwd _ ⟨s₁.next, .gen, "anf"⟩
+    · rw [wrapLet_cons]; exact mirCtxRefines_atomize_bwd _ ⟨s₁.next, .gen, "anf"⟩
 
 /-! ## Section 12. Main ANF soundness theorem -/
 
@@ -343,7 +343,7 @@ private theorem anfAtom_binds_uid (e : Expr) (s : Moist.MIR.FreshState) :
       | true => exact absurd h' h
       | false => rfl
     have hres : (Moist.MIR.anfAtom e) s =
-        ((Expr.Var ⟨s.next, "anf"⟩, [(⟨s.next, "anf"⟩, e, false)]),
+        ((Expr.Var ⟨s.next, .gen, "anf"⟩, [(⟨s.next, .gen, "anf"⟩, e, false)]),
          { next := s.next + 1 }) := by
       show (if e.isAtom = true then (pure (e, []) : Moist.MIR.FreshM _)
         else do let v ← Moist.MIR.freshVar "anf"; pure (Expr.Var v, [(v, e, false)])) s = _
@@ -367,7 +367,7 @@ private theorem anfAtom_state_succ_of_binds_nonempty (e : Expr) (s : Moist.MIR.F
   · have hf : e.isAtom = false := by
       cases h' : e.isAtom with | true => exact absurd h' hat | false => rfl
     have : (Moist.MIR.anfAtom e) s =
-        ((Expr.Var ⟨s.next, "anf"⟩, [(⟨s.next, "anf"⟩, e, false)]),
+        ((Expr.Var ⟨s.next, .gen, "anf"⟩, [(⟨s.next, .gen, "anf"⟩, e, false)]),
          { next := s.next + 1 }) := by
       show (if e.isAtom = true then (pure (e, []) : Moist.MIR.FreshM _)
         else do let v ← Moist.MIR.freshVar "anf"; pure (Expr.Var v, [(v, e, false)])) s = _
@@ -395,16 +395,16 @@ private theorem anfAtom_wrapLet_freshIn (e : Expr) (s : Moist.MIR.FreshState) (v
       | true => exact absurd h' h
       | false => rfl
     have hres : (Moist.MIR.anfAtom e) s =
-        ((Expr.Var ⟨s.next, "anf"⟩, [(⟨s.next, "anf"⟩, e, false)]),
+        ((Expr.Var ⟨s.next, .gen, "anf"⟩, [(⟨s.next, .gen, "anf"⟩, e, false)]),
          { next := s.next + 1 }) := by
       show (if e.isAtom = true then (pure (e, []) : Moist.MIR.FreshM _)
         else do let v ← Moist.MIR.freshVar "anf"; pure (Expr.Var v, [(v, e, false)])) s = _
       rw [if_neg (by simp [hf])]; rfl
     rw [hres]
     rw [wrapLet_cons]
-    -- Goal: (freeVars (.Let [(⟨s.next, "anf"⟩, e, false)] (.Var ⟨s.next, "anf"⟩))).contains v = false
-    show (Moist.MIR.freeVars (Expr.Let [(⟨s.next, "anf"⟩, e, false)]
-      (Expr.Var ⟨s.next, "anf"⟩))).contains v = false
+    -- Goal: (freeVars (.Let [(⟨s.next, .gen, "anf"⟩, e, false)] (.Var ⟨s.next, .gen, "anf"⟩))).contains v = false
+    show (Moist.MIR.freeVars (Expr.Let [(⟨s.next, .gen, "anf"⟩, e, false)]
+      (Expr.Var ⟨s.next, .gen, "anf"⟩))).contains v = false
     -- freeVars (.Let bs body) = freeVarsLet bs body
     -- freeVarsLet [(y,rhs,er) :: rest] body = (freeVars rhs).union ((freeVarsLet rest body).erase y)
     -- freeVarsLet [] body = freeVars body
@@ -413,9 +413,11 @@ private theorem anfAtom_wrapLet_freshIn (e : Expr) (s : Moist.MIR.FreshState) (v
     · exact hv_e
     · apply Moist.MIR.VarSet.erase_not_contains_fwd
       rw [Moist.MIR.VarSet.singleton_contains']
-      show ((⟨s.next, "anf"⟩ : VarId) == v) = false
-      have : ((⟨s.next, "anf"⟩ : VarId) == v) = decide ((⟨s.next, "anf"⟩ : VarId).uid = v.uid) := rfl
-      rw [this]
+      show ((⟨s.next, .gen, "anf"⟩ : VarId) == v) = false
+      show ((⟨s.next, .gen, "anf"⟩ : VarId).origin == v.origin &&
+            (⟨s.next, .gen, "anf"⟩ : VarId).uid == v.uid) = false
+      rw [Bool.and_eq_false_iff]
+      refine Or.inr ?_
       exact decide_eq_false (fun heq => hv_uid heq.symm)
 
 /-- `anfAtom` binds' uids exceed any sibling expression with `maxUidExpr y < s.next`. -/
@@ -463,7 +465,7 @@ private theorem anfAtom_fresh (e : Expr) (s : Moist.MIR.FreshState)
   | .Let bs body =>
     rw [anfAtom_let bs body s, wrapLet_cons]
     show Moist.MIR.maxUidExpr
-      (.Let [(⟨s.next, "anf"⟩, .Let bs body, false)] (.Var ⟨s.next, "anf"⟩)) < s.next + 1
+      (.Let [(⟨s.next, .gen, "anf"⟩, .Let bs body, false)] (.Var ⟨s.next, .gen, "anf"⟩)) < s.next + 1
     have hlet : Moist.MIR.maxUidExpr (.Let bs body) < s.next := h
     simp only [Moist.MIR.maxUidExpr, Moist.MIR.maxUidExprBinds] at hlet ⊢
     omega
@@ -488,7 +490,7 @@ private theorem anfAtom_maxUid' (e : Expr) (s : Moist.MIR.FreshState) :
   | .Let bs body =>
     rw [anfAtom_let bs body s, wrapLet_cons]
     show Moist.MIR.maxUidExpr
-      (.Let [(⟨s.next, "anf"⟩, .Let bs body, false)] (.Var ⟨s.next, "anf"⟩)) ≤ _
+      (.Let [(⟨s.next, .gen, "anf"⟩, .Let bs body, false)] (.Var ⟨s.next, .gen, "anf"⟩)) ≤ _
     simp only [Moist.MIR.maxUidExpr, Moist.MIR.maxUidExprBinds]; omega
   | .App _ _ | .Force _ | .Delay _ | .Lam _ _ | .Case _ _ | .Constr _ _
   | .Fix _ _ | .Error =>

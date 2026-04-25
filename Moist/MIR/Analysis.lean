@@ -25,6 +25,135 @@ def union (s1 s2 : VarSet) : VarSet :=
 def singleton (v : VarId) : VarSet := ⟨#[v]⟩
 def toList (s : VarSet) : List VarId := s.data.toList
 
+private theorem VarId.beq_refl (v : VarId) : (v == v) = true := by
+  simp only [BEq.beq, Bool.and_eq_true, decide_eq_true_eq]
+  exact ⟨by cases v.origin <;> rfl, trivial⟩
+
+private theorem VarId.beq_trans (a b c : VarId)
+    (h1 : (a == b) = true) (h2 : (b == c) = true) : (a == c) = true := by
+  simp only [BEq.beq] at h1 h2 ⊢
+  rw [Bool.and_eq_true] at h1 h2 ⊢
+  obtain ⟨h1o, h1u⟩ := h1; obtain ⟨h2o, h2u⟩ := h2
+  exact ⟨by revert h1o h2o; cases a.origin <;> cases b.origin <;> cases c.origin <;> simp,
+         by simp only [decide_eq_true_eq] at h1u h2u ⊢; omega⟩
+
+private theorem VarId.beq_symm {a b : VarId} (h : (a == b) = true) : (b == a) = true := by
+  simp only [BEq.beq] at h ⊢
+  rw [Bool.and_eq_true] at h ⊢
+  obtain ⟨ho, hu⟩ := h
+  exact ⟨by revert ho; cases a.origin <;> cases b.origin <;> simp,
+         by simp only [decide_eq_true_eq] at hu ⊢; omega⟩
+
+private theorem contains_of_beq (s : VarSet) {v w : VarId}
+    (hvw : (v == w) = true) (h : s.contains v = true) : s.contains w = true := by
+  simp only [contains] at h ⊢
+  rw [Array.any_eq_true] at h ⊢
+  obtain ⟨i, hi, hp⟩ := h
+  exact ⟨i, hi, VarId.beq_trans _ _ _ hp hvw⟩
+
+private theorem insert_contains_of_contains {s : VarSet} {v w : VarId}
+    (h : s.contains w = true) : (s.insert v).contains w = true := by
+  unfold insert; split
+  · exact h
+  · simp only [contains] at h ⊢; rw [Array.any_push]; simp [h]
+
+private theorem insert_contains_self (s : VarSet) (v : VarId) :
+    (s.insert v).contains v = true := by
+  unfold insert; split
+  · assumption
+  · unfold contains; rw [Array.any_push]; simp [VarId.beq_refl]
+
+private theorem insert_contains_of_beq (s : VarSet) {v w : VarId}
+    (hvw : (v == w) = true) : (s.insert v).contains w = true :=
+  contains_of_beq _ hvw (insert_contains_self s v)
+
+private theorem foldl_insert_preserves (v : VarId) (xs : List VarId) (acc : VarSet)
+    (h : acc.contains v = true) :
+    (xs.foldl (fun acc w => acc.insert w) acc).contains v = true := by
+  induction xs generalizing acc with
+  | nil => exact h
+  | cons x xs ih => simp only [List.foldl_cons]; exact ih _ (insert_contains_of_contains h)
+
+private theorem foldl_insert_of_any (v : VarId) (xs : List VarId) (acc : VarSet)
+    (h : xs.any (· == v) = true) :
+    (xs.foldl (fun acc w => acc.insert w) acc).contains v = true := by
+  induction xs generalizing acc with
+  | nil => simp at h
+  | cons x xs ih =>
+    simp only [List.foldl_cons, List.any_cons, Bool.or_eq_true] at h ⊢
+    cases h with
+    | inl hx => exact foldl_insert_preserves v xs _ (insert_contains_of_beq acc hx)
+    | inr hxs => exact ih _ hxs
+
+private theorem bne_and_beq_false (a b : VarId) : ((a != b) && (a == b)) = false := by
+  cases h : (a == b) <;> simp [bne, h]
+
+@[simp] theorem contains_empty (v : VarId) : empty.contains v = false := by
+  simp [empty, contains]
+
+theorem contains_insert_self (s : VarSet) (v : VarId) :
+    (s.insert v).contains v = true :=
+  VarSet.insert_contains_self s v
+
+theorem contains_insert_of_contains (s : VarSet) (v w : VarId)
+    (h : s.contains w = true) : (s.insert v).contains w = true :=
+  VarSet.insert_contains_of_contains h
+
+theorem contains_insert_elim (s : VarSet) (v w : VarId) :
+    (s.insert v).contains w = true ↔ s.contains w = true ∨ (v == w) = true := by
+  constructor
+  · intro h
+    unfold insert at h
+    split at h
+    · left; exact h
+    · simp only [contains, Array.any_push, Bool.or_eq_true] at h; exact h
+  · intro h
+    unfold insert
+    split
+    next hcv =>
+      cases h with
+      | inl h => exact h
+      | inr h => exact contains_of_beq s h hcv
+    next hncv =>
+      simp only [contains, Array.any_push, Bool.or_eq_true] at h ⊢; exact h
+
+theorem contains_union_left (s₁ s₂ : VarSet) (v : VarId)
+    (h : s₁.contains v = true) : (s₁.union s₂).contains v = true := by
+  simp only [union]; rw [← Array.foldl_toList]
+  exact foldl_insert_preserves v _ s₁ h
+
+theorem contains_union_right (s₁ s₂ : VarSet) (v : VarId)
+    (h : s₂.contains v = true) : (s₁.union s₂).contains v = true := by
+  simp only [union]; rw [← Array.foldl_toList]
+  simp only [contains] at h; rw [← Array.any_toList] at h
+  exact foldl_insert_of_any v _ s₁ h
+
+theorem contains_erase_ne (s : VarSet) (v w : VarId)
+    (hne : (v == w) = false) (h : s.contains w = true) :
+    (s.erase v).contains w = true := by
+  simp only [erase, contains, Array.any_filter]
+  simp only [contains] at h
+  rw [Array.any_eq_true] at h ⊢
+  obtain ⟨i, hi, hp⟩ := h
+  refine ⟨i, hi, ?_⟩
+  rw [Bool.and_eq_true, bne, Bool.not_eq_true']
+  refine ⟨?_, hp⟩
+  cases heq : s.data[i] == v
+  · rfl
+  · exact absurd (VarId.beq_trans v _ w (VarId.beq_symm heq) hp) (by simp [hne])
+
+theorem contains_erase_self (s : VarSet) (v : VarId) :
+    (s.erase v).contains v = false := by
+  simp only [erase, contains, Array.any_filter]
+  rw [show (fun a => (a != v) && (a == v)) = (fun _ => false)
+    from funext (fun a => bne_and_beq_false a v)]
+  simp
+
+theorem contains_singleton_self (v : VarId) :
+    (singleton v).contains v = true := by
+  show ((#[] : Array VarId).push v).any (· == v) = true
+  rw [Array.any_push, Array.any_empty]; simp [VarId.beq_refl]
+
 end VarSet
 
 /-! ## Equality Helpers -/
@@ -112,6 +241,84 @@ end
 
 def noSelfRef (binds : List (VarId × Expr × Bool)) : Bool :=
   binds.all fun (x, rhs, _) => !(freeVars rhs).contains x
+
+def distinctBinders : List (VarId × Expr × Bool) → Bool
+  | [] => true
+  | (x, _, _) :: rest => rest.all (fun b => !(b.1 == x)) && distinctBinders rest
+
+mutual
+  def allDistinctBinders : Expr → Bool
+    | .Let binds body =>
+      distinctBinders binds && allDistinctBindersBinds binds && allDistinctBinders body
+    | .Lam _ body | .Fix _ body => allDistinctBinders body
+    | .App f x => allDistinctBinders f && allDistinctBinders x
+    | .Force e | .Delay e => allDistinctBinders e
+    | .Constr _ args => allDistinctBindersList args
+    | .Case scrut alts => allDistinctBinders scrut && allDistinctBindersList alts
+    | .Var _ | .Lit _ | .Builtin _ | .Error => true
+  termination_by e => sizeOf e
+
+  def allDistinctBindersList : List Expr → Bool
+    | [] => true
+    | e :: rest => allDistinctBinders e && allDistinctBindersList rest
+  termination_by es => sizeOf es
+
+  def allDistinctBindersBinds : List (VarId × Expr × Bool) → Bool
+    | [] => true
+    | (_, rhs, _) :: rest => allDistinctBinders rhs && allDistinctBindersBinds rest
+  termination_by bs => sizeOf bs
+end
+
+/-! ## Well-Scopedness (Barendregt Convention)
+
+`wellScoped e` holds when `e` satisfies the full Barendregt variable convention:
+ALL binder names (Lam, Fix, and Let) are pairwise distinct AND no binder name
+appears free in `e`. This is established by `canonicalize`.
+
+The check is done in a single pass: `wellScopedAux seen fv e` verifies that
+every binder in `e` is absent from both `seen` (previously encountered binders)
+and `fv` (free variables of the top-level expression), and adds each binder to
+`seen` as it recurses. Returns the updated `seen` set (or `none` on failure). -/
+
+mutual
+  def wellScopedAux (seen fv : VarSet) : Expr → Option VarSet
+    | .Var _ | .Lit _ | .Builtin _ | .Error => some seen
+    | .Lam x body =>
+      if seen.contains x || fv.contains x then none
+      else wellScopedAux (seen.insert x) fv body
+    | .Fix f body =>
+      if seen.contains f || fv.contains f then none
+      else wellScopedAux (seen.insert f) fv body
+    | .App f x => do
+      let seen ← wellScopedAux seen fv f
+      wellScopedAux seen fv x
+    | .Force e | .Delay e => wellScopedAux seen fv e
+    | .Constr _ args => wellScopedListAux seen fv args
+    | .Case scrut alts => do
+      let seen ← wellScopedAux seen fv scrut
+      wellScopedListAux seen fv alts
+    | .Let binds body => wellScopedLetAux seen fv binds body
+  termination_by e => sizeOf e
+
+  def wellScopedListAux (seen fv : VarSet) : List Expr → Option VarSet
+    | [] => some seen
+    | e :: rest => do
+      let seen ← wellScopedAux seen fv e
+      wellScopedListAux seen fv rest
+  termination_by es => sizeOf es
+
+  def wellScopedLetAux (seen fv : VarSet)
+      : List (VarId × Expr × Bool) → Expr → Option VarSet
+    | [], body => wellScopedAux seen fv body
+    | (x, rhs, _) :: rest, body => do
+      let seen ← wellScopedAux seen fv rhs
+      if seen.contains x || fv.contains x then none
+      else wellScopedLetAux (seen.insert x) fv rest body
+  termination_by binds body => sizeOf binds + sizeOf body
+end
+
+def wellScoped (e : Expr) : Bool :=
+  (wellScopedAux VarSet.empty (freeVars e) e).isSome
 
 /-! ## Occurrence Counting -/
 
@@ -529,7 +736,7 @@ partial def Expr.isANF : Expr → Bool
   | .Fix _ body => body.isANF
   | .Delay e => e.isANF
   | .Let binds body =>
-    noSelfRef binds && binds.all (fun (_, rhs, _) => rhs.isANF) && body.isANF
+    noSelfRef binds && distinctBinders binds && binds.all (fun (_, rhs, _) => rhs.isANF) && body.isANF
   | .App f x => f.isAtom && x.isAtom
   | .Force e => e.isAtom
   | .Constr _ args => args.all (·.isAtom)

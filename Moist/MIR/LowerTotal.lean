@@ -84,15 +84,15 @@ end
 
 /-! ## envLookupT lemmas -/
 
-private theorem VarOrigin.beq_true_iff (a b : VarOrigin) : (a == b) = true ↔ a = b := by
+theorem VarOrigin.beq_true_iff (a b : VarOrigin) : (a == b) = true ↔ a = b := by
   cases a <;> cases b <;> simp [BEq.beq]
 
-private theorem VarId.beq_true_iff (a b : VarId) :
+theorem VarId.beq_true_iff (a b : VarId) :
     (a == b) = true ↔ a.origin = b.origin ∧ a.uid = b.uid := by
   show (a.origin == b.origin && a.uid == b.uid) = true ↔ _
   rw [Bool.and_eq_true, VarOrigin.beq_true_iff, beq_iff_eq]
 
-private theorem VarId.beq_false_iff (a b : VarId) :
+theorem VarId.beq_false_iff (a b : VarId) :
     (a == b) = false ↔ a.origin ≠ b.origin ∨ a.uid ≠ b.uid := by
   constructor
   · intro hb
@@ -233,12 +233,12 @@ end
 
 /-! ## VarSet lemmas -/
 
-private theorem VarId.beq_trans (a b c : VarId)
+theorem VarId.beq_trans (a b c : VarId)
     (h1 : (a == b) = true) (h2 : (b == c) = true) : (a == c) = true := by
   rw [VarId.beq_true_iff] at *
   exact ⟨h1.1.trans h2.1, h1.2.trans h2.2⟩
 
-private theorem List.any_beq_varid_trans (xs : List VarId) (v x : VarId)
+theorem List.any_beq_varid_trans (xs : List VarId) (v x : VarId)
     (hvx : (v == x) = true) (hv : xs.any (· == v) = true) : xs.any (· == x) = true := by
   induction xs with
   | nil => simp at hv
@@ -250,7 +250,7 @@ theorem VarSet.singleton_contains' (v x : VarId) :
     (VarSet.singleton v).contains x = (v == x) := by
   unfold VarSet.singleton VarSet.contains; rw [← Array.any_toList]; simp [List.any]
 
-private theorem VarSet.insert_not_contains (s : VarSet) (v x : VarId)
+theorem VarSet.insert_not_contains (s : VarSet) (v x : VarId)
     (h : (s.insert v).contains x = false) : s.contains x = false ∧ (v == x) = false := by
   unfold VarSet.insert at h; split at h
   · rename_i hcv
@@ -266,14 +266,14 @@ private theorem VarSet.insert_not_contains (s : VarSet) (v x : VarId)
     simp only [Bool.or_false, Bool.or_eq_false_iff] at h
     exact ⟨by unfold VarSet.contains; rw [← Array.any_toList]; exact h.1, h.2⟩
 
-private theorem foldl_insert_not_contains (acc : VarSet) (elems : List VarId) (x : VarId)
+theorem foldl_insert_not_contains (acc : VarSet) (elems : List VarId) (x : VarId)
     (h : (elems.foldl (fun a v => a.insert v) acc).contains x = false) :
     acc.contains x = false := by
   induction elems generalizing acc with
   | nil => exact h
   | cons v rest ih => exact (VarSet.insert_not_contains _ v x (ih _ (by simpa using h))).1
 
-private theorem foldl_insert_elems_not_match (acc : VarSet) (elems : List VarId) (x : VarId)
+theorem foldl_insert_elems_not_match (acc : VarSet) (elems : List VarId) (x : VarId)
     (h : (elems.foldl (fun a v => a.insert v) acc).contains x = false) :
     elems.any (· == x) = false := by
   induction elems generalizing acc with
@@ -291,7 +291,7 @@ theorem VarSet.union_not_contains' (s1 s2 : VarSet) (x : VarId)
     by unfold VarSet.contains; rw [← Array.any_toList]
        exact foldl_insert_elems_not_match s1 s2.data.toList x h'⟩
 
-private theorem list_filter_any_false {xs : List VarId} {x y : VarId}
+theorem list_filter_any_false {xs : List VarId} {x y : VarId}
     (hf : (xs.filter (· != y)).any (· == x) = false) (hyx : (y == x) = false) :
     xs.any (· == x) = false := by
   induction xs with
@@ -320,7 +320,7 @@ theorem VarSet.erase_not_contains_imp' (s : VarSet) (y x : VarId)
 
 /-! ## VarSet forward (construction) lemmas for freshness -/
 
-private theorem VarSet.insert_not_contains_fwd (s : VarSet) (v x : VarId)
+theorem VarSet.insert_not_contains_fwd (s : VarSet) (v x : VarId)
     (hs : s.contains x = false) (hv : (v == x) = false) :
     (s.insert v).contains x = false := by
   unfold VarSet.insert
@@ -333,7 +333,7 @@ private theorem VarSet.insert_not_contains_fwd (s : VarSet) (v x : VarId)
     rw [← Array.any_toList] at hs
     rw [hs, Bool.false_or]; exact hv
 
-private theorem VarSet.foldl_list_insert_not_contains_fwd :
+theorem VarSet.foldl_list_insert_not_contains_fwd :
     ∀ (elems : List VarId) (acc : VarSet) (x : VarId),
       acc.contains x = false → elems.any (· == x) = false →
       (elems.foldl (fun a v => a.insert v) acc).contains x = false
@@ -353,7 +353,7 @@ theorem VarSet.union_not_contains_fwd (s1 s2 : VarSet) (x : VarId)
   unfold VarSet.contains at h2
   rwa [← Array.any_toList] at h2
 
-private theorem List.filter_any_false_of_any_false {xs : List VarId} {x : VarId} {p : VarId → Bool}
+theorem List.filter_any_false_of_any_false {xs : List VarId} {x : VarId} {p : VarId → Bool}
     (h : xs.any (· == x) = false) : (xs.filter p).any (· == x) = false := by
   induction xs with
   | nil => rfl
@@ -505,7 +505,7 @@ theorem maxUidExprList_append (xs ys : List Expr) :
 /-! ## lowerTotal append unused -/
 
 -- Helper: env agreement for shadow case
-private theorem envLookupT_shadow_agree (env : List VarId) (x y : VarId)
+theorem envLookupT_shadow_agree (env : List VarId) (x y : VarId)
     (heq : (y == x) = true) :
     ∀ v, envLookupT (y :: (env ++ [x])) v = envLookupT (y :: env) v := by
   intro v
@@ -611,7 +611,7 @@ then `lowerTotal (prefix_env ++ env) e` also succeeds. This is the reverse
 of what `lowerTotal_prepend_unused_gen` provides (which only goes from
 success in `prefix_env ++ env` to success in `prefix_env ++ x :: env`). -/
 
-private theorem envLookupT_go_insert_isSome (v x : VarId) (pre post : List VarId) (n : Nat)
+theorem envLookupT_go_insert_isSome (v x : VarId) (pre post : List VarId) (n : Nat)
     (h : (x == v) = false ∨ (∃ y ∈ pre, (y == x) = true)) :
     (envLookupT.go v (pre ++ x :: post) n).isSome →
     (envLookupT.go v (pre ++ post) n).isSome := by
@@ -652,7 +652,7 @@ private theorem envLookupT_go_insert_isSome (v x : VarId) (pre post : List VarId
           | tail _ hrest => exact .inr ⟨y, hrest, hyx⟩
       exact ih (n + 1) hcond'
 
-private theorem envLookupT_insert_isSome (prefix_env env : List VarId) (x v : VarId)
+theorem envLookupT_insert_isSome (prefix_env env : List VarId) (x v : VarId)
     (h : (x == v) = false ∨ (∃ y ∈ prefix_env, (y == x) = true)) :
     (envLookupT (prefix_env ++ x :: env) v).isSome →
     (envLookupT (prefix_env ++ env) v).isSome := by
@@ -660,7 +660,7 @@ private theorem envLookupT_insert_isSome (prefix_env env : List VarId) (x v : Va
   exact envLookupT_go_insert_isSome v x prefix_env env 0 h
 
 -- Helper: freeVars (Var v) not containing x implies x ≠ v (as beq)
-private theorem freeVars_var_unused_neq' (v x : VarId)
+theorem freeVars_var_unused_neq' (v x : VarId)
     (h : (freeVars (.Var v)).contains x = false) : (x == v) = false := by
   rw [freeVars.eq_1, VarSet.singleton_contains'] at h
   cases hxv : (x == v)
@@ -670,10 +670,10 @@ private theorem freeVars_var_unused_neq' (v x : VarId)
     rw [this] at h; exact Bool.noConfusion h
 
 -- Helper: convert option isSome to exists
-private theorem Option.bind_none_right {α β : Type} (f : α → Option β) :
+theorem Option.bind_none_right {α β : Type} (f : α → Option β) :
     (none : Option α).bind f = none := rfl
 
-private theorem Option.bind_eq_none_of_inner {α β : Type} {oa : Option α} {f : α → Option β}
+theorem Option.bind_eq_none_of_inner {α β : Type} {oa : Option α} {f : α → Option β}
     (h : oa = none) : oa.bind f = none := by rw [h]; rfl
 
 mutual
@@ -917,7 +917,7 @@ theorem lowerTotal_prepend_unused_none (env : List VarId) (x : VarId) (e : Expr)
 /-! ## lowerTotal prepend unused: shift renaming -/
 
 open Moist.Verified in
-private theorem envLookupT_go_insert_shift_neq (v x : VarId) (pre post : List VarId) (n : Nat)
+theorem envLookupT_go_insert_shift_neq (v x : VarId) (pre post : List VarId) (n : Nat)
     (hne : (x == v) = false) :
     envLookupT.go v (pre ++ x :: post) n =
       (envLookupT.go v (pre ++ post) n).map
@@ -955,7 +955,7 @@ private theorem envLookupT_go_insert_shift_neq (v x : VarId) (pre post : List Va
         rw [this]
 
 open Moist.Verified in
-private theorem envLookupT_go_insert_shift_shadow (v x : VarId) (pre post : List VarId) (n : Nat)
+theorem envLookupT_go_insert_shift_shadow (v x : VarId) (pre post : List VarId) (n : Nat)
     (hshadow : ∃ y ∈ pre, (y == x) = true) :
     envLookupT.go v (pre ++ x :: post) n =
       (envLookupT.go v (pre ++ post) n).map
@@ -998,7 +998,7 @@ private theorem envLookupT_go_insert_shift_shadow (v x : VarId) (pre post : List
           simp only [show n + 1 + pre'.length = n + (pre'.length + 1) from by omega]
 
 open Moist.Verified in
-private theorem envLookupT_go_insert_shift (v x : VarId) (pre post : List VarId) (n : Nat)
+theorem envLookupT_go_insert_shift (v x : VarId) (pre post : List VarId) (n : Nat)
     (h : (x == v) = false ∨ (∃ y ∈ pre, (y == x) = true)) :
     envLookupT.go v (pre ++ x :: post) n =
       (envLookupT.go v (pre ++ post) n).map
@@ -1008,7 +1008,7 @@ private theorem envLookupT_go_insert_shift (v x : VarId) (pre post : List VarId)
   | inr hshadow => exact envLookupT_go_insert_shift_shadow v x pre post n hshadow
 
 -- The `freeVars` condition on `Var v` with unused `x` implies `x ≠ v`
-private theorem freeVars_var_unused_neq (v x : VarId)
+theorem freeVars_var_unused_neq (v x : VarId)
     (h : (freeVars (.Var v)).contains x = false) : (x == v) = false := by
   rw [freeVars.eq_1, VarSet.singleton_contains'] at h
   cases hxv : (x == v)
@@ -1018,17 +1018,17 @@ private theorem freeVars_var_unused_neq (v x : VarId)
     rw [this] at h; exact Bool.noConfusion h
 
 -- freeVars condition on list implies condition on each element
-private theorem freeVarsList_union_left (e : Expr) (rest : List Expr) (x : VarId)
+theorem freeVarsList_union_left (e : Expr) (rest : List Expr) (x : VarId)
     (h : (freeVarsList (e :: rest)).contains x = false) :
     (freeVars e).contains x = false := by
   rw [freeVarsList.eq_2] at h; exact (VarSet.union_not_contains' _ _ _ h).1
 
-private theorem freeVarsList_union_right (e : Expr) (rest : List Expr) (x : VarId)
+theorem freeVarsList_union_right (e : Expr) (rest : List Expr) (x : VarId)
     (h : (freeVarsList (e :: rest)).contains x = false) :
     (freeVarsList rest).contains x = false := by
   rw [freeVarsList.eq_2] at h; exact (VarSet.union_not_contains' _ _ _ h).2
 
-private theorem option_bind_some_eq {α β : Type} {f : α → Option β} {a : α} {oa : Option α}
+theorem option_bind_some_eq {α β : Type} {f : α → Option β} {a : α} {oa : Option α}
     {b : β} (hoa : oa = some a) (hf : f a = some b) :
     oa.bind f = some b := by subst hoa; exact hf
 
@@ -1550,7 +1550,7 @@ correct helper. -/
 
 /-- Build a 3-way disjunction for the Fix-Lam case from the `not contains`
     hypothesis on `((freeVars inner).erase x).erase f`. -/
-private theorem erase_erase_decompose (s : VarSet) (x f v : VarId)
+theorem erase_erase_decompose (s : VarSet) (x f v : VarId)
     (h : ((s.erase x).erase f).contains v = false) :
     s.contains v = false ∨ (x == v) = true ∨ (f == v) = true := by
   cases VarSet.erase_not_contains_imp' _ f v h with
@@ -1563,7 +1563,7 @@ private theorem erase_erase_decompose (s : VarSet) (x f v : VarId)
 /-- Core Fix-Lam fresh preservation: if `v` is absent from `freeVars inner'`
     (or is matched by `x` or `f`), then the freeVars of the fully expanded
     Z combinator wrapper don't contain `v`. -/
-private theorem expandFix_fix_lam_freeVars_not_contains
+theorem expandFix_fix_lam_freeVars_not_contains
     (f x : VarId) (inner_expanded : Expr) (v : VarId)
     (hinner : (freeVars inner_expanded).contains v = false ∨
               (x == v) = true ∨ (f == v) = true) :
@@ -1626,7 +1626,7 @@ private theorem expandFix_fix_lam_freeVars_not_contains
 /-- Helper for the Fix-Lam case. Takes the inner freshness as a ready-made
     disjunction so the preservation proof can be structured without nested
     pattern matching. -/
-private theorem expandFix_fix_lam_free_from_disj
+theorem expandFix_fix_lam_free_from_disj
     (f : VarId) (x : VarId) (inner : Expr) (v : VarId)
     (hdisj : (freeVars (expandFix inner)).contains v = false ∨
               (x == v) = true ∨ (f == v) = true) :
@@ -1636,7 +1636,7 @@ private theorem expandFix_fix_lam_free_from_disj
 
 /-- Helper for the non-Lam Fix case: if `body` is Fix but not `.Fix f (.Lam _ _)`
     at the top, `expandFix` reduces to `.Fix f (expandFix body)`. -/
-private theorem expandFix_nonlam_fix_unfold (f : VarId) (body : Expr) :
+theorem expandFix_nonlam_fix_unfold (f : VarId) (body : Expr) :
     expandFix (.Fix f body) = .Fix f (expandFix body) ∨
     ∃ x inner, body = .Lam x inner := by
   cases body with
@@ -1800,7 +1800,7 @@ theorem envLookupT_cons_self (v : VarId) (env : List VarId) :
   simp [this]
 
 /-- `envLookupT (y :: z :: env) z = some 1` when `y ≠ z`. -/
-private theorem envLookupT_cons_second (y z : VarId) (env : List VarId)
+theorem envLookupT_cons_second (y z : VarId) (env : List VarId)
     (hne : (y == z) = false) :
     envLookupT (y :: z :: env) z = some 1 := by
   unfold envLookupT envLookupT.go
