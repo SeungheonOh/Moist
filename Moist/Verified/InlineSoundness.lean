@@ -36,28 +36,17 @@ The inlining pass walks the AST bottom-up and performs:
 * **Let case**: `mirCtxRefines_let_binds_congr` + `mirCtxRefines_let_body`
   + `inlineLetBindings_soundness` helper.
 
-## Substitution-Based Sub-Theorem (Single Sorry Point)
+## Proof Architecture
 
-Both `betaReduce_soundness` (Lam+atom case) and `inlineLetBindings_soundness`
-(inline branches) are now fully proved *modulo* a single shared core lemma:
+This file is sorry-free. All preservation obligations are delegated to
+`Moist.Verified.InlineSoundness.Preservation`, which provides:
 
-  `substInBindings_body_inline_mirCtxRefines` — the substitution-inline
-  preservation fact that `MIRCtxRefines` holds from `.Let ((v,rhs,er) :: rest) body`
-  to the post-substitution form produced by `inlineLetGo` (body substituted
-  plus `substInBindings` over the remaining bindings).
-
-This single remaining `sorry` admits the substitution-preservation fact.
-Proving it requires:
- * UPLC-level substitution preservation (~1000+ lines), OR
- * MIR-level alpha-equivalence preservation for `subst` + `canonicalize`
-   bridge (~3000+ lines), OR
- * Direct semantic argument via stack-discipline inversion (DeadLet style).
-
-All the structural scaffolding around the inline pass — the decision loop
-`inlineLetGo` walk, the beta-reduction structure, the `.App (.Lam _) _`
-to `.Let [_] _` UPLC-level equivalence, the accumulator generalization,
-and the composition through `mirCtxRefines_let_body` / `mirCtxRefines_trans`
-— is fully proven. -/
+* **`PairwiseNC`** — the inlineLetGo loop invariant, derivable from
+  `wellScoped` and preservable through substitution.
+* **`substInBindings_cross_nc`** — cross-binding NC preservation.
+* **`inlinePass_pairwiseNC_cross`** — PairwiseNC preservation through
+  the full inline pass (depends on `freeVars_nonincreasing` and
+  `inlinePass_nc`, which are sorry'd in Preservation.lean). -/
 
 namespace Moist.Verified.MIR
 
@@ -768,35 +757,52 @@ theorem inlineBindings_preserves_distinctBinders
     Moist.MIR.distinctBinders (inlineBindings binds s).1.1 = true :=
   distinctBinders_of_map_fst_eq (inlineBindings_map_fst binds s) hd
 
-open Moist.Verified.InlineSoundness.Preservation
+private def pc := @Moist.Verified.InlineSoundness.Preservation.PairwiseNC
+private def pc_tail := @Moist.Verified.InlineSoundness.Preservation.pairwiseNC_tail
+private def pc_ws := @Moist.Verified.InlineSoundness.Preservation.pairwiseNC_of_wellScoped
+private def pc_subst := @Moist.Verified.InlineSoundness.Preservation.pairwiseNC_subst
+private def sb_nc := @Moist.Verified.InlineSoundness.Preservation.substInBindings_nc_names
+private def ib_names := @Moist.Verified.InlineSoundness.Preservation.inlineBindings_names
+private def ip_nc := @Moist.Verified.InlineSoundness.Preservation.inlinePass_nc
+private def ib_nc := @Moist.Verified.InlineSoundness.Preservation.inlineBindings_nc
+private def ip_fvsub := @Moist.Verified.InlineSoundness.Preservation.inlinePass_fvsub
+private def ncl_body := @Moist.Verified.InlineSoundness.Preservation.noCaptureFromLet_implies_body
+private def ncl_rhss := @Moist.Verified.InlineSoundness.Preservation.noCaptureFromLet_implies_rhss
+private def ncl_names := @Moist.Verified.InlineSoundness.Preservation.noCaptureFromLet_implies_names
+private def nc_ws_app := @Moist.Verified.InlineSoundness.Preservation.nc_wellScoped_app
+private def fvs_app_r := @Moist.Verified.InlineSoundness.Preservation.fvSub_app_right
+private def sb_cross := @Moist.Verified.InlineSoundness.Preservation.substInBindings_cross_nc
+private def ip_pc_cross := @Moist.Verified.InlineSoundness.Preservation.inlinePass_pairwiseNC_cross
 
 private theorem inlineLetGo_soundness :
     ∀ (binds : List (VarId × Expr × Bool)) (acc : List (VarId × Expr × Bool))
       (body : Expr) (changed : Bool) (s : Moist.MIR.FreshState)
       (fv : VarSet)
       (_hdist : Moist.MIR.distinctBinders binds = true)
-      (_hnc_body : NC fv body) (_hnc_binds : ∀ b ∈ binds, NC fv b.2.1)
-      (_hnc_acc : ∀ b ∈ acc, NC fv b.2.1)
+      (_hnc_body : noCaptureFrom fv body = true)
+      (_hnc_binds : ∀ b ∈ binds, noCaptureFrom fv b.2.1 = true)
+      (_hnc_acc : ∀ b ∈ acc, noCaptureFrom fv b.2.1 = true)
       (_hnames_binds : ∀ b ∈ binds, fv.contains b.1 = false)
       (_hnames_acc : ∀ b ∈ acc, fv.contains b.1 = false)
-      {orig_binds : List (VarId × Expr × Bool)} {orig_body : Expr}
-      (_hws_let : wellScoped (.Let orig_binds orig_body) = true),
+      (_hpc : pc binds body)
+      (_h_nc_rhs_self : ∀ b ∈ binds, noCaptureFrom (freeVars b.2.1) b.2.1 = true)
+      (_h_nc_rhs_rev : ∀ b₁ ∈ binds, ∀ b₂ ∈ binds,
+        noCaptureFrom (freeVars b₁.2.1) b₂.2.1 = true),
       MIRCtxRefines (.Let (acc.reverse ++ binds) body)
                     (Moist.MIR.inlineLetGo binds acc body changed s).1.1
-  | [], acc, body, changed, s, _, _, _, _, _, _, _, _ => by
+  | [], acc, body, changed, s, _, _, _, _, _, _, _, _, _, _ => by
     rw [Moist.MIR.inlineLetGo.eq_1]
     simp only [List.append_nil]
     cases hacc : acc.reverse with
     | nil =>
-      show MIRCtxRefines (.Let [] body) _
       simp only [pure, StateT.pure]
       exact mirCtxRefines_let_nil
     | cons s' rest' =>
-      show MIRCtxRefines (.Let (s' :: rest') body) _
       simp only [pure, StateT.pure]
       exact mirCtxRefines_refl _
   | (v, rhs, er) :: rest, acc, body, changed, s, fv, hdist,
-    hnc_body, hnc_binds, hnc_acc, hnames_binds, hnames_acc, hws_let => by
+    hnc_body, hnc_binds, hnc_acc, hnames_binds, hnames_acc,
+    hpc, h_nc_rhs_self, h_nc_rhs_rev => by
     rw [Moist.MIR.inlineLetGo.eq_2]
     by_cases hinline :
         (Moist.MIR.shouldInline rhs
@@ -820,23 +826,32 @@ private theorem inlineLetGo_soundness :
         simp only [Moist.MIR.distinctBinders, Bool.and_eq_true] at hdist; exact hdist.2
       have hdist_rest' : Moist.MIR.distinctBinders rest' = true :=
         distinctBinders_of_map_fst_eq (substInBindings_map_fst v rhs rest s_body) hdist_rest
-      have hnc_rhs : NC fv rhs := hnc_binds (v, rhs, er) (List.mem_cons_self ..)
-      have hnc_rest : ∀ b ∈ rest, NC fv b.2.1 :=
+      have hnc_rhs := hnc_binds (v, rhs, er) (List.mem_cons_self ..)
+      have hnc_rest : ∀ b ∈ rest, noCaptureFrom fv b.2.1 = true :=
         fun b hb => hnc_binds b (List.mem_cons_of_mem _ hb)
       have hnames_rest : ∀ b ∈ rest, fv.contains b.1 = false :=
         fun b hb => hnames_binds b (List.mem_cons_of_mem _ hb)
-      have ⟨hnr_body, hnr_rest_all, h_binders_fresh⟩ := wellScoped_let_noCaptureFrom hws_let
+      have hnr_body := hpc.1
+      have hnr_rest_all := hpc.2.1
+      have h_binders_fresh := Moist.Verified.InlineSoundness.Preservation.pairwiseNC_expandFix hpc
       have hnr_rest : ∀ b ∈ rest, noCaptureFrom (freeVars rhs) b.2.1 = true := by
         rw [List.all_eq_true] at hnr_rest_all; exact fun b hb => hnr_rest_all b hb
-      have hnc_body' : NC fv body' :=
+      have hnc_body' :=
         noCaptureFrom_subst fv v rhs body s hnc_body hnc_rhs hnr_body
       have ⟨hnc_rest', hnames_rest'⟩ :=
-        substInBindings_nc_names fv v rhs rest s_body hnc_rhs hnc_rest hnames_rest hnr_rest
-      have hws_rest := (wellScoped_let_peel hws_let).2
-      have hstep_rest' := inlineLetGo_step_conditions_preserved v rhs er rest body s
-        hnr_body hnr_rest_all h_binders_fresh hws_rest
+        sb_nc fv v rhs rest s_body hnc_rhs hnc_rest hnames_rest hnr_rest
+      have h_nc_self_rhs := h_nc_rhs_self (v, rhs, er) (List.mem_cons_self ..)
+      have h_nc_rev_rest : ∀ b ∈ rest, noCaptureFrom (freeVars b.2.1) rhs = true :=
+        fun b hb => h_nc_rhs_rev b (List.mem_cons_of_mem _ hb) (v, rhs, er) (List.mem_cons_self ..)
+      have hpc_rest' := pc_subst v rhs er rest body s s_body hpc h_nc_self_rhs h_nc_rev_rest
+      have h_cross_rest' := sb_cross v rhs rest s_body
+        (fun b₁ hb₁ b₂ hb₂ => h_nc_rhs_rev b₁ (List.mem_cons_of_mem _ hb₁)
+                                              b₂ (List.mem_cons_of_mem _ hb₂))
+        h_nc_self_rhs hnr_rest h_nc_rev_rest
       have ih := inlineLetGo_soundness rest' acc body' true s_rest fv hdist_rest'
-        hnc_body' hnc_rest' hnc_acc hnames_rest' hnames_acc hstep_rest'
+        hnc_body' hnc_rest' hnc_acc hnames_rest' hnames_acc hpc_rest'
+        (fun b hb => h_cross_rest' b hb b hb)
+        h_cross_rest'
       have h_split :
           MIRCtxRefines
             (.Let (acc.reverse ++ (v, rhs, er) :: rest) body)
@@ -870,7 +885,7 @@ private theorem inlineLetGo_soundness :
       simp only [hinline', Bool.false_eq_true, ↓reduceIte]
       have hdist_rest : Moist.MIR.distinctBinders rest = true := by
         simp only [Moist.MIR.distinctBinders, Bool.and_eq_true] at hdist; exact hdist.2
-      have hnc_acc' : ∀ b ∈ (v, rhs, er) :: acc, NC fv b.2.1 := fun b hb => by
+      have hnc_acc' : ∀ b ∈ (v, rhs, er) :: acc, noCaptureFrom fv b.2.1 = true := fun b hb => by
         simp only [List.mem_cons] at hb
         rcases hb with rfl | hb
         · exact hnc_binds (v, rhs, er) (List.mem_cons_self ..)
@@ -880,14 +895,16 @@ private theorem inlineLetGo_soundness :
         rcases hb with rfl | hb
         · exact hnames_binds (v, rhs, er) (List.mem_cons_self ..)
         · exact hnames_acc b hb
-      have hws_rest := (wellScoped_let_peel hws_let).2
       have ih := inlineLetGo_soundness rest ((v, rhs, er) :: acc) body changed s fv hdist_rest
         hnc_body
         (fun b hb => hnc_binds b (List.mem_cons_of_mem _ hb))
         hnc_acc'
         (fun b hb => hnames_binds b (List.mem_cons_of_mem _ hb))
         hnames_acc'
-        hws_rest
+        (pc_tail hpc)
+        (fun b hb => h_nc_rhs_self b (List.mem_cons_of_mem _ hb))
+        (fun b1 hb1 b2 hb2 => h_nc_rhs_rev b1 (List.mem_cons_of_mem _ hb1)
+          b2 (List.mem_cons_of_mem _ hb2))
       have hrev : ((v, rhs, er) :: acc).reverse = acc.reverse ++ [(v, rhs, er)] := by
         simp [List.reverse_cons]
       rw [hrev] at ih
@@ -902,15 +919,18 @@ theorem inlineLetBindings_soundness (binds : List (VarId × Expr × Bool)) (body
     (s : Moist.MIR.FreshState)
     (fv : VarSet)
     (hdist : Moist.MIR.distinctBinders binds = true)
-    (hnc_body : NC fv body) (hnc_binds : ∀ b ∈ binds, NC fv b.2.1)
+    (hnc_body : noCaptureFrom fv body = true)
+    (hnc_binds : ∀ b ∈ binds, noCaptureFrom fv b.2.1 = true)
     (hnames : ∀ b ∈ binds, fv.contains b.1 = false)
-    {orig_binds : List (VarId × Expr × Bool)} {orig_body : Expr}
-    (hws : wellScoped (.Let orig_binds orig_body) = true) :
+    (hpc : pc binds body)
+    (h_nc_rhs_self : ∀ b ∈ binds, noCaptureFrom (freeVars b.2.1) b.2.1 = true)
+    (h_nc_rhs_rev : ∀ b₁ ∈ binds, ∀ b₂ ∈ binds,
+      noCaptureFrom (freeVars b₁.2.1) b₂.2.1 = true) :
     MIRCtxRefines (.Let binds body) (inlineLetBindings binds body s).1.1 := by
   unfold inlineLetBindings
   have h := inlineLetGo_soundness binds [] body false s fv hdist
     hnc_body hnc_binds (fun b hb => absurd hb (by simp))
-    hnames (fun b hb => absurd hb (by simp)) hws
+    hnames (fun b hb => absurd hb (by simp)) hpc h_nc_rhs_self h_nc_rhs_rev
   simp only [List.reverse_nil, List.nil_append] at h
   exact h
 
@@ -962,10 +982,10 @@ theorem inline_soundness_aux : (e : Expr) → (s : Moist.MIR.FreshState) →
       (inlinePass x (inlinePass f s).2).1.1 (inlinePass x (inlinePass f s).2).2
       (fun p b hfp => by
         have fv_eq := Moist.MIR.freeVars
-        have ⟨hnc_f_fv, hnc_x_fv⟩ := nc_wellScoped_app f x hws
-        have hfv_x := fvSub_app_right f x
-        have h_nc_f' := inlinePass_nc (freeVars (.App f x)) f s hnc_f_fv hws_f
-        have h_fv_x' := inlinePass_fvsub (freeVars (.App f x)) x (inlinePass f s).2 hfv_x
+        have ⟨hnc_f_fv, hnc_x_fv⟩ := nc_ws_app f x hws
+        have hfv_x := fvs_app_r f x
+        have h_nc_f' := ip_nc (freeVars (.App f x)) f s hnc_f_fv hws_f
+        have h_fv_x' := ip_fvsub (freeVars (.App f x)) x (inlinePass f s).2 hfv_x
         have ⟨_, hnc_b⟩ := noCaptureFrom_lam (hfp ▸ h_nc_f')
         exact noCaptureFrom_mono (freeVars (.App f x)) _ b hnc_b h_fv_x')
     exact mirCtxRefines_trans h_app h_beta
@@ -1006,21 +1026,25 @@ theorem inline_soundness_aux : (e : Expr) → (s : Moist.MIR.FreshState) →
     have hnc_ws := wellScoped_noCaptureFrom hws
     have hnc_let := noCaptureFrom_let hnc_ws
     simp only [Moist.MIR.freeVars] at hnc_let
-    have hnc_body_ws : NC fv body := by
-      exact noCaptureFromLet_implies_body fv binds body hnc_let
-    have hnc_binds_ws : ∀ b ∈ binds, NC fv b.2.1 :=
-      noCaptureFromLet_implies_rhss fv binds body hnc_let
-    have hnames_ws : ∀ b ∈ binds, fv.contains b.1 = false :=
-      noCaptureFromLet_implies_names fv binds body hnc_let
-    have hnc_binds' := inlineBindings_nc fv binds s hnc_binds_ws hws_binds
-    have hnames' := inlineBindings_names fv binds s hnames_ws
-    have hnc_body' := inlinePass_nc fv body (inlineBindings binds s).2 hnc_body_ws hws_body
+    have hnc_body_ws :=
+      ncl_body fv binds body hnc_let
+    have hnc_binds_ws :=
+      ncl_rhss fv binds body hnc_let
+    have hnames_ws :=
+      ncl_names fv binds body hnc_let
+    have hnc_binds' := ib_nc fv binds s hnc_binds_ws hws_binds
+    have hnames' := ib_names fv binds s hnames_ws
+    have hnc_body' := ip_nc fv body (inlineBindings binds s).2 hnc_body_ws hws_body
     have hdist' := inlineBindings_preserves_distinctBinders binds s hdist_ws
+    have ⟨hpc_pass, hcross_pass⟩ := ip_pc_cross binds body s hws
     have h_step3 := inlineLetBindings_soundness
       (inlineBindings binds s).1.1
       (inlinePass body (inlineBindings binds s).2).1.1
       (inlinePass body (inlineBindings binds s).2).2
-      fv hdist' hnc_body' hnc_binds' hnames' hws
+      fv hdist' hnc_body' hnc_binds' hnames'
+      hpc_pass
+      (fun b hb => hcross_pass b hb b hb)
+      hcross_pass
     exact mirCtxRefines_trans h_step1 (mirCtxRefines_trans h_step2 h_step3)
 
 theorem inlinePassList_listRel : (es : List Expr) → (s : Moist.MIR.FreshState) →

@@ -1119,6 +1119,80 @@ theorem noCaptureFromLet_mono (fv fv' : VarSet)
 termination_by sizeOf binds + sizeOf body
 end
 
+/-! ## noCaptureFrom union: combine NC from two fv sets -/
+
+mutual
+theorem noCaptureFrom_union (fv₁ fv₂ : VarSet) (e : Expr)
+    (h₁ : noCaptureFrom fv₁ e = true) (h₂ : noCaptureFrom fv₂ e = true) :
+    noCaptureFrom (fv₁.union fv₂) e = true := by
+  cases e with
+  | Var _ | Lit _ | Builtin _ | Error => unfold noCaptureFrom; rfl
+  | Force inner | Delay inner =>
+    unfold noCaptureFrom at h₁ h₂ ⊢
+    exact noCaptureFrom_union fv₁ fv₂ inner h₁ h₂
+  | Lam x body =>
+    have ⟨hx₁, hb₁⟩ := noCaptureFrom_lam h₁
+    have ⟨hx₂, hb₂⟩ := noCaptureFrom_lam h₂
+    unfold noCaptureFrom; simp only [Bool.and_eq_true, Bool.not_eq_true']
+    exact ⟨Moist.MIR.VarSet.union_not_contains_fwd fv₁ fv₂ x hx₁ hx₂,
+           noCaptureFrom_union fv₁ fv₂ body hb₁ hb₂⟩
+  | Fix f body =>
+    have ⟨hf₁, hb₁⟩ := noCaptureFrom_fix h₁
+    have ⟨hf₂, hb₂⟩ := noCaptureFrom_fix h₂
+    unfold noCaptureFrom; simp only [Bool.and_eq_true, Bool.not_eq_true']
+    exact ⟨Moist.MIR.VarSet.union_not_contains_fwd fv₁ fv₂ f hf₁ hf₂,
+           noCaptureFrom_union fv₁ fv₂ body hb₁ hb₂⟩
+  | App f x =>
+    have ⟨hf₁, hx₁⟩ := noCaptureFrom_app h₁
+    have ⟨hf₂, hx₂⟩ := noCaptureFrom_app h₂
+    unfold noCaptureFrom; simp only [Bool.and_eq_true]
+    exact ⟨noCaptureFrom_union fv₁ fv₂ f hf₁ hf₂,
+           noCaptureFrom_union fv₁ fv₂ x hx₁ hx₂⟩
+  | Constr _ args =>
+    unfold noCaptureFrom at h₁ h₂ ⊢
+    exact noCaptureFromList_union fv₁ fv₂ args h₁ h₂
+  | Case scrut alts =>
+    have ⟨hs₁, ha₁⟩ := noCaptureFrom_case h₁
+    have ⟨hs₂, ha₂⟩ := noCaptureFrom_case h₂
+    unfold noCaptureFrom; simp only [Bool.and_eq_true]
+    exact ⟨noCaptureFrom_union fv₁ fv₂ scrut hs₁ hs₂,
+           noCaptureFromList_union fv₁ fv₂ alts ha₁ ha₂⟩
+  | Let binds body =>
+    unfold noCaptureFrom at h₁ h₂ ⊢
+    exact noCaptureFromLet_union fv₁ fv₂ binds body h₁ h₂
+termination_by sizeOf e
+
+theorem noCaptureFromList_union (fv₁ fv₂ : VarSet) (es : List Expr)
+    (h₁ : noCaptureFromList fv₁ es = true) (h₂ : noCaptureFromList fv₂ es = true) :
+    noCaptureFromList (fv₁.union fv₂) es = true := by
+  cases es with
+  | nil => unfold noCaptureFromList; rfl
+  | cons e rest =>
+    have ⟨he₁, hr₁⟩ := noCaptureFromList_cons h₁
+    have ⟨he₂, hr₂⟩ := noCaptureFromList_cons h₂
+    unfold noCaptureFromList; simp only [Bool.and_eq_true]
+    exact ⟨noCaptureFrom_union fv₁ fv₂ e he₁ he₂,
+           noCaptureFromList_union fv₁ fv₂ rest hr₁ hr₂⟩
+termination_by sizeOf es
+
+theorem noCaptureFromLet_union (fv₁ fv₂ : VarSet)
+    (binds : List (VarId × Expr × Bool)) (body : Expr)
+    (h₁ : noCaptureFromLet fv₁ binds body = true)
+    (h₂ : noCaptureFromLet fv₂ binds body = true) :
+    noCaptureFromLet (fv₁.union fv₂) binds body = true := by
+  cases binds with
+  | nil => unfold noCaptureFromLet at h₁ h₂ ⊢; exact noCaptureFrom_union fv₁ fv₂ body h₁ h₂
+  | cons b rest =>
+    have := sizeOf_rhs_lt b rest body
+    have ⟨hbn₁, hbr₁, ht₁⟩ := noCaptureFromLet_cons h₁
+    have ⟨hbn₂, hbr₂, ht₂⟩ := noCaptureFromLet_cons h₂
+    unfold noCaptureFromLet; simp only [Bool.and_eq_true, Bool.not_eq_true']
+    exact ⟨⟨Moist.MIR.VarSet.union_not_contains_fwd fv₁ fv₂ b.1 hbn₁ hbn₂,
+            noCaptureFrom_union fv₁ fv₂ b.2.1 hbr₁ hbr₂⟩,
+           noCaptureFromLet_union fv₁ fv₂ rest body ht₁ ht₂⟩
+termination_by sizeOf binds + sizeOf body
+end
+
 /-! ## noCaptureFrom preserved by subst (when no alpha-renaming needed) -/
 
 mutual
@@ -1291,5 +1365,305 @@ theorem noCaptureFromLet_substLet (fv : VarSet) (v : VarId) (rhs : Expr)
              noCaptureFromLet_substLet fv v rhs rest body _ h_nc_tail hnc_rhs h_nr_tail⟩
 termination_by sizeOf binds + sizeOf body
 end
+
+/-! ## NC from all singletons -/
+
+mutual
+private theorem noCaptureFrom_of_all_singletons (fv' : VarSet) (e : Expr)
+    (h : ∀ x, fv'.contains x = true → noCaptureFrom (VarSet.singleton x) e = true) :
+    noCaptureFrom fv' e = true := by
+  cases e with
+  | Var _ | Lit _ | Builtin _ | Error => unfold noCaptureFrom; rfl
+  | Force inner | Delay inner =>
+    unfold noCaptureFrom
+    exact noCaptureFrom_of_all_singletons fv' inner (fun x hx => by
+      have := h x hx; unfold noCaptureFrom at this; exact this)
+  | Lam y body =>
+    unfold noCaptureFrom; simp only [Bool.and_eq_true, Bool.not_eq_true']
+    constructor
+    · cases hy : fv'.contains y
+      · rfl
+      · exfalso; have := h y hy; unfold noCaptureFrom at this
+        simp only [Bool.and_eq_true, Bool.not_eq_true'] at this
+        exact absurd (VarSet.contains_singleton_self y) (by simp [this.1])
+    · exact noCaptureFrom_of_all_singletons fv' body (fun x hx => by
+        have := h x hx; unfold noCaptureFrom at this
+        simp only [Bool.and_eq_true, Bool.not_eq_true'] at this
+        exact this.2)
+  | Fix f body =>
+    unfold noCaptureFrom; simp only [Bool.and_eq_true, Bool.not_eq_true']
+    constructor
+    · cases hf : fv'.contains f
+      · rfl
+      · exfalso; have := h f hf; unfold noCaptureFrom at this
+        simp only [Bool.and_eq_true, Bool.not_eq_true'] at this
+        exact absurd (VarSet.contains_singleton_self f) (by simp [this.1])
+    · exact noCaptureFrom_of_all_singletons fv' body (fun x hx => by
+        have := h x hx; unfold noCaptureFrom at this
+        simp only [Bool.and_eq_true, Bool.not_eq_true'] at this
+        exact this.2)
+  | App f a =>
+    unfold noCaptureFrom; simp only [Bool.and_eq_true]
+    exact ⟨noCaptureFrom_of_all_singletons fv' f (fun x hx => by
+             have := h x hx; unfold noCaptureFrom at this
+             simp only [Bool.and_eq_true] at this; exact this.1),
+           noCaptureFrom_of_all_singletons fv' a (fun x hx => by
+             have := h x hx; unfold noCaptureFrom at this
+             simp only [Bool.and_eq_true] at this; exact this.2)⟩
+  | Constr _ args =>
+    unfold noCaptureFrom
+    exact noCaptureFromList_of_all_singletons fv' args (fun x hx => by
+      have := h x hx; unfold noCaptureFrom at this; exact this)
+  | Case scrut alts =>
+    unfold noCaptureFrom; simp only [Bool.and_eq_true]
+    exact ⟨noCaptureFrom_of_all_singletons fv' scrut (fun x hx => by
+             have := h x hx; unfold noCaptureFrom at this
+             simp only [Bool.and_eq_true] at this; exact this.1),
+           noCaptureFromList_of_all_singletons fv' alts (fun x hx => by
+             have := h x hx; unfold noCaptureFrom at this
+             simp only [Bool.and_eq_true] at this; exact this.2)⟩
+  | Let binds body =>
+    unfold noCaptureFrom
+    exact noCaptureFromLet_of_all_singletons fv' binds body (fun x hx => by
+      have := h x hx; unfold noCaptureFrom at this; exact this)
+termination_by sizeOf e
+
+private theorem noCaptureFromList_of_all_singletons (fv' : VarSet) (es : List Expr)
+    (h : ∀ x, fv'.contains x = true → noCaptureFromList (VarSet.singleton x) es = true) :
+    noCaptureFromList fv' es = true := by
+  cases es with
+  | nil => unfold noCaptureFromList; rfl
+  | cons e rest =>
+    unfold noCaptureFromList; simp only [Bool.and_eq_true]
+    exact ⟨noCaptureFrom_of_all_singletons fv' e (fun x hx => by
+             have := h x hx; unfold noCaptureFromList at this
+             simp only [Bool.and_eq_true] at this; exact this.1),
+           noCaptureFromList_of_all_singletons fv' rest (fun x hx => by
+             have := h x hx; unfold noCaptureFromList at this
+             simp only [Bool.and_eq_true] at this; exact this.2)⟩
+termination_by sizeOf es
+
+private theorem noCaptureFromLet_of_all_singletons (fv' : VarSet)
+    (binds : List (VarId × Expr × Bool)) (body : Expr)
+    (h : ∀ x, fv'.contains x = true → noCaptureFromLet (VarSet.singleton x) binds body = true) :
+    noCaptureFromLet fv' binds body = true := by
+  cases binds with
+  | nil =>
+    unfold noCaptureFromLet
+    exact noCaptureFrom_of_all_singletons fv' body (fun x hx => by
+      have := h x hx; unfold noCaptureFromLet at this; exact this)
+  | cons b rest =>
+    have := sizeOf_rhs_lt b rest body
+    unfold noCaptureFromLet; simp only [Bool.and_eq_true, Bool.not_eq_true']
+    refine ⟨⟨?_, noCaptureFrom_of_all_singletons fv' b.2.1 (fun x hx => by
+             have := h x hx; unfold noCaptureFromLet at this
+             simp only [Bool.and_eq_true, Bool.not_eq_true'] at this; exact this.1.2)⟩,
+           noCaptureFromLet_of_all_singletons fv' rest body (fun x hx => by
+             have := h x hx; unfold noCaptureFromLet at this
+             simp only [Bool.and_eq_true, Bool.not_eq_true'] at this; exact this.2)⟩
+    · cases hb : fv'.contains b.1
+      · rfl
+      · exfalso; have := h b.1 hb; unfold noCaptureFromLet at this
+        simp only [Bool.and_eq_true, Bool.not_eq_true'] at this
+        exact absurd (VarSet.contains_singleton_self b.1) (by simp [this.1.1])
+termination_by sizeOf binds + sizeOf body
+end
+
+/-! ## freeVars of RHS vs freeVarsLet: membership is in fv or a binding name -/
+
+private theorem freeVars_rhs_in_fvlet_or_bindname
+    (binds : List (VarId × Expr × Bool)) (body : Expr)
+    (b : VarId × Expr × Bool) (hb : b ∈ binds)
+    (x : VarId) (hx : (Moist.MIR.freeVars b.2.1).contains x = true) :
+    (Moist.MIR.freeVarsLet binds body).contains x = true ∨
+    ∃ b' ∈ binds, (x == b'.1) = true := by
+  induction binds with
+  | nil => simp at hb
+  | cons hd rest ih =>
+    rcases List.mem_cons.mp hb with rfl | hb
+    · left; unfold Moist.MIR.freeVarsLet; exact VarSet.contains_union_left _ _ _ hx
+    · have ih' := ih hb
+      rcases ih' with hfv | ⟨b', hb', hbx⟩
+      · -- x ∈ freeVarsLet rest body
+        by_cases hxhd : (x == hd.1) = true
+        · exact Or.inr ⟨hd, List.mem_cons_self .., hxhd⟩
+        · simp only [Bool.not_eq_true] at hxhd
+          have hhd_ne_x : (hd.1 == x) = false := by
+            cases heq : (hd.1 == x)
+            · rfl
+            · rw [Moist.MIR.VarId.beq_true_iff] at heq
+              exact absurd ((Moist.MIR.VarId.beq_true_iff x hd.1).mpr
+                ⟨heq.1.symm, heq.2.symm⟩) (by simp [hxhd])
+          left; unfold Moist.MIR.freeVarsLet
+          exact VarSet.contains_union_right _ _ _
+            (VarSet.contains_erase_ne _ hd.1 x hhd_ne_x hfv)
+      · exact Or.inr ⟨b', List.mem_cons_of_mem _ hb', hbx⟩
+
+/-! ## Binding names not in mid (after processing RHS) -/
+
+private theorem wellScopedLetAux_all_bindnames_not_in_mid
+    (fv : VarSet) (hd : VarId × Expr × Bool) (rest : List (VarId × Expr × Bool))
+    (body : Expr) (s mid : VarSet)
+    (hmid : wellScopedAux VarSet.empty fv hd.2.1 = some mid)
+    (hcheck : (mid.contains hd.1 || fv.contains hd.1) = false)
+    (hrest : wellScopedLetAux (mid.insert hd.1) fv rest body = some s) :
+    ∀ b ∈ (hd :: rest), mid.contains b.1 = false := by
+  intro b hb
+  rcases List.mem_cons.mp hb with rfl | hb
+  · simp only [Bool.or_eq_false_iff] at hcheck; exact hcheck.1
+  · have hbnot := wellScopedLetAux_binders_not_in_seen (mid.insert hd.1) fv rest body s hrest
+    rw [List.all_eq_true] at hbnot
+    have hb_not_ins := hbnot b hb
+    simp only [Bool.not_eq_true'] at hb_not_ins
+    cases hmid_b : mid.contains b.1
+    · rfl
+    · exfalso; exact absurd (VarSet.contains_insert_of_contains mid hd.1 b.1 hmid_b)
+        (by simp [hb_not_ins])
+
+/-! ## NC from seen membership: if v ∈ seen, then NC {v} for all RHS -/
+
+private theorem wellScopedLetAux_nc_from_seen (seen fv : VarSet)
+    (binds : List (VarId × Expr × Bool)) (body : Expr)
+    (s : VarSet) (h : wellScopedLetAux seen fv binds body = some s)
+    (v : VarId) (hv : seen.contains v = true) :
+    ∀ b ∈ binds, noCaptureFrom (VarSet.singleton v) b.2.1 = true := by
+  cases binds with
+  | nil => intro b hb; simp at hb
+  | cons hd rest =>
+    have := sizeOf_rhs_lt hd rest body
+    unfold wellScopedLetAux at h; simp only [bind, Option.bind] at h
+    split at h
+    · simp at h
+    · rename_i mid hmid
+      have hc₁ : (mid.contains hd.1 || fv.contains hd.1) = false := by
+        cases hc : (mid.contains hd.1 || fv.contains hd.1) <;> simp [hc] at h ⊢
+      simp only [hc₁] at h
+      intro b hb
+      rcases List.mem_cons.mp hb with rfl | hb_rest
+      · -- b = hd: NC {v} b.2.1 via weaken + noCaptureFrom
+        have hbar : ∀ w, (VarSet.empty.contains w = true ∨ (fv.union seen).contains w = true) →
+            (seen.contains w = true ∨ fv.contains w = true) := by
+          intro w hw
+          rcases hw with hw | hw
+          · simp [VarSet.contains_empty] at hw
+          · cases hfw : fv.contains w
+            · cases hsw : seen.contains w
+              · exact absurd hw (by simp [Moist.MIR.VarSet.union_not_contains_fwd fv seen w hfw hsw])
+              · exact Or.inl rfl
+            · exact Or.inr rfl
+        have ⟨mid', hmid', _⟩ := wellScopedAux_weaken seen VarSet.empty fv
+          (fv.union seen) b.2.1 hbar mid hmid
+        exact wellScopedAux_noCaptureFrom VarSet.empty (fv.union seen) (VarSet.singleton v)
+          b.2.1
+          (fun w hwv => by rw [VarSet.singleton_contains'] at hwv
+                           exact VarSet.contains_union_right fv seen w
+                             (contains_of_beq seen hwv hv))
+          mid' hmid'
+      · -- b ∈ rest: by IH with seen' = mid.insert hd.1
+        exact wellScopedLetAux_nc_from_seen (mid.insert hd.1) fv rest body s h v
+          (VarSet.contains_insert_of_contains mid hd.1 v
+            (wellScopedAux_seen_mono seen fv hd.2.1 mid hmid v hv))
+          b hb_rest
+termination_by sizeOf binds + sizeOf body
+
+/-! ## Binding name NC: each binding name gives NC on all RHS -/
+
+private theorem wellScopedLetAux_bindname_nc (seen fv : VarSet)
+    (binds : List (VarId × Expr × Bool)) (body : Expr)
+    (s : VarSet) (h : wellScopedLetAux seen fv binds body = some s) :
+    ∀ b₁ ∈ binds, ∀ b₂ ∈ binds,
+      noCaptureFrom (VarSet.singleton b₁.1) b₂.2.1 = true := by
+  cases binds with
+  | nil => intro b₁ hb₁; simp at hb₁
+  | cons hd rest =>
+    have hsz := sizeOf_rhs_lt hd rest body
+    unfold wellScopedLetAux at h; simp only [bind, Option.bind] at h
+    split at h
+    · simp at h
+    · rename_i mid hmid
+      have hc₁ : (mid.contains hd.1 || fv.contains hd.1) = false := by
+        cases hc : (mid.contains hd.1 || fv.contains hd.1) <;> simp [hc] at h ⊢
+      simp only [hc₁] at h
+      have hc_mid : mid.contains hd.1 = false := by
+        simp only [Bool.or_eq_false_iff] at hc₁; exact hc₁.1
+      intro b₁ hb₁ b₂ hb₂
+      -- Determine if b₁ and b₂ are head or in rest
+      have hb₁_cases := List.mem_cons.mp hb₁
+      have hb₂_cases := List.mem_cons.mp hb₂
+      rcases hb₁_cases with rfl | hb₁_rest
+      · -- b₁ = hd → hd eliminated, b₁ survives
+        rcases hb₂_cases with rfl | hb₂_rest
+        · -- b₂ = b₁ = hd: both hd and b₁ eliminated, b₂ survives
+          exact wellScopedAux_noBinderFromFinalAbsence seen fv b₂.2.1 mid hmid b₂.1 hc_mid
+        · -- b₂ ∈ rest, b₁ survives (= hd)
+          exact wellScopedLetAux_nc_from_seen (mid.insert b₁.1) fv rest body s h b₁.1
+            (VarSet.contains_insert_self mid b₁.1) b₂ hb₂_rest
+      · rcases hb₂_cases with rfl | hb₂_rest
+        · -- b₁ ∈ rest, b₂ = hd → hd eliminated, b₂ survives
+          have hbnot := wellScopedLetAux_binders_not_in_seen (mid.insert b₂.1) fv rest body s h
+          rw [List.all_eq_true] at hbnot
+          have hb₁_not_ins := hbnot b₁ hb₁_rest
+          simp only [Bool.not_eq_true'] at hb₁_not_ins
+          have hb₁_not_mid : mid.contains b₁.1 = false := by
+            cases hm : mid.contains b₁.1
+            · rfl
+            · exact absurd (VarSet.contains_insert_of_contains mid b₂.1 b₁.1 hm)
+                (by simp [hb₁_not_ins])
+          exact wellScopedAux_noBinderFromFinalAbsence seen fv b₂.2.1 mid hmid b₁.1 hb₁_not_mid
+        · -- b₁ ∈ rest, b₂ ∈ rest: need to reference the original hd
+          -- After no rfl substitutions, hd is still available
+          exact wellScopedLetAux_bindname_nc (mid.insert hd.1) fv rest body s h
+            b₁ hb₁_rest b₂ hb₂_rest
+termination_by sizeOf binds + sizeOf body
+
+-- Cross-NC for let bindings from wellScoped: for any two bindings in a
+-- well-scoped Let, the internal binders (Lam/Fix/Let) of one RHS do not
+-- capture the free variables of another RHS. This holds because:
+-- (1) wellScopedAux checks each binder against fv = freeVarsLet binds body
+-- (2) freeVarsLet erases binding names but contains all other free vars
+-- (3) binding names are disjoint from internal binders (from seen tracking)
+-- (4) so internal binders ∉ freeVars of any RHS
+theorem wellScoped_let_cross_nc {binds : List (VarId × Expr × Bool)} {body : Expr}
+    (h : wellScoped (.Let binds body) = true) :
+    ∀ b₁ ∈ binds, ∀ b₂ ∈ binds,
+      noCaptureFrom (Moist.MIR.freeVars b₁.2.1) b₂.2.1 = true := by
+  intro b₁ hb₁ b₂ hb₂
+  -- Extract the wellScopedLetAux structure
+  have hs := h
+  unfold wellScoped at hs; unfold wellScopedAux at hs; unfold Moist.MIR.freeVars at hs
+  rw [isSome_iff] at hs; obtain ⟨s, hs⟩ := hs
+  -- Step 1: NC fv b₂.2.1 for the overall freeVarsLet
+  have hncl := wellScopedLetAux_noCaptureFrom VarSet.empty
+    (Moist.MIR.freeVarsLet binds body) (Moist.MIR.freeVarsLet binds body) binds body
+    (fun v hv => hv) s hs
+  have hnc_fv_all := noCaptureFromLet_binds _ binds body hncl
+  rw [List.all_eq_true] at hnc_fv_all
+  have hnc_fv_b₂ := hnc_fv_all b₂ hb₂
+  -- Step 2: binding name NC
+  have hbn_nc := wellScopedLetAux_bindname_nc VarSet.empty
+    (Moist.MIR.freeVarsLet binds body) binds body s hs
+  -- Step 3: Apply noCaptureFrom_of_all_singletons
+  apply noCaptureFrom_of_all_singletons
+  intro x hx_in_fv_b₁
+  -- x ∈ freeVars b₁.2.1, need NC {x} b₂.2.1
+  -- Case split: x ∈ fv or x equals a binding name
+  rcases freeVars_rhs_in_fvlet_or_bindname binds body b₁ hb₁ x hx_in_fv_b₁ with
+    hx_in_fv | ⟨b', hb', hxb'⟩
+  · -- Case: x ∈ fv → use NC fv b₂.2.1 and mono
+    exact noCaptureFrom_mono (Moist.MIR.freeVarsLet binds body) (VarSet.singleton x)
+      b₂.2.1 hnc_fv_b₂
+      (fun v hv => by rw [VarSet.singleton_contains'] at hv
+                      exact contains_of_beq _ hv hx_in_fv)
+  · -- Case: x == b'.1 for some binding b' ∈ binds
+    -- NC {b'.1} b₂.2.1 from the bindname_nc helper
+    have hnc_b' := hbn_nc b' hb' b₂ hb₂
+    -- Convert x == b'.1 to b'.1 == x for beq_trans
+    have hb'x : (b'.1 == x) = true := by
+      rw [Moist.MIR.VarId.beq_true_iff] at hxb' ⊢
+      exact ⟨hxb'.1.symm, hxb'.2.symm⟩
+    -- Need to convert NC {b'.1} to NC {x} using b'.1 == x
+    exact noCaptureFrom_mono (VarSet.singleton b'.1) (VarSet.singleton x) b₂.2.1 hnc_b'
+      (fun v hv => by rw [VarSet.singleton_contains'] at hv ⊢
+                      exact Moist.MIR.VarId.beq_trans b'.1 x v hb'x hv)
 
 end Moist.Verified.InlineSoundness.WellScoped
