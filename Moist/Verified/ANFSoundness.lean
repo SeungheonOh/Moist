@@ -1851,4 +1851,29 @@ theorem anfNormalize_sound (e : Expr) (s : Moist.MIR.FreshState) :
   rw [h_unfold]
   exact anfNormalizeFlat_sound e
 
+theorem anfNormalize_refines (e : Expr) (s : Moist.MIR.FreshState) :
+    MIRCtxRefines e (Moist.MIR.anfNormalize e s).1 := by
+  have h_unfold : (Moist.MIR.anfNormalize e s).1 = Moist.MIR.anfNormalizeFlat e := rfl
+  rw [h_unfold]
+  by_cases hFixFree : Moist.MIR.fixCount e = 0
+  · let K : Moist.MIR.FreshState := ⟨Moist.MIR.maxUidExpr e + 1⟩
+    have hK : Moist.MIR.maxUidExpr e < K.next := Nat.lt_succ_self _
+    let renamed := (Moist.MIR.alphaRenameTop e K).1
+    let K_anf : Moist.MIR.FreshState := ⟨Moist.MIR.maxUidExpr renamed + 1⟩
+    have ⟨hanf_fwd, _, _, _⟩ :=
+      anfNormalizeCore_mirCtxRefines renamed K_anf (Nat.lt_succ_self _)
+    have h_flat_fwd := flattenAll_mirCtxRefines_fwd (Moist.MIR.anfNormalizeCore renamed K_anf).1
+    show MIRCtxRefines e (Moist.MIR.anfNormalizeFlat e)
+    unfold Moist.MIR.anfNormalizeFlat; rw [if_pos hFixFree]
+    exact mirCtxRefines_trans
+      (alphaRenameTop_mirCtxRefines_fwd e K hK hFixFree)
+      (mirCtxRefines_trans hanf_fwd h_flat_fwd)
+  · let K_anf : Moist.MIR.FreshState := ⟨Moist.MIR.maxUidExpr e + 1⟩
+    have ⟨hanf_fwd, _, _, _⟩ :=
+      anfNormalizeCore_mirCtxRefines e K_anf (Nat.lt_succ_self _)
+    have h_flat_fwd := flattenAll_mirCtxRefines_fwd (Moist.MIR.anfNormalizeCore e K_anf).1
+    show MIRCtxRefines e (Moist.MIR.anfNormalizeFlat e)
+    unfold Moist.MIR.anfNormalizeFlat; rw [if_neg hFixFree]
+    exact mirCtxRefines_trans hanf_fwd h_flat_fwd
+
 end Moist.Verified.MIR

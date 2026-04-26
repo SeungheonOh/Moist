@@ -126,7 +126,7 @@ end
 /-- Lift `lowerTotal_closedAt` through `lowerTotalExpr`'s extra `expandFix`
     step: if `lowerTotalExpr env e = some t`, then `t` is closed at
     `env.length`. -/
-private theorem lowerTotalExpr_closedAt {env : List VarId} {e : Expr} {t : Moist.Plutus.Term.Term}
+theorem lowerTotalExpr_closedAt {env : List VarId} {e : Expr} {t : Moist.Plutus.Term.Term}
     (h : lowerTotalExpr env e = some t) : closedAt env.length t = true := by
   simp only [Moist.MIR.lowerTotalExpr] at h
   exact lowerTotal_closedAt env (Moist.MIR.expandFix e) t h
