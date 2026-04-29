@@ -605,23 +605,23 @@ mutual
 /-- `dce` is sound: it preserves `MIRCtxRefines`. No `fixCount` precondition;
     the Fix-Lam case is handled by `mirCtxRefines_fix_lam`, other Fix cases
     are vacuous (lowering fails). -/
-theorem dce_mirCtxRefines : ∀ (t : Expr), MIRCtxRefines t (dce t).1
+theorem dce_refines : ∀ (t : Expr), MIRCtxRefines t (dce t).1
   | .Var _ => by simp only [dce]; exact mirCtxRefines_refl _
   | .Lit _ => by simp only [dce]; exact mirCtxRefines_refl _
   | .Builtin _ => by simp only [dce]; exact mirCtxRefines_refl _
   | .Error => by simp only [dce]; exact mirCtxRefines_refl _
   | .Lam x body => by
     simp only [dce]
-    exact mirCtxRefines_lam (dce_mirCtxRefines body)
+    exact mirCtxRefines_lam (dce_refines body)
   | .Force inner => by
     simp only [dce]
-    exact mirCtxRefines_force (dce_mirCtxRefines inner)
+    exact mirCtxRefines_force (dce_refines inner)
   | .Delay inner => by
     simp only [dce]
-    exact mirCtxRefines_delay (dce_mirCtxRefines inner)
+    exact mirCtxRefines_delay (dce_refines inner)
   | .App fn arg => by
     simp only [dce]
-    exact mirCtxRefines_app (dce_mirCtxRefines fn) (dce_mirCtxRefines arg)
+    exact mirCtxRefines_app (dce_refines fn) (dce_refines arg)
   | .Fix f body => by
     -- dce on .Fix recursively: (.Fix f (dce body).1, _)
     simp only [dce]
@@ -630,7 +630,7 @@ theorem dce_mirCtxRefines : ∀ (t : Expr), MIRCtxRefines t (dce t).1
     | Lam x inner =>
       -- dce (.Lam x inner) = (.Lam x (dce inner).1, _)
       simp only [dce]
-      exact mirCtxRefines_fix_lam (dce_mirCtxRefines inner)
+      exact mirCtxRefines_fix_lam (dce_refines inner)
     | Var v => exact mirCtxRefines_fix_nonlam (by intros; intro h; cases h)
     | Lit c => exact mirCtxRefines_fix_nonlam (by intros; intro h; cases h)
     | Builtin b => exact mirCtxRefines_fix_nonlam (by intros; intro h; cases h)
@@ -650,18 +650,18 @@ theorem dce_mirCtxRefines : ∀ (t : Expr), MIRCtxRefines t (dce t).1
       exact mirCtxRefines_refl _
     | cons e rest =>
       simp only [dceList]
-      exact mirCtxRefines_constr (dce_mirCtxRefines e) (dceList_listRel rest)
+      exact mirCtxRefines_constr (dce_refines e) (dceList_listRel rest)
   | .Case scrut alts => by
     simp only [dce]
     cases alts with
     | nil =>
       simp only [dceList]
-      exact mirCtxRefines_case (dce_mirCtxRefines scrut) True.intro
+      exact mirCtxRefines_case (dce_refines scrut) True.intro
     | cons a rest =>
       simp only [dceList]
       exact mirCtxRefines_case
-        (dce_mirCtxRefines scrut)
-        ⟨dce_mirCtxRefines a, dceList_listRel rest⟩
+        (dce_refines scrut)
+        ⟨dce_refines a, dceList_listRel rest⟩
   | .Let binds body => by
     -- Step 1: swap each rhs via dceBinds (binds congruence)
     have h_binds_swap :
@@ -672,7 +672,7 @@ theorem dce_mirCtxRefines : ∀ (t : Expr), MIRCtxRefines t (dce t).1
     have h_body_swap :
         MIRCtxRefines (.Let (dceBinds binds).1 body)
                       (.Let (dceBinds binds).1 (dce body).1) :=
-      mirCtxRefines_let_body (dce_mirCtxRefines body)
+      mirCtxRefines_let_body (dce_refines body)
     -- Step 3: filterBindings walk
     have h_filter :
         MIRCtxRefines (.Let (dceBinds binds).1 (dce body).1)
@@ -704,7 +704,7 @@ theorem dceList_listRel : ∀ (ts : List Expr),
   | [] => by simp only [dceList]; exact True.intro
   | e :: rest => by
     simp only [dceList]
-    exact ⟨dce_mirCtxRefines e, dceList_listRel rest⟩
+    exact ⟨dce_refines e, dceList_listRel rest⟩
   termination_by ts => sizeOf ts
 
 /-- Per-binding DCE soundness: each rhs's pair is `MIRCtxRefines`,
@@ -716,7 +716,7 @@ theorem dceBinds_listRel : ∀ (bs : List (VarId × Expr × Bool)),
   | (v, rhs, er) :: rest => by
     simp only [dceBinds]
     refine ⟨⟨rfl, rfl, ?_⟩, ?_⟩
-    · exact dce_mirCtxRefines rhs
+    · exact dce_refines rhs
     · exact dceBinds_listRel rest
   termination_by bs => sizeOf bs
 

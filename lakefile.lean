@@ -58,6 +58,9 @@ lean_exe moist where
 lean_exe tests where
   root := `TestMain
 
+lean_exe opt_bench where
+  root := `Test.VerifiedOptBench
+
 lean_exe nft_test where
   root := `Test.Onchain.Testing
 

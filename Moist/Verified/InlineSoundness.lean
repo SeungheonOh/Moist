@@ -1074,7 +1074,7 @@ theorem inlineBindings_listRel : (binds : List (VarId × Expr × Bool)) →
 
 end
 
-theorem inline_soundness (e : Expr) (s : Moist.MIR.FreshState) :
+theorem inline_refines (e : Expr) (s : Moist.MIR.FreshState) :
     MIRCtxRefines e (Moist.MIR.inlinePassWithCanon e s).1.1 := by
   show MIRCtxRefines e (inlinePass (canonicalize e) s).1.1
   exact mirCtxRefines_trans
