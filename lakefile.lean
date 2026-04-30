@@ -66,3 +66,6 @@ lean_exe nft_test where
 
 lean_exe conformance where
   root := `Test.CEK.Conformance
+
+lean_exe ptah_test where
+  root := `Test.Ptah
