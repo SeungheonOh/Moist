@@ -122,6 +122,107 @@ theorem renameTerm_shift_closed {r : Term} (hr : closedAt 0 r = true) :
     have : n = 0 := by omega
     subst this; simp [shiftRename]) hr
 
+/-! ## Closedness under renaming and substitution
+
+Re-proved here over the pure cone (the heavier `BetaValueRefines` has the same
+lemmas but pulls in machinery this development deliberately avoids). -/
+
+theorem liftRename_preserves_bound {σ : Nat → Nat} {d d' : Nat}
+    (hσ : ∀ n, n ≤ d → σ n ≤ d') : ∀ n, n ≤ d + 1 → liftRename σ n ≤ d' + 1 := by
+  intro n hn
+  match n with
+  | 0 => simp [liftRename]
+  | 1 => simp [liftRename]
+  | m + 2 => simp only [liftRename]; have := hσ (m + 1) (by omega); omega
+
+mutual
+  /-- Closedness is preserved under renaming respecting the depth bound. -/
+  theorem closedAt_rename : ∀ {σ : Nat → Nat} {t : Term} {d d' : Nat},
+      closedAt d t = true → (∀ n, n ≤ d → σ n ≤ d') → closedAt d' (renameTerm σ t) = true
+    | σ, .Var n, d, d', h, hσ => by
+      simp only [renameTerm, closedAt, decide_eq_true_eq] at h ⊢; exact hσ n h
+    | σ, .Lam _ body, d, d', h, hσ => by
+      simp only [renameTerm, closedAt] at h ⊢
+      exact closedAt_rename h (liftRename_preserves_bound hσ)
+    | σ, .Apply f x, d, d', h, hσ => by
+      simp only [renameTerm, closedAt, Bool.and_eq_true] at h ⊢
+      exact ⟨closedAt_rename h.1 hσ, closedAt_rename h.2 hσ⟩
+    | σ, .Force e, d, d', h, hσ => by
+      simp only [renameTerm, closedAt] at h ⊢; exact closedAt_rename h hσ
+    | σ, .Delay e, d, d', h, hσ => by
+      simp only [renameTerm, closedAt] at h ⊢; exact closedAt_rename h hσ
+    | σ, .Constr _ args, d, d', h, hσ => by
+      simp only [renameTerm, closedAt] at h ⊢; exact closedAtList_rename h hσ
+    | σ, .Case scrut alts, d, d', h, hσ => by
+      simp only [renameTerm, closedAt, Bool.and_eq_true] at h ⊢
+      exact ⟨closedAt_rename h.1 hσ, closedAtList_rename h.2 hσ⟩
+    | _, .Constant _, _, _, _, _ => by simp [closedAt, renameTerm]
+    | _, .Builtin _, _, _, _, _ => by simp [closedAt, renameTerm]
+    | _, .Error, _, _, _, _ => by simp [closedAt, renameTerm]
+  termination_by _ t _ _ _ _ => sizeOf t
+
+  theorem closedAtList_rename : ∀ {σ : Nat → Nat} {ts : List Term} {d d' : Nat},
+      closedAtList d ts = true → (∀ n, n ≤ d → σ n ≤ d') →
+      closedAtList d' (renameTermList σ ts) = true
+    | _, [], _, _, _, _ => by simp [closedAtList, renameTermList]
+    | σ, t :: rest, d, d', h, hσ => by
+      simp only [closedAtList, renameTermList, Bool.and_eq_true] at h ⊢
+      exact ⟨closedAt_rename h.1 hσ, closedAtList_rename h.2 hσ⟩
+  termination_by _ ts _ _ _ _ => sizeOf ts
+end
+
+mutual
+  /-- Closedness is preserved under open substitution: substituting a `closedAt d`
+      term at a position `1 ≤ pos ≤ d+1` into a `closedAt (d+1)` term yields a
+      `closedAt d` term. -/
+  theorem closedAt_substTerm : ∀ {pos : Nat} {r t : Term} {d : Nat},
+      1 ≤ pos → pos ≤ d + 1 → closedAt d r = true → closedAt (d + 1) t = true →
+      closedAt d (substTerm pos r t) = true
+    | pos, r, .Var n, d, hpos, hposd, hr, ht => by
+      simp only [substTerm]
+      by_cases hn_eq : n = pos
+      · simp [hn_eq, hr]
+      · simp only [hn_eq, if_false]
+        by_cases hn_gt : n > pos
+        · simp only [hn_gt, if_true]
+          simp only [closedAt, decide_eq_true_eq] at ht ⊢; omega
+        · simp only [hn_gt, if_false]
+          simp only [closedAt, decide_eq_true_eq] at ht ⊢; omega
+    | pos, r, .Lam _ body, d, hpos, hposd, hr, ht => by
+      simp only [substTerm, closedAt] at ht ⊢
+      have hr' : closedAt (d + 1) (renameTerm (shiftRename 1) r) = true :=
+        closedAt_rename hr (by intro n hn; unfold shiftRename; split <;> omega)
+      exact closedAt_substTerm (by omega) (by omega) hr' ht
+    | pos, r, .Apply f x, d, hpos, hposd, hr, ht => by
+      simp only [substTerm, closedAt, Bool.and_eq_true] at ht ⊢
+      exact ⟨closedAt_substTerm hpos hposd hr ht.1, closedAt_substTerm hpos hposd hr ht.2⟩
+    | pos, r, .Force e, d, hpos, hposd, hr, ht => by
+      simp only [substTerm, closedAt] at ht ⊢
+      exact closedAt_substTerm hpos hposd hr ht
+    | pos, r, .Delay e, d, hpos, hposd, hr, ht => by
+      simp only [substTerm, closedAt] at ht ⊢
+      exact closedAt_substTerm hpos hposd hr ht
+    | pos, r, .Constr _ args, d, hpos, hposd, hr, ht => by
+      simp only [substTerm, closedAt] at ht ⊢
+      exact closedAtList_substTermList hpos hposd hr ht
+    | pos, r, .Case scrut alts, d, hpos, hposd, hr, ht => by
+      simp only [substTerm, closedAt, Bool.and_eq_true] at ht ⊢
+      exact ⟨closedAt_substTerm hpos hposd hr ht.1, closedAtList_substTermList hpos hposd hr ht.2⟩
+    | _, _, .Constant _, _, _, _, _, _ => by simp [closedAt, substTerm]
+    | _, _, .Builtin _, _, _, _, _, _ => by simp [closedAt, substTerm]
+    | _, _, .Error, _, _, _, _, _ => by simp [closedAt, substTerm]
+  termination_by _ _ t _ _ _ _ _ => sizeOf t
+
+  theorem closedAtList_substTermList : ∀ {pos : Nat} {r : Term} {ts : List Term} {d : Nat},
+      1 ≤ pos → pos ≤ d + 1 → closedAt d r = true → closedAtList (d + 1) ts = true →
+      closedAtList d (substTermList pos r ts) = true
+    | _, _, [], _, _, _, _, _ => by simp [closedAtList, substTermList]
+    | pos, r, t :: rest, d, hpos, hposd, hr, ht => by
+      simp only [closedAtList, substTermList, Bool.and_eq_true] at ht ⊢
+      exact ⟨closedAt_substTerm hpos hposd hr ht.1, closedAtList_substTermList hpos hposd hr ht.2⟩
+  termination_by _ _ ts _ _ _ _ _ => sizeOf ts
+end
+
 /-! ## Substitution swap (for the β step)
 
 `substTerm` unfolded on a variable. -/

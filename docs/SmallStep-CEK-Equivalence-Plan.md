@@ -1,5 +1,48 @@
 # Small-step UPLC semantics ↔ CEK machine: port & equivalence plan
 
+## STATUS: COMPLETE ✅
+
+The full bidirectional adequacy is proven and compiles (`Moist.Verified.SmallStep`,
+17 modules, no `sorry`/`admit`/`axiom`). The headline theorems
+(`Moist/Verified/SmallStep/Adequacy.lean`), for any closed canonical `Term` `t`:
+
+- `adequacy_halt` : `(∃ v, Reaches (init t) (.halt v)) ↔ (∃ w, Steps t w ∧ Value w)`
+- `adequacy_error`: `Reaches (init t) .error ↔ ∃ w, Steps t w ∧ Stuck w`
+- `adequacy_halt_fwd` : exact-value forward
+  (`Reaches (init t) (.halt v) → Steps t (discharge v) ∧ Value (discharge v)`)
+
+`#print axioms` on all of these reports only `[propext, Classical.choice, Quot.sound]`
+— no `sorryAx`. `Step` is proven deterministic (`step_det`).
+
+### What was built on top of the original port
+
+- **Determinism** (`Determinism.lean`): `step_det`, `firstNonValue_unique` (unique
+  CBV decomposition), `step_constr_inv`, length-indexed `StepsN` + `stepsN_align`
+  (determinism ⇒ a reduction prefix of a path to a normal form fits inside it).
+- **Closedness** (`Closed.lean`): `ClosedValue`/`ClosedEnv` + `discharge_closed`
+  (`closedAt_rename`/`closedAt_substTerm` re-proved in the pure cone in `Subst.lean`).
+- **Builtin reflect-bridge** (`ReflectBridge.lean`): `discharge_reflect_discharge`
+  (round-trip) ⇒ `evalBuiltin_rdv` (running `evalBuiltin` on `reflect∘discharge`-mapped
+  args is discharge-invariant), the lemma the `satApply`/`satForce` simulation needs.
+- **State invariant** (`Invariant.lean`): combined `GoodValue` (WF spines + closed),
+  `GoodState` preserved by `step` (`step_preserves_good`), `evalBuiltin_preserves_good`.
+- **Canonicality** (`Canon.lean`): `discharge` normalises `Lam` binder labels to `0`
+  and `Constant` annotations to `constType c`; `CanonState` tracks this and is preserved
+  (`step_preserves_canon`). Adequacy therefore assumes `t` canonical (real UPLC is).
+- **Forward simulation** (`Simulation.lean`): `sim_step` — every CEK step discharges to
+  `Steps` (admin = 0, βδ/case/builtin = 1, error-propagation = several) or is a stuck
+  config about to `error`. The `dischargeEnv`-distribution lemmas + `dischargeStack_cong`
+  /`dischargeStack_stuck` are the evaluation-context infrastructure.
+- **Backward termination** (`Measure.lean`): administrative measure `μ` (strictly down
+  on every silent transition), structural step classification `step_mu`, and
+  `reach_terminal` (well-founded on `(small-step distance, μ)`): a term with a small-step
+  normal form makes the CEK reach a terminal state. `normal_form_unique` (from
+  determinism) then pins down which terminal.
+
+Note: the development is FFI/Mathlib-free (pure-core cone) so it builds with `lean`
+directly; the canonicality assumption (`Canonical t`) is the one added hypothesis,
+needed because `discharge` canonicalises the decorative `Lam`/`Constant` annotations.
+
 ## Goal
 
 Port the UPLC spec's small-step **contextual reduction** semantics
