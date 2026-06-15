@@ -14,6 +14,35 @@ The full bidirectional adequacy is proven and compiles (`Moist.Verified.SmallSte
 `#print axioms` on all of these reports only `[propext, Classical.choice, Quot.sound]`
 — no `sorryAx`. `Step` is proven deterministic (`step_det`).
 
+## Executable, SMT/Blaster-friendly presentation (`Executable.lean`)
+
+The `Step`/`Steps`/`Value` relations are `Prop`s, so an SMT backend (Blaster) has
+nothing to unfold or execute on them. `Moist/Verified/SmallStep/Executable.lean`
+(~908 lines, axiom-clean) adds a *functional* presentation of the same semantics
+and proves it equivalent, so Blaster can symbolically execute it like the CEK `exec`.
+
+Functions (all total):
+- `isValue : Term → Bool` (with `isValueList`, `bspine?`) — decides `Value`.
+- `stepF : Term → Option Term` (with `stepFields`/`FieldStep`) — the deterministic
+  one-step reducer (`some` = unique reduct, `none` = value-or-stuck).
+- `evalF : Nat → Term → Outcome` (`value`/`stuck`/`timeout`) — fuel-driven, the
+  substitution-based analogue of the CEK `exec`.
+
+Bridge theorems:
+- `isValue_iff` : `isValue t = true ↔ Value t`
+- `stepF_some_iff` : `stepF t = some t' ↔ Step t t'`; `stepF_none_iff` : `stepF t = none ↔ Normal t`
+- `evalF_value_iff` : `(∃ n, evalF n t = .value w) ↔ (Steps t w ∧ Value w)`
+- `evalF_adequacy` : for closed canonical `t`,
+  `(∃ n w, evalF n t = .value w) ↔ (∃ v, Reaches (init t) (.halt v))`
+  (plus exact-value `evalF_value_of_reaches` / `reaches_of_evalF_value` via `discharge`).
+
+So a Blaster proof of `evalF N t = .value …` certifies CEK halting. Trade-off vs.
+the CEK substrate: `evalF`'s state is a flat `Term` (no closures/environments),
+but each `stepF` performs a `substTerm` the CEK avoids — the open empirical
+question is whether Blaster unfolds `substTerm` as cheaply as CEK env lookups.
+Verified usage: `Test/SmallStepExamples.lean` §6. Blaster benchmark template (needs
+the full lake+Blaster+zig toolchain): `Test/Onchain/ExecutableSmallStepBlaster.lean`.
+
 ### What was built on top of the original port
 
 - **Determinism** (`Determinism.lean`): `step_det`, `firstNonValue_unique` (unique

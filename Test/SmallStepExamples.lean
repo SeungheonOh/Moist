@@ -121,4 +121,42 @@ example : ∃ v, Reaches (init (app (lam (.Var 1)) (int 7))) (.halt v) := by
   have h := @Step.betaLam 0 (.Var 1) (int 7) .constant
   exact Steps.single (by simpa [substTerm_var] using h)
 
+/-! ## 6. The executable, SMT/Blaster-friendly evaluator
+
+`isValue`/`stepF`/`evalF` are *total functions* (not `Prop` relations), so an SMT
+backend like Blaster can symbolically execute them.  The bridge theorems certify
+they compute exactly the relational semantics. -/
+
+/-- `isValue : Term → Bool` decides `Value` (`isValue_iff`). -/
+example : isValue (int 7) = true := isValue_complete .constant
+example : isValue (lam (.Var 1)) = true := isValue_complete .lam
+example : isValue (.Var 3) = false :=
+  isValue_false_of_not_value (fun hv => by cases hv with | builtin hsp => cases hsp)
+
+/-- `stepF : Term → Option Term` computes the unique reduct; `stepF_some_iff`
+    certifies it.  Here the β-redex `(λx.x) 7` steps to `7`. -/
+example : stepF (app (lam (.Var 1)) (int 7)) = some (int 7) := by
+  rw [stepF_some_iff]
+  have h := @Step.betaLam 0 (.Var 1) (int 7) .constant
+  simpa [substTerm_var] using h
+
+/-- `stepF` returns `none` exactly on normal forms (`stepF_none_iff`). -/
+example : stepF (int 7) = none := stepF_none_iff.mpr (value_normal .constant)
+
+/-- The fuel-driven `evalF` returns a value iff small-step reduction reaches one
+    (`evalF_value_iff`) — the form a Blaster goal `evalF N t = .value w` plugs into. -/
+example : (∃ n, evalF n (app (lam (.Var 1)) (int 7)) = .value (int 7)) := by
+  rw [evalF_value_iff]
+  refine ⟨Steps.single ?_, .constant⟩
+  have h := @Step.betaLam 0 (.Var 1) (int 7) .constant
+  simpa [substTerm_var] using h
+
+/-- **The payoff** (`evalF_adequacy`): for a closed canonical term, the executable
+    evaluator halts on a value *iff* the CEK machine halts.  So a Blaster proof of
+    `evalF N t = .value …` certifies the verified CEK semantics. -/
+example :
+    (∃ n w, evalF n (app (lam (.Var 1)) (int 7)) = .value w) ↔
+      (∃ v, Reaches (init (app (lam (.Var 1)) (int 7))) (.halt v)) :=
+  evalF_adequacy (by simp [closedAt]) (by simp [Canonical, constType])
+
 end Test.SmallStepExamples
