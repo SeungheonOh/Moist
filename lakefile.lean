@@ -29,8 +29,11 @@ extern_lib liblean_shim (pkg : NPackage _) := do
   let name := nameToStaticLib "lean_shim"
   let oFile := pkg.buildDir / "ffi" / "lean_shim.o"
   IO.FS.createDirAll (pkg.buildDir / "ffi")
+  -- Use `leanc` (bundled with the Lean toolchain) rather than a system `cc`,
+  -- which may be absent; leanc wraps the toolchain's clang and already knows
+  -- the Lean include paths.
   proc {
-    cmd := "cc"
+    cmd := "leanc"
     args := #["-c", "-O2", "-I", leanIncDir.toString,
               "-o", oFile.toString,
               (pkg.dir / "ffi" / "lean_shim.c").toString]
@@ -41,7 +44,6 @@ extern_lib liblean_shim (pkg : NPackage _) := do
   }
   return pure (pkg.staticLibDir / name)
 
-require PlutusCore from git "https://github.com/input-output-hk/sc-fvt" @ "staging" / "PlutusCore"
 require «Blaster» from git
   "https://github.com/input-output-hk/Lean-blaster" @ "staging"
 

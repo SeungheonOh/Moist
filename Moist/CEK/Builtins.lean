@@ -478,7 +478,9 @@ def evalBuiltinConst (b : BuiltinFun) (args : List Const) : Option Const :=
 
   -- Data destructors
   | .UnConstrData, [.Data (.Constr tag fields)] =>
-    some (.PairData (Data.I tag, Data.List fields))
+    -- `BuiltinPair BuiltinInteger (BuiltinList Data)` — first the constructor index (an
+    -- Integer), second the fields (a builtin list of Data).  Matches `Ptah/Data.lean`'s type.
+    some (.Pair (.Integer tag, .ConstDataList fields))
   | .UnIData, [.Data (.I i)] => some (.Integer i)
   | .UnBData, [.Data (.B bs)] => some (.ByteString bs)
   | .UnListData, [.Data (.List ds)] => some (.ConstDataList ds)

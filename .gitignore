@@ -3,3 +3,7 @@
 /lake-packages
 /lake-manifest.json
 *.olean
+
+# Zig FFI build artifacts
+/ffi/.zig-cache
+/ffi/zig-out

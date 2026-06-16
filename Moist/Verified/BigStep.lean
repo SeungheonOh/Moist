@@ -1440,6 +1440,67 @@ theorem bigEval_iff_halt {t : Term} {v : CekValue} :
   · rintro ⟨f, hf⟩; exact bigEval_sound hf
   · exact bigEval_complete
 
+/-! ## Failure / divergence correspondence
+
+The CEK has three terminal behaviours from `init t`: **halt** (success), **error**
+(`.error` — a stuck failure: applying a non-function, an unsaturated/failed builtin,
+out-of-scope variable, `Error`, a bad `Case`), or **divergence** (never halt/error).
+`halt ↔ halt` already forces the failure cases to line up, because its two directions
+are exactly "no false success" and "no false failure". The corollaries below make that
+explicit; their proofs need only CEK determinism (the terminal states are absorbing and
+mutually exclusive). -/
+
+/-- CEK determinism: a state cannot reach both `halt` and `error`. -/
+theorem reach_halt_error_excl {s : State} {v : CekValue}
+    (hh : Reaches s (.halt v)) (he : Reaches s .error) : False := by
+  obtain ⟨m, hm⟩ := hh; obtain ⟨n, hn⟩ := he
+  have e1 : steps (m + n) s = .halt v := by rw [steps_add, hm]; exact steps_halt n v
+  have e2 : steps (m + n) s = .error := by rw [Nat.add_comm, steps_add, hn]; exact steps_error m
+  rw [e1] at e2; exact State.noConfusion e2
+
+/-- CEK determinism: the halt value is unique. -/
+theorem reach_halt_unique {s : State} {v v' : CekValue}
+    (h : Reaches s (.halt v)) (h' : Reaches s (.halt v')) : v = v' := by
+  obtain ⟨m, hm⟩ := h; obtain ⟨n, hn⟩ := h'
+  have e1 : steps (m + n) s = .halt v := by rw [steps_add, hm]; exact steps_halt n v
+  have e2 : steps (m + n) s = .halt v' := by rw [Nat.add_comm, steps_add, hn]; exact steps_halt m v'
+  rw [e1] at e2; injection e2
+
+/-- `bigEval` yields a value (at some fuel) **iff** the CEK halts. -/
+theorem bigEval_succeeds_iff_halts {t : Term} :
+    (∃ f v, bigEval f CekEnv.nil t = some v) ↔ (∃ v, Reaches (init t) (.halt v)) := by
+  constructor
+  · rintro ⟨f, v, h⟩; exact ⟨v, bigEval_sound h⟩
+  · rintro ⟨v, hr⟩; obtain ⟨f, h⟩ := bigEval_complete hr; exact ⟨f, v, h⟩
+
+/-- **Failure ⟺ failure.** `bigEval` yields *nothing* (at every fuel) iff the CEK
+    *fails to halt* (i.e. errors **or** diverges). -/
+theorem bigEval_fails_iff_not_halts {t : Term} :
+    (¬ ∃ f v, bigEval f CekEnv.nil t = some v) ↔ (¬ ∃ v, Reaches (init t) (.halt v)) :=
+  ⟨fun h he => h (bigEval_succeeds_iff_halts.mpr he),
+   fun h hs => h (bigEval_succeeds_iff_halts.mp hs)⟩
+
+/-- CEK *fails* (no halt) ⟹ `bigEval` never produces a value, at any fuel. -/
+theorem bigEval_fail_of_not_halt {t : Term}
+    (hnh : ¬ ∃ v, Reaches (init t) (.halt v)) : ∀ f v, bigEval f CekEnv.nil t ≠ some v := by
+  intro f v h; exact hnh ⟨v, bigEval_sound h⟩
+
+/-- `bigEval` never produces a value ⟹ CEK fails (no halt). -/
+theorem not_halt_of_bigEval_fail {t : Term}
+    (hbf : ∀ f v, bigEval f CekEnv.nil t ≠ some v) : ¬ ∃ v, Reaches (init t) (.halt v) := by
+  rintro ⟨v, hr⟩; obtain ⟨f, h⟩ := bigEval_complete hr; exact hbf f v h
+
+/-- In particular: if the CEK **errors**, `bigEval` produces no value. (And dually, if the
+    CEK **diverges** — never halts — `bigEval` produces no value, by `bigEval_fail_of_not_halt`.) -/
+theorem bigEval_fail_of_error {t : Term}
+    (herr : Reaches (init t) .error) : ∀ f v, bigEval f CekEnv.nil t ≠ some v := by
+  intro f v h; exact reach_halt_error_excl (bigEval_sound h) herr
+
+/-- `bigEval`'s value, when it has one, is exactly the CEK's halt value. -/
+theorem bigEval_value_eq_halt {t : Term} {f : Nat} {v v' : CekValue}
+    (h : bigEval f CekEnv.nil t = some v) (hr : Reaches (init t) (.halt v')) : v = v' :=
+  reach_halt_unique (bigEval_sound h) hr
+
 /-! ## Builtin denotation specs (Blaster optimization)
 
 `Moist.CEK.evalBuiltin` is a monolithic dispatch that the SMT optimizer cannot
@@ -1472,5 +1533,28 @@ construction (`#print axioms bigEval_sound` stays `propext`/`Quot.sound`/`Classi
 @[simp] axiom evalBuiltin_equalsInteger (x y : Int) :
     evalBuiltin .EqualsInteger [.VCon (.Integer y), .VCon (.Integer x)]
       = some (.VCon (.Bool (x == y)))
+
+/-- Division family — partial (`y = 0` errors).  `Divide`/`Mod` are *floored*
+    (`Int.fdiv`/`Int.fmod`); `Quotient`/`Remainder` *truncate* (`Int.tdiv`/`Int.tmod`).
+    Verified against `evalBuiltin` across signs and zero. -/
+@[simp] axiom evalBuiltin_divideInteger (x y : Int) :
+    evalBuiltin .DivideInteger [.VCon (.Integer y), .VCon (.Integer x)]
+      = if y = 0 then none else some (.VCon (.Integer (Int.fdiv x y)))
+@[simp] axiom evalBuiltin_modInteger (x y : Int) :
+    evalBuiltin .ModInteger [.VCon (.Integer y), .VCon (.Integer x)]
+      = if y = 0 then none else some (.VCon (.Integer (Int.fmod x y)))
+@[simp] axiom evalBuiltin_quotientInteger (x y : Int) :
+    evalBuiltin .QuotientInteger [.VCon (.Integer y), .VCon (.Integer x)]
+      = if y = 0 then none else some (.VCon (.Integer (Int.tdiv x y)))
+@[simp] axiom evalBuiltin_remainderInteger (x y : Int) :
+    evalBuiltin .RemainderInteger [.VCon (.Integer y), .VCon (.Integer x)]
+      = if y = 0 then none else some (.VCon (.Integer (Int.tmod x y)))
+
+/-- `IfThenElse` (a pass-through builtin): with all three args evaluated, collapse the
+    value-level `ite` in one rewrite — the optimization that lets the CEK win on strict
+    control flow (cf. `docs/blaster-bench/VERDICT.md`). -/
+@[simp] axiom evalBuiltin_ifThenElse (cond : Bool) (thenV elseV : CekValue) :
+    evalBuiltin .IfThenElse [elseV, thenV, .VCon (.Bool cond)]
+      = some (if cond then thenV else elseV)
 
 end Moist.Verified.BigStep
