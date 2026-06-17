@@ -67,6 +67,8 @@ opaque ripemd_160 : ByteString → ByteString := fun b => b
 opaque verifyEd25519 : ByteString → ByteString → ByteString → Bool := fun _ _ _ => true
 opaque verifyEcdsaSecp256k1 : ByteString → ByteString → ByteString → Bool := fun _ _ _ => true
 opaque verifySchnorrSecp256k1 : ByteString → ByteString → ByteString → Bool := fun _ _ _ => true
+/-- `serialiseData : Data → ByteString` (CBOR) — also axiomatized (deterministic, opaque). -/
+opaque serialiseData : Data → ByteString := fun _ => default
 
 inductive Data where
   | Constr : Integer → List Data → Data

@@ -592,6 +592,14 @@ def evalBuiltinConst (b : BuiltinFun) (args : List Const) : Option Const :=
   | .Blake2b_224, [.ByteString b] => some (.ByteString (Moist.Plutus.blake2b_224 b))
   | .Keccak_256,  [.ByteString b] => some (.ByteString (Moist.Plutus.keccak_256 b))
   | .Ripemd_160,  [.ByteString b] => some (.ByteString (Moist.Plutus.ripemd_160 b))
+  | .SerializeData, [.Data d] => some (.ByteString (Moist.Plutus.serialiseData d))
+  -- signature verification (axiomatized); reversed args `[sig, msg, pubkey]`
+  | .VerifyEd25519Signature, [.ByteString sig, .ByteString msg, .ByteString pk] =>
+    some (.Bool (Moist.Plutus.verifyEd25519 pk msg sig))
+  | .VerifyEcdsaSecp256k1Signature, [.ByteString sig, .ByteString msg, .ByteString pk] =>
+    some (.Bool (Moist.Plutus.verifyEcdsaSecp256k1 pk msg sig))
+  | .VerifySchnorrSecp256k1Signature, [.ByteString sig, .ByteString msg, .ByteString pk] =>
+    some (.Bool (Moist.Plutus.verifySchnorrSecp256k1 pk msg sig))
 
   -- Array operations (`ConstArray`): length / index / list→array conversion
   | .LengthOfArray, [.ConstArray l] => some (.Integer (Int.ofNat l.length))

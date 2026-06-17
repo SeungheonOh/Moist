@@ -235,6 +235,33 @@ theorem evalBuiltin_keccak_256 (bs : Plutus.ByteString) :
 theorem evalBuiltin_ripemd_160 (bs : Plutus.ByteString) :
     evalBuiltin .Ripemd_160 [.VCon (.ByteString bs)] = some (.VCon (.ByteString (Moist.Plutus.ripemd_160 bs))) := by
   have := evalBuiltin_concrete (b := .Ripemd_160) (by decide) [.ByteString bs]; simpa using this
+theorem evalBuiltin_serialiseData (d : Plutus.Data) :
+    evalBuiltin .SerializeData [.VCon (.Data d)] = some (.VCon (.ByteString (Moist.Plutus.serialiseData d))) := by
+  have := evalBuiltin_concrete (b := .SerializeData) (by decide) [.Data d]; simpa using this
+theorem evalBuiltin_verifyEd25519 (sig msg pk : Plutus.ByteString) :
+    evalBuiltin .VerifyEd25519Signature [.VCon (.ByteString sig), .VCon (.ByteString msg), .VCon (.ByteString pk)]
+      = some (.VCon (.Bool (Moist.Plutus.verifyEd25519 pk msg sig))) := by
+  have := evalBuiltin_concrete (b := .VerifyEd25519Signature) (by decide)
+    [.ByteString sig, .ByteString msg, .ByteString pk]; simpa using this
+theorem evalBuiltin_verifyEcdsa (sig msg pk : Plutus.ByteString) :
+    evalBuiltin .VerifyEcdsaSecp256k1Signature [.VCon (.ByteString sig), .VCon (.ByteString msg), .VCon (.ByteString pk)]
+      = some (.VCon (.Bool (Moist.Plutus.verifyEcdsaSecp256k1 pk msg sig))) := by
+  have := evalBuiltin_concrete (b := .VerifyEcdsaSecp256k1Signature) (by decide)
+    [.ByteString sig, .ByteString msg, .ByteString pk]; simpa using this
+theorem evalBuiltin_verifySchnorr (sig msg pk : Plutus.ByteString) :
+    evalBuiltin .VerifySchnorrSecp256k1Signature [.VCon (.ByteString sig), .VCon (.ByteString msg), .VCon (.ByteString pk)]
+      = some (.VCon (.Bool (Moist.Plutus.verifySchnorrSecp256k1 pk msg sig))) := by
+  have := evalBuiltin_concrete (b := .VerifySchnorrSecp256k1Signature) (by decide)
+    [.ByteString sig, .ByteString msg, .ByteString pk]; simpa using this
+
+theorem verifySigOp_some {k : VerifyKind} {pk msg sig v g : SmtExpr}
+    (h : verifySigOp k pk msg sig = some (v, g)) :
+    v = .verifySig k pk msg sig ∧ g = .trueE ∧ SmtExpr.sortOf pk = some .bytes ∧
+      SmtExpr.sortOf msg = some .bytes ∧ SmtExpr.sortOf sig = some .bytes := by
+  unfold verifySigOp at h; split at h
+  · rename_i hs; simp only [Option.some.injEq, Prod.mk.injEq] at h
+    exact ⟨h.1.symm, h.2.symm, hs.1, hs.2.1, hs.2.2⟩
+  · exact absurd h (by simp)
 theorem evalBuiltin_equalsData (a b : Plutus.Data) :
     evalBuiltin .EqualsData [.VCon (.Data b), .VCon (.Data a)] = some (.VCon (.Bool (a == b))) := by
   have := evalBuiltin_concrete (b := .EqualsData) (by decide) [.Data b, .Data a]; simpa using this
@@ -293,6 +320,9 @@ theorem isB_true {σ : Model} {e : SmtExpr} {d : Plutus.Data} (hde : evalSmt σ 
     evalSmt σ (.tailL e) = (match evalSmt σ e with | .L (_ :: xs) => .L xs | _ => .L []) := rfl
 @[simp] theorem evalSmt_nullL (σ : Model) (e : SmtExpr) :
     evalSmt σ (.nullL e) = (match evalSmt σ e with | .L xs => .B xs.isEmpty | _ => .bad) := rfl
+@[simp] theorem evalSmt_verifySig (σ : Model) (k : VerifyKind) (a b c : SmtExpr) :
+    evalSmt σ (.verifySig k a b c) = (match evalSmt σ a, evalSmt σ b, evalSmt σ c with
+      | .BS pk, .BS msg, .BS sig => .B (verifyFn k pk msg sig) | _, _, _ => .bad) := rfl
 
 /-- Conditional reductions (reliable `rw`, avoiding fragile match-RHS simp lemmas). -/
 theorem evalSmt_fstP_of {σ : Model} {e : SmtExpr} {x y : SVal} (h : evalSmt σ e = .P x y) :
@@ -457,6 +487,12 @@ theorem smtBuiltin_adequate (σ : Model) {b : BuiltinFun} {exprs : List SmtExpr}
            rw [show ([ey].map fun e => γ σ (.sCon e)) = [γ σ (.sCon ey)] from rfl,
                γ_sCon_D hde, evalBuiltin_unBData]
            simp only [γ_sCon, evalSmt_uop, hde, evalUop, svalToConst])
+        | -- SerializeData : data → bytes (uninterpreted, no guard)
+          (obtain ⟨hv, _, hse⟩ := uOp_some h; subst hv
+           obtain ⟨d, hde⟩ := evalSmt_data hse
+           rw [show ([ey].map fun e => γ σ (.sCon e)) = [γ σ (.sCon ey)] from rfl,
+               γ_sCon_D hde, evalBuiltin_serialiseData]
+           simp only [γ_sCon, evalSmt_uop, hde, evalUop, svalToConst])
         | -- UnConstrData : Data → builtin pair (Integer tag, list data fields)
           (obtain ⟨hv, hg, hse⟩ := unConstrOp_some h; subst hv
            obtain ⟨d, hde⟩ := evalSmt_data hse
@@ -515,7 +551,23 @@ theorem smtBuiltin_adequate (σ : Model) {b : BuiltinFun} {exprs : List SmtExpr}
                hLHS, evalBuiltin_nullList, γ_sCon, hval, svalToConst])
         | exact absurd h (by simp)
     | cons ex rest2 => cases rest2 with
-      | cons _ _ => simp [smtBuiltin] at h
+      | cons e3 rest3 => cases rest3 with
+        | cons _ _ => simp [smtBuiltin] at h
+        | nil =>
+          -- TERNARY  [ey, ex, e3] = [sig, msg, pubkey] : signature verification (axiomatized)
+          cases b <;> simp only [smtBuiltin] at h <;>
+            first
+            | (obtain ⟨hv, _, hpk, hmsg, hsig⟩ := verifySigOp_some h; subst hv
+               obtain ⟨bpk, hbpk⟩ := evalSmt_bytes hpk
+               obtain ⟨bmsg, hbmsg⟩ := evalSmt_bytes hmsg
+               obtain ⟨bsig, hbsig⟩ := evalSmt_bytes hsig
+               rw [show ([ey, ex, e3].map fun e => γ σ (.sCon e))
+                     = [γ σ (.sCon ey), γ σ (.sCon ex), γ σ (.sCon e3)] from rfl,
+                   γ_sCon_BS hbsig, γ_sCon_BS hbmsg, γ_sCon_BS hbpk]
+               first | rw [evalBuiltin_verifyEd25519] | rw [evalBuiltin_verifyEcdsa]
+                     | rw [evalBuiltin_verifySchnorr]
+               simp only [γ_sCon, evalSmt_verifySig, hbpk, hbmsg, hbsig, verifyFn, svalToConst])
+            | exact absurd h (by simp)
       | nil =>
         -- BINARY  [ey, ex]
         cases b <;> simp only [smtBuiltin] at h <;>
@@ -699,6 +751,7 @@ theorem γL_symConcrete (σ : Model) : ∀ {args : List SymVal} {cs : List Const
       | headL _ _ => simp [symConcrete] at h
       | tailL _ => simp [symConcrete] at h
       | nullL _ => simp [symConcrete] at h
+      | verifySig _ _ _ _ => simp [symConcrete] at h
     | sLam _ _ => simp [symConcrete] at h
     | sDelay _ _ => simp [symConcrete] at h
     | sConstr _ _ => simp [symConcrete] at h

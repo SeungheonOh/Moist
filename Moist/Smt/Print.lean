@@ -57,6 +57,7 @@ private def uopRender (op : UnOp) (s : String) : String :=
   | .sha2_256  => s!"(moist_sha2_256 {s})"   | .sha3_256 => s!"(moist_sha3_256 {s})"
   | .blake2b_256 => s!"(moist_blake2b_256 {s})" | .blake2b_224 => s!"(moist_blake2b_224 {s})"
   | .keccak_256 => s!"(moist_keccak_256 {s})" | .ripemd_160 => s!"(moist_ripemd_160 {s})"
+  | .serialiseData => s!"(moist_serialiseData {s})"
 
 /-- Render an `SmtExpr` as an SMT-LIB s-expression. -/
 def sexpr : SmtExpr → String
@@ -76,6 +77,9 @@ def sexpr : SmtExpr → String
   | .headL _ e => s!"(lhead {sexpr e})"
   | .tailL e => s!"(ltail {sexpr e})"
   | .nullL e => s!"((_ is lnil) {sexpr e})"
+  | .verifySig .ed25519 a b c => s!"(moist_verifyEd25519 {sexpr a} {sexpr b} {sexpr c})"
+  | .verifySig .ecdsaSecp256k1 a b c => s!"(moist_verifyEcdsa {sexpr a} {sexpr b} {sexpr c})"
+  | .verifySig .schnorrSecp256k1 a b c => s!"(moist_verifySchnorr {sexpr a} {sexpr b} {sexpr c})"
 
 /-- Collect the free variables (name × sort), de-duplicated, preserving first-seen order. -/
 def collectVars (e : SmtExpr) : List (String × SmtSort) :=
@@ -87,7 +91,7 @@ where
     | .litI _ | .litB _ | .nilL _ => acc
     | .neg a | .not a | .uop _ a | .fstP a | .sndP a | .headL _ a | .tailL a | .nullL a => go a acc
     | .bin _ a b | .mkpair a b | .consL a b => go b (go a acc)
-    | .ite a b c => go c (go b (go a acc))
+    | .ite a b c | .verifySig _ a b c => go c (go b (go a acc))
 
 end SmtExpr
 
@@ -125,7 +129,11 @@ def cryptoPreamble : String :=
   "(declare-fun moist_blake2b_256 (String) String)\n" ++
   "(declare-fun moist_blake2b_224 (String) String)\n" ++
   "(declare-fun moist_keccak_256 (String) String)\n" ++
-  "(declare-fun moist_ripemd_160 (String) String)\n"
+  "(declare-fun moist_ripemd_160 (String) String)\n" ++
+  "(declare-fun moist_serialiseData (Data) String)\n" ++
+  "(declare-fun moist_verifyEd25519 (String String String) Bool)\n" ++
+  "(declare-fun moist_verifyEcdsa (String String String) Bool)\n" ++
+  "(declare-fun moist_verifySchnorr (String String String) Bool)\n"
 
 /-- Serialize an `SmtExpr` (the formula to be checked) into a complete SMT-LIB script:
     logic, `Data` datatype + division preambles, variable declarations, the assertion, and

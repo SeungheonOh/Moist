@@ -68,6 +68,12 @@ def unConstrOp (e : SmtExpr) : Option (SmtExpr × SmtExpr) :=
   if SmtExpr.sortOf e = some .data then
     some (.mkpair (.uop .constrTag e) (.uop .dArgs e), .uop .isConstr e) else none
 
+/-- A signature-verification op committing on three `bytes`-sorted operands (axiomatized). -/
+def verifySigOp (k : Moist.Smt.VerifyKind) (pk msg sig : SmtExpr) : Option (SmtExpr × SmtExpr) :=
+  if SmtExpr.sortOf pk = some .bytes ∧ SmtExpr.sortOf msg = some .bytes ∧
+     SmtExpr.sortOf sig = some .bytes
+  then some (.verifySig k pk msg sig, .trueE) else none
+
 /-- A unary projection committing on `pair`-sorted operands (`fstPair`/`sndPair`; total). -/
 def pairProj (mk : SmtExpr → SmtExpr) (e : SmtExpr) : Option (SmtExpr × SmtExpr) :=
   match SmtExpr.sortOf e with | some (.pair _ _) => some (mk e, .trueE) | _ => none
@@ -112,6 +118,7 @@ def smtBuiltin (b : BuiltinFun) (args : List SmtExpr) : Option (SmtExpr × SmtEx
     | .Blake2b_224 => uOp .blake2b_224 .trueE .bytes e
     | .Keccak_256  => uOp .keccak_256 .trueE .bytes e
     | .Ripemd_160  => uOp .ripemd_160 .trueE .bytes e
+    | .SerializeData => uOp .serialiseData .trueE .data e   -- data → bytes (CBOR, uninterpreted)
     | _ => none
   | [ey, ex] =>
     match b with
@@ -131,6 +138,12 @@ def smtBuiltin (b : BuiltinFun) (args : List SmtExpr) : Option (SmtExpr × SmtEx
     -- Data / ByteString equality
     | .EqualsData       => sortBin .eq .trueE .data ex ey
     | .EqualsByteString => sortBin .eq .trueE .bytes ex ey
+    | _ => none
+  | [eSig, eMsg, ePk] =>   -- reversed args: signature, message, pubkey
+    match b with
+    | .VerifyEd25519Signature          => verifySigOp .ed25519 ePk eMsg eSig
+    | .VerifyEcdsaSecp256k1Signature   => verifySigOp .ecdsaSecp256k1 ePk eMsg eSig
+    | .VerifySchnorrSecp256k1Signature => verifySigOp .schnorrSecp256k1 ePk eMsg eSig
     | _ => none
   | _ => none
 

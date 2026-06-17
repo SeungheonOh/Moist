@@ -112,7 +112,14 @@ def evalUop : UnOp → SVal → SVal
   | .blake2b_224, .BS b => .BS (Moist.Plutus.blake2b_224 b)
   | .keccak_256, .BS b => .BS (Moist.Plutus.keccak_256 b)
   | .ripemd_160, .BS b => .BS (Moist.Plutus.ripemd_160 b)
+  | .serialiseData, .D d => .BS (Moist.Plutus.serialiseData d)
   | _, _ => .bad
+
+/-- The (opaque) signature verifier selected by a `VerifyKind`. -/
+def verifyFn : VerifyKind → ByteString → ByteString → ByteString → Bool
+  | .ed25519          => Moist.Plutus.verifyEd25519
+  | .ecdsaSecp256k1   => Moist.Plutus.verifyEcdsaSecp256k1
+  | .schnorrSecp256k1 => Moist.Plutus.verifySchnorrSecp256k1
 
 /-- The Lean meaning of an `SmtExpr` at a model `σ`.  Total; structural recursion.  A
     variable is read from the `int`- or `bool`-typed component of the model selected by its
@@ -145,6 +152,10 @@ def evalSmt (σ : Model) : SmtExpr → SVal
   | .headL s e => match evalSmt σ e with | .L (x :: _) => x | _ => defaultSVal s
   | .tailL e => match evalSmt σ e with | .L (_ :: xs) => .L xs | _ => .L []
   | .nullL e => match evalSmt σ e with | .L xs => .B xs.isEmpty | _ => .bad
+  | .verifySig k a b c =>
+    match evalSmt σ a, evalSmt σ b, evalSmt σ c with
+    | .BS pk, .BS msg, .BS sig => .B (verifyFn k pk msg sig)
+    | _, _, _ => .bad
 
 /-! ## Unsatisfiability — the Lean meaning of z3's `unsat` -/
 
@@ -466,6 +477,16 @@ theorem evalSmt_hasSort (σ : Model) : ∀ {e : SmtExpr} {s : SmtSort},
         obtain ⟨xs, hxs, _⟩ := hasSort_list (ihe hse)
         simp only [evalSmt, hxs, HasSort]
       | int | bool | data | bytes | pair _ _ => simp only [hse] at h; simp at h
+  | verifySig k a b c iha ihb ihc =>
+    intro s h; simp only [SmtExpr.sortOf] at h
+    split at h
+    · rename_i ha hb hcc
+      simp only [Option.some.injEq] at h; subst h
+      obtain ⟨ba, hba⟩ := hasSort_bytes (iha ha)
+      obtain ⟨bb, hbb⟩ := hasSort_bytes (ihb hb)
+      obtain ⟨bc, hbc⟩ := hasSort_bytes (ihc hcc)
+      simp only [evalSmt, hba, hbb, hbc, HasSort]
+    · simp at h
 
 /-- Specialisation: well-sorted `int` ⇒ evaluates to some integer. -/
 theorem evalSmt_int {σ : Model} {e : SmtExpr} (h : SmtExpr.sortOf e = some .int) :

@@ -69,6 +69,11 @@ inductive UnOp
   | dEntries                          -- data → list (pair data data)  (a `Map`'s entries; `unMapData`)
   -- Cryptographic hashes (bytes → bytes), axiomatized as uninterpreted SMT functions:
   | sha2_256 | sha3_256 | blake2b_256 | blake2b_224 | keccak_256 | ripemd_160
+  | serialiseData                      -- data → bytes (CBOR), axiomatized
+deriving Repr, DecidableEq, BEq, Inhabited
+
+/-- Which signature-verification primitive (all `bytes → bytes → bytes → bool`, axiomatized). -/
+inductive VerifyKind | ed25519 | ecdsaSecp256k1 | schnorrSecp256k1
 deriving Repr, DecidableEq, BEq, Inhabited
 
 /-- Deep-embedded SMT expressions over `int`/`bool`/`data`/`bytes`. -/
@@ -90,6 +95,7 @@ inductive SmtExpr
   | headL  : SmtSort → SmtExpr → SmtExpr        -- (element sort) → list a → a  (junk-of-sort if empty)
   | tailL  : SmtExpr → SmtExpr                  -- list a → list a
   | nullL  : SmtExpr → SmtExpr                  -- list a → bool
+  | verifySig : VerifyKind → SmtExpr → SmtExpr → SmtExpr → SmtExpr  -- bytes×bytes×bytes → bool
 deriving Repr, DecidableEq, BEq, Inhabited
 
 /-- Result sort of a binary operator given its operand sort (`none` if inapplicable). -/
@@ -114,6 +120,7 @@ def UnOp.sorts : UnOp → SmtSort × SmtSort
   | .dEntries => (.data, .list (.pair .data .data))
   | .sha2_256 | .sha3_256 | .blake2b_256 | .blake2b_224 | .keccak_256 | .ripemd_160 =>
     (.bytes, .bytes)
+  | .serialiseData => (.data, .bytes)
 
 namespace SmtExpr
 
@@ -171,6 +178,10 @@ def sortOf : SmtExpr → Option SmtSort
   | .headL s e => match sortOf e with | some (.list s') => if s = s' then some s else none | _ => none
   | .tailL e => match sortOf e with | some (.list s) => some (.list s) | _ => none
   | .nullL e => match sortOf e with | some (.list _) => some .bool | _ => none
+  | .verifySig _ a b c =>
+    match sortOf a, sortOf b, sortOf c with
+    | some .bytes, some .bytes, some .bytes => some .bool
+    | _, _, _ => none
 
 /-- A `Bool`-sorted expression (used for definedness flags and properties). -/
 @[inline] def WellSortedBool (e : SmtExpr) : Prop := sortOf e = some .bool
