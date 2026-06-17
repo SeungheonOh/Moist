@@ -68,6 +68,12 @@ def unConstrOp (e : SmtExpr) : Option (SmtExpr × SmtExpr) :=
   if SmtExpr.sortOf e = some .data then
     some (.mkpair (.uop .constrTag e) (.uop .dArgs e), .uop .isConstr e) else none
 
+/-- A BLS binary/mixed op committing on its two declared operand sorts (axiomatized). -/
+def blsBinOp (op : Moist.Smt.BlsBinOp) (a b : SmtExpr) : Option (SmtExpr × SmtExpr) :=
+  if SmtExpr.sortOf a = some (Moist.Smt.BlsBinOp.operandSorts op).1 ∧
+     SmtExpr.sortOf b = some (Moist.Smt.BlsBinOp.operandSorts op).2
+  then some (.blsBin op a b, .trueE) else none
+
 /-- A signature-verification op committing on three `bytes`-sorted operands (axiomatized). -/
 def verifySigOp (k : Moist.Smt.VerifyKind) (pk msg sig : SmtExpr) : Option (SmtExpr × SmtExpr) :=
   if SmtExpr.sortOf pk = some .bytes ∧ SmtExpr.sortOf msg = some .bytes ∧
@@ -119,6 +125,13 @@ def smtBuiltin (b : BuiltinFun) (args : List SmtExpr) : Option (SmtExpr × SmtEx
     | .Keccak_256  => uOp .keccak_256 .trueE .bytes e
     | .Ripemd_160  => uOp .ripemd_160 .trueE .bytes e
     | .SerializeData => uOp .serialiseData .trueE .data e   -- data → bytes (CBOR, uninterpreted)
+    -- BLS12-381 unary (bytes → bytes; elements as compressed bytes)
+    | .Bls12_381_G1_neg => uOp .blsG1Neg .trueE .bytes e
+    | .Bls12_381_G2_neg => uOp .blsG2Neg .trueE .bytes e
+    | .Bls12_381_G1_compress => uOp .blsG1Compress .trueE .bytes e
+    | .Bls12_381_G2_compress => uOp .blsG2Compress .trueE .bytes e
+    | .Bls12_381_G1_uncompress => uOp .blsG1Uncompress .trueE .bytes e
+    | .Bls12_381_G2_uncompress => uOp .blsG2Uncompress .trueE .bytes e
     | _ => none
   | [ey, ex] =>
     match b with
@@ -138,6 +151,19 @@ def smtBuiltin (b : BuiltinFun) (args : List SmtExpr) : Option (SmtExpr × SmtEx
     -- Data / ByteString equality
     | .EqualsData       => sortBin .eq .trueE .data ex ey
     | .EqualsByteString => sortBin .eq .trueE .bytes ex ey
+    -- BLS12-381 binary (operand1 = ex, operand2 = ey, matching the reversed CEK args)
+    | .Bls12_381_G1_add => blsBinOp .g1Add ex ey
+    | .Bls12_381_G2_add => blsBinOp .g2Add ex ey
+    | .Bls12_381_mulMlResult => blsBinOp .mulMlResult ex ey
+    | .Bls12_381_G1_hashToGroup => blsBinOp .g1HashToGroup ex ey
+    | .Bls12_381_G2_hashToGroup => blsBinOp .g2HashToGroup ex ey
+    | .Bls12_381_millerLoop => blsBinOp .millerLoop ex ey
+    | .Bls12_381_G1_equal => blsBinOp .g1Equal ex ey
+    | .Bls12_381_G2_equal => blsBinOp .g2Equal ex ey
+    | .Bls12_381_finalVerify => blsBinOp .finalVerify ex ey
+    -- scalarMul: scalar (ex, the 1st UPLC arg, int) × point (ey, bytes) — operand1=int, operand2=bytes
+    | .Bls12_381_G1_scalarMul => blsBinOp .g1ScalarMul ex ey
+    | .Bls12_381_G2_scalarMul => blsBinOp .g2ScalarMul ex ey
     | _ => none
   | [eSig, eMsg, ePk] =>   -- reversed args: signature, message, pubkey
     match b with

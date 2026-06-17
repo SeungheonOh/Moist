@@ -601,6 +601,25 @@ def evalBuiltinConst (b : BuiltinFun) (args : List Const) : Option Const :=
   | .VerifySchnorrSecp256k1Signature, [.ByteString sig, .ByteString msg, .ByteString pk] =>
     some (.Bool (Moist.Plutus.verifySchnorrSecp256k1 pk msg sig))
 
+  -- BLS12-381 — axiomatized over the compressed-bytes representation (reversed args)
+  | .Bls12_381_G1_add, [.ByteString b, .ByteString a] => some (.ByteString (Moist.Plutus.bls_g1_add a b))
+  | .Bls12_381_G2_add, [.ByteString b, .ByteString a] => some (.ByteString (Moist.Plutus.bls_g2_add a b))
+  | .Bls12_381_G1_neg, [.ByteString a] => some (.ByteString (Moist.Plutus.bls_g1_neg a))
+  | .Bls12_381_G2_neg, [.ByteString a] => some (.ByteString (Moist.Plutus.bls_g2_neg a))
+  | .Bls12_381_G1_scalarMul, [.ByteString p, .Integer k] => some (.ByteString (Moist.Plutus.bls_g1_scalarMul k p))
+  | .Bls12_381_G2_scalarMul, [.ByteString p, .Integer k] => some (.ByteString (Moist.Plutus.bls_g2_scalarMul k p))
+  | .Bls12_381_G1_equal, [.ByteString b, .ByteString a] => some (.Bool (Moist.Plutus.bls_g1_equal a b))
+  | .Bls12_381_G2_equal, [.ByteString b, .ByteString a] => some (.Bool (Moist.Plutus.bls_g2_equal a b))
+  | .Bls12_381_G1_hashToGroup, [.ByteString dst, .ByteString msg] => some (.ByteString (Moist.Plutus.bls_g1_hashToGroup msg dst))
+  | .Bls12_381_G2_hashToGroup, [.ByteString dst, .ByteString msg] => some (.ByteString (Moist.Plutus.bls_g2_hashToGroup msg dst))
+  | .Bls12_381_G1_compress, [.ByteString a] => some (.ByteString (Moist.Plutus.bls_g1_compress a))
+  | .Bls12_381_G2_compress, [.ByteString a] => some (.ByteString (Moist.Plutus.bls_g2_compress a))
+  | .Bls12_381_G1_uncompress, [.ByteString a] => some (.ByteString (Moist.Plutus.bls_g1_uncompress a))
+  | .Bls12_381_G2_uncompress, [.ByteString a] => some (.ByteString (Moist.Plutus.bls_g2_uncompress a))
+  | .Bls12_381_millerLoop, [.ByteString b, .ByteString a] => some (.ByteString (Moist.Plutus.bls_millerLoop a b))
+  | .Bls12_381_mulMlResult, [.ByteString b, .ByteString a] => some (.ByteString (Moist.Plutus.bls_mulMlResult a b))
+  | .Bls12_381_finalVerify, [.ByteString b, .ByteString a] => some (.Bool (Moist.Plutus.bls_finalVerify a b))
+
   -- Array operations (`ConstArray`): length / index / list→array conversion
   | .LengthOfArray, [.ConstArray l] => some (.Integer (Int.ofNat l.length))
   | .IndexArray, [.Integer i, .ConstArray l] =>

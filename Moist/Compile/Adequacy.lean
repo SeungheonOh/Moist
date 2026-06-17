@@ -238,6 +238,25 @@ theorem evalBuiltin_ripemd_160 (bs : Plutus.ByteString) :
 theorem evalBuiltin_serialiseData (d : Plutus.Data) :
     evalBuiltin .SerializeData [.VCon (.Data d)] = some (.VCon (.ByteString (Moist.Plutus.serialiseData d))) := by
   have := evalBuiltin_concrete (b := .SerializeData) (by decide) [.Data d]; simpa using this
+/-- BLS unary denotations (`bytes → bytes`, axiom-free via `evalBuiltin_concrete`). -/
+theorem evalBuiltin_blsG1Neg (a : Plutus.ByteString) :
+    evalBuiltin .Bls12_381_G1_neg [.VCon (.ByteString a)] = some (.VCon (.ByteString (Moist.Plutus.bls_g1_neg a))) := by
+  have := evalBuiltin_concrete (b := .Bls12_381_G1_neg) (by decide) [.ByteString a]; simpa using this
+theorem evalBuiltin_blsG2Neg (a : Plutus.ByteString) :
+    evalBuiltin .Bls12_381_G2_neg [.VCon (.ByteString a)] = some (.VCon (.ByteString (Moist.Plutus.bls_g2_neg a))) := by
+  have := evalBuiltin_concrete (b := .Bls12_381_G2_neg) (by decide) [.ByteString a]; simpa using this
+theorem evalBuiltin_blsG1Compress (a : Plutus.ByteString) :
+    evalBuiltin .Bls12_381_G1_compress [.VCon (.ByteString a)] = some (.VCon (.ByteString (Moist.Plutus.bls_g1_compress a))) := by
+  have := evalBuiltin_concrete (b := .Bls12_381_G1_compress) (by decide) [.ByteString a]; simpa using this
+theorem evalBuiltin_blsG2Compress (a : Plutus.ByteString) :
+    evalBuiltin .Bls12_381_G2_compress [.VCon (.ByteString a)] = some (.VCon (.ByteString (Moist.Plutus.bls_g2_compress a))) := by
+  have := evalBuiltin_concrete (b := .Bls12_381_G2_compress) (by decide) [.ByteString a]; simpa using this
+theorem evalBuiltin_blsG1Uncompress (a : Plutus.ByteString) :
+    evalBuiltin .Bls12_381_G1_uncompress [.VCon (.ByteString a)] = some (.VCon (.ByteString (Moist.Plutus.bls_g1_uncompress a))) := by
+  have := evalBuiltin_concrete (b := .Bls12_381_G1_uncompress) (by decide) [.ByteString a]; simpa using this
+theorem evalBuiltin_blsG2Uncompress (a : Plutus.ByteString) :
+    evalBuiltin .Bls12_381_G2_uncompress [.VCon (.ByteString a)] = some (.VCon (.ByteString (Moist.Plutus.bls_g2_uncompress a))) := by
+  have := evalBuiltin_concrete (b := .Bls12_381_G2_uncompress) (by decide) [.ByteString a]; simpa using this
 theorem evalBuiltin_verifyEd25519 (sig msg pk : Plutus.ByteString) :
     evalBuiltin .VerifyEd25519Signature [.VCon (.ByteString sig), .VCon (.ByteString msg), .VCon (.ByteString pk)]
       = some (.VCon (.Bool (Moist.Plutus.verifyEd25519 pk msg sig))) := by
@@ -253,6 +272,64 @@ theorem evalBuiltin_verifySchnorr (sig msg pk : Plutus.ByteString) :
       = some (.VCon (.Bool (Moist.Plutus.verifySchnorrSecp256k1 pk msg sig))) := by
   have := evalBuiltin_concrete (b := .VerifySchnorrSecp256k1Signature) (by decide)
     [.ByteString sig, .ByteString msg, .ByteString pk]; simpa using this
+
+/-- BLS binary denotations (axiom-free via `evalBuiltin_concrete`).  Reversed CEK args. -/
+theorem evalBuiltin_blsG1Add (a b : Plutus.ByteString) :
+    evalBuiltin .Bls12_381_G1_add [.VCon (.ByteString b), .VCon (.ByteString a)]
+      = some (.VCon (.ByteString (Moist.Plutus.bls_g1_add a b))) := by
+  have := evalBuiltin_concrete (b := .Bls12_381_G1_add) (by decide) [.ByteString b, .ByteString a]; simpa using this
+theorem evalBuiltin_blsG2Add (a b : Plutus.ByteString) :
+    evalBuiltin .Bls12_381_G2_add [.VCon (.ByteString b), .VCon (.ByteString a)]
+      = some (.VCon (.ByteString (Moist.Plutus.bls_g2_add a b))) := by
+  have := evalBuiltin_concrete (b := .Bls12_381_G2_add) (by decide) [.ByteString b, .ByteString a]; simpa using this
+theorem evalBuiltin_blsMulMl (a b : Plutus.ByteString) :
+    evalBuiltin .Bls12_381_mulMlResult [.VCon (.ByteString b), .VCon (.ByteString a)]
+      = some (.VCon (.ByteString (Moist.Plutus.bls_mulMlResult a b))) := by
+  have := evalBuiltin_concrete (b := .Bls12_381_mulMlResult) (by decide) [.ByteString b, .ByteString a]; simpa using this
+theorem evalBuiltin_blsG1Hash (a b : Plutus.ByteString) :
+    evalBuiltin .Bls12_381_G1_hashToGroup [.VCon (.ByteString b), .VCon (.ByteString a)]
+      = some (.VCon (.ByteString (Moist.Plutus.bls_g1_hashToGroup a b))) := by
+  have := evalBuiltin_concrete (b := .Bls12_381_G1_hashToGroup) (by decide) [.ByteString b, .ByteString a]; simpa using this
+theorem evalBuiltin_blsG2Hash (a b : Plutus.ByteString) :
+    evalBuiltin .Bls12_381_G2_hashToGroup [.VCon (.ByteString b), .VCon (.ByteString a)]
+      = some (.VCon (.ByteString (Moist.Plutus.bls_g2_hashToGroup a b))) := by
+  have := evalBuiltin_concrete (b := .Bls12_381_G2_hashToGroup) (by decide) [.ByteString b, .ByteString a]; simpa using this
+theorem evalBuiltin_blsMiller (a b : Plutus.ByteString) :
+    evalBuiltin .Bls12_381_millerLoop [.VCon (.ByteString b), .VCon (.ByteString a)]
+      = some (.VCon (.ByteString (Moist.Plutus.bls_millerLoop a b))) := by
+  have := evalBuiltin_concrete (b := .Bls12_381_millerLoop) (by decide) [.ByteString b, .ByteString a]; simpa using this
+theorem evalBuiltin_blsG1Equal (a b : Plutus.ByteString) :
+    evalBuiltin .Bls12_381_G1_equal [.VCon (.ByteString b), .VCon (.ByteString a)]
+      = some (.VCon (.Bool (Moist.Plutus.bls_g1_equal a b))) := by
+  have := evalBuiltin_concrete (b := .Bls12_381_G1_equal) (by decide) [.ByteString b, .ByteString a]; simpa using this
+theorem evalBuiltin_blsG2Equal (a b : Plutus.ByteString) :
+    evalBuiltin .Bls12_381_G2_equal [.VCon (.ByteString b), .VCon (.ByteString a)]
+      = some (.VCon (.Bool (Moist.Plutus.bls_g2_equal a b))) := by
+  have := evalBuiltin_concrete (b := .Bls12_381_G2_equal) (by decide) [.ByteString b, .ByteString a]; simpa using this
+theorem evalBuiltin_blsFinalVerify (a b : Plutus.ByteString) :
+    evalBuiltin .Bls12_381_finalVerify [.VCon (.ByteString b), .VCon (.ByteString a)]
+      = some (.VCon (.Bool (Moist.Plutus.bls_finalVerify a b))) := by
+  have := evalBuiltin_concrete (b := .Bls12_381_finalVerify) (by decide) [.ByteString b, .ByteString a]; simpa using this
+theorem evalBuiltin_blsG1ScalarMul (k : Int) (p : Plutus.ByteString) :
+    evalBuiltin .Bls12_381_G1_scalarMul [.VCon (.ByteString p), .VCon (.Integer k)]
+      = some (.VCon (.ByteString (Moist.Plutus.bls_g1_scalarMul k p))) := by
+  have := evalBuiltin_concrete (b := .Bls12_381_G1_scalarMul) (by decide) [.ByteString p, .Integer k]; simpa using this
+theorem evalBuiltin_blsG2ScalarMul (k : Int) (p : Plutus.ByteString) :
+    evalBuiltin .Bls12_381_G2_scalarMul [.VCon (.ByteString p), .VCon (.Integer k)]
+      = some (.VCon (.ByteString (Moist.Plutus.bls_g2_scalarMul k p))) := by
+  have := evalBuiltin_concrete (b := .Bls12_381_G2_scalarMul) (by decide) [.ByteString p, .Integer k]; simpa using this
+
+/-- Structure of a successful `blsBinOp`: operands are the op's declared sorts. -/
+theorem blsBinOp_some {op : BlsBinOp} {a b v g : SmtExpr} (h : blsBinOp op a b = some (v, g)) :
+    v = .blsBin op a b ∧ g = .trueE ∧ SmtExpr.sortOf a = some (BlsBinOp.operandSorts op).1 ∧
+      SmtExpr.sortOf b = some (BlsBinOp.operandSorts op).2 := by
+  unfold blsBinOp at h; split at h
+  · rename_i hs; simp only [Option.some.injEq, Prod.mk.injEq] at h
+    exact ⟨h.1.symm, h.2.symm, hs.1, hs.2⟩
+  · exact absurd h (by simp)
+
+@[simp] theorem evalSmt_blsBin (σ : Model) (op : BlsBinOp) (a b : SmtExpr) :
+    evalSmt σ (.blsBin op a b) = evalBlsBin op (evalSmt σ a) (evalSmt σ b) := rfl
 
 theorem verifySigOp_some {k : VerifyKind} {pk msg sig v g : SmtExpr}
     (h : verifySigOp k pk msg sig = some (v, g)) :
@@ -472,6 +549,9 @@ theorem smtBuiltin_adequate (σ : Model) {b : BuiltinFun} {exprs : List SmtExpr}
                  | rw [evalBuiltin_sha2_256] | rw [evalBuiltin_sha3_256]
                  | rw [evalBuiltin_blake2b_256] | rw [evalBuiltin_blake2b_224]
                  | rw [evalBuiltin_keccak_256] | rw [evalBuiltin_ripemd_160]
+                 | rw [evalBuiltin_blsG1Neg] | rw [evalBuiltin_blsG2Neg]
+                 | rw [evalBuiltin_blsG1Compress] | rw [evalBuiltin_blsG2Compress]
+                 | rw [evalBuiltin_blsG1Uncompress] | rw [evalBuiltin_blsG2Uncompress]
            simp only [γ_sCon, evalSmt_uop, hbs, evalUop, svalToConst])
         | -- UnIData : projection guarded by `isI`
           (obtain ⟨hv, hg, hse⟩ := uOp_some h; subst hv
@@ -608,6 +688,29 @@ theorem smtBuiltin_adequate (σ : Model) {b : BuiltinFun} {exprs : List SmtExpr}
              rw [show ([ey, ex].map fun e => γ σ (.sCon e)) = [γ σ (.sCon ey), γ σ (.sCon ex)] from rfl,
                  γ_sCon_BS hY, γ_sCon_BS hX, evalBuiltin_equalsByteString]
              simp only [γ_sCon, evalSmt_bin, hX, hY, evalBin, svalToConst])
+          | -- BLS bytes×bytes ops (add / mulMlResult / hashToGroup / millerLoop / equal / finalVerify)
+            (obtain ⟨hv, _, hsx, hsy⟩ := blsBinOp_some h
+             simp only [BlsBinOp.operandSorts] at hsx hsy
+             obtain ⟨bx, hX⟩ := evalSmt_bytes hsx
+             obtain ⟨by_, hY⟩ := evalSmt_bytes hsy
+             subst hv
+             rw [show ([ey, ex].map fun e => γ σ (.sCon e)) = [γ σ (.sCon ey), γ σ (.sCon ex)] from rfl,
+                 γ_sCon_BS hX, γ_sCon_BS hY]
+             first
+             | rw [evalBuiltin_blsG1Add] | rw [evalBuiltin_blsG2Add] | rw [evalBuiltin_blsMulMl]
+             | rw [evalBuiltin_blsG1Hash] | rw [evalBuiltin_blsG2Hash] | rw [evalBuiltin_blsMiller]
+             | rw [evalBuiltin_blsG1Equal] | rw [evalBuiltin_blsG2Equal] | rw [evalBuiltin_blsFinalVerify]
+             simp only [γ_sCon, evalSmt_blsBin, hX, hY, evalBlsBin, svalToConst])
+          | -- BLS int×bytes scalarMul
+            (obtain ⟨hv, _, hsx, hsy⟩ := blsBinOp_some h
+             simp only [BlsBinOp.operandSorts] at hsx hsy
+             obtain ⟨kx, hX⟩ := evalSmt_int hsx
+             obtain ⟨py, hY⟩ := evalSmt_bytes hsy
+             subst hv
+             rw [show ([ey, ex].map fun e => γ σ (.sCon e)) = [γ σ (.sCon ey), γ σ (.sCon ex)] from rfl,
+                 γ_sCon_I hX, γ_sCon_BS hY]
+             first | rw [evalBuiltin_blsG1ScalarMul] | rw [evalBuiltin_blsG2ScalarMul]
+             simp only [γ_sCon, evalSmt_blsBin, hX, hY, evalBlsBin, svalToConst])
           | exact absurd h (by simp)
 
 /-- `symExtractCons` succeeds exactly on all-`sCon` argument lists, and then concretization
@@ -752,6 +855,7 @@ theorem γL_symConcrete (σ : Model) : ∀ {args : List SymVal} {cs : List Const
       | tailL _ => simp [symConcrete] at h
       | nullL _ => simp [symConcrete] at h
       | verifySig _ _ _ _ => simp [symConcrete] at h
+      | blsBin _ _ _ => simp [symConcrete] at h
     | sLam _ _ => simp [symConcrete] at h
     | sDelay _ _ => simp [symConcrete] at h
     | sConstr _ _ => simp [symConcrete] at h

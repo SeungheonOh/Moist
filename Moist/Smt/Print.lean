@@ -58,6 +58,19 @@ private def uopRender (op : UnOp) (s : String) : String :=
   | .blake2b_256 => s!"(moist_blake2b_256 {s})" | .blake2b_224 => s!"(moist_blake2b_224 {s})"
   | .keccak_256 => s!"(moist_keccak_256 {s})" | .ripemd_160 => s!"(moist_ripemd_160 {s})"
   | .serialiseData => s!"(moist_serialiseData {s})"
+  | .blsG1Neg => s!"(moist_bls_g1_neg {s})" | .blsG2Neg => s!"(moist_bls_g2_neg {s})"
+  | .blsG1Compress => s!"(moist_bls_g1_compress {s})" | .blsG2Compress => s!"(moist_bls_g2_compress {s})"
+  | .blsG1Uncompress => s!"(moist_bls_g1_uncompress {s})" | .blsG2Uncompress => s!"(moist_bls_g2_uncompress {s})"
+
+/-- SMT-LIB function name for a BLS binary/mixed op. -/
+private def blsBinName : BlsBinOp → String
+  | .g1Add => "moist_bls_g1_add" | .g2Add => "moist_bls_g2_add"
+  | .mulMlResult => "moist_bls_mulMlResult"
+  | .g1HashToGroup => "moist_bls_g1_hashToGroup" | .g2HashToGroup => "moist_bls_g2_hashToGroup"
+  | .millerLoop => "moist_bls_millerLoop"
+  | .g1Equal => "moist_bls_g1_equal" | .g2Equal => "moist_bls_g2_equal"
+  | .finalVerify => "moist_bls_finalVerify"
+  | .g1ScalarMul => "moist_bls_g1_scalarMul" | .g2ScalarMul => "moist_bls_g2_scalarMul"
 
 /-- Render an `SmtExpr` as an SMT-LIB s-expression. -/
 def sexpr : SmtExpr → String
@@ -80,6 +93,10 @@ def sexpr : SmtExpr → String
   | .verifySig .ed25519 a b c => s!"(moist_verifyEd25519 {sexpr a} {sexpr b} {sexpr c})"
   | .verifySig .ecdsaSecp256k1 a b c => s!"(moist_verifyEcdsa {sexpr a} {sexpr b} {sexpr c})"
   | .verifySig .schnorrSecp256k1 a b c => s!"(moist_verifySchnorr {sexpr a} {sexpr b} {sexpr c})"
+  -- equality / final pairing-check are real (structural) equality ⇒ emit `(= a b)` (reflexive)
+  | .blsBin .g1Equal a b | .blsBin .g2Equal a b | .blsBin .finalVerify a b =>
+    s!"(= {sexpr a} {sexpr b})"
+  | .blsBin op a b => s!"({blsBinName op} {sexpr a} {sexpr b})"
 
 /-- Collect the free variables (name × sort), de-duplicated, preserving first-seen order. -/
 def collectVars (e : SmtExpr) : List (String × SmtSort) :=
@@ -90,7 +107,7 @@ where
     | .var x s => if acc.any (·.1 == x) then acc else (x, s) :: acc
     | .litI _ | .litB _ | .nilL _ => acc
     | .neg a | .not a | .uop _ a | .fstP a | .sndP a | .headL _ a | .tailL a | .nullL a => go a acc
-    | .bin _ a b | .mkpair a b | .consL a b => go b (go a acc)
+    | .bin _ a b | .mkpair a b | .consL a b | .blsBin _ a b => go b (go a acc)
     | .ite a b c | .verifySig _ a b c => go c (go b (go a acc))
 
 end SmtExpr
@@ -133,7 +150,25 @@ def cryptoPreamble : String :=
   "(declare-fun moist_serialiseData (Data) String)\n" ++
   "(declare-fun moist_verifyEd25519 (String String String) Bool)\n" ++
   "(declare-fun moist_verifyEcdsa (String String String) Bool)\n" ++
-  "(declare-fun moist_verifySchnorr (String String String) Bool)\n"
+  "(declare-fun moist_verifySchnorr (String String String) Bool)\n" ++
+  -- BLS12-381 (elements as compressed Strings; G1/G2/MlResult all modelled as String)
+  "(declare-fun moist_bls_g1_neg (String) String)\n" ++
+  "(declare-fun moist_bls_g2_neg (String) String)\n" ++
+  "(declare-fun moist_bls_g1_compress (String) String)\n" ++
+  "(declare-fun moist_bls_g2_compress (String) String)\n" ++
+  "(declare-fun moist_bls_g1_uncompress (String) String)\n" ++
+  "(declare-fun moist_bls_g2_uncompress (String) String)\n" ++
+  "(declare-fun moist_bls_g1_add (String String) String)\n" ++
+  "(declare-fun moist_bls_g2_add (String String) String)\n" ++
+  "(declare-fun moist_bls_mulMlResult (String String) String)\n" ++
+  "(declare-fun moist_bls_g1_hashToGroup (String String) String)\n" ++
+  "(declare-fun moist_bls_g2_hashToGroup (String String) String)\n" ++
+  "(declare-fun moist_bls_millerLoop (String String) String)\n" ++
+  "(declare-fun moist_bls_g1_equal (String String) Bool)\n" ++
+  "(declare-fun moist_bls_g2_equal (String String) Bool)\n" ++
+  "(declare-fun moist_bls_finalVerify (String String) Bool)\n" ++
+  "(declare-fun moist_bls_g1_scalarMul (Int String) String)\n" ++
+  "(declare-fun moist_bls_g2_scalarMul (Int String) String)\n"
 
 /-- Serialize an `SmtExpr` (the formula to be checked) into a complete SMT-LIB script:
     logic, `Data` datatype + division preambles, variable declarations, the assertion, and

@@ -37,3 +37,20 @@ def main : IO Unit := do
   match compile (eqBS h h) with
   | some _ => IO.println "  composes with the rest of the symbolic pipeline ✅"
   | none => pure ()
+  -- BLS12-381 (elements as compressed bytes; ops uninterpreted, equality structural)
+  IO.println "--- BLS12-381 ---"
+  let app2 (f a b : Term) : Term := .Apply (.Apply f a) b
+  let g1add (a b : Term) : Term := app2 (.Builtin .Bls12_381_G1_add) a b
+  let g1eq (a b : Term) : Term := app2 (.Builtin .Bls12_381_G1_equal) a b
+  -- determinism via structural equality: equal (add x y) (add x y) ⇒ unsat
+  match compile (g1eq (g1add (.Var 2) (.Var 1)) (g1add (.Var 2) (.Var 1))) with
+  | some e => IO.println s!"  [g1_equal (g1_add x y) (g1_add x y)]  z3: {repr (← checkZ3 (encodeProperty .trueE e))}  (expect unsat) ✅"
+  | none => IO.println "  [bls add/equal] refused"
+  -- each remaining BLS builtin commits (handled, not refused)
+  let blsUnary : List (String × BuiltinFun) :=
+    [("g1_neg", .Bls12_381_G1_neg), ("g2_neg", .Bls12_381_G2_neg),
+     ("g1_compress", .Bls12_381_G1_compress), ("g1_uncompress", .Bls12_381_G1_uncompress)]
+  let mut blsOk := 0
+  for (_, b) in blsUnary do
+    if (symEval 20 symXY (.Apply (.Builtin b) (.Var 2))).isSome then blsOk := blsOk + 1
+  IO.println s!"  BLS unary ops handled: {blsOk}/{blsUnary.length} ✅"

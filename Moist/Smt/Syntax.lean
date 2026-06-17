@@ -70,7 +70,29 @@ inductive UnOp
   -- Cryptographic hashes (bytes → bytes), axiomatized as uninterpreted SMT functions:
   | sha2_256 | sha3_256 | blake2b_256 | blake2b_224 | keccak_256 | ripemd_160
   | serialiseData                      -- data → bytes (CBOR), axiomatized
+  -- BLS12-381 unary ops (bytes → bytes; elements as compressed bytes), axiomatized:
+  | blsG1Neg | blsG2Neg | blsG1Compress | blsG2Compress | blsG1Uncompress | blsG2Uncompress
 deriving Repr, DecidableEq, BEq, Inhabited
+
+/-- BLS12-381 binary / mixed operations (operands as compressed `bytes`; one takes an `int`
+    scalar).  Each is an uninterpreted SMT function; the result sort is `bytes` except the
+    equality / pairing-check ops which are `bool`. -/
+inductive BlsBinOp
+  | g1Add | g2Add | mulMlResult | g1HashToGroup | g2HashToGroup | millerLoop  -- bytes×bytes→bytes
+  | g1Equal | g2Equal | finalVerify                                            -- bytes×bytes→bool
+  | g1ScalarMul | g2ScalarMul                                                  -- int×bytes→bytes
+deriving Repr, DecidableEq, BEq, Inhabited
+
+namespace BlsBinOp
+/-- The two operand sorts of a BLS binary op. -/
+def operandSorts : BlsBinOp → SmtSort × SmtSort
+  | .g1ScalarMul | .g2ScalarMul => (.int, .bytes)
+  | _ => (.bytes, .bytes)
+/-- The result sort of a BLS binary op. -/
+def resultSort : BlsBinOp → SmtSort
+  | .g1Equal | .g2Equal | .finalVerify => .bool
+  | _ => .bytes
+end BlsBinOp
 
 /-- Which signature-verification primitive (all `bytes → bytes → bytes → bool`, axiomatized). -/
 inductive VerifyKind | ed25519 | ecdsaSecp256k1 | schnorrSecp256k1
@@ -96,6 +118,7 @@ inductive SmtExpr
   | tailL  : SmtExpr → SmtExpr                  -- list a → list a
   | nullL  : SmtExpr → SmtExpr                  -- list a → bool
   | verifySig : VerifyKind → SmtExpr → SmtExpr → SmtExpr → SmtExpr  -- bytes×bytes×bytes → bool
+  | blsBin : BlsBinOp → SmtExpr → SmtExpr → SmtExpr                 -- BLS binary / mixed op
 deriving Repr, DecidableEq, BEq, Inhabited
 
 /-- Result sort of a binary operator given its operand sort (`none` if inapplicable). -/
@@ -121,6 +144,8 @@ def UnOp.sorts : UnOp → SmtSort × SmtSort
   | .sha2_256 | .sha3_256 | .blake2b_256 | .blake2b_224 | .keccak_256 | .ripemd_160 =>
     (.bytes, .bytes)
   | .serialiseData => (.data, .bytes)
+  | .blsG1Neg | .blsG2Neg | .blsG1Compress | .blsG2Compress
+  | .blsG1Uncompress | .blsG2Uncompress => (.bytes, .bytes)
 
 namespace SmtExpr
 
@@ -182,6 +207,12 @@ def sortOf : SmtExpr → Option SmtSort
     match sortOf a, sortOf b, sortOf c with
     | some .bytes, some .bytes, some .bytes => some .bool
     | _, _, _ => none
+  | .blsBin op a b =>
+    match sortOf a, sortOf b with
+    | some sa, some sb =>
+      if sa = (BlsBinOp.operandSorts op).1 ∧ sb = (BlsBinOp.operandSorts op).2
+      then some (BlsBinOp.resultSort op) else none
+    | _, _ => none
 
 /-- A `Bool`-sorted expression (used for definedness flags and properties). -/
 @[inline] def WellSortedBool (e : SmtExpr) : Prop := sortOf e = some .bool

@@ -113,6 +113,12 @@ def evalUop : UnOp → SVal → SVal
   | .keccak_256, .BS b => .BS (Moist.Plutus.keccak_256 b)
   | .ripemd_160, .BS b => .BS (Moist.Plutus.ripemd_160 b)
   | .serialiseData, .D d => .BS (Moist.Plutus.serialiseData d)
+  | .blsG1Neg, .BS a => .BS (Moist.Plutus.bls_g1_neg a)
+  | .blsG2Neg, .BS a => .BS (Moist.Plutus.bls_g2_neg a)
+  | .blsG1Compress, .BS a => .BS (Moist.Plutus.bls_g1_compress a)
+  | .blsG2Compress, .BS a => .BS (Moist.Plutus.bls_g2_compress a)
+  | .blsG1Uncompress, .BS a => .BS (Moist.Plutus.bls_g1_uncompress a)
+  | .blsG2Uncompress, .BS a => .BS (Moist.Plutus.bls_g2_uncompress a)
   | _, _ => .bad
 
 /-- The (opaque) signature verifier selected by a `VerifyKind`. -/
@@ -120,6 +126,22 @@ def verifyFn : VerifyKind → ByteString → ByteString → ByteString → Bool
   | .ed25519          => Moist.Plutus.verifyEd25519
   | .ecdsaSecp256k1   => Moist.Plutus.verifyEcdsaSecp256k1
   | .schnorrSecp256k1 => Moist.Plutus.verifySchnorrSecp256k1
+
+/-- Meaning of a BLS binary/mixed op on its two operand values (sort-correct by construction;
+    `bad` on wrong-sorted operands, unreachable on well-sorted compiler output). -/
+def evalBlsBin : BlsBinOp → SVal → SVal → SVal
+  | .g1Add,         .BS a, .BS b => .BS (Moist.Plutus.bls_g1_add a b)
+  | .g2Add,         .BS a, .BS b => .BS (Moist.Plutus.bls_g2_add a b)
+  | .mulMlResult,   .BS a, .BS b => .BS (Moist.Plutus.bls_mulMlResult a b)
+  | .g1HashToGroup, .BS a, .BS b => .BS (Moist.Plutus.bls_g1_hashToGroup a b)
+  | .g2HashToGroup, .BS a, .BS b => .BS (Moist.Plutus.bls_g2_hashToGroup a b)
+  | .millerLoop,    .BS a, .BS b => .BS (Moist.Plutus.bls_millerLoop a b)
+  | .g1Equal,       .BS a, .BS b => .B (Moist.Plutus.bls_g1_equal a b)
+  | .g2Equal,       .BS a, .BS b => .B (Moist.Plutus.bls_g2_equal a b)
+  | .finalVerify,   .BS a, .BS b => .B (Moist.Plutus.bls_finalVerify a b)
+  | .g1ScalarMul,   .I k, .BS p => .BS (Moist.Plutus.bls_g1_scalarMul k p)
+  | .g2ScalarMul,   .I k, .BS p => .BS (Moist.Plutus.bls_g2_scalarMul k p)
+  | _, _, _ => .bad
 
 /-- The Lean meaning of an `SmtExpr` at a model `σ`.  Total; structural recursion.  A
     variable is read from the `int`- or `bool`-typed component of the model selected by its
@@ -156,6 +178,7 @@ def evalSmt (σ : Model) : SmtExpr → SVal
     match evalSmt σ a, evalSmt σ b, evalSmt σ c with
     | .BS pk, .BS msg, .BS sig => .B (verifyFn k pk msg sig)
     | _, _, _ => .bad
+  | .blsBin op a b => evalBlsBin op (evalSmt σ a) (evalSmt σ b)
 
 /-! ## Unsatisfiability — the Lean meaning of z3's `unsat` -/
 
@@ -268,6 +291,17 @@ theorem evalUop_hasSort {op : UnOp} {v : SVal} (h : HasSort (UnOp.sorts op).1 v)
        | simp [HasSort])
     | (obtain ⟨n, rfl⟩ := hasSort_int h; simp [evalUop, HasSort])
     | (obtain ⟨b, rfl⟩ := hasSort_bytes h; simp [evalUop, HasSort])
+
+/-- `evalBlsBin` preserves sorts: well-sorted operands land in the op's result sort. -/
+theorem evalBlsBin_hasSort {op : BlsBinOp} {va vb : SVal}
+    (hva : HasSort (BlsBinOp.operandSorts op).1 va) (hvb : HasSort (BlsBinOp.operandSorts op).2 vb) :
+    HasSort (BlsBinOp.resultSort op) (evalBlsBin op va vb) := by
+  cases op <;> simp only [BlsBinOp.operandSorts, BlsBinOp.resultSort] at hva hvb ⊢ <;>
+    first
+    | (obtain ⟨a, rfl⟩ := hasSort_bytes hva; obtain ⟨b, rfl⟩ := hasSort_bytes hvb
+       simp [evalBlsBin, HasSort])
+    | (obtain ⟨k, rfl⟩ := hasSort_int hva; obtain ⟨p, rfl⟩ := hasSort_bytes hvb
+       simp [evalBlsBin, HasSort])
 
 /-- `evalBin` preserves sorts: a well-sorted application lands in its result sort. -/
 theorem evalBin_hasSort : ∀ {op : BinOp} {sa s : SmtSort} {va vb : SVal},
@@ -487,6 +521,22 @@ theorem evalSmt_hasSort (σ : Model) : ∀ {e : SmtExpr} {s : SmtSort},
       obtain ⟨bc, hbc⟩ := hasSort_bytes (ihc hcc)
       simp only [evalSmt, hba, hbb, hbc, HasSort]
     · simp at h
+  | blsBin op a b iha ihb =>
+    intro s h; simp only [SmtExpr.sortOf] at h
+    cases ha : SmtExpr.sortOf a with
+    | none => simp only [ha] at h; simp at h
+    | some sa =>
+      cases hb : SmtExpr.sortOf b with
+      | none => simp only [ha, hb] at h; simp at h
+      | some sb =>
+        simp only [ha, hb] at h
+        split at h
+        · rename_i hcond
+          simp only [Option.some.injEq] at h; subst h
+          obtain ⟨hca, hcb⟩ := hcond; subst hca; subst hcb
+          simp only [evalSmt]
+          exact evalBlsBin_hasSort (iha ha) (ihb hb)
+        · simp at h
 
 /-- Specialisation: well-sorted `int` ⇒ evaluates to some integer. -/
 theorem evalSmt_int {σ : Model} {e : SmtExpr} (h : SmtExpr.sortOf e = some .int) :

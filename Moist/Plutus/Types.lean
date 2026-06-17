@@ -70,6 +70,33 @@ opaque verifySchnorrSecp256k1 : ByteString → ByteString → ByteString → Boo
 /-- `serialiseData : Data → ByteString` (CBOR) — also axiomatized (deterministic, opaque). -/
 opaque serialiseData : Data → ByteString := fun _ => default
 
+/-! ### BLS12-381 — axiomatized over the **compressed ByteString** representation.
+
+The pairing-friendly curve operations are uninterpreted: a `G1`/`G2`/`MlResult` element is
+modelled by its compressed `ByteString` (its on-chain form), and each operation is an opaque
+deterministic function on those bytes.  This needs no new `Const` payload (the vendored
+`Const.Bls12_381_*_element` placeholders carry no data and the CEK implements no ops), so the
+trusted core is untouched; symbolically each becomes an uninterpreted SMT function. -/
+opaque bls_g1_add : ByteString → ByteString → ByteString := fun a _ => a
+opaque bls_g2_add : ByteString → ByteString → ByteString := fun a _ => a
+opaque bls_g1_neg : ByteString → ByteString := fun a => a
+opaque bls_g2_neg : ByteString → ByteString := fun a => a
+opaque bls_g1_scalarMul : Integer → ByteString → ByteString := fun _ a => a
+opaque bls_g2_scalarMul : Integer → ByteString → ByteString := fun _ a => a
+-- Equality / final pairing-check are *structural* equality of the canonical compressed forms
+-- (NOT uninterpreted) — so reflexivity (`equal x x = true`) holds, which is the real semantics.
+def bls_g1_equal : ByteString → ByteString → Bool := fun a b => a == b
+def bls_g2_equal : ByteString → ByteString → Bool := fun a b => a == b
+opaque bls_g1_hashToGroup : ByteString → ByteString → ByteString := fun a _ => a
+opaque bls_g2_hashToGroup : ByteString → ByteString → ByteString := fun a _ => a
+opaque bls_g1_compress : ByteString → ByteString := fun a => a
+opaque bls_g2_compress : ByteString → ByteString := fun a => a
+opaque bls_g1_uncompress : ByteString → ByteString := fun a => a
+opaque bls_g2_uncompress : ByteString → ByteString := fun a => a
+opaque bls_millerLoop : ByteString → ByteString → ByteString := fun a _ => a
+opaque bls_mulMlResult : ByteString → ByteString → ByteString := fun a _ => a
+def bls_finalVerify : ByteString → ByteString → Bool := fun a b => a == b
+
 inductive Data where
   | Constr : Integer → List Data → Data
   | Map : List (Data × Data) → Data
