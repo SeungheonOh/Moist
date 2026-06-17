@@ -215,6 +215,26 @@ theorem evalBuiltin_lengthOfByteString (bs : Plutus.ByteString) :
       = some (.VCon (.Integer (Int.ofNat bs.size))) := by
   have := evalBuiltin_concrete (b := .LengthOfByteString) (by decide) [.ByteString bs]
   simpa using this
+/-- The cryptographic-hash denotations — axiom-free given the (opaque) hash, via
+    `evalBuiltin_concrete`.  All `bytes → bytes`, no definedness guard. -/
+theorem evalBuiltin_sha2_256 (bs : Plutus.ByteString) :
+    evalBuiltin .Sha2_256 [.VCon (.ByteString bs)] = some (.VCon (.ByteString (Moist.Plutus.sha2_256 bs))) := by
+  have := evalBuiltin_concrete (b := .Sha2_256) (by decide) [.ByteString bs]; simpa using this
+theorem evalBuiltin_sha3_256 (bs : Plutus.ByteString) :
+    evalBuiltin .Sha3_256 [.VCon (.ByteString bs)] = some (.VCon (.ByteString (Moist.Plutus.sha3_256 bs))) := by
+  have := evalBuiltin_concrete (b := .Sha3_256) (by decide) [.ByteString bs]; simpa using this
+theorem evalBuiltin_blake2b_256 (bs : Plutus.ByteString) :
+    evalBuiltin .Blake2b_256 [.VCon (.ByteString bs)] = some (.VCon (.ByteString (Moist.Plutus.blake2b_256 bs))) := by
+  have := evalBuiltin_concrete (b := .Blake2b_256) (by decide) [.ByteString bs]; simpa using this
+theorem evalBuiltin_blake2b_224 (bs : Plutus.ByteString) :
+    evalBuiltin .Blake2b_224 [.VCon (.ByteString bs)] = some (.VCon (.ByteString (Moist.Plutus.blake2b_224 bs))) := by
+  have := evalBuiltin_concrete (b := .Blake2b_224) (by decide) [.ByteString bs]; simpa using this
+theorem evalBuiltin_keccak_256 (bs : Plutus.ByteString) :
+    evalBuiltin .Keccak_256 [.VCon (.ByteString bs)] = some (.VCon (.ByteString (Moist.Plutus.keccak_256 bs))) := by
+  have := evalBuiltin_concrete (b := .Keccak_256) (by decide) [.ByteString bs]; simpa using this
+theorem evalBuiltin_ripemd_160 (bs : Plutus.ByteString) :
+    evalBuiltin .Ripemd_160 [.VCon (.ByteString bs)] = some (.VCon (.ByteString (Moist.Plutus.ripemd_160 bs))) := by
+  have := evalBuiltin_concrete (b := .Ripemd_160) (by decide) [.ByteString bs]; simpa using this
 theorem evalBuiltin_equalsData (a b : Plutus.Data) :
     evalBuiltin .EqualsData [.VCon (.Data b), .VCon (.Data a)] = some (.VCon (.Bool (a == b))) := by
   have := evalBuiltin_concrete (b := .EqualsData) (by decide) [.Data b, .Data a]; simpa using this
@@ -419,6 +439,9 @@ theorem smtBuiltin_adequate (σ : Model) {b : BuiltinFun} {exprs : List SmtExpr}
            obtain ⟨bs, hbs⟩ := evalSmt_bytes hse
            rw [show ([ey].map fun e => γ σ (.sCon e)) = [γ σ (.sCon ey)] from rfl, γ_sCon_BS hbs]
            first | rw [evalBuiltin_bData] | rw [evalBuiltin_lengthOfByteString]
+                 | rw [evalBuiltin_sha2_256] | rw [evalBuiltin_sha3_256]
+                 | rw [evalBuiltin_blake2b_256] | rw [evalBuiltin_blake2b_224]
+                 | rw [evalBuiltin_keccak_256] | rw [evalBuiltin_ripemd_160]
            simp only [γ_sCon, evalSmt_uop, hbs, evalUop, svalToConst])
         | -- UnIData : projection guarded by `isI`
           (obtain ⟨hv, hg, hse⟩ := uOp_some h; subst hv

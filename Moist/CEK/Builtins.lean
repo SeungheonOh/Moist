@@ -585,6 +585,14 @@ def evalBuiltinConst (b : BuiltinFun) (args : List Const) : Option Const :=
     if n < 0 then some (.ConstDataList l)
     else some (.ConstDataList (l.drop n.toNat))
 
+  -- Cryptographic hashes — axiomatized (uninterpreted; see `Moist/Plutus/Types.lean`)
+  | .Sha2_256,    [.ByteString b] => some (.ByteString (Moist.Plutus.sha2_256 b))
+  | .Sha3_256,    [.ByteString b] => some (.ByteString (Moist.Plutus.sha3_256 b))
+  | .Blake2b_256, [.ByteString b] => some (.ByteString (Moist.Plutus.blake2b_256 b))
+  | .Blake2b_224, [.ByteString b] => some (.ByteString (Moist.Plutus.blake2b_224 b))
+  | .Keccak_256,  [.ByteString b] => some (.ByteString (Moist.Plutus.keccak_256 b))
+  | .Ripemd_160,  [.ByteString b] => some (.ByteString (Moist.Plutus.ripemd_160 b))
+
   -- Array operations (`ConstArray`): length / index / list→array conversion
   | .LengthOfArray, [.ConstArray l] => some (.Integer (Int.ofNat l.length))
   | .IndexArray, [.Integer i, .ConstArray l] =>

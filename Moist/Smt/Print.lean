@@ -54,6 +54,9 @@ private def uopRender (op : UnOp) (s : String) : String :=
   | .isConstr  => s!"((_ is mkConstr) {s})" | .isList => s!"((_ is mkDList) {s})"
   | .isMap     => s!"((_ is mkMap) {s})"
   | .dArgs     => s!"(cArgs {s})"  | .dItems => s!"(lItems {s})" | .dEntries => s!"(mEntries {s})"
+  | .sha2_256  => s!"(moist_sha2_256 {s})"   | .sha3_256 => s!"(moist_sha3_256 {s})"
+  | .blake2b_256 => s!"(moist_blake2b_256 {s})" | .blake2b_224 => s!"(moist_blake2b_224 {s})"
+  | .keccak_256 => s!"(moist_keccak_256 {s})" | .ripemd_160 => s!"(moist_ripemd_160 {s})"
 
 /-- Render an `SmtExpr` as an SMT-LIB s-expression. -/
 def sexpr : SmtExpr → String
@@ -113,6 +116,17 @@ def dataPreamble : String :=
        "(mkMap (mEntries (Lst (Pair Data Data)))) (mkDList (lItems (Lst Data))) " ++
        "(mkI (iVal Int)) (mkB (bVal String)))))\n"
 
+/-- Uninterpreted declarations for the **axiomatized** cryptographic builtins (hashes are
+    `String → String`, ByteStrings being modelled as SMT `String`s).  z3 reasons about them
+    abstractly (only `x = y → f x = f y`), which is exactly the Lean axiom's content. -/
+def cryptoPreamble : String :=
+  "(declare-fun moist_sha2_256 (String) String)\n" ++
+  "(declare-fun moist_sha3_256 (String) String)\n" ++
+  "(declare-fun moist_blake2b_256 (String) String)\n" ++
+  "(declare-fun moist_blake2b_224 (String) String)\n" ++
+  "(declare-fun moist_keccak_256 (String) String)\n" ++
+  "(declare-fun moist_ripemd_160 (String) String)\n"
+
 /-- Serialize an `SmtExpr` (the formula to be checked) into a complete SMT-LIB script:
     logic, `Data` datatype + division preambles, variable declarations, the assertion, and
     `(check-sat)`.  `(assert e)`; an `unsat` verdict therefore certifies `Unsat e`. -/
@@ -120,7 +134,7 @@ def toSMTLIB (e : SmtExpr) : String :=
   let vars := SmtExpr.collectVars e
   let decls := vars.foldl
     (fun acc (x, s) => acc ++ s!"(declare-const {x} {SmtExpr.sortName s})\n") ""
-  "(set-logic ALL)\n" ++ dataPreamble ++ smtPreamble ++ decls ++
+  "(set-logic ALL)\n" ++ dataPreamble ++ cryptoPreamble ++ smtPreamble ++ decls ++
     s!"(assert {SmtExpr.sexpr e})\n" ++ "(check-sat)\n"
 
 /-! ## The trusted bridge (the one accepted axiom) -/

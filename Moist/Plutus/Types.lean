@@ -46,6 +46,28 @@ instance : LE ByteString where le x y := x.data.toList ≤ y.data.toList
 instance : DecidableLT ByteString := fun x y => inferInstanceAs (Decidable (x.data.toList < y.data.toList))
 instance : DecidableLE ByteString := fun x y => inferInstanceAs (Decidable (x.data.toList ≤ y.data.toList))
 
+/-! ## Cryptographic primitives — **axiomatized** (uninterpreted)
+
+The cryptographic builtins are *not* implemented: each is an opaque function whose only
+property is determinism (it is a function of its inputs).  Symbolically each becomes an
+*uninterpreted SMT function* (`Moist/Smt/Print.lean`), so z3 reasons about it abstractly
+without the hash/curve implementation bloating the SMT.  The CEK denotation and the `evalSmt`
+meaning share the **same** axiom, so the symbolic↔concrete agreement holds by construction;
+the cost is that these appear in `#print axioms` as the accepted crypto trusted base. -/
+-- `opaque` (not `axiom`) so `evalSmt`/`evalBuiltinConst` stay computable for `#eval` tests; the
+-- kernel still treats each as *irreducible* (the dummy body is never unfolded in any proof), so
+-- the development is parametric over the real hash/verifier — exactly an uninterpreted function.
+opaque sha2_256   : ByteString → ByteString := fun b => b
+opaque sha3_256   : ByteString → ByteString := fun b => b
+opaque blake2b_256 : ByteString → ByteString := fun b => b
+opaque blake2b_224 : ByteString → ByteString := fun b => b
+opaque keccak_256 : ByteString → ByteString := fun b => b
+opaque ripemd_160 : ByteString → ByteString := fun b => b
+/-- Signature verification (`pubkey → message → signature → Bool`). -/
+opaque verifyEd25519 : ByteString → ByteString → ByteString → Bool := fun _ _ _ => true
+opaque verifyEcdsaSecp256k1 : ByteString → ByteString → ByteString → Bool := fun _ _ _ => true
+opaque verifySchnorrSecp256k1 : ByteString → ByteString → ByteString → Bool := fun _ _ _ => true
+
 inductive Data where
   | Constr : Integer → List Data → Data
   | Map : List (Data × Data) → Data

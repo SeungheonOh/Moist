@@ -105,6 +105,13 @@ def smtBuiltin (b : BuiltinFun) (args : List SmtExpr) : Option (SmtExpr × SmtEx
     | .NullList => listOpT .nullL e
     -- ByteString length (total)
     | .LengthOfByteString => uOp .lenBytes .trueE .bytes e
+    -- Cryptographic hashes (bytes → bytes, axiomatized as uninterpreted functions)
+    | .Sha2_256    => uOp .sha2_256 .trueE .bytes e
+    | .Sha3_256    => uOp .sha3_256 .trueE .bytes e
+    | .Blake2b_256 => uOp .blake2b_256 .trueE .bytes e
+    | .Blake2b_224 => uOp .blake2b_224 .trueE .bytes e
+    | .Keccak_256  => uOp .keccak_256 .trueE .bytes e
+    | .Ripemd_160  => uOp .ripemd_160 .trueE .bytes e
     | _ => none
   | [ey, ex] =>
     match b with

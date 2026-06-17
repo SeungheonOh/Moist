@@ -105,6 +105,13 @@ def evalUop : UnOp → SVal → SVal
   | .dItems,    .D d => match d with | .List ds => .L (ds.map .D) | _ => .L []
   | .dEntries,  .D d => match d with
       | .Map ps => .L (ps.map (fun p => .P (.D p.1) (.D p.2))) | _ => .L []
+  -- cryptographic hashes: the (uninterpreted) axiom applied to the operand bytes
+  | .sha2_256,   .BS b => .BS (Moist.Plutus.sha2_256 b)
+  | .sha3_256,   .BS b => .BS (Moist.Plutus.sha3_256 b)
+  | .blake2b_256, .BS b => .BS (Moist.Plutus.blake2b_256 b)
+  | .blake2b_224, .BS b => .BS (Moist.Plutus.blake2b_224 b)
+  | .keccak_256, .BS b => .BS (Moist.Plutus.keccak_256 b)
+  | .ripemd_160, .BS b => .BS (Moist.Plutus.ripemd_160 b)
   | _, _ => .bad
 
 /-- The Lean meaning of an `SmtExpr` at a model `σ`.  Total; structural recursion.  A

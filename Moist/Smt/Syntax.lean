@@ -67,6 +67,8 @@ inductive UnOp
   | dArgs                              -- data → list data        (a `Constr`'s fields)
   | dItems                            -- data → list data        (a `List`'s items; `unListData`)
   | dEntries                          -- data → list (pair data data)  (a `Map`'s entries; `unMapData`)
+  -- Cryptographic hashes (bytes → bytes), axiomatized as uninterpreted SMT functions:
+  | sha2_256 | sha3_256 | blake2b_256 | blake2b_224 | keccak_256 | ripemd_160
 deriving Repr, DecidableEq, BEq, Inhabited
 
 /-- Deep-embedded SMT expressions over `int`/`bool`/`data`/`bytes`. -/
@@ -110,6 +112,8 @@ def UnOp.sorts : UnOp → SmtSort × SmtSort
   | .isConstr => (.data, .bool) | .isList => (.data, .bool) | .isMap => (.data, .bool)
   | .dArgs => (.data, .list .data) | .dItems => (.data, .list .data)
   | .dEntries => (.data, .list (.pair .data .data))
+  | .sha2_256 | .sha3_256 | .blake2b_256 | .blake2b_224 | .keccak_256 | .ripemd_160 =>
+    (.bytes, .bytes)
 
 namespace SmtExpr
 
