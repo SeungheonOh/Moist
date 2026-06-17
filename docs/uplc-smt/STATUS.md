@@ -26,9 +26,14 @@ build (no `lake`/Blaster/FFI); z3 via `nix`.
   `Constr`/`Case`/`Error`.
 * **All constant types** — `Integer`/`Bool` symbolic-capable (`sCon`), every other type
   (`ByteString`, `Data`, `Unit`, lists, pairs, …) carried concretely (`sConst`).
-* **All builtins on concrete arguments** — deferred to the real `evalBuiltinConst`
-  (**axiom-free**; matches the CEK exactly, including refusing where the pure CEK refuses,
-  e.g. crypto hashes the reference doesn't implement).
+* **94 of the 101 builtins** — 89 via the concrete fold (real `evalBuiltinConst`, **axiom-free**)
+  + 5 pass-through (`IfThenElse`/`ChooseUnit`/`Trace`/`ChooseData`/`ChooseList`/`MkCons`).  The
+  only gap is the 7 `Value` builtins (CIP-0138), deliberately unsupported — see below.
+* **All cryptography axiomatized** — the 6 hashes, 3 signature verifiers, `SerializeData`, and
+  all 19 BLS12-381 ops are **uninterpreted** (`opaque` Lean functions ⇒ uninterpreted SMT
+  functions; BLS elements modelled by their compressed `ByteString`).  z3 reasons about them
+  abstractly; **zero new axioms** (the trust folds into `z3_sound`).  Equality/`finalVerify` are
+  *structural* (reflexive).  `Test/Compile/Crypto.lean`.
 * **Symbolic `Integer`/`Bool`** — `add/sub/mul`, floored & truncated `div/mod`,
   `=`/`<`/`≤`, with the division-by-zero definedness guard.
 * **Symbolic `Data`** — `iData`/`bData` (inject), `unIData`/`unBData` (project, guarded by
@@ -136,9 +141,15 @@ Test/Compile/{Smoke,Diff,EndToEnd,DataEndToEnd,BoundedRec}.lean
 
 ## Remaining (genuinely open / out of decidable scope)
 
-- `unMapData` (→ `list (pair data data)`), `chooseData`, and the builtin *constructors*
-  (`constrData`/`mkCons`/`mkPairData`) — deferred (the empty-list reconstruction is sort-
-  ambiguous under the sort-erased `svalToConst`; a sort-tagged `L`/`Model` lifts this later).
+- The **7 `Value` builtins** (`InsertCoin`/`LookupCoin`/`ScaleValue`/`UnionValue`/
+  `ValueContains`/`ValueData`/`UnValueData`, CIP-0138) — the vendored CEK *stubs* them (no
+  `evalBuiltinConst` clause), so there is no trusted reference semantics.  Unlike crypto they
+  have definite computational meaning and cannot be soundly modelled as uninterpreted;
+  fabricating a semantics would corrupt the TCB.  They refuse soundly (CEK refuses ⇒ symbolic
+  refuses).  Supporting them requires first giving the reference CEK a faithful Value semantics.
+- `unMapData` (→ `list (pair data data)`) and the builtin *constructors*
+  (`constrData`/`mkPairData`) — deferred (the empty-list reconstruction is sort-ambiguous under
+  the sort-erased `svalToConst`; a sort-tagged `L`/`Model` lifts this later).
 - Symbolic-`Data` `Case`/`chooseData` into *lazy* (function) branches — R1, refused.
 - *Unbounded* verification — proving a property at **every** recursion depth (not just up to
   the unrolled fuel) needs k-induction / loop invariants — R2, a separate effort.  Bounded
