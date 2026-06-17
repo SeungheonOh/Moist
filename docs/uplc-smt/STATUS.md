@@ -54,6 +54,13 @@ build (no `lake`/Blaster/FFI); z3 via `nix`.
   through the deferred `sIte` (`Case (ite c x y) ≡ ite c (Case x) (Case y)`), dispatching each
   concrete leaf and merging into an SMT `ite` (`symCase`, proven `symCase_adequate`).
   `Test/Compile/SymCase.lean`.
+* **`Case` on a builtin constant** — UPLC `case` can scrutinize a builtin value (not only a
+  `Constr`), per the CEK's `constToTagAndFields`.  All such types are handled and proven:
+  **Bool** (False=0/True=1, symbolic ⇒ `combineIte`), **Integer** (tag = the value; symbolic ⇒
+  the nested `ite (x==i) altᵢ …`, `symCaseInt`, defined on `0 ≤ x < len`), **builtin List**
+  (Cons=0 with head/tail fields via `headL`/`tailL`, Nil=1, symbolic ⇒ `nullL`+`combineIte`),
+  **Pair** (one ctor, `fstP`/`sndP` fields), **Unit** (singleton).  Concrete constants dispatch
+  deterministically (`symConstToTagFields`).  `Test/Compile/CaseConst.lean`.
 * **A symbolic choice distributes through *every* elimination form** — `force` (`combineIte`),
   `Case` (`symCase`), **and `Apply`** (`symApply` over `sIte`: `(if c then f else g) a ≡
   if c then (f a) else (g a)`).  So `\x -> force ((if x==0 then (\_->delay error) else
