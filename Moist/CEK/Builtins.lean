@@ -413,6 +413,11 @@ Stage 2: `evalBuiltinPassThrough` — handles builtins that return a `CekValue` 
 `evalBuiltin` composes both stages.
 -/
 
+/-- BLS multi-scalar multiplication (`Σ scalarᵢ · pointᵢ`) — axiomatized (opaque) over the
+    list of scalars and the list of compressed-bytes points. -/
+opaque bls_g1_msm : List Const → List Const → Moist.Plutus.ByteString := fun _ _ => default
+opaque bls_g2_msm : List Const → List Const → Moist.Plutus.ByteString := fun _ _ => default
+
 /-- Pure builtin computation on constants. Every argument is a `Const`.
 Returns `none` on type error or runtime failure (e.g. division by zero). -/
 def evalBuiltinConst (b : BuiltinFun) (args : List Const) : Option Const :=
@@ -619,6 +624,8 @@ def evalBuiltinConst (b : BuiltinFun) (args : List Const) : Option Const :=
   | .Bls12_381_millerLoop, [.ByteString b, .ByteString a] => some (.ByteString (Moist.Plutus.bls_millerLoop a b))
   | .Bls12_381_mulMlResult, [.ByteString b, .ByteString a] => some (.ByteString (Moist.Plutus.bls_mulMlResult a b))
   | .Bls12_381_finalVerify, [.ByteString b, .ByteString a] => some (.Bool (Moist.Plutus.bls_finalVerify a b))
+  | .Bls12_381_G1_multiScalarMul, [.ConstList pts, .ConstList ks] => some (.ByteString (bls_g1_msm ks pts))
+  | .Bls12_381_G2_multiScalarMul, [.ConstList pts, .ConstList ks] => some (.ByteString (bls_g2_msm ks pts))
 
   -- Array operations (`ConstArray`): length / index / list→array conversion
   | .LengthOfArray, [.ConstArray l] => some (.Integer (Int.ofNat l.length))
