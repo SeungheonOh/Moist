@@ -559,14 +559,55 @@ theorem γL_symExtractCons (σ : Model) : ∀ {args : List SymVal} {exprs : List
     | sBuiltin _ _ _ => simp [symExtractCons] at h
     | sIte _ _ _ => simp [symExtractCons] at h
 
-/-- **Pass-through builtin agreement** (`IfThenElse`).  Concrete condition ⇒ pick the branch
-    (matches `evalBuiltin_ifThenElse`); symbolic boolean condition ⇒ the SMT `ite` selects the
-    same branch the concrete condition would, by `evalSmt_bool`. -/
+/-! ### Pass-through builtin denotations (all `rfl` — they short-circuit `evalBuiltin`) -/
+theorem evalBuiltin_chooseUnit (r : CekValue) : evalBuiltin .ChooseUnit [r, .VCon .Unit] = some r := rfl
+theorem evalBuiltin_trace (r : CekValue) (s : String) :
+    evalBuiltin .Trace [r, .VCon (.String s)] = some r := rfl
+theorem evalBuiltin_chooseData (bC iC lC mC cC : CekValue) (d : Plutus.Data) :
+    evalBuiltin .ChooseData [bC, iC, lC, mC, cC, .VCon (.Data d)]
+      = some (match d with | .Constr _ _ => cC | .Map _ => mC | .List _ => lC | .I _ => iC
+                           | .B _ => bC) := by cases d <;> rfl
+theorem evalBuiltin_chooseList_data (cC nC : CekValue) (l : List Plutus.Data) :
+    evalBuiltin .ChooseList [cC, nC, .VCon (.ConstDataList l)]
+      = some (if l.isEmpty then nC else cC) := rfl
+theorem evalBuiltin_chooseList_list (cC nC : CekValue) (l : List Const) :
+    evalBuiltin .ChooseList [cC, nC, .VCon (.ConstList l)] = some (if l.isEmpty then nC else cC) := rfl
+theorem evalBuiltin_mkCons_data (tl : List Plutus.Data) (hd : Plutus.Data) :
+    evalBuiltin .MkCons [.VCon (.ConstDataList tl), .VCon (.Data hd)]
+      = some (.VCon (.ConstDataList (hd :: tl))) := rfl
+theorem evalBuiltin_mkCons_list (tl : List Const) (c : Const) :
+    evalBuiltin .MkCons [.VCon (.ConstList tl), .VCon c] = some (.VCon (.ConstList (c :: tl))) := rfl
+
+/-- **Pass-through builtin agreement.**  `IfThenElse`/`ChooseUnit`/`Trace`/`ChooseData`/
+    `ChooseList`/`MkCons` return one of their arguments (or a concrete list cons); the
+    concretized result is what `evalBuiltin` (which short-circuits through
+    `evalBuiltinPassThrough`) produces.  For `IfThenElse` a symbolic boolean condition becomes
+    an SMT `ite` that selects the same branch the concrete condition would (by `evalSmt_bool`). -/
 theorem symBuiltinPassThrough_adequate (σ : Model) {b : BuiltinFun} {args : List SymVal}
     {o : SymOut} (h : symBuiltinPassThrough b args = some o) :
     evalBuiltin b (γL σ args) = some (γ σ o.value) := by
-  -- only `IfThenElse [elseV, thenV, sCon condE]` matches
   match b, args, h with
+  | .ChooseUnit, [result, .sConst .Unit], h =>
+    simp only [symBuiltinPassThrough, Option.some.injEq] at h; subst h
+    simp only [γL_cons, γL_nil, γ_sConst, evalBuiltin_chooseUnit]
+  | .Trace, [result, .sConst (.String s)], h =>
+    simp only [symBuiltinPassThrough, Option.some.injEq] at h; subst h
+    simp only [γL_cons, γL_nil, γ_sConst, evalBuiltin_trace]
+  | .ChooseData, [bC, iC, lC, mC, cC, .sConst (.Data d)], h =>
+    simp only [symBuiltinPassThrough, Option.some.injEq] at h; subst h
+    cases d <;> simp [γL_cons, γL_nil, γ_sConst, evalBuiltin_chooseData]
+  | .ChooseList, [consC, nilC, .sConst (.ConstDataList l)], h =>
+    simp only [symBuiltinPassThrough, Option.some.injEq] at h; subst h
+    by_cases he : l.isEmpty <;> simp [γL_cons, γL_nil, γ_sConst, evalBuiltin_chooseList_data, he]
+  | .ChooseList, [consC, nilC, .sConst (.ConstList l)], h =>
+    simp only [symBuiltinPassThrough, Option.some.injEq] at h; subst h
+    by_cases he : l.isEmpty <;> simp [γL_cons, γL_nil, γ_sConst, evalBuiltin_chooseList_list, he]
+  | .MkCons, [.sConst (.ConstDataList tl), .sConst (.Data hd)], h =>
+    simp only [symBuiltinPassThrough, Option.some.injEq] at h; subst h
+    simp only [γL_cons, γL_nil, γ_sConst, evalBuiltin_mkCons_data]
+  | .MkCons, [.sConst (.ConstList tl), .sConst c], h =>
+    simp only [symBuiltinPassThrough, Option.some.injEq] at h; subst h
+    simp only [γL_cons, γL_nil, γ_sConst, evalBuiltin_mkCons_list]
   | .IfThenElse, [elseV, thenV, .sCon condE], h =>
     simp only [symBuiltinPassThrough] at h
     -- split the `asLitBool / sort` dispatch exactly as the definition does

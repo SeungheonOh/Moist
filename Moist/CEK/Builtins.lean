@@ -585,6 +585,13 @@ def evalBuiltinConst (b : BuiltinFun) (args : List Const) : Option Const :=
     if n < 0 then some (.ConstDataList l)
     else some (.ConstDataList (l.drop n.toNat))
 
+  -- Array operations (`ConstArray`): length / index / list→array conversion
+  | .LengthOfArray, [.ConstArray l] => some (.Integer (Int.ofNat l.length))
+  | .IndexArray, [.Integer i, .ConstArray l] =>
+    if i < 0 then none else l[i.toNat]?
+  | .ListToArray, [.ConstList l]     => some (.ConstArray l)
+  | .ListToArray, [.ConstDataList l] => some (.ConstArray (l.map (.Data ·)))
+
   -- Fallthrough
   | _, _ => none
 

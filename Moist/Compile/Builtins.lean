@@ -151,6 +151,23 @@ def symBuiltinPassThrough : BuiltinFun → List SymVal → Option SymOut
         | .sCon thenE, .sCon elseE => some ⟨.sCon (.ite condE thenE elseE), .trueE⟩  -- first-order
         | _, _ => some ⟨.sIte condE thenV elseV, .trueE⟩                              -- lazy ⇒ defer
       else none
+  -- `chooseUnit u r = r`, `trace _ r = r` (the discriminant is fully concrete) ⇒ pass `r` through
+  | .ChooseUnit, [result, .sConst .Unit]        => some ⟨result, .trueE⟩
+  | .Trace,      [result, .sConst (.String _)]  => some ⟨result, .trueE⟩
+  -- `chooseData d c m l i b`: dispatch on a *concrete* `Data`'s variant
+  | .ChooseData, [bC, iC, lC, mC, cC, .sConst (.Data d)] =>
+    some ⟨(match d with | .Constr _ _ => cC | .Map _ => mC | .List _ => lC | .I _ => iC | .B _ => bC),
+          .trueE⟩
+  -- `chooseList l nilC consC`: dispatch on whether a *concrete* list is empty
+  | .ChooseList, [consC, nilC, .sConst (.ConstDataList l)] =>
+    some ⟨if l.isEmpty then nilC else consC, .trueE⟩
+  | .ChooseList, [consC, nilC, .sConst (.ConstList l)] =>
+    some ⟨if l.isEmpty then nilC else consC, .trueE⟩
+  -- `mkCons x xs` on concrete operands (the element may be any constant)
+  | .MkCons, [.sConst (.ConstDataList tl), .sConst (.Data h)] =>
+    some ⟨.sConst (.ConstDataList (h :: tl)), .trueE⟩
+  | .MkCons, [.sConst (.ConstList tl), .sConst c] =>
+    some ⟨.sConst (.ConstList (c :: tl)), .trueE⟩
   | _, _ => none
 
 /-- Extract argument expressions from `sCon`-wrapped symbolic values.  `none` if any
