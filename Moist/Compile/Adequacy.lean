@@ -947,6 +947,53 @@ theorem combineIte_some {cond : SmtExpr} {aR bR : Option SymOut} {o : SymOut}
     | exact Or.inr (Or.inr (Or.inr ⟨_, _, rfl, rfl, by simpa using h.symm⟩))
     | simp at h
 
+/-- **`combineIte` selects by the condition.**  At a model where `cond = .B b` and the combined
+    result is defined, the result's value/definedness are those of the chosen input branch
+    (`b = true` ⇒ the first; `b = false` ⇒ the second).  Centralizes the 4-shape `combineIte`
+    case analysis used by every `Case`/force distribution. -/
+theorem combineIte_select (σ : Model) {cond : SmtExpr} {aR bR : Option SymOut} {oc : SymOut}
+    {b : Bool} (h : combineIte cond aR bR = some oc) (hc : evalSmt σ cond = .B b)
+    (hd : evalSmt σ oc.defined = .B true) :
+    (b = true → ∃ a, aR = some a ∧ evalSmt σ a.defined = .B true ∧ γ σ oc.value = γ σ a.value) ∧
+    (b = false → ∃ bb, bR = some bb ∧ evalSmt σ bb.defined = .B true ∧ γ σ oc.value = γ σ bb.value) := by
+  have hfF : ∀ {X : Prop}, evalSmt σ SmtExpr.falseE = .B true → X := fun he =>
+    absurd he (by rw [evalSmt_falseE]; exact Bfalse_ne_Btrue)
+  rcases combineIte_some h with ⟨aE, ad, bE, bd, ha, hb, ho⟩ | ⟨va, ad, vb, bd, ha, hb, ho⟩ |
+    ⟨va, ad, ha, hb, ho⟩ | ⟨vb, bd, ha, hb, ho⟩ <;> subst ho <;> subst ha <;> try subst hb
+  · -- shape 1: both first-order ⇒ `sCon (ite …)`
+    cases b
+    · exact ⟨fun h' => by simp at h', fun _ => ⟨_, rfl, ite_false_def hc hd, γ_sCon_ite_false hc⟩⟩
+    · exact ⟨fun _ => ⟨_, rfl, ite_true_def hc hd, γ_sCon_ite_true hc⟩, fun h' => by simp at h'⟩
+  · -- shape 2: both present, kept as `sIte`
+    cases b
+    · exact ⟨fun h' => by simp at h', fun _ => ⟨_, rfl, ite_false_def hc hd, γ_sIte_false σ hc Bfalse_ne_Btrue⟩⟩
+    · exact ⟨fun _ => ⟨_, rfl, ite_true_def hc hd, γ_sIte_true σ hc⟩, fun h' => by simp at h'⟩
+  · -- shape 3: only the first branch present (`defined = ite cond ad falseE`)
+    cases b
+    · exact ⟨fun h' => by simp at h', fun _ => hfF (ite_false_def hc hd)⟩
+    · exact ⟨fun _ => ⟨_, rfl, ite_true_def hc hd, rfl⟩, fun h' => by simp at h'⟩
+  · -- shape 4: only the second branch present (`defined = ite cond falseE bd`)
+    cases b
+    · exact ⟨fun h' => by simp at h', fun _ => ⟨_, rfl, ite_false_def hc hd, rfl⟩⟩
+    · exact ⟨fun _ => hfF (ite_true_def hc hd), fun h' => by simp at h'⟩
+
+/-- `symConstToTagFields` agrees with the CEK's `constToTagAndFields`: same tag and ctor count,
+    and the symbolic fields concretize (`γL`) to the CEK fields.  Definitional per `Const`. -/
+theorem symConstToTagFields_agree (σ : Model) {c : Const} {tag nc : Nat} {fields : List SymVal}
+    (h : symConstToTagFields c = some (tag, nc, fields)) :
+    constToTagAndFields c = some (tag, nc, γL σ fields) := by
+  unfold symConstToTagFields at h
+  split at h <;>
+    first
+    | (simp only [Option.some.injEq, Prod.mk.injEq] at h; obtain ⟨rfl, rfl, rfl⟩ := h
+       simp [constToTagAndFields, γL_cons, γL_nil, γ_sConst])
+    | (split at h <;>
+        first
+        | (simp only [Option.some.injEq, Prod.mk.injEq] at h; obtain ⟨rfl, rfl, rfl⟩ := h
+           simp_all [constToTagAndFields, γL_nil])
+        | simp at h)
+    | simp at h
+
 /-! ## The core simulation — `symEval` adequate to `bigEval`
 
 The forward/soundness direction, by **fuel induction mirroring `bigEval`'s structure**
@@ -1035,8 +1082,6 @@ mutual
                   rw [hv] at ihsc; simp only [γ_sConstr] at ihsc
                   simp only [bigEval, ihsc, hat, symEval_adequate σ halt hdalt]
                   exact symApplyList_adequate σ hap hdap
-          | sCon _ => simp [symEval, hsc, hv] at h
-          | sConst _ => simp [symEval, hsc, hv] at h
           | sLam _ _ => simp [symEval, hsc, hv] at h
           | sDelay _ _ => simp [symEval, hsc, hv] at h
           | sBuiltin _ _ _ => simp [symEval, hsc, hv] at h
@@ -1044,6 +1089,30 @@ mutual
             -- symbolic *choice* of constructors ⇒ `Case` distributes through it (`symCase`)
             simp only [symEval, hsc, hv] at h
             cases hcase : symCase f ρ (.sIte cond va vb) alts with
+            | none => rw [hcase] at h; simp at h
+            | some oc =>
+              rw [hcase] at h; simp only [Option.some.injEq] at h; subst h
+              obtain ⟨hdsc, hdoc⟩ := and_true_split σ hd
+              have ihsc := symEval_adequate σ hsc hdsc
+              rw [hv] at ihsc
+              have ihc := symCase_adequate σ hcase hdoc ihsc
+              exact ihc
+          | sConst c =>
+            -- `Case` on a builtin *constant* — SOP dispatch (`symCase` / `symConstToTagFields`)
+            simp only [symEval, hsc, hv] at h
+            cases hcase : symCase f ρ (.sConst c) alts with
+            | none => rw [hcase] at h; simp at h
+            | some oc =>
+              rw [hcase] at h; simp only [Option.some.injEq] at h; subst h
+              obtain ⟨hdsc, hdoc⟩ := and_true_split σ hd
+              have ihsc := symEval_adequate σ hsc hdsc
+              rw [hv] at ihsc
+              have ihc := symCase_adequate σ hcase hdoc ihsc
+              exact ihc
+          | sCon e =>
+            -- `Case` on a (possibly symbolic) Bool/Integer scrutinee (`symCase`)
+            simp only [symEval, hsc, hv] at h
+            cases hcase : symCase f ρ (.sCon e) alts with
             | none => rw [hcase] at h; simp at h
             | some oc =>
               rw [hcase] at h; simp only [Option.some.injEq] at h; subst h
@@ -1403,8 +1472,69 @@ mutual
           | bad => exact absurd hd (by simp [evalSmt, hc])
           | P _ _ => exact absurd hd (by simp [evalSmt, hc])
           | L _ => exact absurd hd (by simp [evalSmt, hc])
-    | _ + 1, _, .sCon _, _, _, _, h, _, _ => by simp [symCase] at h
-    | _ + 1, _, .sConst _, _, _, _, h, _, _ => by simp [symCase] at h
+    | f + 1, ρ, .sConst c, alts, oc, scrut, h, hd, hscrut => by
+        -- builtin-constant scrutinee: SOP dispatch, mirroring `bigEval`'s `VCon` branch
+        cases hcf : symConstToTagFields c with
+        | none => simp [symCase, hcf] at h
+        | some tnf =>
+          obtain ⟨tag, numCtors, fields⟩ := tnf
+          cases hcond : (numCtors > 0 && alts.length > numCtors) with
+          | true => simp [symCase, hcf, hcond] at h
+          | false =>
+            cases hat : alts[tag]? with
+            | none => simp [symCase, hcf, hcond, hat] at h
+            | some alt =>
+              cases halt : symEval f ρ alt with
+              | none => simp [symCase, hcf, hcond, hat, halt] at h
+              | some oalt =>
+                cases hap : symApplyList f oalt.value fields with
+                | none => simp [symCase, hcf, hcond, hat, halt, hap] at h
+                | some oap =>
+                  simp only [symCase, hcf, hcond, hat, halt, hap, Bool.false_eq_true,
+                    if_false, Option.some.injEq] at h
+                  subst h
+                  obtain ⟨hdalt, hdap⟩ := and_true_split σ hd
+                  simp only [γ_sConst] at hscrut
+                  simp only [bigEval, hscrut, symConstToTagFields_agree σ hcf, hcond, hat,
+                    Bool.false_eq_true, if_false]
+                  rw [bigEval_mono (symEval_adequate σ halt hdalt)]
+                  exact applyValList_mono (symApplyList_adequate σ hap hdap)
+    | f + 1, ρ, .sCon e, alts, oc, scrut, h, hd, hscrut => by
+        cases hse : SmtExpr.sortOf e with
+        | none => simp [symCase, hse] at h
+        | some s => cases s with
+          | int => simp [symCase, hse] at h
+          | bool =>
+            -- Bool scrutinee: `False`=0/`True`=1 (no fields) ⇒ `combineIte e alt₁ alt₀`
+            simp only [symCase, hse] at h
+            obtain ⟨b, hb⟩ := evalSmt_bool (σ := σ) hse
+            have hγ : γ σ (.sCon e) = CekValue.VCon (.Bool b) := by simp [γ_sCon, hb, svalToConst]
+            rw [hγ] at hscrut
+            by_cases hlen : alts.length > 2
+            · rw [if_pos hlen] at h; simp at h
+            · rw [if_neg hlen] at h
+              obtain ⟨hst, hsf⟩ := combineIte_select σ h hb hd
+              cases b
+              · obtain ⟨bb, hbb, hbd, hbv⟩ := hsf rfl
+                cases ha0 : alts[0]? with
+                | none => simp [ha0] at hbb
+                | some a0 =>
+                  simp only [ha0] at hbb
+                  rw [hbv]
+                  simp [bigEval, hscrut, constToTagAndFields, ha0,
+                    bigEval_mono (symEval_adequate σ hbb hbd), applyValList] <;> omega
+              · obtain ⟨a, haa, had, hav⟩ := hst rfl
+                cases ha1 : alts[1]? with
+                | none => simp [ha1] at haa
+                | some a1 =>
+                  simp only [ha1] at haa
+                  rw [hav]
+                  simp [bigEval, hscrut, constToTagAndFields, ha1,
+                    bigEval_mono (symEval_adequate σ haa had), applyValList] <;> omega
+          | data => simp [symCase, hse] at h
+          | bytes => simp [symCase, hse] at h
+          | list _ => simp [symCase, hse] at h
+          | pair _ _ => simp [symCase, hse] at h
     | _ + 1, _, .sLam _ _, _, _, _, h, _, _ => by simp [symCase] at h
     | _ + 1, _, .sDelay _ _, _, _, _, h, _, _ => by simp [symCase] at h
     | _ + 1, _, .sBuiltin _ _ _, _, _, _, h, _, _ => by simp [symCase] at h

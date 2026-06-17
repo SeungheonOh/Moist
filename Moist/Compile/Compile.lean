@@ -63,6 +63,24 @@ def combineIte (cond : SmtExpr) : Option SymOut → Option SymOut → Option Sym
   | none, some ⟨vb, bDef⟩ => some ⟨vb, .ite cond .falseE bDef⟩       -- only the `else` path reached
   | none, none => none
 
+/-- Symbolic analogue of `Moist.CEK.constToTagAndFields`: a builtin constant scrutinee of a
+    `Case` is dispatched as a sum-of-products value `(tag, #ctors, fields)`.  `VCon x` fields
+    become `sConst x` (so `γ (sConst x) = VCon x` pointwise — the agreement is definitional).
+    Mirrors the CEK table exactly (Bool: False=0/True=1; Unit=0; Integer n≥0 = tag n with 0
+    ctors = unbounded; list Cons=0/Nil=1; Pair=0). -/
+def symConstToTagFields : Const → Option (Nat × Nat × List SymVal)
+  | .Bool false => some (0, 2, [])
+  | .Bool true  => some (1, 2, [])
+  | .Unit       => some (0, 1, [])
+  | .Integer n  => if n ≥ 0 then some (n.toNat, 0, []) else none
+  | .ConstList []          => some (1, 2, [])
+  | .ConstList (h :: t)     => some (0, 2, [.sConst h, .sConst (.ConstList t)])
+  | .ConstDataList []       => some (1, 2, [])
+  | .ConstDataList (h :: t) => some (0, 2, [.sConst (.Data h), .sConst (.ConstDataList t)])
+  | .Pair (a, b)     => some (0, 1, [.sConst a, .sConst b])
+  | .PairData (a, b) => some (0, 1, [.sConst (.Data a), .sConst (.Data b)])
+  | _ => none
+
 mutual
   /-- Symbolic big-step evaluation of `t` in symbolic environment `ρ`.  Mirrors `bigEval`. -/
   def symEval : Nat → SymEnv → Term → Option SymOut
@@ -112,7 +130,17 @@ mutual
             match symCase n ρ osc.value alts with
             | some oc => some ⟨oc.value, andE osc.defined oc.defined⟩
             | none => none
-          | _ => none   -- symbolic constant scrutinee ⇒ refuse (R1)
+          | .sConst _ =>
+            -- `Case` on a builtin *constant* (Bool/Unit/Integer/list/pair) — SOP dispatch
+            match symCase n ρ osc.value alts with
+            | some oc => some ⟨oc.value, andE osc.defined oc.defined⟩
+            | none => none
+          | .sCon _ =>
+            -- `Case` on a (possibly symbolic) Bool/Integer scrutinee — `ite`-combination
+            match symCase n ρ osc.value alts with
+            | some oc => some ⟨oc.value, andE osc.defined oc.defined⟩
+            | none => none
+          | _ => none   -- a closure scrutinee ⇒ genuinely ill-typed ⇒ refuse
         | none => none
     | _ + 1, _, .Error => none
   termination_by n _ t => (n, sizeOf t)
@@ -195,6 +223,31 @@ mutual
         | none => none
     | n + 1, ρ, .sIte cond va vb, alts =>
         combineIte cond (symCase (n + 1) ρ va alts) (symCase (n + 1) ρ vb alts)
+    | n + 1, ρ, .sConst c, alts =>
+        -- builtin-constant scrutinee: SOP dispatch via `symConstToTagFields` (mirrors `bigEval`)
+        match symConstToTagFields c with
+        | some (tag, numCtors, fields) =>
+            if numCtors > 0 && alts.length > numCtors then none
+            else match alts[tag]? with
+                 | some alt =>
+                   match symEval n ρ alt with
+                   | some oalt =>
+                     match symApplyList n oalt.value fields with
+                     | some oap => some ⟨oap.value, andE oalt.defined oap.defined⟩
+                     | none => none
+                   | none => none
+                 | none => none
+        | none => none
+    | n + 1, ρ, .sCon e, alts =>
+        match SmtExpr.sortOf e with
+        | some .bool =>
+            -- Bool scrutinee: False=tag 0, True=tag 1 (2 ctors, no fields) ⇒ `ite e alt₁ alt₀`
+            if alts.length > 2 then none
+            else combineIte e (match alts[1]? with | some a => symEval n ρ a | none => none)
+                              (match alts[0]? with | some a => symEval n ρ a | none => none)
+        -- a symbolic *integer* scrutinee (`Case` on a builtin Integer) would need an n-ary
+        -- nested `ite`; refused for now (sound — a concrete Integer goes through `sConst`).
+        | _ => none
     | _ + 1, _, _, _ => none
   termination_by n _ v _ => (n, sizeOf v)
 end
