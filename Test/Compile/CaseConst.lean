@@ -58,3 +58,27 @@ def main : IO Unit := do
     match symEval 20 [] t with
     | some _ => IO.println s!"  {nm}: handled ✅"
     | none => IO.println s!"  {nm}: REFUSE"
+  -- symbolic Integer scrutinee: case x [10,20,30] — defined exactly on 0 ≤ x < 3
+  IO.println "=== Case on a symbolic Integer scrutinee ==="
+  let ti : Term := .Case (.Var 1) [intT 10, intT 20, intT 30]
+  match symEval 15 symX ti with
+  | none => IO.println "  REFUSE"
+  | some o =>
+    match exprOf o.value with
+    | some ev =>
+      let inrange := ([0,1,2,3] : List Int).map (fun n =>
+        s!"{n}:{repr (evalSmt (modelI n) ev)}")
+      IO.println s!"  case x [10,20,30] values @x=0..3: {inrange}  (x=3 out of range ⇒ defined false)"
+    | none => pure ()
+  -- symbolic builtin-List scrutinee (via unListData): cons head / nil
+  IO.println "=== Case on a symbolic builtin List (unListData d) ==="
+  let symD : SymEnv := [.sCon (.var "d" .data)]
+  let tl : Term := .Case (.Apply (.Builtin .UnListData) (.Var 1))
+    [.Lam 0 (.Lam 0 (.Apply (.Builtin .UnIData) (.Var 2))), intT 99]
+  let replayD (d : Moist.Plutus.Data) : Option Int :=
+    match bigEval 20 (.cons (.VCon (.Data d)) .nil) tl with
+    | some (.VCon (.Integer n)) => some n | _ => none
+  match symEval 20 symD tl with
+  | none => IO.println "  REFUSE"
+  | some _ =>
+    IO.println s!"  compiles ✅;  bigEval [] ⇒ {repr (replayD (.List []))} (nil⇒99),  [I 7] ⇒ {repr (replayD (.List [.I 7]))} (cons⇒head)"

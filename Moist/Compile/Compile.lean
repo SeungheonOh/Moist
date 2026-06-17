@@ -245,11 +245,47 @@ mutual
             if alts.length > 2 then none
             else combineIte e (match alts[1]? with | some a => symEval n ρ a | none => none)
                               (match alts[0]? with | some a => symEval n ρ a | none => none)
-        -- a symbolic *integer* scrutinee (`Case` on a builtin Integer) would need an n-ary
-        -- nested `ite`; refused for now (sound — a concrete Integer goes through `sConst`).
+        | some .int =>
+            -- Integer scrutinee: tag = the value (unbounded), no fields ⇒ nested `ite (e==i) altᵢ …`
+            symCaseInt n ρ e 0 alts
+        | some (.list .data) =>
+            -- builtin list scrutinee: Cons=tag 0 (fields head/tail), Nil=tag 1 (no fields)
+            if alts.length > 2 then none
+            else combineIte (.nullL e)
+                   (match alts[1]? with | some a => symEval n ρ a | none => none)   -- nil ⇒ tag 1
+                   (match alts[0]? with                                              -- cons ⇒ tag 0
+                    | some a =>
+                      match symEval n ρ a with
+                      | some oa =>
+                        match symApplyList n oa.value [.sCon (.headL .data e), .sCon (.tailL e)] with
+                        | some oap => some ⟨oap.value, andE oa.defined oap.defined⟩
+                        | none => none
+                      | none => none
+                    | none => none)
+        | some (.pair _ _) =>
+            -- builtin pair scrutinee: a single ctor (tag 0) with fields fst/snd
+            if alts.length > 1 then none
+            else match alts[0]? with
+                 | some a =>
+                   match symEval n ρ a with
+                   | some oa =>
+                     match symApplyList n oa.value [.sCon (.fstP e), .sCon (.sndP e)] with
+                     | some oap => some ⟨oap.value, andE oa.defined oap.defined⟩
+                     | none => none
+                   | none => none
+                 | none => none
         | _ => none
     | _ + 1, _, _, _ => none
   termination_by n _ v _ => (n, sizeOf v)
+
+  /-- The nested `ite` for a symbolic-integer `Case`: `ite (e == i) altᵢ (… (e == i+1) …)`,
+      bottoming out at the empty alt-list as undefined (an out-of-range / negative tag makes no
+      claim).  Mirrors `bigEval`'s `Integer` dispatch (`alts[n]?`, `n < 0` ⇒ none). -/
+  def symCaseInt : Nat → SymEnv → SmtExpr → Nat → List Term → Option SymOut
+    | _, _, _, _, [] => none
+    | n, ρ, e, i, alt :: rest =>
+        combineIte (.bin .eq e (.litI (Int.ofNat i))) (symEval n ρ alt) (symCaseInt n ρ e (i + 1) rest)
+  termination_by n _ _ _ alts => (n, sizeOf alts)
 end
 
 /-- Extract the top-level **success formula** of a compiled validator whose result is a

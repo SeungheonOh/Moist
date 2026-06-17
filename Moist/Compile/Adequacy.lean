@@ -994,6 +994,42 @@ theorem symConstToTagFields_agree (σ : Model) {c : Const} {tag nc : Nat} {field
         | simp at h)
     | simp at h
 
+/-- `symCaseInt` adequate — **standalone** (not in the mutual block): an induction on the
+    alternative list, taking the `symEval`-adequacy at the (fixed) fuel `f` as a hypothesis
+    `IH`.  The nested `ite (e == i) altᵢ …` selects `alts[m - i]` (when `i ≤ m`), matching
+    `bigEval`'s `alts[m]?` lookup at `i = 0`.  Out-of-range / negative `m` ⇒ undefined. -/
+theorem symCaseInt_adequate (σ : Model) {f : Nat}
+    (IH : ∀ {ρ : SymEnv} {t : Term} {o : SymOut},
+      symEval f ρ t = some o → evalSmt σ o.defined = .B true →
+      bigEval f (γE σ ρ) t = some (γ σ o.value)) :
+    ∀ {ρ : SymEnv} {e : SmtExpr} {i : Nat} {alts : List Term} {oc : SymOut} {m : Int},
+      symCaseInt f ρ e i alts = some oc → evalSmt σ oc.defined = .B true → evalSmt σ e = .I m →
+      (↑i ≤ m) ∧ ∃ alt, alts[(m - ↑i).toNat]? = some alt ∧
+        bigEval f (γE σ ρ) alt = some (γ σ oc.value) := by
+  intro ρ e i alts
+  induction alts generalizing i with
+  | nil => intro oc m h _ _; simp [symCaseInt] at h
+  | cons alt rest ih =>
+    intro oc m h hd hem
+    simp only [symCaseInt] at h
+    have hc : evalSmt σ (.bin .eq e (.litI (Int.ofNat i))) = .B (m == (i : Int)) := by
+      simp [evalSmt_bin, evalSmt_litI, hem, evalBin]
+    obtain ⟨hst, hsf⟩ := combineIte_select σ h hc hd
+    by_cases hmi : m = (i : Int)
+    · -- m = i ⇒ take this head alternative
+      obtain ⟨a, haa, had, hav⟩ := hst (by simp [hmi])
+      refine ⟨by omega, alt, ?_, ?_⟩
+      · have : (m - ↑i).toNat = 0 := by omega
+        simp [this]
+      · rw [hav]; exact IH haa had
+    · -- m ≠ i ⇒ recurse into `rest` at `i+1`
+      obtain ⟨bb, hbb, hbd, hbv⟩ := hsf (by simp [hmi])
+      obtain ⟨hle', alt', hat', hbe'⟩ := ih hbb hbd hem
+      refine ⟨by omega, alt', ?_, ?_⟩
+      · have hidx : (m - ↑i).toNat = (m - ↑(i+1)).toNat + 1 := by omega
+        rw [hidx, List.getElem?_cons_succ]; exact hat'
+      · rw [hbv]; exact hbe'
+
 /-! ## The core simulation — `symEval` adequate to `bigEval`
 
 The forward/soundness direction, by **fuel induction mirroring `bigEval`'s structure**
@@ -1002,6 +1038,7 @@ The forward/soundness direction, by **fuel induction mirroring `bigEval`'s struc
 `γ`/`evalSmt` commutation (the leaves), the builtin-agreement lemmas (saturation), and
 destructuring the conjoined `defined` guard (`and_true_split`). -/
 
+set_option maxHeartbeats 1000000 in
 mutual
   /-- If `symEval` commits and its definedness holds at `σ`, then `bigEval` on the
       `σ`-concretized environment yields the `σ`-concretized value. -/
@@ -1503,7 +1540,17 @@ mutual
         cases hse : SmtExpr.sortOf e with
         | none => simp [symCase, hse] at h
         | some s => cases s with
-          | int => simp [symCase, hse] at h
+          | int =>
+            -- Integer scrutinee: nested `ite` (`symCaseInt`); `bigEval` looks up `alts[m]`
+            simp only [symCase, hse] at h
+            obtain ⟨m, hm⟩ := evalSmt_int (σ := σ) hse
+            obtain ⟨hle, alt, hat, hbe⟩ :=
+              symCaseInt_adequate σ (fun hh hhd => symEval_adequate σ hh hhd) h hd hm
+            have hγ : γ σ (.sCon e) = CekValue.VCon (.Integer m) := by simp [γ_sCon, hm, svalToConst]
+            rw [hγ] at hscrut
+            have h0m : (0:Int) ≤ m := by omega
+            have hat' : alts[m.toNat]? = some alt := by simpa using hat
+            simp [bigEval, hscrut, constToTagAndFields, h0m, hat', bigEval_mono hbe, applyValList]
           | bool =>
             -- Bool scrutinee: `False`=0/`True`=1 (no fields) ⇒ `combineIte e alt₁ alt₀`
             simp only [symCase, hse] at h
@@ -1533,8 +1580,88 @@ mutual
                     bigEval_mono (symEval_adequate σ haa had), applyValList] <;> omega
           | data => simp [symCase, hse] at h
           | bytes => simp [symCase, hse] at h
-          | list _ => simp [symCase, hse] at h
-          | pair _ _ => simp [symCase, hse] at h
+          | list selt => cases selt with
+            | data =>
+              -- builtin list scrutinee: Cons=tag 0 (head/tail fields) / Nil=tag 1, via `nullL`
+              simp only [symCase, hse] at h
+              obtain ⟨ds, hds⟩ := evalSmt_list_data (σ := σ) hse
+              have hγ : γ σ (.sCon e) = CekValue.VCon (.ConstDataList ds) := by
+                simp [γ_sCon, hds, svalToConst_L_data]
+              rw [hγ] at hscrut
+              by_cases hlen : alts.length > 2
+              · rw [if_pos hlen] at h; simp at h
+              · rw [if_neg hlen] at h
+                have hnull : evalSmt σ (.nullL e) = .B ds.isEmpty := by
+                  simp [evalSmt_nullL, hds]
+                obtain ⟨hst, hsf⟩ := combineIte_select σ h hnull hd
+                cases ds with
+                | nil =>
+                  -- empty ⇒ `nullL = true` ⇒ Nil ⇒ tag 1 ⇒ `alts[1]`
+                  obtain ⟨bb, hbb, hbd, hbv⟩ := hst (by simp)
+                  cases ha1 : alts[1]? with
+                  | none => simp [ha1] at hbb
+                  | some a1 =>
+                    simp only [ha1] at hbb
+                    rw [hbv]
+                    simp [bigEval, hscrut, constToTagAndFields, ha1, hlen,
+                      bigEval_mono (symEval_adequate σ hbb hbd), applyValList]
+                | cons d t =>
+                  -- non-empty ⇒ Cons ⇒ tag 0 ⇒ `alts[0]` applied to `[head, tail]`
+                  obtain ⟨bb, hbb, hbd, hbv⟩ := hsf (by simp)
+                  cases ha0 : alts[0]? with
+                  | none => simp [ha0] at hbb
+                  | some a0 =>
+                    simp only [ha0] at hbb
+                    cases hoa : symEval f ρ a0 with
+                    | none => simp [hoa] at hbb
+                    | some oa =>
+                      simp only [hoa] at hbb
+                      cases hap : symApplyList f oa.value
+                          [.sCon (.headL .data e), .sCon (.tailL e)] with
+                      | none => simp [hap] at hbb
+                      | some oap =>
+                        simp only [hap, Option.some.injEq] at hbb; subst hbb
+                        obtain ⟨hdoa, hdap⟩ := and_true_split σ hbd
+                        rw [hbv]
+                        have hfields : γL σ [SymVal.sCon (.headL .data e), SymVal.sCon (.tailL e)]
+                            = [CekValue.VCon (.Data d), CekValue.VCon (.ConstDataList t)] := by
+                          simp [γL_cons, γL_nil, γ_sCon, evalSmt_headL, evalSmt_tailL, hds,
+                            svalToConst, svalToConst_L_data]
+                        have key := applyValList_mono (symApplyList_adequate σ hap hdap)
+                        rw [hfields] at key
+                        simp [bigEval, hscrut, constToTagAndFields, ha0, hlen,
+                          bigEval_mono (symEval_adequate σ hoa hdoa), key, hbv]
+            | int | bool | bytes | list _ | pair _ _ => simp [symCase, hse] at h
+          | pair s1 s2 =>
+            -- builtin pair scrutinee: a single ctor (tag 0) with fields fst/snd
+            simp only [symCase, hse] at h
+            obtain ⟨x, y, hxy⟩ := evalSmt_pair (σ := σ) hse
+            have hγ : γ σ (.sCon e) = CekValue.VCon (.Pair (svalToConst x, svalToConst y)) := by
+              simp [γ_sCon, hxy, svalToConst]
+            rw [hγ] at hscrut
+            by_cases hlen : alts.length > 1
+            · rw [if_pos hlen] at h; simp at h
+            · rw [if_neg hlen] at h
+              cases ha0 : alts[0]? with
+              | none => simp [ha0] at h
+              | some a0 =>
+                simp only [ha0] at h
+                cases hoa : symEval f ρ a0 with
+                | none => simp [hoa] at h
+                | some oa =>
+                  simp only [hoa] at h
+                  cases hap : symApplyList f oa.value [.sCon (.fstP e), .sCon (.sndP e)] with
+                  | none => simp [hap] at h
+                  | some oap =>
+                    simp only [hap, Option.some.injEq] at h; subst h
+                    obtain ⟨hdoa, hdap⟩ := and_true_split σ hd
+                    have hfields : γL σ [SymVal.sCon (.fstP e), SymVal.sCon (.sndP e)]
+                        = [CekValue.VCon (svalToConst x), CekValue.VCon (svalToConst y)] := by
+                      simp [γL_cons, γL_nil, γ_sCon, evalSmt_fstP, evalSmt_sndP, hxy]
+                    have key := applyValList_mono (symApplyList_adequate σ hap hdap)
+                    rw [hfields] at key
+                    simp [bigEval, hscrut, constToTagAndFields, ha0, hlen,
+                      bigEval_mono (symEval_adequate σ hoa hdoa), key]
     | _ + 1, _, .sLam _ _, _, _, _, h, _, _ => by simp [symCase] at h
     | _ + 1, _, .sDelay _ _, _, _, _, h, _, _ => by simp [symCase] at h
     | _ + 1, _, .sBuiltin _ _ _, _, _, _, h, _, _ => by simp [symCase] at h
