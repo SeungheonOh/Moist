@@ -166,6 +166,7 @@ def evalSmt (σ : Model) : SmtExpr → SVal
   | .var _ s@(.pair _ _) => defaultSVal s
   | .litI n  => .I n
   | .litB b  => .B b
+  | .litBS b => .BS b
   | .neg e   => match evalSmt σ e with | .I n => .I (-n) | _ => .bad
   | .not e   => match evalSmt σ e with | .B b => .B (!b) | _ => .bad
   | .bin op a b => evalBin op (evalSmt σ a) (evalSmt σ b)
@@ -355,6 +356,8 @@ theorem evalSmt_hasSort (σ : Model) : ∀ {e : SmtExpr} {s : SmtSort},
               simp [evalSmt, HasSort]
   | litB b => intro s h; simp only [SmtExpr.sortOf, Option.some.injEq] at h; subst h
               simp [evalSmt, HasSort]
+  | litBS b => intro s h; simp only [SmtExpr.sortOf, Option.some.injEq] at h; subst h
+               simp [evalSmt, HasSort]
   | neg e ihe =>
     intro s h; simp only [SmtExpr.sortOf] at h
     cases hse : SmtExpr.sortOf e with

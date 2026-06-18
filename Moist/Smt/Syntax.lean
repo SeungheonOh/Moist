@@ -1,3 +1,5 @@
+import Moist.Plutus.Types
+
 /-! # Deep-embedded SMT-LIB expression syntax (`SmtExpr`)
 
 The target of the UPLC→SMT denotational compiler.  This is a *deep* embedding: an
@@ -106,6 +108,7 @@ inductive SmtExpr
   | var  : String → SmtSort → SmtExpr          -- a free SMT variable (a symbolic input)
   | litI : Int → SmtExpr
   | litB : Bool → SmtExpr
+  | litBS : Moist.Plutus.ByteString → SmtExpr   -- bytes-sort literal
   | neg  : SmtExpr → SmtExpr                    -- integer negation
   | not  : SmtExpr → SmtExpr                    -- boolean negation
   | bin  : BinOp → SmtExpr → SmtExpr → SmtExpr
@@ -180,6 +183,7 @@ def sortOf : SmtExpr → Option SmtSort
   | .var _ s => some s
   | .litI _  => some .int
   | .litB _  => some .bool
+  | .litBS _ => some .bytes
   | .neg e   => match sortOf e with | some .int => some .int | _ => none
   | .not e   => match sortOf e with | some .bool => some .bool | _ => none
   | .bin op a b =>

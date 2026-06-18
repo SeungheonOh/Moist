@@ -73,11 +73,20 @@ private def blsBinName : BlsBinOp → String
   | .finalVerify => "moist_bls_finalVerify"
   | .g1ScalarMul => "moist_bls_g1_scalarMul" | .g2ScalarMul => "moist_bls_g2_scalarMul"
 
+/-- A byte (0–255) as exactly two lowercase hex digits. -/
+private def toHexByte (n : Nat) : String :=
+  let d : Nat → Char := fun k =>
+    if k < 10 then Char.ofNat (k + 48) else Char.ofNat (k - 10 + 97)
+  String.mk [d (n / 16 % 16), d (n % 16)]
+
 /-- Render an `SmtExpr` as an SMT-LIB s-expression. -/
 def sexpr : SmtExpr → String
   | .var x _ => x
   | .litI n => if n < 0 then s!"(- {-n})" else toString n
   | .litB b => if b then "true" else "false"
+  -- a `ByteString` literal as an SMT-LIB string: each byte `c` as the escape `\u{HH}`
+  -- (injective code-point map, no quoting hazards), matching the `bytes = String` model.
+  | .litBS b => "\"" ++ b.data.foldl (fun s c => s ++ "\\u{" ++ toHexByte c.toNat ++ "}") "" ++ "\""
   | .neg e => s!"(- {sexpr e})"
   | .not e => s!"(not {sexpr e})"
   | .bin op a b => s!"({binHead op} {sexpr a} {sexpr b})"
@@ -107,7 +116,7 @@ where
   go (e : SmtExpr) (acc : List (String × SmtSort)) : List (String × SmtSort) :=
     match e with
     | .var x s => if acc.any (·.1 == x) then acc else (x, s) :: acc
-    | .litI _ | .litB _ | .nilL _ => acc
+    | .litI _ | .litB _ | .litBS _ | .nilL _ => acc
     | .neg a | .not a | .uop _ a | .fstP a | .sndP a | .headL _ a | .tailL a | .nullL a => go a acc
     | .bin _ a b | .mkpair a b | .consL a b | .blsBin _ a b | .mkConstrD a b => go b (go a acc)
     | .ite a b c | .verifySig _ a b c => go c (go b (go a acc))

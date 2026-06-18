@@ -152,12 +152,6 @@ theorem γ_constToSmt (σ : Model) : ∀ {c : Const} {e : SmtExpr},
     | (injection h with h; subst h; simp [γ, evalSmt, svalToConst])
     | exact absurd h (by simp)
 
-/-- **Any** constant concretizes back to itself (integers/booleans via `sCon`, every other
-    type via `sConst`). -/
-theorem γ_constToSym (σ : Model) (c : Const) : γ σ (constToSym c) = .VCon c := by
-  cases hc : constToSmt c with
-  | none => simp only [constToSym, hc, γ_sConst]
-  | some e => simp only [constToSym, hc]; exact γ_constToSmt σ hc
 
 /-- A true conjunction has both conjuncts true — **no well-sortedness needed**, because
     `evalBin .and_ x y = .B true` is possible only when `x = .B true` and `y = .B true`. -/
@@ -411,6 +405,58 @@ theorem map_dataOfSVal_map_D (ds : List Plutus.Data) : (ds.map SVal.D).map dataO
   | nil => rfl
   | cons d ds ih => simp [List.map_cons, dataOfSVal, ih]
 
+/-- `pairOfSVal` recovers a `Data × Data` from the `P (D ·) (D ·)` injection. -/
+theorem map_pairOfSVal_map (ps : List (Plutus.Data × Plutus.Data)) :
+    (ps.map (fun p => SVal.P (.D p.1) (.D p.2))).map pairOfSVal = ps := by
+  induction ps with
+  | nil => rfl
+  | cons p ps ih => cases p; simp [List.map_cons, pairOfSVal, ih]
+
+@[simp] theorem evalSmt_litBS (σ : Model) (b : Plutus.ByteString) : evalSmt σ (.litBS b) = .BS b := rfl
+
+/-- `consL` of a `data` head and a (`ds.map .D`) tail evaluates to `(d :: ds).map .D`. -/
+theorem evalSmt_consL_data {σ : Model} {hd tl : SmtExpr} {d : Plutus.Data} {ds : List Plutus.Data}
+    (hh : evalSmt σ hd = .D d) (ht : evalSmt σ tl = .L (ds.map .D)) :
+    evalSmt σ (.consL hd tl) = .L ((d :: ds).map .D) := by
+  show (match evalSmt σ tl with | SVal.L xs => SVal.L (evalSmt σ hd :: xs) | _ => SVal.bad) = _
+  rw [ht, hh]; simp [List.map_cons]
+
+mutual
+/-- **`dataToExpr` round-trips**: the SMT `Data` term built from a concrete `Data` denotes that
+    `Data` at every model.  This is what makes `con data …` literals lift to a first-order `sCon`
+    with the right concretization (`γ (sCon (dataToExpr d)) = VCon (.Data d)`). -/
+theorem evalSmt_dataToExpr (σ : Model) : ∀ d : Plutus.Data, evalSmt σ (dataToExpr d) = .D d
+  | .I _ => rfl
+  | .B _ => rfl
+  | .Constr t f => by
+      simp only [dataToExpr, evalSmt_mkConstrD, evalSmt_litI, evalSmt_dataListToExpr σ f,
+        map_dataOfSVal_map_D]
+  | .List ds => by
+      simp only [dataToExpr, evalSmt_uop, evalSmt_dataListToExpr σ ds, evalUop,
+        map_dataOfSVal_map_D]
+  | .Map ps => by
+      simp only [dataToExpr, evalSmt_uop, evalSmt_dataPairListToExpr σ ps, evalUop,
+        map_pairOfSVal_map ps]
+theorem evalSmt_dataListToExpr (σ : Model) : ∀ ds : List Plutus.Data,
+    evalSmt σ (dataListToExpr ds) = .L (ds.map .D)
+  | [] => rfl
+  | d :: ds => by
+      simp only [dataListToExpr, List.map_cons]
+      show (match evalSmt σ (dataListToExpr ds) with
+            | .L xs => SVal.L (evalSmt σ (dataToExpr d) :: xs) | _ => .bad) = _
+      rw [evalSmt_dataListToExpr σ ds, evalSmt_dataToExpr σ d]
+theorem evalSmt_dataPairListToExpr (σ : Model) : ∀ ps : List (Plutus.Data × Plutus.Data),
+    evalSmt σ (dataPairListToExpr ps) = .L (ps.map (fun p => .P (.D p.1) (.D p.2)))
+  | [] => rfl
+  | (a, b) :: ps => by
+      simp only [dataPairListToExpr, List.map_cons]
+      show (match evalSmt σ (dataPairListToExpr ps) with
+            | .L xs => SVal.L (evalSmt σ (.mkpair (dataToExpr a) (dataToExpr b)) :: xs)
+            | _ => .bad) = _
+      rw [evalSmt_dataPairListToExpr σ ps]
+      simp only [evalSmt_mkpair, evalSmt_dataToExpr σ a, evalSmt_dataToExpr σ b]
+end
+
 /-- Conditional reductions (reliable `rw`, avoiding fragile match-RHS simp lemmas). -/
 theorem evalSmt_fstP_of {σ : Model} {e : SmtExpr} {x y : SVal} (h : evalSmt σ e = .P x y) :
     evalSmt σ (.fstP e) = x := by show (match evalSmt σ e with | .P x _ => x | _ => .bad) = x; rw [h]
@@ -456,6 +502,18 @@ theorem svalToConst_L_data (ds : List Moist.Plutus.Data) :
     svalToConst (.L (ds.map .D)) = .ConstDataList ds := by
   simp only [svalToConst, mapM_svalToData_map_D]
 
+/-- **Any** constant concretizes back to itself (integers/booleans/bytes/Data via `sCon`,
+    every other type via `sConst`). -/
+theorem γ_constToSym (σ : Model) (c : Const) : γ σ (constToSym c) = .VCon c := by
+  cases c with
+  | Integer n => simp [constToSym, γ_sCon, evalSmt, svalToConst]
+  | Bool b => simp [constToSym, γ_sCon, evalSmt, svalToConst]
+  | ByteString b => simp only [constToSym, γ_sCon, evalSmt_litBS, svalToConst]
+  | Data d => simp only [constToSym, γ_sCon, evalSmt_dataToExpr σ d, svalToConst]
+  | ConstDataList ds =>
+    simp only [constToSym, γ_sCon, evalSmt_dataListToExpr σ ds, svalToConst_L_data]
+  | _ => simp only [constToSym, γ_sConst]
+
 /-- A true `isConstr` guard means the `Data` is a `Constr`. -/
 theorem isConstr_true {σ : Model} {e : SmtExpr} {d : Plutus.Data} (hde : evalSmt σ e = .D d)
     (hd : evalSmt σ (.uop .isConstr e) = .B true) : ∃ tag flds, d = .Constr tag flds := by
@@ -500,12 +558,6 @@ theorem consDataOp_some {hd tl v g : SmtExpr} (h : consDataOp hd tl = some (v, g
     exact ⟨h.1.symm, h.2.symm, hs.1, hs.2⟩
   · exact absurd h (by simp)
 
-/-- `consL` of a `data` head and a (`ds.map .D`) tail evaluates to `(d :: ds).map .D`. -/
-theorem evalSmt_consL_data {σ : Model} {hd tl : SmtExpr} {d : Plutus.Data} {ds : List Plutus.Data}
-    (hh : evalSmt σ hd = .D d) (ht : evalSmt σ tl = .L (ds.map .D)) :
-    evalSmt σ (.consL hd tl) = .L ((d :: ds).map .D) := by
-  show (match evalSmt σ tl with | SVal.L xs => SVal.L (evalSmt σ hd :: xs) | _ => SVal.bad) = _
-  rw [ht, hh]; simp [List.map_cons]
 
 /-- Structure of a successful `pairProj`. -/
 theorem pairProj_some {mk : SmtExpr → SmtExpr} {e v g : SmtExpr} (h : pairProj mk e = some (v, g)) :
@@ -938,6 +990,7 @@ theorem γL_symConcrete (σ : Model) : ∀ {args : List SymVal} {cs : List Const
         | some cs' =>
           simp only [hr, Option.map_some, Option.some.injEq] at h; subst h
           simp only [γL_cons, γ_sCon, evalSmt, svalToConst, List.map_cons, ih hr]
+      | litBS _ => simp [symConcrete] at h
       | var _ _ => simp [symConcrete] at h
       | neg _ => simp [symConcrete] at h
       | not _ => simp [symConcrete] at h

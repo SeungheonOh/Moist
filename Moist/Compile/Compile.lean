@@ -40,14 +40,42 @@ def constToSmt : Const → Option SmtExpr
   | .Bool b    => some (.litB b)
   | _          => none
 
-/-- Translate *any* UPLC constant to a symbolic value: `Integer`/`Bool` become arithmetic-
-    capable `sCon` literals; all other constant types (`ByteString`, `Data`, `Unit`, lists,
-    pairs, …) are carried concretely as `sConst`.  So `symEval` accepts every constant the
-    CEK does.  `γ σ (constToSym c) = VCon c` in all cases. -/
+mutual
+  /-- Translate a concrete `Plutus.Data` into the SMT `Data` term that denotes it — the
+      *constructor* counterpart of `unConstrData`/`dArgs`/… so that a `con data …` literal
+      becomes a first-order `sCon` that composes with the symbolic builtins (rather than an
+      opaque `sConst`).  `I`/`B` inject via `iData`/`bData` (the `B` leaf via the `litBS`
+      bytes literal); `Constr`/`List`/`Map` recurse through `mkConstrD`/`mkDList`/`mkMap`
+      over lists built with `consL`/`nilL`. -/
+  def dataToExpr : Moist.Plutus.Data → SmtExpr
+    | .I n        => .uop .iData (.litI n)
+    | .B b        => .uop .bData (.litBS b)
+    | .Constr t f => .mkConstrD (.litI t) (dataListToExpr f)
+    | .List ds    => .uop .mkDList (dataListToExpr ds)
+    | .Map ps     => .uop .mkMap (dataPairListToExpr ps)
+  /-- A `List Data` as an SMT `(Lst Data)` term (`lcons …/lnil`). -/
+  def dataListToExpr : List Moist.Plutus.Data → SmtExpr
+    | []      => .nilL .data
+    | d :: ds => .consL (dataToExpr d) (dataListToExpr ds)
+  /-- A `List (Data × Data)` as an SMT `(Lst (Pair Data Data))` term. -/
+  def dataPairListToExpr : List (Moist.Plutus.Data × Moist.Plutus.Data) → SmtExpr
+    | []           => .nilL (.pair .data .data)
+    | (a, b) :: ps => .consL (.mkpair (dataToExpr a) (dataToExpr b)) (dataPairListToExpr ps)
+end
+
+/-- Translate *any* UPLC constant to a symbolic value.  `Integer`/`Bool`/`ByteString` ↦
+    arithmetic / bytes `sCon` literals; `Data`/builtin lists ↦ first-order `sCon` SMT terms
+    (so literals compose with the symbolic builtins — `mkCons (iData x) (con (list data) [])`,
+    `equalsByteString (sha2_256 x) (con bytestring …)` etc.); every other constant type ↦
+    `sConst`.  `γ σ (constToSym c) = VCon c` in all cases. -/
 def constToSym (c : Const) : SymVal :=
-  match constToSmt c with
-  | some e => .sCon e
-  | none   => .sConst c
+  match c with
+  | .Integer n    => .sCon (.litI n)
+  | .Bool b       => .sCon (.litB b)
+  | .ByteString b => .sCon (.litBS b)
+  | .Data d       => .sCon (dataToExpr d)
+  | .ConstDataList ds => .sCon (dataListToExpr ds)
+  | _ => .sConst c
 
 /-- Combine the two forced branches of a deferred `sIte` into an SMT `ite`.  A branch that
     failed (fuel exhausted, or not first-order) makes *that path* undefined — `ite cond … false`
