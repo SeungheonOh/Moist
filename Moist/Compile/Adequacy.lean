@@ -400,6 +400,16 @@ theorem isB_true {σ : Model} {e : SmtExpr} {d : Plutus.Data} (hde : evalSmt σ 
 @[simp] theorem evalSmt_verifySig (σ : Model) (k : VerifyKind) (a b c : SmtExpr) :
     evalSmt σ (.verifySig k a b c) = (match evalSmt σ a, evalSmt σ b, evalSmt σ c with
       | .BS pk, .BS msg, .BS sig => .B (verifyFn k pk msg sig) | _, _, _ => .bad) := rfl
+@[simp] theorem evalSmt_mkConstrD (σ : Model) (t f : SmtExpr) :
+    evalSmt σ (.mkConstrD t f) = (match evalSmt σ t, evalSmt σ f with
+      | .I tg, .L xs => .D (.Constr tg (xs.map dataOfSVal)) | _, _ => .bad) := rfl
+
+/-- Recovering the original `Data` list after injecting through `.D` and projecting via
+    `dataOfSVal` — both `mkConstr`/`listData`'s fields and `unListData`'s items round-trip. -/
+theorem map_dataOfSVal_map_D (ds : List Plutus.Data) : (ds.map SVal.D).map dataOfSVal = ds := by
+  induction ds with
+  | nil => rfl
+  | cons d ds ih => simp [List.map_cons, dataOfSVal, ih]
 
 /-- Conditional reductions (reliable `rw`, avoiding fragile match-RHS simp lemmas). -/
 theorem evalSmt_fstP_of {σ : Model} {e : SmtExpr} {x y : SVal} (h : evalSmt σ e = .P x y) :
@@ -472,6 +482,31 @@ theorem unConstrOp_some {e v g : SmtExpr} (h : unConstrOp e = some (v, g)) :
   · rename_i hs; simp only [Option.some.injEq, Prod.mk.injEq] at h; exact ⟨h.1.symm, h.2.symm, hs⟩
   · exact absurd h (by simp)
 
+/-- Structure of a successful `constrDataOp`. -/
+theorem constrDataOp_some {tag fields v g : SmtExpr} (h : constrDataOp tag fields = some (v, g)) :
+    v = .mkConstrD tag fields ∧ g = .trueE ∧ SmtExpr.sortOf tag = some .int ∧
+      SmtExpr.sortOf fields = some (.list .data) := by
+  unfold constrDataOp at h; split at h
+  · rename_i hs1 hs2; simp only [Option.some.injEq, Prod.mk.injEq] at h
+    exact ⟨h.1.symm, h.2.symm, hs1, hs2⟩
+  · simp at h
+
+/-- Structure of a successful `consDataOp`. -/
+theorem consDataOp_some {hd tl v g : SmtExpr} (h : consDataOp hd tl = some (v, g)) :
+    v = .consL hd tl ∧ g = .trueE ∧ SmtExpr.sortOf hd = some .data ∧
+      SmtExpr.sortOf tl = some (.list .data) := by
+  unfold consDataOp at h; split at h
+  · rename_i hs; simp only [Option.some.injEq, Prod.mk.injEq] at h
+    exact ⟨h.1.symm, h.2.symm, hs.1, hs.2⟩
+  · exact absurd h (by simp)
+
+/-- `consL` of a `data` head and a (`ds.map .D`) tail evaluates to `(d :: ds).map .D`. -/
+theorem evalSmt_consL_data {σ : Model} {hd tl : SmtExpr} {d : Plutus.Data} {ds : List Plutus.Data}
+    (hh : evalSmt σ hd = .D d) (ht : evalSmt σ tl = .L (ds.map .D)) :
+    evalSmt σ (.consL hd tl) = .L ((d :: ds).map .D) := by
+  show (match evalSmt σ tl with | SVal.L xs => SVal.L (evalSmt σ hd :: xs) | _ => SVal.bad) = _
+  rw [ht, hh]; simp [List.map_cons]
+
 /-- Structure of a successful `pairProj`. -/
 theorem pairProj_some {mk : SmtExpr → SmtExpr} {e v g : SmtExpr} (h : pairProj mk e = some (v, g)) :
     v = mk e ∧ g = .trueE ∧ ∃ sa sb, SmtExpr.sortOf e = some (.pair sa sb) := by
@@ -502,6 +537,31 @@ theorem evalBuiltin_unConstrData (tag : Int) (flds : List Plutus.Data) :
 theorem evalBuiltin_unListData (ds : List Plutus.Data) :
     evalBuiltin .UnListData [.VCon (.Data (.List ds))] = some (.VCon (.ConstDataList ds)) := by
   have := evalBuiltin_concrete (b := .UnListData) (by decide) [.Data (.List ds)]; simpa using this
+@[simp] theorem evalSmt_nilL (σ : Model) (s : SmtSort) : evalSmt σ (.nilL s) = .L [] := rfl
+theorem svalToConst_L_nil : svalToConst (.L []) = .ConstDataList [] := rfl
+theorem evalBuiltin_mkNilData :
+    evalBuiltin .MkNilData [.VCon .Unit] = some (.VCon (.ConstDataList [])) := by
+  have := evalBuiltin_concrete (b := .MkNilData) (by decide) [.Unit]; simpa using this
+
+/-- Data CONSTRUCTOR denotations (axiom-free via `evalBuiltin_concrete`; not pass-through). -/
+theorem evalBuiltin_listData (ds : List Plutus.Data) :
+    evalBuiltin .ListData [.VCon (.ConstDataList ds)] = some (.VCon (.Data (.List ds))) := by
+  have := evalBuiltin_concrete (b := .ListData) (by decide) [.ConstDataList ds]; simpa using this
+theorem evalBuiltin_constrData (tag : Int) (fields : List Plutus.Data) :
+    evalBuiltin .ConstrData [.VCon (.ConstDataList fields), .VCon (.Integer tag)]
+      = some (.VCon (.Data (.Constr tag fields))) := by
+  have := evalBuiltin_concrete (b := .ConstrData) (by decide) [.ConstDataList fields, .Integer tag]
+  simpa using this
+/-- `mkCons` (a *pass-through* builtin) on a `ConstDataList`: `evalBuiltinPassThrough` only
+    matches `ConstList`, so it falls through to `evalBuiltinConst`.  Proven directly. -/
+theorem evalBuiltin_mkConsData (hd : Plutus.Data) (tl : List Plutus.Data) :
+    evalBuiltin .MkCons [.VCon (.ConstDataList tl), .VCon (.Data hd)]
+      = some (.VCon (.ConstDataList (hd :: tl))) := by
+  have hpt : evalBuiltinPassThrough .MkCons
+      [CekValue.VCon (.ConstDataList tl), .VCon (.Data hd)] = none := rfl
+  show evalBuiltin .MkCons ([Const.ConstDataList tl, Const.Data hd].map CekValue.VCon) = _
+  simp only [evalBuiltin, hpt, extractConsts_map_VCon]
+  rfl
 theorem evalBuiltin_fstPair (c1 c2 : Const) :
     evalBuiltin .FstPair [.VCon (.Pair (c1, c2))] = some (.VCon c1) := by
   have := evalBuiltin_concrete (b := .FstPair) (by decide) [.Pair (c1, c2)]; simpa using this
@@ -588,6 +648,14 @@ theorem smtBuiltin_adequate (σ : Model) {b : BuiltinFun} {exprs : List SmtExpr}
            rw [show ([ey].map fun e => γ σ (.sCon e)) = [γ σ (.sCon ey)] from rfl,
                γ_sCon_D hde, evalBuiltin_unListData]
            simp only [γ_sCon, evalSmt_uop, hde, evalUop, svalToConst_L_data])
+        | -- ListData : list data → Data (CONSTRUCT)
+          (obtain ⟨hv, _, hse⟩ := uOp_some h; subst hv
+           obtain ⟨ds, hds⟩ := evalSmt_list_data (σ := σ) hse
+           have hLHS : γ σ (.sCon ey) = CekValue.VCon (.ConstDataList ds) := by
+             rw [γ_sCon, hds, svalToConst_L_data]
+           rw [show ([ey].map fun e => γ σ (.sCon e)) = [γ σ (.sCon ey)] from rfl,
+               hLHS, evalBuiltin_listData]
+           simp only [γ_sCon, evalSmt_uop, hds, evalUop, map_dataOfSVal_map_D, svalToConst])
         | -- FstPair : pair a b → a
           (obtain ⟨hv, _, sa, sb, hse⟩ := pairProj_some h; subst hv
            obtain ⟨x, y, hxy⟩ := evalSmt_pair (σ := σ) hse
@@ -688,6 +756,26 @@ theorem smtBuiltin_adequate (σ : Model) {b : BuiltinFun} {exprs : List SmtExpr}
              rw [show ([ey, ex].map fun e => γ σ (.sCon e)) = [γ σ (.sCon ey), γ σ (.sCon ex)] from rfl,
                  γ_sCon_BS hY, γ_sCon_BS hX, evalBuiltin_equalsByteString]
              simp only [γ_sCon, evalSmt_bin, hX, hY, evalBin, svalToConst])
+          | -- ConstrData : int tag × list-data fields → Data (CONSTRUCT, symbolic on both)
+            (obtain ⟨hv, _, hsx, hsy⟩ := constrDataOp_some h
+             obtain ⟨t, hX⟩ := evalSmt_int hsx
+             obtain ⟨ds, hY⟩ := evalSmt_list_data (σ := σ) hsy
+             subst hv
+             have hLy : γ σ (.sCon ey) = CekValue.VCon (.ConstDataList ds) := by
+               rw [γ_sCon, hY, svalToConst_L_data]
+             rw [show ([ey, ex].map fun e => γ σ (.sCon e)) = [γ σ (.sCon ey), γ σ (.sCon ex)] from rfl,
+                 hLy, γ_sCon_I hX, evalBuiltin_constrData]
+             simp only [γ_sCon, evalSmt_mkConstrD, hX, hY, map_dataOfSVal_map_D, svalToConst])
+          | -- MkCons : data head × list-data tail → list data (CONSTRUCT)
+            (obtain ⟨hv, _, hsx, hsy⟩ := consDataOp_some h
+             obtain ⟨dh, hX⟩ := evalSmt_data hsx
+             obtain ⟨ds, hY⟩ := evalSmt_list_data (σ := σ) hsy
+             subst hv
+             have hLy : γ σ (.sCon ey) = CekValue.VCon (.ConstDataList ds) := by
+               rw [γ_sCon, hY, svalToConst_L_data]
+             rw [show ([ey, ex].map fun e => γ σ (.sCon e)) = [γ σ (.sCon ey), γ σ (.sCon ex)] from rfl,
+                 hLy, γ_sCon_D hX, evalBuiltin_mkConsData, γ_sCon,
+                 evalSmt_consL_data hX hY, svalToConst_L_data])
           | -- BLS bytes×bytes ops (add / mulMlResult / hashToGroup / millerLoop / equal / finalVerify)
             (obtain ⟨hv, _, hsx, hsy⟩ := blsBinOp_some h
              simp only [BlsBinOp.operandSorts] at hsx hsy
@@ -807,6 +895,16 @@ theorem symBuiltinPassThrough_adequate (σ : Model) {b : BuiltinFun} {args : Lis
         (simp only [Option.some.injEq] at h; subst h
          simp [γL_cons, γL_nil, γ_sCon, svalToConst, evalSmt_litB, evalBuiltin_ifThenElse])
 
+/-- `symNil` (the `mkNilData ()` stage) is adequate: a `MkNilData ()` commits to the symbolic
+    empty `list data`, whose concretization is the CEK's `ConstDataList []`. -/
+theorem symNil_adequate (σ : Model) {b : BuiltinFun} {args : List SymVal} {o : SymOut}
+    (h : symNil b args = some o) : evalBuiltin b (γL σ args) = some (γ σ o.value) := by
+  unfold symNil at h; split at h
+  · simp only [Option.some.injEq] at h; subst h
+    simp only [γL_cons, γL_nil, γ_sConst, γ_sCon, evalSmt_nilL, svalToConst_L_nil,
+      evalBuiltin_mkNilData]
+  · simp at h
+
 /-- Concretization of an all-concrete symbolic argument list is the `VCon`-mapping of the
     extracted constants (at any model). -/
 theorem γL_symConcrete (σ : Model) : ∀ {args : List SymVal} {cs : List Const},
@@ -856,6 +954,7 @@ theorem γL_symConcrete (σ : Model) : ∀ {args : List SymVal} {cs : List Const
       | nullL _ => simp [symConcrete] at h
       | verifySig _ _ _ _ => simp [symConcrete] at h
       | blsBin _ _ _ => simp [symConcrete] at h
+      | mkConstrD _ _ => simp [symConcrete] at h
     | sLam _ _ => simp [symConcrete] at h
     | sDelay _ _ => simp [symConcrete] at h
     | sConstr _ _ => simp [symConcrete] at h
@@ -884,6 +983,12 @@ theorem symEvalBuiltin_adequate (σ : Model) {b : BuiltinFun} {args : List SymVa
     (h : symEvalBuiltin b args = some o) (hd : evalSmt σ o.defined = .B true) :
     evalBuiltin b (γL σ args) = some (γ σ o.value) := by
   unfold symEvalBuiltin at h
+  cases hnil : symNil b args with
+  | some o' =>
+    simp only [hnil, Option.some.injEq] at h; subst h
+    exact symNil_adequate σ hnil
+  | none =>
+  rw [hnil] at h
   cases hpt : symBuiltinPassThrough b args with
   | some o' =>
     simp only [hpt, Option.some.injEq] at h; subst h

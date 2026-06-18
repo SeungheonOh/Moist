@@ -81,6 +81,12 @@ def evalBin : BinOp → SVal → SVal → SVal
   | .or_,  .B a, .B b => .B (a || b)
   | _, _, _ => .bad
 
+/-- Extract a `Data` from an `SVal` (a `D` element of a list being injected back into `Data`);
+    junk `I 0` off-shape (unreachable on well-sorted `list data`). -/
+def dataOfSVal : SVal → Data | .D d => d | _ => .I 0
+/-- Extract a `(Data, Data)` from a `P` of `D`s (a map entry). -/
+def pairOfSVal : SVal → Data × Data | .P (.D a) (.D b) => (a, b) | _ => (.I 0, .I 0)
+
 /-- Meaning of a unary `data`/`bytes` operator.  **Total on well-sorted operands** (it is
     `bad` only when the operand has the wrong base sort): the *partial* projections
     (`unIData`/`unBData`/`constrTag`) return a junk value *of the right sort* when the `Data`
@@ -105,6 +111,9 @@ def evalUop : UnOp → SVal → SVal
   | .dItems,    .D d => match d with | .List ds => .L (ds.map .D) | _ => .L []
   | .dEntries,  .D d => match d with
       | .Map ps => .L (ps.map (fun p => .P (.D p.1) (.D p.2))) | _ => .L []
+  -- structured *constructors*: a list of `Data` ↦ `Data.List`, a list of pairs ↦ `Data.Map`.
+  | .mkDList,   .L xs => .D (.List (xs.map dataOfSVal))
+  | .mkMap,     .L xs => .D (.Map (xs.map pairOfSVal))
   -- cryptographic hashes: the (uninterpreted) axiom applied to the operand bytes
   | .sha2_256,   .BS b => .BS (Moist.Plutus.sha2_256 b)
   | .sha3_256,   .BS b => .BS (Moist.Plutus.sha3_256 b)
@@ -179,6 +188,10 @@ def evalSmt (σ : Model) : SmtExpr → SVal
     | .BS pk, .BS msg, .BS sig => .B (verifyFn k pk msg sig)
     | _, _, _ => .bad
   | .blsBin op a b => evalBlsBin op (evalSmt σ a) (evalSmt σ b)
+  | .mkConstrD t f =>
+    match evalSmt σ t, evalSmt σ f with
+    | .I tg, .L xs => .D (.Constr tg (xs.map dataOfSVal))
+    | _, _ => .bad
 
 /-! ## Unsatisfiability — the Lean meaning of z3's `unsat` -/
 
@@ -291,6 +304,7 @@ theorem evalUop_hasSort {op : UnOp} {v : SVal} (h : HasSort (UnOp.sorts op).1 v)
        | simp [HasSort])
     | (obtain ⟨n, rfl⟩ := hasSort_int h; simp [evalUop, HasSort])
     | (obtain ⟨b, rfl⟩ := hasSort_bytes h; simp [evalUop, HasSort])
+    | (obtain ⟨xs, rfl, _⟩ := hasSort_list h; simp [evalUop, HasSort])  -- mkDList / mkMap
 
 /-- `evalBlsBin` preserves sorts: well-sorted operands land in the op's result sort. -/
 theorem evalBlsBin_hasSort {op : BlsBinOp} {va vb : SVal}
@@ -537,6 +551,24 @@ theorem evalSmt_hasSort (σ : Model) : ∀ {e : SmtExpr} {s : SmtSort},
           simp only [evalSmt]
           exact evalBlsBin_hasSort (iha ha) (ihb hb)
         · simp at h
+  | mkConstrD t f iht ihf =>
+    intro s h; simp only [SmtExpr.sortOf] at h
+    cases ht : SmtExpr.sortOf t with
+    | none => simp only [ht] at h; simp at h
+    | some st => cases st with
+      | int =>
+        cases hf : SmtExpr.sortOf f with
+        | none => simp only [ht, hf] at h; simp at h
+        | some sf => cases sf with
+          | list sel => cases sel with
+            | data =>
+              simp only [ht, hf, Option.some.injEq] at h; subst h
+              obtain ⟨tg, htg⟩ := hasSort_int (iht ht)
+              obtain ⟨xs, hxs, _⟩ := hasSort_list (ihf hf)
+              simp only [evalSmt, htg, hxs, HasSort]
+            | int | bool | bytes | list _ | pair _ _ => simp only [ht, hf] at h; simp at h
+          | int | bool | data | bytes | pair _ _ => simp only [ht, hf] at h; simp at h
+      | bool | data | bytes | list _ | pair _ _ => simp only [ht] at h; simp at h
 
 /-- Specialisation: well-sorted `int` ⇒ evaluates to some integer. -/
 theorem evalSmt_int {σ : Model} {e : SmtExpr} (h : SmtExpr.sortOf e = some .int) :

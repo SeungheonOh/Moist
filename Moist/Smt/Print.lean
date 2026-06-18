@@ -54,6 +54,7 @@ private def uopRender (op : UnOp) (s : String) : String :=
   | .isConstr  => s!"((_ is mkConstr) {s})" | .isList => s!"((_ is mkDList) {s})"
   | .isMap     => s!"((_ is mkMap) {s})"
   | .dArgs     => s!"(cArgs {s})"  | .dItems => s!"(lItems {s})" | .dEntries => s!"(mEntries {s})"
+  | .mkDList   => s!"(mkDList {s})" | .mkMap => s!"(mkMap {s})"
   | .sha2_256  => s!"(moist_sha2_256 {s})"   | .sha3_256 => s!"(moist_sha3_256 {s})"
   | .blake2b_256 => s!"(moist_blake2b_256 {s})" | .blake2b_224 => s!"(moist_blake2b_224 {s})"
   | .keccak_256 => s!"(moist_keccak_256 {s})" | .ripemd_160 => s!"(moist_ripemd_160 {s})"
@@ -97,6 +98,7 @@ def sexpr : SmtExpr → String
   | .blsBin .g1Equal a b | .blsBin .g2Equal a b | .blsBin .finalVerify a b =>
     s!"(= {sexpr a} {sexpr b})"
   | .blsBin op a b => s!"({blsBinName op} {sexpr a} {sexpr b})"
+  | .mkConstrD t f => s!"(mkConstr {sexpr t} {sexpr f})"
 
 /-- Collect the free variables (name × sort), de-duplicated, preserving first-seen order. -/
 def collectVars (e : SmtExpr) : List (String × SmtSort) :=
@@ -107,7 +109,7 @@ where
     | .var x s => if acc.any (·.1 == x) then acc else (x, s) :: acc
     | .litI _ | .litB _ | .nilL _ => acc
     | .neg a | .not a | .uop _ a | .fstP a | .sndP a | .headL _ a | .tailL a | .nullL a => go a acc
-    | .bin _ a b | .mkpair a b | .consL a b | .blsBin _ a b => go b (go a acc)
+    | .bin _ a b | .mkpair a b | .consL a b | .blsBin _ a b | .mkConstrD a b => go b (go a acc)
     | .ite a b c | .verifySig _ a b c => go c (go b (go a acc))
 
 end SmtExpr

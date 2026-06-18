@@ -67,6 +67,9 @@ inductive UnOp
   | dArgs                              -- data → list data        (a `Constr`'s fields)
   | dItems                            -- data → list data        (a `List`'s items; `unListData`)
   | dEntries                          -- data → list (pair data data)  (a `Map`'s entries; `unMapData`)
+  -- structured → Data (the *constructors* — `listData`/`mapData`):
+  | mkDList                            -- list data → data              (a `Data.List`)
+  | mkMap                              -- list (pair data data) → data  (a `Data.Map`)
   -- Cryptographic hashes (bytes → bytes), axiomatized as uninterpreted SMT functions:
   | sha2_256 | sha3_256 | blake2b_256 | blake2b_224 | keccak_256 | ripemd_160
   | serialiseData                      -- data → bytes (CBOR), axiomatized
@@ -119,6 +122,7 @@ inductive SmtExpr
   | nullL  : SmtExpr → SmtExpr                  -- list a → bool
   | verifySig : VerifyKind → SmtExpr → SmtExpr → SmtExpr → SmtExpr  -- bytes×bytes×bytes → bool
   | blsBin : BlsBinOp → SmtExpr → SmtExpr → SmtExpr                 -- BLS binary / mixed op
+  | mkConstrD : SmtExpr → SmtExpr → SmtExpr     -- int × (list data) → data  (`constrData`)
 deriving Repr, DecidableEq, BEq, Inhabited
 
 /-- Result sort of a binary operator given its operand sort (`none` if inapplicable). -/
@@ -141,6 +145,7 @@ def UnOp.sorts : UnOp → SmtSort × SmtSort
   | .isConstr => (.data, .bool) | .isList => (.data, .bool) | .isMap => (.data, .bool)
   | .dArgs => (.data, .list .data) | .dItems => (.data, .list .data)
   | .dEntries => (.data, .list (.pair .data .data))
+  | .mkDList => (.list .data, .data) | .mkMap => (.list (.pair .data .data), .data)
   | .sha2_256 | .sha3_256 | .blake2b_256 | .blake2b_224 | .keccak_256 | .ripemd_160 =>
     (.bytes, .bytes)
   | .serialiseData => (.data, .bytes)
@@ -203,6 +208,10 @@ def sortOf : SmtExpr → Option SmtSort
   | .headL s e => match sortOf e with | some (.list s') => if s = s' then some s else none | _ => none
   | .tailL e => match sortOf e with | some (.list s) => some (.list s) | _ => none
   | .nullL e => match sortOf e with | some (.list _) => some .bool | _ => none
+  | .mkConstrD t f =>
+    match sortOf t, sortOf f with
+    | some .int, some (.list .data) => some .data
+    | _, _ => none
   | .verifySig _ a b c =>
     match sortOf a, sortOf b, sortOf c with
     | some .bytes, some .bytes, some .bytes => some .bool

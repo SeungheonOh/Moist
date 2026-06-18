@@ -91,6 +91,18 @@ def listOpNE (mk : SmtExpr → SmtExpr) (e : SmtExpr) : Option (SmtExpr × SmtEx
 def listOpT (mk : SmtExpr → SmtExpr) (e : SmtExpr) : Option (SmtExpr × SmtExpr) :=
   if SmtExpr.sortOf e = some (.list .data) then some (mk e, .trueE) else none
 
+/-- `constrData`: `tag : int`, `fields : list data` ↦ the `Data` term `mkConstr tag fields`. -/
+def constrDataOp (tag fields : SmtExpr) : Option (SmtExpr × SmtExpr) :=
+  match SmtExpr.sortOf tag, SmtExpr.sortOf fields with
+  | some .int, some (.list .data) => some (.mkConstrD tag fields, .trueE)
+  | _, _ => none
+
+/-- `mkCons h tl`: prepend a `data` head to a `list data` tail (the only element sort the CEK's
+    `ConstDataList` supports) ↦ `consL h tl`. -/
+def consDataOp (h tl : SmtExpr) : Option (SmtExpr × SmtExpr) :=
+  if SmtExpr.sortOf h = some .data ∧ SmtExpr.sortOf tl = some (.list .data)
+  then some (.consL h tl, .trueE) else none
+
 /-- First-order builtin denotation: argument expressions ↦ `(value, definedness-guard)`.
     Reversed-argument convention (`[ey, ex]` = second then first UPLC argument), matching
     `evalBuiltinConst`.  Arity is matched first, then the operator dispatched, so the
@@ -107,6 +119,7 @@ def smtBuiltin (b : BuiltinFun) (args : List SmtExpr) : Option (SmtExpr × SmtEx
     -- Structured Data destructors ⇒ builtin Pair / List (guarded by the constructor tester):
     | .UnConstrData => unConstrOp e                              -- Data → pair int (list data)
     | .UnListData => uOp .dItems (.uop .isList e) .data e        -- Data → list data
+    | .ListData => uOp .mkDList .trueE (.list .data) e           -- list data → Data  (construct)
     -- (UnMapData → list (pair data data) deferred: the empty `Map`/`List` reconstruction is
     --  ambiguous under sort-erased `svalToConst`; the data-list destructors below are exact.)
     -- Pair / List operations (the CEK supports `ConstDataList`, so list ops are on `list data`)
@@ -151,6 +164,10 @@ def smtBuiltin (b : BuiltinFun) (args : List SmtExpr) : Option (SmtExpr × SmtEx
     -- Data / ByteString equality
     | .EqualsData       => sortBin .eq .trueE .data ex ey
     | .EqualsByteString => sortBin .eq .trueE .bytes ex ey
+    -- Data construction: `constrData tag fields` (symbolic on BOTH; reversed args ⇒ ex=tag, ey=fields)
+    | .ConstrData => constrDataOp ex ey
+    -- `mkCons h tl` on a `list data` (reversed ⇒ ex=head, ey=tail)
+    | .MkCons => consDataOp ex ey
     -- BLS12-381 binary (operand1 = ex, operand2 = ey, matching the reversed CEK args)
     | .Bls12_381_G1_add => blsBinOp .g1Add ex ey
     | .Bls12_381_G2_add => blsBinOp .g2Add ex ey
@@ -216,6 +233,14 @@ def symBuiltinPassThrough : BuiltinFun → List SymVal → Option SymOut
     some ⟨.sConst (.ConstList (c :: tl)), .trueE⟩
   | _, _ => none
 
+/-- `mkNilData ()` ↦ a *symbolic* empty `list data` (so it composes with the symbolic `mkCons`).
+    Handled as its own stage (not in `symBuiltinPassThrough`/`smtBuiltin`) because the argument is
+    the concrete `sConst .Unit`, not an `sCon`.  (`mkNilPairData` → `ConstPairDataList []` is the
+    map path: deferred — `svalToConst (.L [])` can't distinguish it from `ConstDataList []`.) -/
+def symNil : BuiltinFun → List SymVal → Option SymOut
+  | .MkNilData, [.sConst .Unit] => some ⟨.sCon (.nilL .data), .trueE⟩
+  | _, _ => none
+
 /-- Extract argument expressions from `sCon`-wrapped symbolic values.  `none` if any
     argument is not a first-order `sCon` (mirrors `extractConsts`). -/
 def symExtractCons : List SymVal → Option (List SmtExpr)
@@ -241,6 +266,9 @@ def symBuiltinSymbolic (b : BuiltinFun) (args : List SymVal) : Option SymOut :=
        concrete and `b` is not a pass-through builtin, defer to the real `evalBuiltinConst`
        (axiom-free, full CEK coverage on concrete data). -/
 def symEvalBuiltin (b : BuiltinFun) (args : List SymVal) : Option SymOut :=
+  match symNil b args with
+  | some o => some o
+  | none =>
   match symBuiltinPassThrough b args with
   | some o => some o
   | none =>
