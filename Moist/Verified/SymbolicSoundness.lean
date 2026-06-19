@@ -70,7 +70,8 @@ open Moist.Verified.BigStep (bigEval applyVal forceVal
   evalBuiltin_AddInteger_spec evalBuiltin_SubtractInteger_spec evalBuiltin_MultiplyInteger_spec
   evalBuiltin_EqualsInteger_spec evalBuiltin_LessThanInteger_spec evalBuiltin_LessThanEqualsInteger_spec
   evalBuiltin_DivideInteger_spec evalBuiltin_ModInteger_spec
-  evalBuiltin_QuotientInteger_spec evalBuiltin_RemainderInteger_spec)
+  evalBuiltin_QuotientInteger_spec evalBuiltin_RemainderInteger_spec
+  evalBuiltin_EqualsString_spec evalBuiltin_AppendString_spec)
 open Moist.Verified.Equivalence (Reaches steps)
 open Moist.Verified.SmallStep (init)
 
@@ -341,7 +342,8 @@ time on the proved scaffold (Integer arithmetic + comparison first). -/
 def preciseBuiltin : BuiltinFun → Bool
   | .AddInteger | .SubtractInteger | .MultiplyInteger
   | .EqualsInteger | .LessThanInteger | .LessThanEqualsInteger
-  | .DivideInteger | .ModInteger | .QuotientInteger | .RemainderInteger => true
+  | .DivideInteger | .ModInteger | .QuotientInteger | .RemainderInteger
+  | .EqualsString | .AppendString => true
   | _ => false
 
 /-- The constants of the proven fragment (Integer/Bool/Unit/String — denote
@@ -446,6 +448,8 @@ theorem denote_sIte (M : Model) (c a b : SExpr) :
 @[simp] theorem dUn_VInt (x : SVal) : dUn "VInt" x = .Vv (.VCon (.Integer (SVal.asI x))) := rfl
 @[simp] theorem dUn_VBool (x : SVal) : dUn "VBool" x = .Vv (.VCon (.Bool (SVal.asB x))) := rfl
 @[simp] theorem dUn_VStr (x : SVal) : dUn "VStr" x = .Vv (.VCon (.String (SVal.asStr x))) := rfl
+@[simp] theorem dUn_VBS (x : SVal) : dUn "VBS" x = .Vv (.VCon (.ByteString (bytesToBA (SVal.asBytes x)))) := rfl
+@[simp] theorem dUn_VData (x : SVal) : dUn "VData" x = .Vv (.VCon (.Data (SVal.asD x))) := rfl
 @[simp] theorem dNull_VUnit (M : Model) : dNull M "VUnit" = .Vv (.VCon .Unit) := rfl
 
 /-! ## `γ` inversions used by the builtin simulation -/
@@ -472,6 +476,21 @@ theorem vIs_VInt {va : CekValue} (h : vIs "VInt" va = true) : ∃ n, va = .VCon 
     | _ => simp [vIs] at h
   | _ => simp [vIs] at h
 
+theorem vIs_VBS {va : CekValue} (h : vIs "VBS" va = true) : ∃ bs, va = .VCon (.ByteString bs) := by
+  cases va with
+  | VCon c => cases c with | ByteString bs => exact ⟨bs, rfl⟩ | _ => simp [vIs] at h
+  | _ => simp [vIs] at h
+
+theorem vIs_VStr {va : CekValue} (h : vIs "VStr" va = true) : ∃ s, va = .VCon (.String s) := by
+  cases va with
+  | VCon c => cases c with | String s => exact ⟨s, rfl⟩ | _ => simp [vIs] at h
+  | _ => simp [vIs] at h
+
+theorem vIs_VData {va : CekValue} (h : vIs "VData" va = true) : ∃ d, va = .VCon (.Data d) := by
+  cases va with
+  | VCon c => cases c with | Data d => exact ⟨d, rfl⟩ | _ => simp [vIs] at h
+  | _ => simp [vIs] at h
+
 /-! ## Model well-sortedness invariant `WfFO`
 
 The folding projectors (`V.sAsInt`/`V.sIsCon`/…) strip a `V`-wrapper to expose its
@@ -483,12 +502,24 @@ projectors read off `va`'s components, and the testers reflect `va`'s constructo
 It holds *robustly* for literal constants and builtin results, and for symbolic
 input atoms exactly when the model assigns them their declared sort — which is what
 z3 guarantees. (Conjuncts are added per builtin tier.) -/
-def WfFO (M : Model) (e : SExpr) : Prop :=
-  ∃ va, denote M e = .Vv va ∧
-    (∀ n, va = .VCon (.Integer n) → denote M (V.sAsInt e)  = .I n) ∧
-    (∀ b, va = .VCon (.Bool b)    → denote M (V.sAsBool e) = .B b) ∧
-    denoteB M (V.sIsCon "VInt" e)  = vIs "VInt" va ∧
-    denoteB M (V.sIsCon "VBool" e) = vIs "VBool" va
+/-- The folding-clean record for `e` denoting first-order value `va`: every
+projector reads off `va`'s component of its sort, and every tester reflects `va`'s
+constructor. (Named fields so connection lemmas access exactly what they need and
+new sorts can be added without disturbing the others.) -/
+structure WfFOR (M : Model) (e : SExpr) (va : CekValue) : Prop where
+  den   : denote M e = .Vv va
+  pInt  : ∀ n, va = .VCon (.Integer n)      → denote M (V.sAsInt e)  = .I n
+  pBool : ∀ b, va = .VCon (.Bool b)         → denote M (V.sAsBool e) = .B b
+  pBS   : ∀ bs, va = .VCon (.ByteString bs) → denote M (V.sAsBS e)   = .Bytes (baToBytes bs)
+  pStr  : ∀ s, va = .VCon (.String s)       → denote M (V.sAsStr e)  = .Str s
+  pData : ∀ d, va = .VCon (.Data d)         → denote M (V.sAsData e) = .Dd d
+  tInt  : denoteB M (V.sIsCon "VInt" e)  = vIs "VInt" va
+  tBool : denoteB M (V.sIsCon "VBool" e) = vIs "VBool" va
+  tBS   : denoteB M (V.sIsCon "VBS" e)   = vIs "VBS" va
+  tStr  : denoteB M (V.sIsCon "VStr" e)  = vIs "VStr" va
+  tData : denoteB M (V.sIsCon "VData" e) = vIs "VData" va
+
+def WfFO (M : Model) (e : SExpr) : Prop := ∃ va, WfFOR M e va
 
 mutual
 /-- Every first-order sub-value reachable in a computation is folding-clean. -/
@@ -506,22 +537,49 @@ end
 
 theorem wfVList_nil (M : Model) : WfVList M [] := True.intro
 
-/-- The integer connection lemma: a folding-clean value whose integer type-guard is
-satisfied is a concrete integer whose `sAsInt` projection denotes cleanly. -/
+/-- Resolve a `WfFO` against a `γ`-value: the record is about that value. -/
+theorem wfFOR_of {M : Model} {e : SExpr} {va : CekValue}
+    (hwf : WfFO M e) (hγ : γ M (.fo e) = some va) : WfFOR M e va := by
+  obtain ⟨va', hr⟩ := hwf
+  have hvv : va = va' := by
+    have : SVal.Vv va = SVal.Vv va' := (γ_fo_denote hγ) ▸ hr.den; injection this
+  subst hvv; exact hr
+
 theorem wf_int {M : Model} {e : SExpr} {va : CekValue}
     (hwf : WfFO M e) (hγ : γ M (.fo e) = some va) (hg : denoteB M (gInt e) = false) :
     ∃ n, va = .VCon (.Integer n) ∧ denote M (V.sAsInt e) = .I n := by
-  obtain ⟨va', hden, hpi, _, hti, _⟩ := hwf
-  have hd : denote M e = .Vv va := γ_fo_denote hγ
-  have hvv : va = va' := by
-    have hvv' : SVal.Vv va = SVal.Vv va' := hd ▸ hden
-    injection hvv'
-  subst hvv
-  have ht : denoteB M (V.sIsCon "VInt" e) = true := by
-    simpa [gInt, denoteB_sNot] using hg
-  rw [hti] at ht
+  have hr := wfFOR_of hwf hγ
+  have ht : denoteB M (V.sIsCon "VInt" e) = true := by simpa [gInt, denoteB_sNot] using hg
+  rw [hr.tInt] at ht
   obtain ⟨n, hn⟩ := vIs_VInt ht
-  exact ⟨n, hn, hpi n hn⟩
+  exact ⟨n, hn, hr.pInt n hn⟩
+
+theorem wf_bs {M : Model} {e : SExpr} {va : CekValue}
+    (hwf : WfFO M e) (hγ : γ M (.fo e) = some va) (hg : denoteB M (gBS e) = false) :
+    ∃ bs, va = .VCon (.ByteString bs) ∧ denote M (V.sAsBS e) = .Bytes (baToBytes bs) := by
+  have hr := wfFOR_of hwf hγ
+  have ht : denoteB M (V.sIsCon "VBS" e) = true := by simpa [gBS, denoteB_sNot] using hg
+  rw [hr.tBS] at ht
+  obtain ⟨bs, hbs⟩ := vIs_VBS ht
+  exact ⟨bs, hbs, hr.pBS bs hbs⟩
+
+theorem wf_str {M : Model} {e : SExpr} {va : CekValue}
+    (hwf : WfFO M e) (hγ : γ M (.fo e) = some va) (hg : denoteB M (gStr e) = false) :
+    ∃ s, va = .VCon (.String s) ∧ denote M (V.sAsStr e) = .Str s := by
+  have hr := wfFOR_of hwf hγ
+  have ht : denoteB M (V.sIsCon "VStr" e) = true := by simpa [gStr, denoteB_sNot] using hg
+  rw [hr.tStr] at ht
+  obtain ⟨s, hs⟩ := vIs_VStr ht
+  exact ⟨s, hs, hr.pStr s hs⟩
+
+theorem wf_data {M : Model} {e : SExpr} {va : CekValue}
+    (hwf : WfFO M e) (hγ : γ M (.fo e) = some va) (hg : denoteB M (gData e) = false) :
+    ∃ d, va = .VCon (.Data d) ∧ denote M (V.sAsData e) = .Dd d := by
+  have hr := wfFOR_of hwf hγ
+  have ht : denoteB M (V.sIsCon "VData" e) = true := by simpa [gData, denoteB_sNot] using hg
+  rw [hr.tData] at ht
+  obtain ⟨d, hd⟩ := vIs_VData ht
+  exact ⟨d, hd, hr.pData d hd⟩
 
 /-! ## The core simulation (proved separately) -/
 
@@ -665,31 +723,66 @@ end
 
 /-- `V.unit` is folding-clean (it is a concrete `VCon Unit`). -/
 theorem wfFO_unit (M : Model) : WfFO M V.unit := by
-  refine ⟨.VCon .Unit, by simp only [V.unit, denote_atom, dNull_VUnit], ?_, ?_, ?_, ?_⟩
+  refine ⟨.VCon .Unit, by simp only [V.unit, denote_atom, dNull_VUnit],
+    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro n hn; exact absurd hn (by simp)
   · intro b hb; exact absurd hb (by simp)
-  · simp [V.unit, V.sIsCon, V.vConName, vIs, denoteB, dNull]
-  · simp [V.unit, V.sIsCon, V.vConName, vIs, denoteB, dNull]
+  · intro bs hbs; exact absurd hbs (by simp)
+  · intro s hs; exact absurd hs (by simp)
+  · intro d hd; exact absurd hd (by simp)
+  all_goals simp [V.unit, V.sIsCon, V.vConName, vIs, denoteB, dNull]
 
 /-- Any `V.int` wrapper of an `Int`-denoting expression is folding-clean. -/
 theorem wfFO_Vint (M : Model) (e : SExpr) (k : Int) (h : denote M e = .I k) :
     WfFO M (V.int e) := by
-  refine ⟨.VCon (.Integer k), by simp only [V.int, denote_app1, dUn_VInt, h, SVal.asI], ?_, ?_, ?_, ?_⟩
+  refine ⟨.VCon (.Integer k), by simp only [V.int, denote_app1, dUn_VInt, h, SVal.asI],
+    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro m hm; injection hm with hm'; injection hm' with hm''; subst hm''
     simp only [V.int, V.sAsInt, h]
   · intro b hb; exact absurd hb (by simp)
-  · simp [V.int, V.sIsCon, V.vConName, vIs, denoteB, V.knownVCons]
-  · simp [V.int, V.sIsCon, V.vConName, vIs, denoteB, V.knownVCons]
+  · intro bs hbs; exact absurd hbs (by simp)
+  · intro s hs; exact absurd hs (by simp)
+  · intro d hd; exact absurd hd (by simp)
+  all_goals simp [V.int, V.sIsCon, V.vConName, vIs, denoteB, V.knownVCons]
 
 /-- Any `V.bool` wrapper of a `Bool`-denoting expression is folding-clean. -/
 theorem wfFO_Vbool (M : Model) (e : SExpr) (c : Bool) (h : denote M e = .B c) :
     WfFO M (V.bool e) := by
-  refine ⟨.VCon (.Bool c), by simp only [V.bool, denote_app1, dUn_VBool, h, SVal.asB], ?_, ?_, ?_, ?_⟩
+  refine ⟨.VCon (.Bool c), by simp only [V.bool, denote_app1, dUn_VBool, h, SVal.asB],
+    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro n hn; exact absurd hn (by simp)
   · intro b hb; injection hb with hb'; injection hb' with hb''; subst hb''
     simp only [V.bool, V.sAsBool, h]
-  · simp [V.bool, V.sIsCon, V.vConName, vIs, denoteB, V.knownVCons]
-  · simp [V.bool, V.sIsCon, V.vConName, vIs, denoteB, V.knownVCons]
+  · intro bs hbs; exact absurd hbs (by simp)
+  · intro s hs; exact absurd hs (by simp)
+  · intro d hd; exact absurd hd (by simp)
+  all_goals simp [V.bool, V.sIsCon, V.vConName, vIs, denoteB, V.knownVCons]
+
+/-- Any `V.str` wrapper of a `String`-denoting expression is folding-clean. -/
+theorem wfFO_Vstr (M : Model) (e : SExpr) (s : String) (h : denote M e = .Str s) :
+    WfFO M (V.str e) := by
+  refine ⟨.VCon (.String s), by simp only [V.str, denote_app1, dUn_VStr, h, SVal.asStr],
+    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · intro n hn; exact absurd hn (by simp)
+  · intro b hb; exact absurd hb (by simp)
+  · intro bs hbs; exact absurd hbs (by simp)
+  · intro s' hs'; injection hs' with h1; injection h1 with h2; subst h2
+    simp only [V.str, V.sAsStr, h]
+  · intro d hd; exact absurd hd (by simp)
+  all_goals simp [V.str, V.sIsCon, V.vConName, vIs, denoteB, V.knownVCons]
+
+/-- Any `V.data` wrapper of a `Data`-denoting expression is folding-clean. -/
+theorem wfFO_Vdata (M : Model) (e : SExpr) (d : Data) (h : denote M e = .Dd d) :
+    WfFO M (V.data e) := by
+  refine ⟨.VCon (.Data d), by simp only [V.data, denote_app1, dUn_VData, h, SVal.asD],
+    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · intro n hn; exact absurd hn (by simp)
+  · intro b hb; exact absurd hb (by simp)
+  · intro bs hbs; exact absurd hbs (by simp)
+  · intro s hs; exact absurd hs (by simp)
+  · intro d' hd'; injection hd' with h1; injection h1 with h2; subst h2
+    simp only [V.data, V.sAsData, h]
+  all_goals simp [V.data, V.sIsCon, V.vConName, vIs, denoteB, V.knownVCons]
 
 /-- Encoded simple constants are folding-clean. -/
 theorem wfFO_simpleConst (M : Model) (c : Const) (h : simpleConst c = true) :
@@ -698,13 +791,7 @@ theorem wfFO_simpleConst (M : Model) (c : Const) (h : simpleConst c = true) :
   case Integer n => simp only [constToSExpr]; exact wfFO_Vint M (.int n) n rfl
   case Bool b => simp only [constToSExpr]; exact wfFO_Vbool M (.bool b) b rfl
   case Unit => exact wfFO_unit M
-  case String s =>
-    simp only [constToSExpr]
-    refine ⟨.VCon (.String s), by simp only [V.str, denote_app1, denote_lit_str, dUn_VStr, SVal.asStr], ?_, ?_, ?_, ?_⟩
-    · intro n hn; exact absurd hn (by simp)
-    · intro b hb; exact absurd hb (by simp)
-    · simp [V.str, V.sIsCon, V.vConName, vIs, denoteB, V.knownVCons]
-    · simp [V.str, V.sIsCon, V.vConName, vIs, denoteB, V.knownVCons]
+  case String s => simp only [constToSExpr]; exact wfFO_Vstr M (.str s) s rfl
   all_goals exact absurd h (by simp [simpleConst])
 
 /-- `WfV` lookup: a folding-clean environment yields folding-clean values. -/
@@ -750,6 +837,11 @@ theorem denote_sEq (M : Model) (x y : SExpr) :
   · rename_i p q; simp [denote, svalEq]
   · simp only [denote_app2]; rfl
 
+/-- The SMT string append denotes to string concatenation. -/
+theorem denote_strapp (M : Model) (x y : SExpr) :
+    denote M (.app "str.++" [x, y]) = .Str (SVal.asStr (denote M x) ++ SVal.asStr (denote M y)) := by
+  simp only [denote_app2]; rfl
+
 /-- A saturated precise builtin yields a folding-clean (first-order) value. -/
 theorem wfV_symSaturate (M : Model) (b : BuiltinFun) (args : List SymV)
     (h : preciseBuiltin b = true) : WfV M (symSaturate b args).val := by
@@ -787,6 +879,12 @@ theorem wfV_symSaturate (M : Model) (b : BuiltinFun) (args : List SymV)
   have keyR : ∀ (R : List SExpr), WfV M (symBuiltin .RemainderInteger R).val := fun R => by
     rcases R with _ | ⟨a, _ | ⟨b2, _ | ⟨c, t⟩⟩⟩ <;>
       first | exact wfFO_unit M | exact wfFO_Vint M _ _ (by simp only [denote_app2]; rfl)
+  have keyEqStr : ∀ (R : List SExpr), WfV M (symBuiltin .EqualsString R).val := fun R => by
+    rcases R with _ | ⟨a, _ | ⟨b2, _ | ⟨c, t⟩⟩⟩ <;>
+      first | exact wfFO_unit M | exact wfFO_Vbool M _ _ (denote_sEq M _ _)
+  have keyApStr : ∀ (R : List SExpr), WfV M (symBuiltin .AppendString R).val := fun R => by
+    rcases R with _ | ⟨a, _ | ⟨b2, _ | ⟨c, t⟩⟩⟩ <;>
+      first | exact wfFO_unit M | exact wfFO_Vstr M _ _ (denote_strapp M _ _)
   cases b <;> first | (exfalso; revert h; decide) | skip
   case AddInteger => exact keyA _
   case SubtractInteger => exact keyS _
@@ -798,6 +896,8 @@ theorem wfV_symSaturate (M : Model) (b : BuiltinFun) (args : List SymV)
   case ModInteger => exact keyMd _
   case QuotientInteger => exact keyQ _
   case RemainderInteger => exact keyR _
+  case EqualsString => exact keyEqStr _
+  case AppendString => exact keyApStr _
 
 mutual
 theorem wfV_symEval (M : Model) : ∀ (n : Nat) (ρs : SymEnv) (t : Term),
@@ -1054,12 +1154,8 @@ theorem binIntClean {M : Model} {v1 v2 : SymV} {c1 c2 : CekValue}
 theorem gInt_false_of_int {M : Model} {e : SExpr} {n : Int}
     (hw : WfFO M e) (h : γ M (.fo e) = some (.VCon (.Integer n))) :
     denoteB M (gInt e) = false := by
-  obtain ⟨va, hden, _, _, hti, _⟩ := hw
-  have hd : denote M e = .Vv (.VCon (.Integer n)) := γ_fo_denote h
-  have hvv : va = .VCon (.Integer n) := by
-    have hvv' : SVal.Vv va = SVal.Vv (.VCon (.Integer n)) := hden ▸ hd
-    injection hvv'
-  simp [gInt, denoteB_sNot, hti, hvv, vIs]
+  have hr := wfFOR_of hw h
+  simp [gInt, denoteB_sNot, hr.tInt, vIs]
 
 /-- The success arm of a binary-integer `evalBuiltin` spec fires only when both args
 are concrete integers; otherwise the match is `none`. -/
@@ -1277,8 +1373,106 @@ theorem satBinDiv (M : Model) (b : BuiltinFun) (sargs : List SymV) (cargs : List
       · exact Or.inl (fun y hy => h2 ⟨y, hy⟩)
   · exact relR_of_inc_true M (hsatinc (v2 :: v1 :: w :: rest) (by simp))
 
+/-! ### String tier helpers (parallel to the integer ones) -/
+
+theorem gStr_false_of_str {M : Model} {e : SExpr} {s : String}
+    (hw : WfFO M e) (h : γ M (.fo e) = some (.VCon (.String s))) :
+    denoteB M (gStr e) = false := by
+  have hr := wfFOR_of hw h; simp [gStr, denoteB_sNot, hr.tStr, vIs]
+
+theorem binStrClean {M : Model} {v1 v2 : SymV} {c1 c2 : CekValue}
+    (hv1 : γ M v1 = some c1) (hv2 : γ M v2 = some c2)
+    (hf1 : FaithfulV v1) (hf2 : FaithfulV v2) (hw1 : WfV M v1) (hw2 : WfV M v2)
+    (hnf1 : denoteB M (reifyFO v1).1 = false) (hnf2 : denoteB M (reifyFO v2).1 = false)
+    (hg1 : denoteB M (gStr (reifyFO v1).2) = false) (hg2 : denoteB M (gStr (reifyFO v2).2) = false) :
+    ∃ s1 s2, c1 = .VCon (.String s1) ∧ c2 = .VCon (.String s2) ∧
+      denote M (V.sAsStr (reifyFO v1).2) = .Str s1 ∧ denote M (V.sAsStr (reifyFO v2).2) = .Str s2 := by
+  obtain ⟨e1, rfl⟩ := faithful_reify_fo hf1 hnf1
+  obtain ⟨e2, rfl⟩ := faithful_reify_fo hf2 hnf2
+  simp only [reifyFO] at hg1 hg2 ⊢
+  have hw1' : WfFO M e1 := hw1
+  have hw2' : WfFO M e2 := hw2
+  obtain ⟨s1, hc1, hp1⟩ := wf_str hw1' hv1 hg1
+  obtain ⟨s2, hc2, hp2⟩ := wf_str hw2' hv2 hg2
+  exact ⟨s1, s2, hc1, hc2, hp1, hp2⟩
+
+theorem match2_str_none {α} (c2 c1 : CekValue) (F : String → String → α)
+    (h : (∀ y, c2 ≠ .VCon (.String y)) ∨ (∀ x, c1 ≠ .VCon (.String x))) :
+    (match [c2, c1] with
+      | [.VCon (.String y), .VCon (.String x)] => some (F y x)
+      | _ => none) = none := by
+  rcases h with h | h
+  · cases c2 with
+    | VCon cc2 => cases cc2 <;> first | rfl | exact absurd rfl (h _)
+    | _ => rfl
+  · cases c2 with
+    | VCon cc2 =>
+        cases cc2 <;> (try rfl) <;>
+          (cases c1 with
+           | VCon cc1 => cases cc1 <;> first | rfl | exact absurd rfl (h _)
+           | _ => rfl)
+    | _ => rfl
+
+/-- Generic binary-**String** reconciliation (parallel to `satBin`). -/
+theorem satBinStr (M : Model) (b : BuiltinFun) (sargs : List SymV) (cargs : List CekValue)
+    (hγ : γList M sargs = some cargs) (hf : FaithfulVList sargs) (hwf : WfVList M sargs)
+    (valE : SExpr → SExpr → SExpr) (cv : String → String → CekValue)
+    (hsatval : ∀ (v2 v1 : SymV), (symSaturate b [v2, v1]).val
+        = .fo (valE (V.sAsStr (reifyFO v1).2) (V.sAsStr (reifyFO v2).2)))
+    (hsaterr : ∀ (v2 v1 : SymV), (symSaturate b [v2, v1]).err
+        = SExpr.sOr (sOrs [(reifyFO v1).1, (reifyFO v2).1])
+                    (SExpr.sOr (gStr (reifyFO v1).2) (gStr (reifyFO v2).2)))
+    (hsatinc : ∀ (s : List SymV), s.length ≠ 2 → (symSaturate b s).inc = .bool true)
+    (hden : ∀ (e1 e2 : SExpr) (s1 s2 : String), denote M e1 = .Str s1 → denote M e2 = .Str s2 →
+        γ M (.fo (valE e1 e2)) = some (cv s1 s2))
+    (hspec : ∀ args, evalBuiltin b args
+        = match args with | [.VCon (.String y), .VCon (.String x)] => some (cv x y) | _ => none) :
+    RelR M (symSaturate b sargs) (evalBuiltin b cargs) := by
+  rcases sargs with _ | ⟨v2, _ | ⟨v1, _ | ⟨w, rest⟩⟩⟩
+  · exact relR_of_inc_true M (hsatinc [] (by simp))
+  · exact relR_of_inc_true M (hsatinc [v2] (by simp))
+  · obtain ⟨c2, c1, hv2, hv1, rfl⟩ := γList2 hγ
+    obtain ⟨hf2, hf1, -⟩ := hf
+    obtain ⟨hw2, hw1, -⟩ := hwf
+    refine ⟨fun _ herr => ?_, fun _ herr => ?_⟩
+    · rw [hsaterr v2 v1] at herr
+      simp only [sOrs, List.foldr, denoteB_sOr, denoteB_bool, Bool.or_eq_false_iff,
+        Bool.or_false] at herr
+      obtain ⟨⟨hnf1, hnf2⟩, hg1, hg2⟩ := herr
+      obtain ⟨s1, s2, hc1, hc2, hp1, hp2⟩ :=
+        binStrClean hv1 hv2 hf1 hf2 hw1 hw2 hnf1 hnf2 hg1 hg2
+      refine ⟨cv s1 s2, ?_, ?_⟩
+      · rw [hsatval v2 v1]; exact hden _ _ s1 s2 hp1 hp2
+      · rw [hc1, hc2, hspec]
+    · rw [hspec]
+      refine match2_str_none c2 c1 (fun y x => cv x y) ?_
+      by_cases h2 : ∃ y, c2 = .VCon (.String y)
+      · by_cases h1 : ∃ x, c1 = .VCon (.String x)
+        · exfalso
+          obtain ⟨y, hy⟩ := h2; obtain ⟨x, hx⟩ := h1
+          obtain ⟨e1, rfl⟩ := γ_VCon_fo hf1 (hx ▸ hv1)
+          obtain ⟨e2, rfl⟩ := γ_VCon_fo hf2 (hy ▸ hv2)
+          have hw1' : WfFO M e1 := hw1
+          have hw2' : WfFO M e2 := hw2
+          have hg1f : denoteB M (gStr e1) = false := gStr_false_of_str hw1' (hx ▸ hv1)
+          have hg2f : denoteB M (gStr e2) = false := gStr_false_of_str hw2' (hy ▸ hv2)
+          rw [hsaterr] at herr
+          simp [reifyFO, sOrs, denoteB_sOr, denoteB_bool, hg1f, hg2f] at herr
+        · exact Or.inr (fun x hx => h1 ⟨x, hx⟩)
+      · exact Or.inl (fun y hy => h2 ⟨y, hy⟩)
+  · exact relR_of_inc_true M (hsatinc (v2 :: v1 :: w :: rest) (by simp))
+
+theorem symBuiltin_EqualsString_inc_ne2 (R : List SExpr) (h : R.length ≠ 2) :
+    (symBuiltin .EqualsString R).inc = .bool true := by
+  rcases R with _ | ⟨a, _ | ⟨b, _ | ⟨c, t⟩⟩⟩ <;> first | rfl | exact absurd rfl h
+
+theorem symBuiltin_AppendString_inc_ne2 (R : List SExpr) (h : R.length ≠ 2) :
+    (symBuiltin .AppendString R).inc = .bool true := by
+  rcases R with _ | ⟨a, _ | ⟨b, _ | ⟨c, t⟩⟩⟩ <;> first | rfl | exact absurd rfl h
+
 /-- A saturated *precise* builtin reconciles with `evalBuiltin` — each arithmetic /
-comparison / division builtin is a one-line `satBin`/`satBinDiv` application. -/
+comparison / division / string builtin is a one-line `satBin`/`satBinDiv`/`satBinStr`
+application. -/
 theorem satBuiltin (M : Model) (b : BuiltinFun) (sargs : List SymV) (cargs : List CekValue)
     (hγ : γList M sargs = some cargs) (hpre : preciseBuiltin b = true)
     (hf : FaithfulVList sargs) (hwf : WfVList M sargs) :
@@ -1370,6 +1564,24 @@ theorem satBuiltin (M : Model) (b : BuiltinFun) (sargs : List SymV) (cargs : Lis
         exact symBuiltin_RemainderInteger_inc_ne2 _ (by simpa [List.length_map, List.length_reverse] using hl))
       (fun x y => by simp only [denote_app2]; rfl)
       evalBuiltin_RemainderInteger_spec
+  case EqualsString =>
+    exact satBinStr M _ sargs cargs hγ hf hwf (fun a b => V.bool (SExpr.sEq a b))
+      (fun s1 s2 => .VCon (.Bool (s1 == s2))) (fun _ _ => rfl) (fun _ _ => rfl)
+      (fun s hl => by
+        show (symBuiltin .EqualsString (List.map Prod.snd (List.map reifyFO s.reverse))).inc = .bool true
+        exact symBuiltin_EqualsString_inc_ne2 _ (by simpa [List.length_map, List.length_reverse] using hl))
+      (fun e1 e2 s1 s2 h1 h2 => by
+        simp only [γ, V.bool, denote_app1, dUn_VBool, denote_sEq, h1, h2, SVal.asB, svalEq])
+      evalBuiltin_EqualsString_spec
+  case AppendString =>
+    exact satBinStr M _ sargs cargs hγ hf hwf (fun a b => V.str (.app "str.++" [a, b]))
+      (fun s1 s2 => .VCon (.String (s1 ++ s2))) (fun _ _ => rfl) (fun _ _ => rfl)
+      (fun s hl => by
+        show (symBuiltin .AppendString (List.map Prod.snd (List.map reifyFO s.reverse))).inc = .bool true
+        exact symBuiltin_AppendString_inc_ne2 _ (by simpa [List.length_map, List.length_reverse] using hl))
+      (fun e1 e2 s1 s2 h1 h2 => by
+        simp only [γ, V.str, denote_app1, dUn_VStr, denote_strapp, h1, h2, SVal.asStr])
+      evalBuiltin_AppendString_spec
 
 /-! ## The simulation `Sim` (the mutual adequacy induction) -/
 
@@ -1606,7 +1818,9 @@ theorem symSaturate_inc_lit (b : BuiltinFun) (args : List SymV) (h : preciseBuil
         | exact symBuiltin_DivideInteger_inc_ne2 _ hlen
         | exact symBuiltin_ModInteger_inc_ne2 _ hlen
         | exact symBuiltin_QuotientInteger_inc_ne2 _ hlen
-        | exact symBuiltin_RemainderInteger_inc_ne2 _ hlen)
+        | exact symBuiltin_RemainderInteger_inc_ne2 _ hlen
+        | exact symBuiltin_EqualsString_inc_ne2 _ hlen
+        | exact symBuiltin_AppendString_inc_ne2 _ hlen)
 
 /-! ## Upward fuel-stability `Stab`
 

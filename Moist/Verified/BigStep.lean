@@ -1527,5 +1527,13 @@ axiom evalBuiltin_RemainderInteger_spec (args : List CekValue) :
       | [.VCon (.Integer y), .VCon (.Integer x)] =>
           if y == 0 then none else some (.VCon (.Integer (Int.tmod x y)))
       | _ => none
+axiom evalBuiltin_EqualsString_spec (args : List CekValue) :
+    evalBuiltin .EqualsString args = match args with
+      | [.VCon (.String s2), .VCon (.String s1)] => some (.VCon (.Bool (s1 == s2)))
+      | _ => none
+axiom evalBuiltin_AppendString_spec (args : List CekValue) :
+    evalBuiltin .AppendString args = match args with
+      | [.VCon (.String s2), .VCon (.String s1)] => some (.VCon (.String (s1 ++ s2)))
+      | _ => none
 
 end Moist.Verified.BigStep
