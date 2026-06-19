@@ -68,7 +68,9 @@ open Moist.Plutus (Data ByteString)
 open Moist.CEK (CekValue CekEnv evalBuiltin expectedArgs)
 open Moist.Verified.BigStep (bigEval applyVal forceVal
   evalBuiltin_AddInteger_spec evalBuiltin_SubtractInteger_spec evalBuiltin_MultiplyInteger_spec
-  evalBuiltin_EqualsInteger_spec evalBuiltin_LessThanInteger_spec evalBuiltin_LessThanEqualsInteger_spec)
+  evalBuiltin_EqualsInteger_spec evalBuiltin_LessThanInteger_spec evalBuiltin_LessThanEqualsInteger_spec
+  evalBuiltin_DivideInteger_spec evalBuiltin_ModInteger_spec
+  evalBuiltin_QuotientInteger_spec evalBuiltin_RemainderInteger_spec)
 open Moist.Verified.Equivalence (Reaches steps)
 open Moist.Verified.SmallStep (init)
 
@@ -338,7 +340,8 @@ compiler and `bigEval` agree exactly on it). -/
 time on the proved scaffold (Integer arithmetic + comparison first). -/
 def preciseBuiltin : BuiltinFun → Bool
   | .AddInteger | .SubtractInteger | .MultiplyInteger
-  | .EqualsInteger | .LessThanInteger | .LessThanEqualsInteger => true
+  | .EqualsInteger | .LessThanInteger | .LessThanEqualsInteger
+  | .DivideInteger | .ModInteger | .QuotientInteger | .RemainderInteger => true
   | _ => false
 
 /-- The constants of the proven fragment (Integer/Bool/Unit/String — denote
@@ -772,6 +775,18 @@ theorem wfV_symSaturate (M : Model) (b : BuiltinFun) (args : List SymV)
   have keyLe : ∀ (R : List SExpr), WfV M (symBuiltin .LessThanEqualsInteger R).val := fun R => by
     rcases R with _ | ⟨a, _ | ⟨b2, _ | ⟨c, t⟩⟩⟩ <;>
       first | exact wfFO_unit M | exact wfFO_Vbool M _ _ (denote_Ople M _ _)
+  have keyD : ∀ (R : List SExpr), WfV M (symBuiltin .DivideInteger R).val := fun R => by
+    rcases R with _ | ⟨a, _ | ⟨b2, _ | ⟨c, t⟩⟩⟩ <;>
+      first | exact wfFO_unit M | exact wfFO_Vint M _ _ (by simp only [denote_app2]; rfl)
+  have keyMd : ∀ (R : List SExpr), WfV M (symBuiltin .ModInteger R).val := fun R => by
+    rcases R with _ | ⟨a, _ | ⟨b2, _ | ⟨c, t⟩⟩⟩ <;>
+      first | exact wfFO_unit M | exact wfFO_Vint M _ _ (by simp only [denote_app2]; rfl)
+  have keyQ : ∀ (R : List SExpr), WfV M (symBuiltin .QuotientInteger R).val := fun R => by
+    rcases R with _ | ⟨a, _ | ⟨b2, _ | ⟨c, t⟩⟩⟩ <;>
+      first | exact wfFO_unit M | exact wfFO_Vint M _ _ (by simp only [denote_app2]; rfl)
+  have keyR : ∀ (R : List SExpr), WfV M (symBuiltin .RemainderInteger R).val := fun R => by
+    rcases R with _ | ⟨a, _ | ⟨b2, _ | ⟨c, t⟩⟩⟩ <;>
+      first | exact wfFO_unit M | exact wfFO_Vint M _ _ (by simp only [denote_app2]; rfl)
   cases b <;> first | (exfalso; revert h; decide) | skip
   case AddInteger => exact keyA _
   case SubtractInteger => exact keyS _
@@ -779,6 +794,10 @@ theorem wfV_symSaturate (M : Model) (b : BuiltinFun) (args : List SymV)
   case EqualsInteger => exact keyE _
   case LessThanInteger => exact keyL _
   case LessThanEqualsInteger => exact keyLe _
+  case DivideInteger => exact keyD _
+  case ModInteger => exact keyMd _
+  case QuotientInteger => exact keyQ _
+  case RemainderInteger => exact keyR _
 
 mutual
 theorem wfV_symEval (M : Model) : ∀ (n : Nat) (ρs : SymEnv) (t : Term),
@@ -1095,6 +1114,22 @@ theorem symBuiltin_LessThanEqualsInteger_inc_ne2 (R : List SExpr) (h : R.length 
     (symBuiltin .LessThanEqualsInteger R).inc = .bool true := by
   rcases R with _ | ⟨a, _ | ⟨b, _ | ⟨c, t⟩⟩⟩ <;> first | rfl | exact absurd rfl h
 
+theorem symBuiltin_DivideInteger_inc_ne2 (R : List SExpr) (h : R.length ≠ 2) :
+    (symBuiltin .DivideInteger R).inc = .bool true := by
+  rcases R with _ | ⟨a, _ | ⟨b, _ | ⟨c, t⟩⟩⟩ <;> first | rfl | exact absurd rfl h
+
+theorem symBuiltin_ModInteger_inc_ne2 (R : List SExpr) (h : R.length ≠ 2) :
+    (symBuiltin .ModInteger R).inc = .bool true := by
+  rcases R with _ | ⟨a, _ | ⟨b, _ | ⟨c, t⟩⟩⟩ <;> first | rfl | exact absurd rfl h
+
+theorem symBuiltin_QuotientInteger_inc_ne2 (R : List SExpr) (h : R.length ≠ 2) :
+    (symBuiltin .QuotientInteger R).inc = .bool true := by
+  rcases R with _ | ⟨a, _ | ⟨b, _ | ⟨c, t⟩⟩⟩ <;> first | rfl | exact absurd rfl h
+
+theorem symBuiltin_RemainderInteger_inc_ne2 (R : List SExpr) (h : R.length ≠ 2) :
+    (symBuiltin .RemainderInteger R).inc = .bool true := by
+  rcases R with _ | ⟨a, _ | ⟨b, _ | ⟨c, t⟩⟩⟩ <;> first | rfl | exact absurd rfl h
+
 /-- **Generic binary-integer reconciliation.** A saturated binary builtin `b` whose
 two args must be integers realizes `evalBuiltin b`, given: the symbolic/concrete
 result builders `valE`/`cv`, the (`rfl`) `symSaturate` value/error reductions, the
@@ -1148,8 +1183,102 @@ theorem satBin (M : Model) (b : BuiltinFun) (sargs : List SymV) (cargs : List Ce
       · exact Or.inl (fun y hy => h2 ⟨y, hy⟩)
   · exact relR_of_inc_true M (hsatinc (v2 :: v1 :: w :: rest) (by simp))
 
-/-- A saturated *precise* builtin reconciles with `evalBuiltin` — each Tier-A
-arithmetic/comparison builtin is a one-line `satBin` application. -/
+/-- Division variant of `match2_int_none`: the success arm fires only when both args
+are integers *and* the divisor is non-zero. -/
+theorem match2_int_div_none {α} (c2 c1 : CekValue) (F : Int → Int → α)
+    (h : (∀ y, c2 ≠ .VCon (.Integer y)) ∨ (∀ x, c1 ≠ .VCon (.Integer x)) ∨ c2 = .VCon (.Integer 0)) :
+    (match [c2, c1] with
+      | [.VCon (.Integer y), .VCon (.Integer x)] => if y == 0 then none else some (F x y)
+      | _ => none) = none := by
+  rcases h with h | h | h
+  · cases c2 with
+    | VCon cc2 => cases cc2 <;> first | rfl | exact absurd rfl (h _)
+    | _ => rfl
+  · cases c2 with
+    | VCon cc2 =>
+        cases cc2 <;> (try rfl) <;>
+          (cases c1 with
+           | VCon cc1 => cases cc1 <;> first | rfl | exact absurd rfl (h _)
+           | _ => rfl)
+    | _ => rfl
+  · subst h
+    cases c1 with
+    | VCon cc1 => cases cc1 <;> simp
+    | _ => rfl
+
+/-- **Generic binary-integer division reconciliation.** Like `satBin` but the error
+condition carries the extra `divisor == 0` disjunct, and the spec is a guarded
+`if y == 0 then none else some …`. -/
+theorem satBinDiv (M : Model) (b : BuiltinFun) (sargs : List SymV) (cargs : List CekValue)
+    (hγ : γList M sargs = some cargs) (hf : FaithfulVList sargs) (hwf : WfVList M sargs)
+    (opName : String) (cekOp : Int → Int → Int)
+    (hsatval : ∀ (v2 v1 : SymV), (symSaturate b [v2, v1]).val
+        = .fo (V.int (.app opName [V.sAsInt (reifyFO v1).2, V.sAsInt (reifyFO v2).2])))
+    (hsaterr : ∀ (v2 v1 : SymV), (symSaturate b [v2, v1]).err
+        = SExpr.sOr (sOrs [(reifyFO v1).1, (reifyFO v2).1])
+                    (sOrs [gInt (reifyFO v1).2, gInt (reifyFO v2).2,
+                           SExpr.sEq (V.sAsInt (reifyFO v2).2) (.int 0)]))
+    (hsatinc : ∀ (s : List SymV), s.length ≠ 2 → (symSaturate b s).inc = .bool true)
+    (hopden : ∀ (x y : SExpr),
+        denote M (.app opName [x, y]) = .I (cekOp (SVal.asI (denote M x)) (SVal.asI (denote M y))))
+    (hspec : ∀ args, evalBuiltin b args
+        = match args with
+          | [.VCon (.Integer y), .VCon (.Integer x)] =>
+              if y == 0 then none else some (.VCon (.Integer (cekOp x y)))
+          | _ => none) :
+    RelR M (symSaturate b sargs) (evalBuiltin b cargs) := by
+  rcases sargs with _ | ⟨v2, _ | ⟨v1, _ | ⟨w, rest⟩⟩⟩
+  · exact relR_of_inc_true M (hsatinc [] (by simp))
+  · exact relR_of_inc_true M (hsatinc [v2] (by simp))
+  · obtain ⟨c2, c1, hv2, hv1, rfl⟩ := γList2 hγ
+    obtain ⟨hf2, hf1, -⟩ := hf
+    obtain ⟨hw2, hw1, -⟩ := hwf
+    refine ⟨fun _ herr => ?_, fun _ herr => ?_⟩
+    · rw [hsaterr v2 v1] at herr
+      simp only [sOrs, List.foldr, denoteB_sOr, denoteB_bool, Bool.or_eq_false_iff,
+        Bool.or_false] at herr
+      obtain ⟨⟨hnf1, hnf2⟩, hg1, hg2, hz⟩ := herr
+      obtain ⟨n1, n2, hc1, hc2, hp1, hp2⟩ :=
+        binIntClean hv1 hv2 hf1 hf2 hw1 hw2 hnf1 hnf2 hg1 hg2
+      have hn2 : (n2 == 0) = false := by
+        have : denoteB M (SExpr.sEq (V.sAsInt (reifyFO v2).2) (.int 0)) = (n2 == 0) := by
+          rw [denoteB, denote_sEq, hp2, denote_lit_int]; simp [SVal.asB, svalEq]
+        rw [this] at hz; exact hz
+      refine ⟨.VCon (.Integer (cekOp n1 n2)), ?_, ?_⟩
+      · rw [hsatval v2 v1]
+        have hden : denote M (V.int (.app opName [V.sAsInt (reifyFO v1).2, V.sAsInt (reifyFO v2).2]))
+                  = .Vv (.VCon (.Integer (cekOp n1 n2))) := by
+          simp only [V.int, denote_app1, dUn_VInt, hopden, hp1, hp2, SVal.asI]
+        simp only [γ, hden]
+      · simp [hc1, hc2, hspec, hn2]
+    · rw [hspec]
+      refine match2_int_div_none c2 c1 (fun x y => CekValue.VCon (.Integer (cekOp x y))) ?_
+      by_cases h2 : ∃ y, c2 = .VCon (.Integer y)
+      · by_cases h1 : ∃ x, c1 = .VCon (.Integer x)
+        · obtain ⟨y, hy⟩ := h2; obtain ⟨x, hx⟩ := h1
+          by_cases hy0 : y = 0
+          · exact Or.inr (Or.inr (by rw [hy, hy0]))
+          · exfalso
+            obtain ⟨e1, rfl⟩ := γ_VCon_fo hf1 (hx ▸ hv1)
+            obtain ⟨e2, rfl⟩ := γ_VCon_fo hf2 (hy ▸ hv2)
+            have hw1' : WfFO M e1 := hw1
+            have hw2' : WfFO M e2 := hw2
+            have hg1f : denoteB M (gInt e1) = false := gInt_false_of_int hw1' (hx ▸ hv1)
+            have hg2f : denoteB M (gInt e2) = false := gInt_false_of_int hw2' (hy ▸ hv2)
+            obtain ⟨n2', hcn, hp2'⟩ := wf_int hw2' (hy ▸ hv2) hg2f
+            have hyn : y = n2' := by injection hcn with h'; injection h'
+            have hzf : denoteB M (SExpr.sEq (V.sAsInt e2) (.int 0)) = false := by
+              have : denoteB M (SExpr.sEq (V.sAsInt e2) (.int 0)) = (n2' == 0) := by
+                rw [denoteB, denote_sEq, hp2', denote_lit_int]; simp [SVal.asB, svalEq]
+              rw [this, ← hyn]; simpa using hy0
+            rw [hsaterr] at herr
+            simp [reifyFO, sOrs, denoteB_sOr, denoteB_bool, hg1f, hg2f, hzf] at herr
+        · exact Or.inr (Or.inl (fun x hx => h1 ⟨x, hx⟩))
+      · exact Or.inl (fun y hy => h2 ⟨y, hy⟩)
+  · exact relR_of_inc_true M (hsatinc (v2 :: v1 :: w :: rest) (by simp))
+
+/-- A saturated *precise* builtin reconciles with `evalBuiltin` — each arithmetic /
+comparison / division builtin is a one-line `satBin`/`satBinDiv` application. -/
 theorem satBuiltin (M : Model) (b : BuiltinFun) (sargs : List SymV) (cargs : List CekValue)
     (hγ : γList M sargs = some cargs) (hpre : preciseBuiltin b = true)
     (hf : FaithfulVList sargs) (hwf : WfVList M sargs) :
@@ -1209,6 +1338,38 @@ theorem satBuiltin (M : Model) (b : BuiltinFun) (sargs : List SymV) (cargs : Lis
       (fun e1 e2 n1 n2 h1 h2 => by
         simp only [γ, V.bool, denote_app1, dUn_VBool, denote_Ople, h1, h2, SVal.asB, SVal.asI])
       evalBuiltin_LessThanEqualsInteger_spec
+  case DivideInteger =>
+    exact satBinDiv M _ sargs cargs hγ hf hwf "moist_fdiv" Moist.CEK.haskellDiv
+      (fun _ _ => rfl) (fun _ _ => rfl)
+      (fun s hl => by
+        show (symBuiltin .DivideInteger (List.map Prod.snd (List.map reifyFO s.reverse))).inc = .bool true
+        exact symBuiltin_DivideInteger_inc_ne2 _ (by simpa [List.length_map, List.length_reverse] using hl))
+      (fun x y => by simp only [denote_app2]; rfl)
+      evalBuiltin_DivideInteger_spec
+  case ModInteger =>
+    exact satBinDiv M _ sargs cargs hγ hf hwf "moist_fmod" Moist.CEK.haskellMod
+      (fun _ _ => rfl) (fun _ _ => rfl)
+      (fun s hl => by
+        show (symBuiltin .ModInteger (List.map Prod.snd (List.map reifyFO s.reverse))).inc = .bool true
+        exact symBuiltin_ModInteger_inc_ne2 _ (by simpa [List.length_map, List.length_reverse] using hl))
+      (fun x y => by simp only [denote_app2]; rfl)
+      evalBuiltin_ModInteger_spec
+  case QuotientInteger =>
+    exact satBinDiv M _ sargs cargs hγ hf hwf "moist_qdiv" Int.tdiv
+      (fun _ _ => rfl) (fun _ _ => rfl)
+      (fun s hl => by
+        show (symBuiltin .QuotientInteger (List.map Prod.snd (List.map reifyFO s.reverse))).inc = .bool true
+        exact symBuiltin_QuotientInteger_inc_ne2 _ (by simpa [List.length_map, List.length_reverse] using hl))
+      (fun x y => by simp only [denote_app2]; rfl)
+      evalBuiltin_QuotientInteger_spec
+  case RemainderInteger =>
+    exact satBinDiv M _ sargs cargs hγ hf hwf "moist_qrem" Int.tmod
+      (fun _ _ => rfl) (fun _ _ => rfl)
+      (fun s hl => by
+        show (symBuiltin .RemainderInteger (List.map Prod.snd (List.map reifyFO s.reverse))).inc = .bool true
+        exact symBuiltin_RemainderInteger_inc_ne2 _ (by simpa [List.length_map, List.length_reverse] using hl))
+      (fun x y => by simp only [denote_app2]; rfl)
+      evalBuiltin_RemainderInteger_spec
 
 /-! ## The simulation `Sim` (the mutual adequacy induction) -/
 
@@ -1441,7 +1602,11 @@ theorem symSaturate_inc_lit (b : BuiltinFun) (args : List SymV) (h : preciseBuil
         | exact symBuiltin_MultiplyInteger_inc_ne2 _ hlen
         | exact symBuiltin_EqualsInteger_inc_ne2 _ hlen
         | exact symBuiltin_LessThanInteger_inc_ne2 _ hlen
-        | exact symBuiltin_LessThanEqualsInteger_inc_ne2 _ hlen)
+        | exact symBuiltin_LessThanEqualsInteger_inc_ne2 _ hlen
+        | exact symBuiltin_DivideInteger_inc_ne2 _ hlen
+        | exact symBuiltin_ModInteger_inc_ne2 _ hlen
+        | exact symBuiltin_QuotientInteger_inc_ne2 _ hlen
+        | exact symBuiltin_RemainderInteger_inc_ne2 _ hlen)
 
 /-! ## Upward fuel-stability `Stab`
 
