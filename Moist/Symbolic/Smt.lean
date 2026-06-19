@@ -415,27 +415,35 @@ structure SymConst where
 deriving Repr
 
 /-- A full SMT-LIB script: the symbolic constants to solve for, side
-constraints (e.g. byte ranges, `is-VPair`), and the goal assertions. -/
+constraints (e.g. byte ranges, `is-VPair`), and the **labelled** goal assertions.
+
+Every goal assertion is emitted as `(assert (! e :named label))` and
+`:produce-unsat-cores` is on, so a `(get-unsat-core)` after an `unsat` reports
+exactly which labels caused the failure. In particular, the `¬inc`
+("determinate") guard is named separately: if it appears in the core, the
+negative result is an artefact of the fuel bound (raise the fuel); if it does
+not, the result is genuine and bound-independent. -/
 structure SmtScript where
   consts  : List SymConst := []
   /-- Side conditions constraining the symbolic constants (well-formedness). -/
   side    : List SExpr := []
-  /-- The goal assertions handed to the solver. -/
-  asserts : List SExpr := []
-  /-- Whether to emit `(get-model)` after `(check-sat)`. -/
-  getModel : Bool := true
+  /-- The goal assertions, each with a unique label for unsat-core diagnosis. -/
+  asserts : List (String × SExpr) := []
 deriving Inhabited
 
-/-- Emit a complete, runnable SMT-LIB v2 document. -/
+/-- Emit a complete, runnable SMT-LIB v2 document with named assertions, unsat
+cores, and both `(get-model)`/`(get-unsat-core)` (z3 prints whichever applies). -/
 def SmtScript.toSMTLib (s : SmtScript) : String :=
-  let header := "(set-logic ALL)\n"
+  let header := "(set-logic ALL)\n(set-option :produce-models true)\n(set-option :produce-unsat-cores true)\n"
   let pre := datatypePreamble ++ "\n"
   let ufs := String.intercalate "\n" (opaqueUFs.map UFDecl.render)
   let decls := String.intercalate "\n"
     (s.consts.map (fun c => s!"(declare-const {c.name} {c.sort.render})"))
-  let sides := String.intercalate "\n" (s.side.map (fun e => s!"(assert {e.render})"))
-  let goals := String.intercalate "\n" (s.asserts.map (fun e => s!"(assert {e.render})"))
-  let tail := "(check-sat)" ++ (if s.getModel then "\n(get-model)" else "")
+  let sides := String.intercalate "\n"
+    (s.side.mapIdx (fun i e => s!"(assert (! {e.render} :named wf{i}))"))
+  let goals := String.intercalate "\n"
+    (s.asserts.map (fun (l, e) => s!"(assert (! {e.render} :named {l}))"))
+  let tail := "(check-sat)\n(get-unsat-core)\n(get-model)"
   String.intercalate "\n"
     ([header ++ pre ++ ufs] ++
      (if decls.isEmpty then [] else [decls]) ++

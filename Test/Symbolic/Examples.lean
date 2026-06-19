@@ -39,15 +39,35 @@ def runZ3 (smt : String) : IO String := do
   catch e =>
     return s!"<could not run z3: {e}>"
 
-/-- Print the generated SMT-LIB and z3's answer for a compiled goal. -/
-def demo (title : String) (c : Compiled) (goal : SymR → List SExpr) : IO Unit := do
+/-- Does `s` contain `t` as a substring? -/
+def contains? (s t : String) : Bool := (s.splitOn t).length ≥ 2
+
+/-- Interpret z3's answer. On `unsat`, inspect the unsat core: if the
+`determinate` (`¬inc`) guard is in it, the failure is an artefact of the fuel
+bound (raise the fuel); otherwise the failure is genuine and bound-independent. -/
+def verdict (z3out : String) : String :=
+  let lines := (z3out.splitOn "\n").map String.trim
+  if lines.contains "unsat" then
+    let core := ((lines.dropWhile (· != "unsat")).drop 1).head?.getD ""
+    if contains? core "determinate" then
+      s!"⟹ UNSAT, but core = {core} contains `determinate`: INCONCLUSIVE — some inputs are\n   beyond the fuel horizon; the real answer may exist past it. Raise the fuel."
+    else
+      s!"⟹ UNSAT, core = {core} (no `determinate`): GENUINE — holds independent of the fuel bound."
+  else if lines.contains "sat" then
+    "⟹ SAT: a concrete witness exists (see model above)."
+  else s!"⟹ {z3out}"
+
+/-- Print the generated SMT-LIB and z3's answer + verdict for a compiled goal. -/
+def demo (title : String) (c : Compiled) (goal : SymR → List (String × SExpr)) : IO Unit := do
   let smt := c.toSMTLib goal
   IO.println s!"════════════════════════════════════════════════════════════════"
   IO.println s!"  {title}"
   IO.println s!"════════════════════════════════════════════════════════════════"
   IO.println smt
   IO.println "──── z3 ────"
-  IO.println (← runZ3 smt)
+  let out ← runZ3 smt
+  IO.println out
+  IO.println (verdict out)
   IO.println ""
 
 /-! ## Example 1 — symbolic `equalsInteger`/`addInteger`
@@ -147,15 +167,15 @@ complement. `unsat` is the desired (good) answer in both. -/
 
 -- For Example 2, `x = 2` must be the *unique* non-erroring input: assert it
 -- succeeds *and* `x ≠ 2`.  Expect **unsat**.
-#eval demo "Partiality 2: (succeeds ∧ x ≠ 2) for `case x [err,err,true]`   (expect UNSAT)"
+#eval demo "Partiality 2: (succeeds ∧ x ≠ 2) for `case x [err,err,true]`   (expect UNSAT, genuine)"
   (compile 10 [("x", .integer)] ex2)
-  (fun r => goalSucceeds r ++ [SExpr.sNot (SExpr.sEq (.atom "x") (.int 2))])
+  (fun r => goalSucceeds r ++ [("assume_xne2", SExpr.sNot (SExpr.sEq (.atom "x") (.int 2)))])
 
 -- For Example 3, `x = 10` must *always* error: assert it succeeds *and*
 -- `x = 10`.  Expect **unsat** (the CEK must fail there).
-#eval demo "Partiality 3: (succeeds ∧ x = 10) for Example 3   (expect UNSAT — must error)"
+#eval demo "Partiality 3: (succeeds ∧ x = 10) for Example 3   (expect UNSAT, genuine — must error)"
   (compile 12 [("x", .integer)] ex3)
-  (fun r => goalSucceeds r ++ [SExpr.sEq (.atom "x") (.int 10)])
+  (fun r => goalSucceeds r ++ [("assume_xeq10", SExpr.sEq (.atom "x") (.int 10))])
 
 /-! ## Builtin type-checking matches the CEK (the `MkCons` concern)
 
@@ -183,5 +203,28 @@ def exConsBad : Term := mkConsT (.Var 1) mkNilD
 def exConsGood : Term := mkConsT (.Apply (.Builtin .IData) (.Var 1)) mkNilD
 #eval demo "MkCons type-check: cons (iData x) onto list(data) succeeds   (expect SAT)"
   (compile 12 [("x", .integer)] exConsGood) goalSucceeds
+
+/-! ## Diagnosing recursion failures: `inc` (fuel) vs a genuine result
+
+`sum n = 55` needs `n = 10` (1+…+10), i.e. ~10 unrollings. With too little fuel
+that witness is *beyond the horizon*: the query is `unsat`, but the unsat core
+contains `determinate` — telling us the failure is a fuel artefact, not a real
+"no such n". With enough fuel the witness `n = 10` is found. Contrast with the
+genuine `unsat`s above (Partiality 2/3), whose cores do **not** mention
+`determinate`. -/
+
+-- Too little fuel: `sum n = 55` is `unsat` **because of the bound** (core has
+-- `determinate`). The diagnostic says: raise the fuel.
+#eval demo "Recursion diag: sum n = 55 at LOW fuel   (expect UNSAT, inc-limited)"
+  (compile 70 [("n", .integer)] ex6) (goalReturnsInt · 55)
+
+-- Enough fuel: the same query now finds `n = 10`.
+#eval demo "Recursion diag: sum n = 55 at HIGH fuel   (expect SAT, n = 10)"
+  (compile 130 [("n", .integer)] ex6) (goalReturnsInt · 55)
+
+-- Fuel-coverage check: is any `n` indeterminate at this fuel? `sat` ⇒ the bound
+-- does not cover all inputs (so negative results are inconclusive).
+#eval demo "Recursion diag: is any n beyond the fuel horizon?   (expect SAT — fuel not total)"
+  (compile 200 [("n", .integer)] ex6) goalIndeterminate
 
 end Test.Symbolic.Examples

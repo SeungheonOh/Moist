@@ -461,32 +461,47 @@ def compile (fuel : Nat) (inputs : List (String × InputKind)) (t : Term) : Comp
     consts := seeded.flatMap (·.consts)
     sides  := seeded.flatMap (·.sides) }
 
-/-! ## Goal builders — assertions handed to the solver -/
+/-! ## Goal builders — labelled assertions handed to the solver
+
+Each goal is a list of `(label, assertion)`. The `¬inc` guard is always labelled
+`"determinate"` so that, on a failed (`unsat`) query, `(get-unsat-core)` reveals
+whether the fuel bound was the culprit: if `determinate` is in the core, the
+result is bound-limited (raise the fuel); otherwise it is genuine. -/
+
+/-- A goal: a function from the compiled result to labelled assertions. -/
+abbrev Goal := SymR → List (String × SExpr)
 
 /-- Assert the term completes (`¬inc`), does not error (`¬err`), and its
 first-order value equals `target` (a `V`-sorted `SExpr`). -/
-def goalEqualsV (r : SymR) (target : SExpr) : List SExpr :=
+def goalEqualsV (r : SymR) (target : SExpr) : List (String × SExpr) :=
   let (nf, e) := reifyFO r.val
-  [sNot r.inc, sNot r.err, sNot nf, sEq e target]
+  [("determinate", sNot r.inc), ("no_error", sNot r.err),
+   ("first_order", sNot nf), ("goal", sEq e target)]
 
 /-- Assert the term returns the boolean `b`. -/
-def goalReturnsBool (r : SymR) (b : Bool) : List SExpr := goalEqualsV r (V.bool (.bool b))
+def goalReturnsBool (r : SymR) (b : Bool) : List (String × SExpr) := goalEqualsV r (V.bool (.bool b))
 
 /-- Assert the term returns the integer `i`. -/
-def goalReturnsInt (r : SymR) (i : Int) : List SExpr := goalEqualsV r (V.int (.int i))
+def goalReturnsInt (r : SymR) (i : Int) : List (String × SExpr) := goalEqualsV r (V.int (.int i))
 
 /-- Assert the term **errors** (definitely, not merely indeterminate). -/
-def goalErrors (r : SymR) : List SExpr := [sNot r.inc, r.err]
+def goalErrors (r : SymR) : List (String × SExpr) := [("determinate", sNot r.inc), ("is_error", r.err)]
 
 /-- Assert the term completes successfully (no error). -/
-def goalSucceeds (r : SymR) : List SExpr := [sNot r.inc, sNot r.err]
+def goalSucceeds (r : SymR) : List (String × SExpr) := [("determinate", sNot r.inc), ("no_error", sNot r.err)]
+
+/-- Diagnostic query: is **any** input indeterminate (its evaluation exceeds the
+fuel)? `unsat` ⇒ the fuel covers every (well-formed) input, so all other results
+are final; `sat` ⇒ some inputs are beyond the horizon, so a negative result there
+is inconclusive — raise the fuel. -/
+def goalIndeterminate (r : SymR) : List (String × SExpr) := [("indeterminate", r.inc)]
 
 /-- Assemble the full SMT-LIB script for a compiled term and a goal. -/
-def Compiled.script (c : Compiled) (goal : SymR → List SExpr) : SmtScript :=
-  { consts := c.consts, side := c.sides, asserts := goal c.result, getModel := true }
+def Compiled.script (c : Compiled) (goal : SymR → List (String × SExpr)) : SmtScript :=
+  { consts := c.consts, side := c.sides, asserts := goal c.result }
 
 /-- Emit runnable SMT-LIB v2 text for a compiled term and a goal. -/
-def Compiled.toSMTLib (c : Compiled) (goal : SymR → List SExpr) : String :=
+def Compiled.toSMTLib (c : Compiled) (goal : SymR → List (String × SExpr)) : String :=
   (c.script goal).toSMTLib
 
 end Moist.Symbolic
