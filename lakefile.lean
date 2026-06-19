@@ -30,7 +30,7 @@ extern_lib liblean_shim (pkg : NPackage _) := do
   let oFile := pkg.buildDir / "ffi" / "lean_shim.o"
   IO.FS.createDirAll (pkg.buildDir / "ffi")
   proc {
-    cmd := "cc"
+    cmd := "leanc"
     args := #["-c", "-O2", "-I", leanIncDir.toString,
               "-o", oFile.toString,
               (pkg.dir / "ffi" / "lean_shim.c").toString]
