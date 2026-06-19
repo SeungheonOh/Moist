@@ -41,31 +41,31 @@ open SExpr (sNot sAnd sOr sImplies sIte sEq)
 
 /-! ## Type-guard helpers (error when a `V` value has the wrong variant) -/
 
-private def gInt  (e : SExpr) : SExpr := sNot (V.sIsCon "VInt" e)
-private def gBool (e : SExpr) : SExpr := sNot (V.sIsCon "VBool" e)
-private def gBS   (e : SExpr) : SExpr := sNot (V.sIsCon "VBS" e)
-private def gStr  (e : SExpr) : SExpr := sNot (V.sIsCon "VStr" e)
-private def gData (e : SExpr) : SExpr := sNot (V.sIsCon "VData" e)
-private def gUnit (e : SExpr) : SExpr := sNot (V.sIsCon "VUnit" e)
-private def gG1   (e : SExpr) : SExpr := sNot (V.sIsCon "VG1" e)
-private def gG2   (e : SExpr) : SExpr := sNot (V.sIsCon "VG2" e)
-private def gMl   (e : SExpr) : SExpr := sNot (V.sIsCon "VMl" e)
+def gInt  (e : SExpr) : SExpr := sNot (V.sIsCon "VInt" e)
+def gBool (e : SExpr) : SExpr := sNot (V.sIsCon "VBool" e)
+def gBS   (e : SExpr) : SExpr := sNot (V.sIsCon "VBS" e)
+def gStr  (e : SExpr) : SExpr := sNot (V.sIsCon "VStr" e)
+def gData (e : SExpr) : SExpr := sNot (V.sIsCon "VData" e)
+def gUnit (e : SExpr) : SExpr := sNot (V.sIsCon "VUnit" e)
+def gG1   (e : SExpr) : SExpr := sNot (V.sIsCon "VG1" e)
+def gG2   (e : SExpr) : SExpr := sNot (V.sIsCon "VG2" e)
+def gMl   (e : SExpr) : SExpr := sNot (V.sIsCon "VMl" e)
 
 /-- Data-kind discriminator `(is-DCon dd)`. -/
-private def dIs (con : String) (dd : SExpr) : SExpr := .app s!"is-{con}" [dd]
+def dIs (con : String) (dd : SExpr) : SExpr := .app s!"is-{con}" [dd]
 /-- Negated Data-kind discriminator. -/
-private def dNot (con : String) (dd : SExpr) : SExpr := sNot (dIs con dd)
+def dNot (con : String) (dd : SExpr) : SExpr := sNot (dIs con dd)
 
 /-- A definite-error result (declared early; reused by the list dispatcher). -/
-private def errR' : SymR := ⟨.bool false, .bool true, junk⟩
+def errR' : SymR := ⟨.bool false, .bool true, junk⟩
 /-- An indeterminate result (out of fuel / unsupported / undetermined flavour). -/
-private def incR' : SymR := ⟨.bool true, .bool false, junk⟩
+def incR' : SymR := ⟨.bool true, .bool false, junk⟩
 
 /-- Dispatch a list builtin across the two valid `Const` list flavours, exactly as
 the CEK does: `VDList` (`ConstDataList`, elements projected as a `DL`) or `VList`
 (`ConstList`, elements a `VL`); a *known* non-list variant errors; an *unknown*
 flavour is indeterminate (no claim). -/
-private def onList (l : SExpr) (onD : SExpr → SymR) (onV : SExpr → SymR) : SymR :=
+def onList (l : SExpr) (onD : SExpr → SymR) (onV : SExpr → SymR) : SymR :=
   match V.vConName l with
   | some "VDList" => onD (V.sAsDL l)
   | some "VList"  => onV (V.sAsList l)
@@ -73,13 +73,13 @@ private def onList (l : SExpr) (onD : SExpr → SymR) (onV : SExpr → SymR) : S
   | some _        => errR'
 
 /-- A definite-error result. -/
-private def errR : SymR := ⟨.bool false, .bool true, junk⟩
+def errR : SymR := ⟨.bool false, .bool true, junk⟩
 /-- An indeterminate result (out of fuel / unsupported). -/
-private def incR : SymR := ⟨.bool true, .bool false, junk⟩
+def incR : SymR := ⟨.bool true, .bool false, junk⟩
 /-- A pure (non-erroring, complete) first-order result. -/
-private def okFO (e : SExpr) : SymR := ⟨.bool false, .bool false, .fo e⟩
+def okFO (e : SExpr) : SymR := ⟨.bool false, .bool false, .fo e⟩
 /-- A first-order result that errors under `g`. -/
-private def foGuard (g e : SExpr) : SymR := ⟨.bool false, g, .fo e⟩
+def foGuard (g e : SExpr) : SymR := ⟨.bool false, g, .fo e⟩
 
 /-! ## Saturated builtin evaluation on first-order arguments
 

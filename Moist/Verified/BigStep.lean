@@ -1473,4 +1473,59 @@ construction (`#print axioms bigEval_sound` stays `propext`/`Quot.sound`/`Classi
     evalBuiltin .EqualsInteger [.VCon (.Integer y), .VCon (.Integer x)]
       = some (.VCon (.Bool (x == y)))
 
+/-! ### Full per-builtin specifications (success *and* failure)
+
+The `@[simp]` axioms above pin only the success shape (what Blaster needs). The
+Stage-2 soundness proof must also know a builtin *errors* (`none`) on type-mismatched
+arguments — and `evalBuiltin`/`evalBuiltinConst` are exactly the monolithic dispatches
+that whnf-time-out, so those `none` results are not reducible either. These `_spec`
+axioms give the **complete** input→output table per builtin (every non-success shape
+maps to `none`); like the ones above they are each true by `rfl`, axiomatised only
+because reducing `evalBuiltin` is prohibitively expensive. -/
+
+axiom evalBuiltin_AddInteger_spec (args : List CekValue) :
+    evalBuiltin .AddInteger args = match args with
+      | [.VCon (.Integer y), .VCon (.Integer x)] => some (.VCon (.Integer (x + y)))
+      | _ => none
+axiom evalBuiltin_SubtractInteger_spec (args : List CekValue) :
+    evalBuiltin .SubtractInteger args = match args with
+      | [.VCon (.Integer y), .VCon (.Integer x)] => some (.VCon (.Integer (x - y)))
+      | _ => none
+axiom evalBuiltin_MultiplyInteger_spec (args : List CekValue) :
+    evalBuiltin .MultiplyInteger args = match args with
+      | [.VCon (.Integer y), .VCon (.Integer x)] => some (.VCon (.Integer (x * y)))
+      | _ => none
+axiom evalBuiltin_EqualsInteger_spec (args : List CekValue) :
+    evalBuiltin .EqualsInteger args = match args with
+      | [.VCon (.Integer y), .VCon (.Integer x)] => some (.VCon (.Bool (x == y)))
+      | _ => none
+axiom evalBuiltin_LessThanInteger_spec (args : List CekValue) :
+    evalBuiltin .LessThanInteger args = match args with
+      | [.VCon (.Integer y), .VCon (.Integer x)] => some (.VCon (.Bool (x < y)))
+      | _ => none
+axiom evalBuiltin_LessThanEqualsInteger_spec (args : List CekValue) :
+    evalBuiltin .LessThanEqualsInteger args = match args with
+      | [.VCon (.Integer y), .VCon (.Integer x)] => some (.VCon (.Bool (x ≤ y)))
+      | _ => none
+axiom evalBuiltin_DivideInteger_spec (args : List CekValue) :
+    evalBuiltin .DivideInteger args = match args with
+      | [.VCon (.Integer y), .VCon (.Integer x)] =>
+          if y == 0 then none else some (.VCon (.Integer (Moist.CEK.haskellDiv x y)))
+      | _ => none
+axiom evalBuiltin_ModInteger_spec (args : List CekValue) :
+    evalBuiltin .ModInteger args = match args with
+      | [.VCon (.Integer y), .VCon (.Integer x)] =>
+          if y == 0 then none else some (.VCon (.Integer (Moist.CEK.haskellMod x y)))
+      | _ => none
+axiom evalBuiltin_QuotientInteger_spec (args : List CekValue) :
+    evalBuiltin .QuotientInteger args = match args with
+      | [.VCon (.Integer y), .VCon (.Integer x)] =>
+          if y == 0 then none else some (.VCon (.Integer (Int.tdiv x y)))
+      | _ => none
+axiom evalBuiltin_RemainderInteger_spec (args : List CekValue) :
+    evalBuiltin .RemainderInteger args = match args with
+      | [.VCon (.Integer y), .VCon (.Integer x)] =>
+          if y == 0 then none else some (.VCon (.Integer (Int.tmod x y)))
+      | _ => none
+
 end Moist.Verified.BigStep

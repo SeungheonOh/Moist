@@ -138,13 +138,13 @@ to match Plutus semantics for `divideInteger` and `modInteger`.
 
 /-- Haskell `div`: rounds toward negative infinity.
 Uses `Int.tdiv` (truncation toward zero) as a base. -/
-private def haskellDiv (a b : Int) : Int :=
+def haskellDiv (a b : Int) : Int :=
   let q := a.tdiv b
   let r := a.tmod b
   if r == 0 || (a >= 0) == (b >= 0) then q else q - 1
 
 /-- Haskell `mod`: result has sign of divisor. -/
-private def haskellMod (a b : Int) : Int :=
+def haskellMod (a b : Int) : Int :=
   a - b * haskellDiv a b
 
 /-! ### ByteString Helpers -/

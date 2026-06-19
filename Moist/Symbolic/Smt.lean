@@ -99,12 +99,12 @@ partial def beq : SExpr → SExpr → Bool
       f == g && as.length == bs.length && (as.zip bs).all (fun (x, y) => beq x y)
   | _, _ => false
 
-/-- Smart `ite`, folding a literal condition and collapsing `ite c a a`. -/
+/-- Smart `ite`, folding a literal condition. -/
 def sIte (c t e : SExpr) : SExpr :=
   match c with
   | .bool true  => t
   | .bool false => e
-  | _           => if beq t e then t else .app "ite" [c, t, e]
+  | _           => .app "ite" [c, t, e]
 
 /-- Smart equality (folds two equal int/bool literals). -/
 def sEq (a b : SExpr) : SExpr :=
