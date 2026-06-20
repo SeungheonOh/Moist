@@ -773,6 +773,15 @@ structure WfFOR (M : Model) (e : SExpr) (va : CekValue) : Prop where
   pBS   : ∀ bs, va = .VCon (.ByteString bs) → denote M (V.sAsBS e)   = .Bytes (baToBytes bs)
   pStr  : ∀ s, va = .VCon (.String s)       → denote M (V.sAsStr e)  = .Str s
   pData : ∀ d, va = .VCon (.Data d)         → denote M (V.sAsData e) = .Dd d
+  -- Structural projectors for the *Data-leaf* aggregates (`ConstDataList`/
+  -- `ConstPairDataList`/`PairData` — their elements are opaque `Data`, so these are
+  -- non-recursive, like `pData`). Needed so the list/pair/Data builtins can read out
+  -- a constructed aggregate's components (the `den`-derivable raw case isn't enough
+  -- for a *literal* `V.dlist`/`V.pairD`, which folds the projector to its argument).
+  pDList : ∀ l, va = .VCon (.ConstDataList l)     → denote M (V.sAsDL e) = .DLl l
+  pDMap  : ∀ l, va = .VCon (.ConstPairDataList l) → denote M (V.sAsDM e) = .DMm l
+  pPairF : ∀ a b, va = .VCon (.PairData (a, b))   → denote M (V.sFstD e) = .Dd a
+  pPairS : ∀ a b, va = .VCon (.PairData (a, b))   → denote M (V.sSndD e) = .Dd b
   tInt  : denoteB M (V.sIsCon "VInt" e)  = vIs "VInt" va
   tBool : denoteB M (V.sIsCon "VBool" e) = vIs "VBool" va
   tBS   : denoteB M (V.sIsCon "VBS" e)   = vIs "VBS" va
@@ -1163,12 +1172,16 @@ theorem denote_asBS_clean (M : Model) (e : SExpr) :
 /-- `V.unit` is folding-clean (it is a concrete `VCon Unit`). -/
 theorem wfFO_unit (M : Model) : WfFO M V.unit := by
   refine ⟨.VCon .Unit, by simp only [V.unit, denote_atom, dNull_VUnit],
-    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro n hn; exact absurd hn (by simp)
   · intro b hb; exact absurd hb (by simp)
   · intro bs hbs; exact absurd hbs (by simp)
   · intro s hs; exact absurd hs (by simp)
   · intro d hd; exact absurd hd (by simp)
+  · intro l hl; exact absurd hl (by simp)
+  · intro l hl; exact absurd hl (by simp)
+  · intro a b hab; exact absurd hab (by simp)
+  · intro a b hab; exact absurd hab (by simp)
   all_goals first
     | exact denote_asBS_clean M _
     | simp [V.unit, V.sIsCon, V.vConName, vIs, denoteB, dNull]
@@ -1177,13 +1190,17 @@ theorem wfFO_unit (M : Model) : WfFO M V.unit := by
 theorem wfFO_Vint (M : Model) (e : SExpr) (k : Int) (h : denote M e = .I k) :
     WfFO M (V.int e) := by
   refine ⟨.VCon (.Integer k), by simp only [V.int, denote_app1, dUn_VInt, h, SVal.asI],
-    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro m hm; injection hm with hm'; injection hm' with hm''; subst hm''
     simp only [V.int, V.sAsInt, h]
   · intro b hb; exact absurd hb (by simp)
   · intro bs hbs; exact absurd hbs (by simp)
   · intro s hs; exact absurd hs (by simp)
   · intro d hd; exact absurd hd (by simp)
+  · intro l hl; exact absurd hl (by simp)
+  · intro l hl; exact absurd hl (by simp)
+  · intro a b hab; exact absurd hab (by simp)
+  · intro a b hab; exact absurd hab (by simp)
   all_goals first
     | exact denote_asBS_clean M _
     | simp [V.int, V.sIsCon, V.vConName, vIs, denoteB, V.knownVCons]
@@ -1192,13 +1209,17 @@ theorem wfFO_Vint (M : Model) (e : SExpr) (k : Int) (h : denote M e = .I k) :
 theorem wfFO_Vbool (M : Model) (e : SExpr) (c : Bool) (h : denote M e = .B c) :
     WfFO M (V.bool e) := by
   refine ⟨.VCon (.Bool c), by simp only [V.bool, denote_app1, dUn_VBool, h, SVal.asB],
-    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro n hn; exact absurd hn (by simp)
   · intro b hb; injection hb with hb'; injection hb' with hb''; subst hb''
     simp only [V.bool, V.sAsBool, h]
   · intro bs hbs; exact absurd hbs (by simp)
   · intro s hs; exact absurd hs (by simp)
   · intro d hd; exact absurd hd (by simp)
+  · intro l hl; exact absurd hl (by simp)
+  · intro l hl; exact absurd hl (by simp)
+  · intro a b hab; exact absurd hab (by simp)
+  · intro a b hab; exact absurd hab (by simp)
   all_goals first
     | exact denote_asBS_clean M _
     | simp [V.bool, V.sIsCon, V.vConName, vIs, denoteB, V.knownVCons]
@@ -1207,13 +1228,17 @@ theorem wfFO_Vbool (M : Model) (e : SExpr) (c : Bool) (h : denote M e = .B c) :
 theorem wfFO_Vstr (M : Model) (e : SExpr) (s : String) (h : denote M e = .Str s) :
     WfFO M (V.str e) := by
   refine ⟨.VCon (.String s), by simp only [V.str, denote_app1, dUn_VStr, h, SVal.asStr],
-    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro n hn; exact absurd hn (by simp)
   · intro b hb; exact absurd hb (by simp)
   · intro bs hbs; exact absurd hbs (by simp)
   · intro s' hs'; injection hs' with h1; injection h1 with h2; subst h2
     simp only [V.str, V.sAsStr, h]
   · intro d hd; exact absurd hd (by simp)
+  · intro l hl; exact absurd hl (by simp)
+  · intro l hl; exact absurd hl (by simp)
+  · intro a b hab; exact absurd hab (by simp)
+  · intro a b hab; exact absurd hab (by simp)
   all_goals first
     | exact denote_asBS_clean M _
     | simp [V.str, V.sIsCon, V.vConName, vIs, denoteB, V.knownVCons]
@@ -1222,13 +1247,17 @@ theorem wfFO_Vstr (M : Model) (e : SExpr) (s : String) (h : denote M e = .Str s)
 theorem wfFO_Vdata (M : Model) (e : SExpr) (d : Data) (h : denote M e = .Dd d) :
     WfFO M (V.data e) := by
   refine ⟨.VCon (.Data d), by simp only [V.data, denote_app1, dUn_VData, h, SVal.asD],
-    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro n hn; exact absurd hn (by simp)
   · intro b hb; exact absurd hb (by simp)
   · intro bs hbs; exact absurd hbs (by simp)
   · intro s hs; exact absurd hs (by simp)
   · intro d' hd'; injection hd' with h1; injection h1 with h2; subst h2
     simp only [V.data, V.sAsData, h]
+  · intro l hl; exact absurd hl (by simp)
+  · intro l hl; exact absurd hl (by simp)
+  · intro a b hab; exact absurd hab (by simp)
+  · intro a b hab; exact absurd hab (by simp)
   all_goals first
     | exact denote_asBS_clean M _
     | simp [V.data, V.sIsCon, V.vConName, vIs, denoteB, V.knownVCons]
@@ -1239,13 +1268,17 @@ theorem wfFO_Vbs (M : Model) (e : SExpr) (bs : ByteArray) (h : denote M e = .Byt
     WfFO M (V.bs e) := by
   refine ⟨.VCon (.ByteString bs),
     by simp only [V.bs, denote_app1, dUn_VBS, h, SVal.asBytes, bytesToBA_baToBytes],
-    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro n hn; exact absurd hn (by simp)
   · intro b hb; exact absurd hb (by simp)
   · intro bs' hbs'; injection hbs' with h1; injection h1 with h2; subst h2
     simp only [V.bs, V.sAsBS, h]
   · intro s hs; exact absurd hs (by simp)
   · intro d hd; exact absurd hd (by simp)
+  · intro l hl; exact absurd hl (by simp)
+  · intro l hl; exact absurd hl (by simp)
+  · intro a b hab; exact absurd hab (by simp)
+  · intro a b hab; exact absurd hab (by simp)
   -- cleanBS: the folded projection `sAsBS (V.bs e) = e` denotes `bs`'s clean bytes.
   all_goals first
     | exact ⟨bs, by simp only [V.bs, V.sAsBS, h]⟩
@@ -1256,12 +1289,16 @@ theorem wfFO_Vbs (M : Model) (e : SExpr) (bs : ByteArray) (h : denote M e = .Byt
 theorem wfFO_Vconstr (M : Model) (e1 e2 : SExpr) : WfFO M (V.constr e1 e2) := by
   refine ⟨.VConstr (SVal.asI (denote M e1)).toNat (SVal.asVL (denote M e2)),
     by simp only [V.constr, denote_app2]; rfl,
-    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro n hn; exact absurd hn (by simp)
   · intro b hb; exact absurd hb (by simp)
   · intro bs hbs; exact absurd hbs (by simp)
   · intro s hs; exact absurd hs (by simp)
   · intro d hd; exact absurd hd (by simp)
+  · intro l hl; exact absurd hl (by simp)
+  · intro l hl; exact absurd hl (by simp)
+  · intro a b hab; exact absurd hab (by simp)
+  · intro a b hab; exact absurd hab (by simp)
   all_goals first
     | exact denote_asBS_clean M _
     | simp [V.constr, V.sIsCon, V.vConName, vIs, denoteB, V.knownVCons]
@@ -1291,7 +1328,7 @@ theorem wfFO_ite_app (M : Model) (c a b : SExpr) (ha : WfFO M a) (hb : WfFO M b)
   obtain ⟨vb, hrb⟩ := hb
   have hden : denote M (.app "ite" [c, a, b]) = .Vv (if denoteB M c then va else vb) := by
     rw [denote_ite_app, hra.den, hrb.den]; cases denoteB M c <;> rfl
-  refine ⟨if denoteB M c then va else vb, hden, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  refine ⟨if denoteB M c then va else vb, hden, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro n hn
     show denote M (V.asInt (.app "ite" [c, a, b])) = .I n
     rw [V.asInt, denote_app1, hden, hn]; rfl
@@ -1307,6 +1344,18 @@ theorem wfFO_ite_app (M : Model) (c a b : SExpr) (ha : WfFO M a) (hb : WfFO M b)
   · intro d hn
     show denote M (V.asData (.app "ite" [c, a, b])) = .Dd d
     rw [V.asData, denote_app1, hden, hn]; rfl
+  · intro l hn
+    show denote M (V.asDL (.app "ite" [c, a, b])) = .DLl l
+    rw [V.asDL, denote_app1, hden, hn]; rfl
+  · intro l hn
+    show denote M (V.asDM (.app "ite" [c, a, b])) = .DMm l
+    rw [V.asDM, denote_app1, hden, hn]; rfl
+  · intro a' b' hn
+    show denote M (V.fstD (.app "ite" [c, a, b])) = .Dd a'
+    rw [V.fstD, denote_app1, hden, hn]; rfl
+  · intro a' b' hn
+    show denote M (V.sndD (.app "ite" [c, a, b])) = .Dd b'
+    rw [V.sndD, denote_app1, hden, hn]; rfl
   · show denoteB M (.app "is-VInt" [.app "ite" [c, a, b]]) = vIs "VInt" (if denoteB M c then va else vb)
     rw [denoteB, denote_app1, hden]; rfl
   · show denoteB M (.app "is-VBool" [.app "ite" [c, a, b]]) = vIs "VBool" (if denoteB M c then va else vb)
