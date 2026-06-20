@@ -84,7 +84,8 @@ open Moist.Verified.BigStep (bigEval bigEvalList applyVal applyValList forceVal
   evalBuiltin_EqualsString_spec evalBuiltin_AppendString_spec
   evalBuiltin_EqualsByteString_spec evalBuiltin_AppendByteString_spec
   evalBuiltin_LengthOfByteString_spec evalBuiltin_ConsByteString_spec
-  evalBuiltin_IndexByteString_spec)
+  evalBuiltin_IndexByteString_spec
+  evalBuiltin_Trace_spec evalBuiltin_ChooseUnit_spec evalBuiltin_IfThenElse_spec)
 open Moist.Verified.Equivalence (Reaches steps)
 open Moist.Verified.SmallStep (init)
 
@@ -427,7 +428,9 @@ def preciseBuiltin : BuiltinFun → Bool
   | .DivideInteger | .ModInteger | .QuotientInteger | .RemainderInteger
   | .EqualsString | .AppendString
   | .EqualsByteString | .AppendByteString | .LengthOfByteString
-  | .IndexByteString => true
+  | .IndexByteString
+  -- Branching builtins: return a selected argument (no first-order computation).
+  | .IfThenElse | .ChooseUnit | .Trace => true
   -- `ConsByteString` is deliberately *excluded*: its symbolic value
   -- `VBS (seq.++ (seq.unit n) bs)` carries the **un-truncated** integer `n` in the
   -- byte sequence, so it is folding-clean (`WfFOR.pBS`/`cleanBS`) only when
@@ -857,17 +860,6 @@ theorem symLookup_faithful : ∀ (ρs : SymEnv) (k : Nat) (v : SymV),
       have hr : FaithfulVList rest := by have := hρ; simp only [FaithfulVList] at this; exact this.2
       exact symLookup_faithful rest (k + 1) v hr (by simpa [symLookup] using h)
 
-/-- A saturated *precise* (non-pass-through) builtin always yields a first-order
-value (every `symBuiltin` arm returns an `.fo`). Proved by filtering on
-`preciseBuiltin` (only the precise constructors survive) then reducing. -/
-theorem symSaturate_val_fo (b : BuiltinFun) (args : List SymV) (h : preciseBuiltin b = true) :
-    ∃ e, (symSaturate b args).val = .fo e := by
-  cases b <;> first | (exfalso; revert h; decide) | skip
-  all_goals
-    (show ∃ e, (symBuiltin _ (List.map Prod.snd (List.map reifyFO args.reverse))).val = .fo e
-     generalize (List.map Prod.snd (List.map reifyFO args.reverse)) = R
-     rcases R with _ | ⟨a, _ | ⟨b2, _ | ⟨c, t⟩⟩⟩ <;> exact ⟨_, rfl⟩)
-
 /-- Encoded simple constants are scalar-headed. -/
 theorem foShapeOK_simpleConst (c : Const) (h : simpleConst c = true) : foShapeOK (constToSExpr c) := by
   cases c
@@ -879,9 +871,31 @@ theorem foShapeOK_simpleConst (c : Const) (h : simpleConst c = true) : foShapeOK
 
 /-- Hence such a result is (model-independently) faithful: it is `.fo` of a
 scalar-headed expr (`V.int`/`V.bool`/`V.str`/`V.bs`, or `V.unit` for a wrong arity). -/
-theorem faithfulV_symSaturate (b : BuiltinFun) (args : List SymV) (h : preciseBuiltin b = true) :
+theorem faithfulV_symSaturate (b : BuiltinFun) (args : List SymV) (h : preciseBuiltin b = true)
+    (hfl : FaithfulVList args) :
     FaithfulV (symSaturate b args).val := by
   cases b <;> first | (exfalso; revert h; decide) | skip
+  -- Branching builtins: result is a *selected* argument / a `mergeVal` of two args.
+  case IfThenElse =>
+    rcases args with _ | ⟨elseV, _ | ⟨thenV, _ | ⟨condV, _ | ⟨w, rest⟩⟩⟩⟩
+    · exact foShapeOK_unit
+    · exact foShapeOK_unit
+    · exact foShapeOK_unit
+    · obtain ⟨hfe, hft, -⟩ := hfl
+      exact faithfulV_mergeVal _ thenV elseV hft hfe
+    · exact foShapeOK_unit
+  case ChooseUnit =>
+    rcases args with _ | ⟨result, _ | ⟨unitV, _ | ⟨w, rest⟩⟩⟩
+    · exact foShapeOK_unit
+    · exact foShapeOK_unit
+    · exact hfl.1
+    · exact foShapeOK_unit
+  case Trace =>
+    rcases args with _ | ⟨result, _ | ⟨strV, _ | ⟨w, rest⟩⟩⟩
+    · exact foShapeOK_unit
+    · exact foShapeOK_unit
+    · exact hfl.1
+    · exact foShapeOK_unit
   all_goals
     (show FaithfulV (symBuiltin _ (List.map Prod.snd (List.map reifyFO args.reverse))).val
      generalize (List.map Prod.snd (List.map reifyFO args.reverse)) = R
@@ -992,7 +1006,7 @@ theorem faithfulV_symApply : ∀ (n : Nat) (vf va : SymV),
       | argQ => simp [h1, errR, junk, FaithfulV, foShapeOK_unit]
       | argV =>
           cases h2 : ea.tail with
-          | none => simp only [h1, h2]; exact faithfulV_symSaturate b (va :: args) hpre
+          | none => simp only [h1, h2]; exact faithfulV_symSaturate b (va :: args) hpre ⟨ha, hargs⟩
           | some rest =>
               simp only [h1, h2]
               exact ⟨hpre, ha, hargs⟩
@@ -1020,7 +1034,7 @@ theorem faithfulV_symForce : ∀ (n : Nat) (vt : SymV),
       | argV => simp [h1, errR, junk, FaithfulV, foShapeOK_unit]
       | argQ =>
           cases h2 : ea.tail with
-          | none => simp only [h1, h2]; exact faithfulV_symSaturate b args hpre
+          | none => simp only [h1, h2]; exact faithfulV_symSaturate b args hpre hargs
           | some rest => simp only [h1, h2]; exact ⟨hpre, hargs⟩
   | n+1, .choice c x y, ht => by
       simp only [symForce]
@@ -1681,6 +1695,27 @@ theorem wfV_symSaturate (M : Model) (b : BuiltinFun) (args : List SymV)
     obtain ⟨p, hp, rfl⟩ := List.mem_map.1 he
     obtain ⟨w, hw, rfl⟩ := List.mem_map.1 hp
     exact reifyFO_sAsBS_clean M w (wfVList_mem M hwl (List.mem_reverse.1 hw))
+  -- Branching builtins: result is a selected arg / a `mergeVal` of two well-sorted args.
+  case IfThenElse =>
+    rcases args with _ | ⟨elseV, _ | ⟨thenV, _ | ⟨condV, _ | ⟨w, rest⟩⟩⟩⟩
+    · exact wfFO_unit M
+    · exact wfFO_unit M
+    · exact wfFO_unit M
+    · obtain ⟨hwe, hwt, -⟩ := hwl
+      exact wfV_mergeVal M _ thenV elseV hwt hwe
+    · exact wfFO_unit M
+  case ChooseUnit =>
+    rcases args with _ | ⟨result, _ | ⟨unitV, _ | ⟨w, rest⟩⟩⟩
+    · exact wfFO_unit M
+    · exact wfFO_unit M
+    · exact hwl.1
+    · exact wfFO_unit M
+  case Trace =>
+    rcases args with _ | ⟨result, _ | ⟨strV, _ | ⟨w, rest⟩⟩⟩
+    · exact wfFO_unit M
+    · exact wfFO_unit M
+    · exact hwl.1
+    · exact wfFO_unit M
 
 /-- A well-sorted alternative list, indexed, yields a well-sorted result value. -/
 theorem wfVList_getElem? (M : Model) : ∀ (L : List SymR) (i : Nat) (r : SymR),
@@ -2112,6 +2147,23 @@ theorem γList2 {M : Model} {a b : SymV} {L : List CekValue} (h : γList M [a, b
     | none => rw [hb] at h; simp at h
     | some cb => rw [hb] at h; simp only [Option.some.injEq] at h; exact ⟨ca, cb, rfl, rfl, h.symm⟩
 
+theorem γList3 {M : Model} {a b c : SymV} {L : List CekValue} (h : γList M [a, b, c] = some L) :
+    ∃ ca cb cc, γ M a = some ca ∧ γ M b = some cb ∧ γ M c = some cc ∧ L = [ca, cb, cc] := by
+  simp only [γList] at h
+  cases ha : γ M a with
+  | none => rw [ha] at h; simp at h
+  | some ca =>
+    rw [ha] at h
+    cases hb : γ M b with
+    | none => rw [hb] at h; simp at h
+    | some cb =>
+      rw [hb] at h
+      cases hc : γ M c with
+      | none => rw [hc] at h; simp at h
+      | some cc =>
+          rw [hc] at h; simp only [Option.some.injEq] at h
+          exact ⟨ca, cb, cc, rfl, rfl, rfl, h.symm⟩
+
 /-- The two args of a saturated binary-integer builtin, once its error condition is
 ruled out, are concrete integers with clean projections. `v1` is the first-applied
 operand (deeper in the reversed accumulation), `v2` the second. -/
@@ -2359,6 +2411,110 @@ theorem strArgErr (M : Model) {v : SymV} {s : String} (hf : FaithfulV v) (hw : W
     (hv : γ M v = some (.VCon (.String s))) :
     denoteB M (reifyFO v).1 = false ∧ denoteB M (gStr (reifyFO v).2) = false :=
   ⟨nf_false_of_VCon M hf hv, gStr_false_of_str (reify_wf M v hw) (reifyγ_str_rev M hf hv)⟩
+
+/-! ### Bool / Unit argument helpers (for the branching builtins `IfThenElse` /
+`ChooseUnit`). `Bool` mirrors the `String`/`Integer` machinery exactly (a
+`lam`/`delay`/`builtin` reifies to `VUnit ≠ VBool`, a `constr` to `VConstr`). `Unit`
+is special: the reify *junk* is itself `VUnit`, so `gUnit` cannot by itself rule out a
+`lam`/`delay`/`builtin` argument — the **non-fo flag** (`reifyFO _ .1`) does. Hence the
+`Unit` forward lemmas additionally take `(reifyFO v).1` denoting `false`. -/
+
+theorem reifyγ_bool (M : Model) : ∀ {v : SymV} {b : Bool}, FaithfulV v →
+    γ M (.fo (reifyFO v).2) = some (.VCon (.Bool b)) → γ M v = some (.VCon (.Bool b))
+  | .fo _, _, _, h => h
+  | .lam _ _, _, _, h | .delay _ _, _, _, h | .builtin _ _ _, _, _, h => by
+      simp [reifyFO, γ, V.unit, denote_atom, dNull_VUnit] at h
+  | .constr _ _, _, _, h => by simp [reifyFO, γ, V.constr, denote_app2] at h
+  | .choice c a b, bb, hf, h => by
+      simp only [reifyFO] at h; rw [γ_fo_sIte] at h; rw [γ]
+      split at h <;> rename_i hc
+      · rw [if_pos hc]; exact reifyγ_bool M hf.1 h
+      · rw [if_neg hc]; exact reifyγ_bool M hf.2 h
+termination_by v => sizeOf v
+
+theorem reifyγ_bool_rev (M : Model) : ∀ {v : SymV} {b : Bool}, FaithfulV v →
+    γ M v = some (.VCon (.Bool b)) → γ M (.fo (reifyFO v).2) = some (.VCon (.Bool b))
+  | .fo _, _, _, h => h
+  | .lam _ _, _, _, h | .delay _ _, _, _, h | .builtin _ _ _, _, _, h => by
+      rw [γ] at h; split at h <;> simp_all
+  | .constr _ _, _, _, h => by rw [γ] at h; split at h <;> simp_all
+  | .choice c a b, bb, hf, h => by
+      rw [γ] at h; simp only [reifyFO]; rw [γ_fo_sIte]
+      split at h <;> rename_i hc
+      · rw [if_pos hc]; exact reifyγ_bool_rev M hf.1 h
+      · rw [if_neg hc]; exact reifyγ_bool_rev M hf.2 h
+termination_by v => sizeOf v
+
+theorem argBool (M : Model) {v : SymV} {c1 : CekValue} (hf : FaithfulV v) (hw : WfV M v)
+    (hv : γ M v = some c1) (hg : denoteB M (gBool (reifyFO v).2) = false) :
+    ∃ b, c1 = .VCon (.Bool b) ∧ denote M (V.sAsBool (reifyFO v).2) = .B b := by
+  obtain ⟨va, hr⟩ := reify_wf M v hw
+  have ht : denoteB M (V.sIsCon "VBool" (reifyFO v).2) = true := by simpa [gBool, denoteB_sNot] using hg
+  rw [hr.tBool] at ht
+  obtain ⟨b, hn⟩ := vIs_VBool ht
+  have hγfo : γ M (.fo (reifyFO v).2) = some (.VCon (.Bool b)) := by rw [γ, hr.den, hn]
+  have hvv : γ M v = some (.VCon (.Bool b)) := reifyγ_bool M hf hγfo
+  rw [hv] at hvv
+  exact ⟨b, by injection hvv, hr.pBool b hn⟩
+
+theorem gBool_false_of_bool {M : Model} {e : SExpr} {b : Bool}
+    (hw : WfFO M e) (h : γ M (.fo e) = some (.VCon (.Bool b))) :
+    denoteB M (gBool e) = false := by
+  have hr := wfFOR_of hw h; simp [gBool, denoteB_sNot, hr.tBool, vIs]
+
+theorem boolArgErr (M : Model) {v : SymV} {b : Bool} (hf : FaithfulV v) (hw : WfV M v)
+    (hv : γ M v = some (.VCon (.Bool b))) :
+    denoteB M (reifyFO v).1 = false ∧ denoteB M (gBool (reifyFO v).2) = false :=
+  ⟨nf_false_of_VCon M hf hv, gBool_false_of_bool (reify_wf M v hw) (reifyγ_bool_rev M hf hv)⟩
+
+theorem reifyγ_unit (M : Model) : ∀ {v : SymV}, FaithfulV v →
+    denoteB M (reifyFO v).1 = false →
+    γ M (.fo (reifyFO v).2) = some (.VCon .Unit) → γ M v = some (.VCon .Unit)
+  | .fo _, _, _, h => h
+  | .lam _ _, _, hnf, _ | .delay _ _, _, hnf, _ | .builtin _ _ _, _, hnf, _ => by
+      simp [reifyFO, denoteB_bool] at hnf
+  | .constr _ _, _, _, h => by simp [reifyFO, γ, V.constr, denote_app2] at h
+  | .choice c a b, hf, hnf, h => by
+      simp only [reifyFO] at h hnf; rw [γ_fo_sIte] at h; rw [denoteB_sIte] at hnf; rw [γ]
+      split at h <;> rename_i hc
+      · rw [if_pos hc]; refine reifyγ_unit M hf.1 ?_ h; rw [if_pos hc] at hnf; exact hnf
+      · rw [if_neg hc]; refine reifyγ_unit M hf.2 ?_ h; rw [if_neg hc] at hnf; exact hnf
+termination_by v => sizeOf v
+
+theorem reifyγ_unit_rev (M : Model) : ∀ {v : SymV}, FaithfulV v →
+    γ M v = some (.VCon .Unit) → γ M (.fo (reifyFO v).2) = some (.VCon .Unit)
+  | .fo _, _, h => h
+  | .lam _ _, _, h | .delay _ _, _, h | .builtin _ _ _, _, h => by
+      rw [γ] at h; split at h <;> simp_all
+  | .constr _ _, _, h => by rw [γ] at h; split at h <;> simp_all
+  | .choice c a b, hf, h => by
+      rw [γ] at h; simp only [reifyFO]; rw [γ_fo_sIte]
+      split at h <;> rename_i hc
+      · rw [if_pos hc]; exact reifyγ_unit_rev M hf.1 h
+      · rw [if_neg hc]; exact reifyγ_unit_rev M hf.2 h
+termination_by v => sizeOf v
+
+theorem argUnit (M : Model) {v : SymV} {c1 : CekValue} (hf : FaithfulV v) (hw : WfV M v)
+    (hv : γ M v = some c1) (hnf : denoteB M (reifyFO v).1 = false)
+    (hg : denoteB M (gUnit (reifyFO v).2) = false) :
+    c1 = .VCon .Unit := by
+  obtain ⟨va, hr⟩ := reify_wf M v hw
+  have ht : denoteB M (V.sIsCon "VUnit" (reifyFO v).2) = true := by simpa [gUnit, denoteB_sNot] using hg
+  rw [hr.tUnit] at ht
+  have hn := vIs_VUnit ht
+  have hγfo : γ M (.fo (reifyFO v).2) = some (.VCon .Unit) := by rw [γ, hr.den, hn]
+  have hvv : γ M v = some (.VCon .Unit) := reifyγ_unit M hf hnf hγfo
+  rw [hv] at hvv; exact Option.some.inj hvv
+
+theorem gUnit_false_of_unit {M : Model} {e : SExpr}
+    (hw : WfFO M e) (h : γ M (.fo e) = some (.VCon .Unit)) :
+    denoteB M (gUnit e) = false := by
+  have hr := wfFOR_of hw h; simp [gUnit, denoteB_sNot, hr.tUnit, vIs]
+
+theorem unitArgErr (M : Model) {v : SymV} (hf : FaithfulV v) (hw : WfV M v)
+    (hv : γ M v = some (.VCon .Unit)) :
+    denoteB M (reifyFO v).1 = false ∧ denoteB M (gUnit (reifyFO v).2) = false :=
+  ⟨nf_false_of_VCon M hf hv, gUnit_false_of_unit (reify_wf M v hw) (reifyγ_unit_rev M hf hv)⟩
 
 theorem binStrClean {M : Model} {v1 v2 : SymV} {c1 c2 : CekValue}
     (hv1 : γ M v1 = some c1) (hv2 : γ M v2 = some c2)
@@ -2863,6 +3019,93 @@ theorem satBuiltin (M : Model) (b : BuiltinFun) (sargs : List SymV) (cargs : Lis
       evalBuiltin_LengthOfByteString_spec
   case IndexByteString =>
     exact satIndexBS M sargs cargs hγ hf hwf
+  -- Branching builtins: `evalBuiltin` returns a selected argument; the symbolic side
+  -- returns that same arg (Trace/ChooseUnit) or a `mergeVal` of two args (IfThenElse).
+  case Trace =>
+    rcases sargs with _ | ⟨result, _ | ⟨strV, _ | ⟨w, rest⟩⟩⟩
+    · exact relR_of_inc_true M rfl
+    · exact relR_of_inc_true M rfl
+    · obtain ⟨c_result, c_strV, hvr, hvs, rfl⟩ := γList2 hγ
+      obtain ⟨hf_r, hf_s, -⟩ := hf
+      obtain ⟨hw_r, hw_s, -⟩ := hwf
+      rw [evalBuiltin_Trace_spec]
+      refine ⟨fun _ herr => ?_, fun _ herr => ?_⟩
+      · have herr' : denoteB M (sOrs [(reifyFO strV).1, gStr (reifyFO strV).2]) = false := herr
+        simp only [sOrs, List.foldr, denoteB_sOr, denoteB_bool, Bool.or_eq_false_iff,
+          Bool.or_false] at herr'
+        obtain ⟨hnf, hg⟩ := herr'
+        obtain ⟨s, hcs, _⟩ := argStr M hf_s hw_s hvs hg
+        subst hcs
+        exact ⟨c_result, hvr, rfl⟩
+      · by_cases hstr : ∃ s, c_strV = .VCon (.String s)
+        · exfalso
+          obtain ⟨s, hs⟩ := hstr; subst hs
+          obtain ⟨hnf, hg⟩ := strArgErr M hf_s hw_s hvs
+          have herr' : denoteB M (sOrs [(reifyFO strV).1, gStr (reifyFO strV).2]) = true := herr
+          simp [sOrs, denoteB_sOr, denoteB_bool, hnf, hg] at herr'
+        · cases c_strV with
+          | VCon cc => cases cc <;> first | rfl | exact absurd ⟨_, rfl⟩ hstr
+          | _ => rfl
+    · exact relR_of_inc_true M rfl
+  case ChooseUnit =>
+    rcases sargs with _ | ⟨result, _ | ⟨unitV, _ | ⟨w, rest⟩⟩⟩
+    · exact relR_of_inc_true M rfl
+    · exact relR_of_inc_true M rfl
+    · obtain ⟨c_result, c_unit, hvr, hvu, rfl⟩ := γList2 hγ
+      obtain ⟨hf_r, hf_u, -⟩ := hf
+      obtain ⟨hw_r, hw_u, -⟩ := hwf
+      rw [evalBuiltin_ChooseUnit_spec]
+      refine ⟨fun _ herr => ?_, fun _ herr => ?_⟩
+      · have herr' : denoteB M (sOrs [(reifyFO unitV).1, gUnit (reifyFO unitV).2]) = false := herr
+        simp only [sOrs, List.foldr, denoteB_sOr, denoteB_bool, Bool.or_eq_false_iff,
+          Bool.or_false] at herr'
+        obtain ⟨hnf, hg⟩ := herr'
+        have hcu := argUnit M hf_u hw_u hvu hnf hg
+        subst hcu
+        exact ⟨c_result, hvr, rfl⟩
+      · by_cases hu : c_unit = .VCon .Unit
+        · exfalso
+          subst hu
+          obtain ⟨hnf, hg⟩ := unitArgErr M hf_u hw_u hvu
+          have herr' : denoteB M (sOrs [(reifyFO unitV).1, gUnit (reifyFO unitV).2]) = true := herr
+          simp [sOrs, denoteB_sOr, denoteB_bool, hnf, hg] at herr'
+        · cases c_unit with
+          | VCon cc => cases cc <;> first | rfl | exact absurd rfl hu
+          | _ => rfl
+    · exact relR_of_inc_true M rfl
+  case IfThenElse =>
+    rcases sargs with _ | ⟨elseV, _ | ⟨thenV, _ | ⟨condV, _ | ⟨w, rest⟩⟩⟩⟩
+    · exact relR_of_inc_true M rfl
+    · exact relR_of_inc_true M rfl
+    · exact relR_of_inc_true M rfl
+    · obtain ⟨c_else, c_then, c_cond, hve, hvt, hvc, rfl⟩ := γList3 hγ
+      obtain ⟨hf_e, hf_t, hf_c, -⟩ := hf
+      obtain ⟨hw_e, hw_t, hw_c, -⟩ := hwf
+      rw [evalBuiltin_IfThenElse_spec]
+      refine ⟨fun _ herr => ?_, fun _ herr => ?_⟩
+      · have herr' : denoteB M (sOrs [(reifyFO condV).1, gBool (reifyFO condV).2]) = false := herr
+        simp only [sOrs, List.foldr, denoteB_sOr, denoteB_bool, Bool.or_eq_false_iff,
+          Bool.or_false] at herr'
+        obtain ⟨hnf, hg⟩ := herr'
+        obtain ⟨b, hcc, hden⟩ := argBool M hf_c hw_c hvc hg
+        subst hcc
+        refine ⟨if b then c_then else c_else, ?_, ?_⟩
+        · rw [show (symSaturate .IfThenElse [elseV, thenV, condV]).val
+                = mergeVal (V.sAsBool (reifyFO condV).2) thenV elseV from rfl, γ_mergeVal]
+          have hb : denoteB M (V.sAsBool (reifyFO condV).2) = b := by
+            rw [denoteB, hden]; rfl
+          rw [hb]; cases b <;> simp [hvt, hve]
+        · cases b <;> rfl
+      · by_cases hb : ∃ b, c_cond = .VCon (.Bool b)
+        · exfalso
+          obtain ⟨b, hbb⟩ := hb; subst hbb
+          obtain ⟨hnf, hg⟩ := boolArgErr M hf_c hw_c hvc
+          have herr' : denoteB M (sOrs [(reifyFO condV).1, gBool (reifyFO condV).2]) = true := herr
+          simp [sOrs, denoteB_sOr, denoteB_bool, hnf, hg] at herr'
+        · cases c_cond with
+          | VCon cc => cases cc <;> first | rfl | exact absurd ⟨_, rfl⟩ hb
+          | _ => rfl
+    · exact relR_of_inc_true M rfl
 
 /-! ## CEK-side fuel-stability helpers (for `SimR`'s third component)
 
@@ -3744,22 +3987,6 @@ theorem list_len2 {α} (l : List α) (h : l.length = 2) : ∃ a b, l = [a, b] :=
   · simp at h
   · exact ⟨a, b, rfl⟩
   · simp only [List.length_cons] at h; omega
-
-/-- A saturated precise builtin has a *literal* indeterminate flag (`true`/`false`),
-hence is fuel-determinate. (Needed for `Stab`'s builtin case.) -/
-theorem symSaturate_inc_lit (b : BuiltinFun) (args : List SymV) (h : preciseBuiltin b = true) :
-    (symSaturate b args).inc = .bool false ∨ (symSaturate b args).inc = .bool true := by
-  -- Uniform over arity: the `inc` field of every precise builtin's `symBuiltin`
-  -- arm is a literal, determined by the (reversed, reified) argument shape.
-  -- Exposing up to three cons cells suffices for all current precise builtins
-  -- (unary/binary; no precise ternary arm exists).
-  cases b <;> first | (exfalso; revert h; decide) | skip
-  all_goals (
-    show (symBuiltin _ (List.map Prod.snd (List.map reifyFO args.reverse))).inc = .bool false ∨
-         (symBuiltin _ (List.map Prod.snd (List.map reifyFO args.reverse))).inc = .bool true
-    generalize (List.map Prod.snd (List.map reifyFO args.reverse)) = R
-    rcases R with _ | ⟨a, _ | ⟨b2, _ | ⟨c, t⟩⟩⟩ <;>
-      first | exact Or.inl rfl | exact Or.inr rfl)
 
 /-! ## Upward fuel-stability — now folded into `SimR`'s 3rd component.
 

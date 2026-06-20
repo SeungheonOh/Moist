@@ -1597,4 +1597,24 @@ axiom evalBuiltin_IndexByteString_spec (args : List CekValue) :
           else some (.VCon (.Integer (Int.ofNat (bs.get! idx.toNat).toNat)))
       | _ => none
 
+/-! ### Branching builtins (return an argument; `evalBuiltinPassThrough`).
+
+`Trace`/`ChooseUnit` return their *result* argument once the other argument has the
+required shape; `IfThenElse` returns one of two branches selected by a `Bool`. As
+above these are each true by `rfl` on the success shape (and `native_decide` on the
+type-mismatch shapes — verified in `Moist/AxCheck.lean`), axiomatised only because the
+`evalBuiltinConst` fall-through whnf-times-out. -/
+axiom evalBuiltin_Trace_spec (args : List CekValue) :
+    evalBuiltin .Trace args = match args with
+      | [result, .VCon (.String _)] => some result
+      | _ => none
+axiom evalBuiltin_ChooseUnit_spec (args : List CekValue) :
+    evalBuiltin .ChooseUnit args = match args with
+      | [result, .VCon .Unit] => some result
+      | _ => none
+axiom evalBuiltin_IfThenElse_spec (args : List CekValue) :
+    evalBuiltin .IfThenElse args = match args with
+      | [elseV, thenV, .VCon (.Bool cond)] => some (if cond then thenV else elseV)
+      | _ => none
+
 end Moist.Verified.BigStep
