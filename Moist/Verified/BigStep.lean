@@ -1617,4 +1617,31 @@ axiom evalBuiltin_IfThenElse_spec (args : List CekValue) :
       | [elseV, thenV, .VCon (.Bool cond)] => some (if cond then thenV else elseV)
       | _ => none
 
+/-! ### Data builtins (scalar ↔ Data).
+
+`IData`/`BData` wrap an Integer/ByteString into `Data`; `UnIData`/`UnBData` unwrap;
+`EqualsData` compares two `Data` (opaque, via `Data`'s `BEq`). As above, true by `rfl`
+on the success shape (mismatch by `native_decide` — verified in `Moist/AxCheck.lean`),
+axiomatised for the same `evalBuiltinConst` perf reason. -/
+axiom evalBuiltin_IData_spec (args : List CekValue) :
+    evalBuiltin .IData args = match args with
+      | [.VCon (.Integer i)] => some (.VCon (.Data (.I i)))
+      | _ => none
+axiom evalBuiltin_BData_spec (args : List CekValue) :
+    evalBuiltin .BData args = match args with
+      | [.VCon (.ByteString bs)] => some (.VCon (.Data (.B bs)))
+      | _ => none
+axiom evalBuiltin_UnIData_spec (args : List CekValue) :
+    evalBuiltin .UnIData args = match args with
+      | [.VCon (.Data (.I i))] => some (.VCon (.Integer i))
+      | _ => none
+axiom evalBuiltin_UnBData_spec (args : List CekValue) :
+    evalBuiltin .UnBData args = match args with
+      | [.VCon (.Data (.B bs))] => some (.VCon (.ByteString bs))
+      | _ => none
+axiom evalBuiltin_EqualsData_spec (args : List CekValue) :
+    evalBuiltin .EqualsData args = match args with
+      | [.VCon (.Data b), .VCon (.Data a)] => some (.VCon (.Bool (a == b)))
+      | _ => none
+
 end Moist.Verified.BigStep

@@ -85,7 +85,9 @@ open Moist.Verified.BigStep (bigEval bigEvalList applyVal applyValList forceVal
   evalBuiltin_EqualsByteString_spec evalBuiltin_AppendByteString_spec
   evalBuiltin_LengthOfByteString_spec evalBuiltin_ConsByteString_spec
   evalBuiltin_IndexByteString_spec
-  evalBuiltin_Trace_spec evalBuiltin_ChooseUnit_spec evalBuiltin_IfThenElse_spec)
+  evalBuiltin_Trace_spec evalBuiltin_ChooseUnit_spec evalBuiltin_IfThenElse_spec
+  evalBuiltin_IData_spec evalBuiltin_BData_spec evalBuiltin_UnIData_spec
+  evalBuiltin_UnBData_spec evalBuiltin_EqualsData_spec)
 open Moist.Verified.Equivalence (Reaches steps)
 open Moist.Verified.SmallStep (init)
 
@@ -325,6 +327,12 @@ private def dUn (f : String) (x : SVal) : SVal :=
   | "is-VPair"  => .B (vIs "VPair" (asV x))
   | "is-VPairD" => .B (vIs "VPairD" (asV x))
   | "is-VConstr"=> .B (vIs "VConstr" (asV x))
+  -- Explicit `is-D*` arms (Data-kind discriminators), `rfl`-reducible like `is-V*`.
+  | "is-DConstr"=> .B (dIsK "DConstr" (asD x))
+  | "is-DMap"  => .B (dIsK "DMap" (asD x))
+  | "is-DList" => .B (dIsK "DList" (asD x))
+  | "is-DI"    => .B (dIsK "DI" (asD x))
+  | "is-DB"    => .B (dIsK "DB" (asD x))
   | t =>
       if t.startsWith "is-V" then .B (vIs (t.drop 3) (asV x))
       else if t.startsWith "is-D" then .B (dIsK (t.drop 3) (asD x))
@@ -430,7 +438,9 @@ def preciseBuiltin : BuiltinFun → Bool
   | .EqualsByteString | .AppendByteString | .LengthOfByteString
   | .IndexByteString
   -- Branching builtins: return a selected argument (no first-order computation).
-  | .IfThenElse | .ChooseUnit | .Trace => true
+  | .IfThenElse | .ChooseUnit | .Trace
+  -- Data ↔ scalar builtins (a `Data` value is opaque, like a scalar).
+  | .IData | .BData | .EqualsData => true
   -- `ConsByteString` is deliberately *excluded*: its symbolic value
   -- `VBS (seq.++ (seq.unit n) bs)` carries the **un-truncated** integer `n` in the
   -- byte sequence, so it is folding-clean (`WfFOR.pBS`/`cleanBS`) only when
@@ -654,6 +664,20 @@ end
 @[simp] theorem dUn_VBS (x : SVal) : dUn "VBS" x = .Vv (.VCon (.ByteString (bytesToBA (SVal.asBytes x)))) := rfl
 @[simp] theorem dUn_VData (x : SVal) : dUn "VData" x = .Vv (.VCon (.Data (SVal.asD x))) := rfl
 @[simp] theorem dUn_seqlen (x : SVal) : dUn "seq.len" x = .I (Int.ofNat (SVal.asBytes x).length) := rfl
+-- Data-sort constructors (build a `D` from a scalar / list).
+@[simp] theorem dUn_DI (x : SVal) : dUn "DI" x = .Dd (.I (SVal.asI x)) := rfl
+@[simp] theorem dUn_DB (x : SVal) : dUn "DB" x = .Dd (.B (bytesToBA (SVal.asBytes x))) := rfl
+-- Data-sort projectors (read a scalar back out of the matching `D`).
+@[simp] theorem dUn_diVal (x : SVal) :
+    dUn "diVal" x = (match SVal.asD x with | .I n => .I n | _ => .I 0) := rfl
+@[simp] theorem dUn_dbVal (x : SVal) :
+    dUn "dbVal" x = (match SVal.asD x with | .B bs => .Bytes (baToBytes bs) | _ => .Bytes []) := rfl
+-- Data-kind discriminators (`is-DI`/`is-DB`/…), `rfl`-reducible like the `is-V*` arms.
+@[simp] theorem dUn_isDI (x : SVal) : dUn "is-DI" x = .B (dIsK "DI" (SVal.asD x)) := rfl
+@[simp] theorem dUn_isDB (x : SVal) : dUn "is-DB" x = .B (dIsK "DB" (SVal.asD x)) := rfl
+@[simp] theorem dUn_isDConstr (x : SVal) : dUn "is-DConstr" x = .B (dIsK "DConstr" (SVal.asD x)) := rfl
+@[simp] theorem dUn_isDList (x : SVal) : dUn "is-DList" x = .B (dIsK "DList" (SVal.asD x)) := rfl
+@[simp] theorem dUn_isDMap (x : SVal) : dUn "is-DMap" x = .B (dIsK "DMap" (SVal.asD x)) := rfl
 @[simp] theorem dBin_VConstr (x y : SVal) :
     dBin "VConstr" x y = .Vv (.VConstr (SVal.asI x).toNat (SVal.asVL y)) := rfl
 @[simp] theorem dNull_VUnit (M : Model) : dNull M "VUnit" = .Vv (.VCon .Unit) := rfl
@@ -902,7 +926,7 @@ theorem faithfulV_symSaturate (b : BuiltinFun) (args : List SymV) (h : preciseBu
      rcases R with _ | ⟨a, _ | ⟨b2, _ | ⟨c, t⟩⟩⟩ <;>
        first
          | exact foShapeOK_unit | exact foShapeOK_Vint _ | exact foShapeOK_Vbool _
-         | exact foShapeOK_Vstr _ | exact foShapeOK_Vbs _)
+         | exact foShapeOK_Vstr _ | exact foShapeOK_Vbs _ | exact foShapeOK_Vdata _)
 
 /-- A faithful alternative list, indexed, yields a faithful result value. -/
 theorem faithfulVList_getElem? : ∀ (L : List SymR) (i : Nat) (r : SymR),
@@ -1671,6 +1695,20 @@ theorem wfV_symSaturate (M : Model) (b : BuiltinFun) (args : List SymV)
     · exact wfFO_unit M
     · exact wfFO_append_bs M a b2 (hcl a (by simp)) (hcl b2 (by simp))
     · exact wfFO_unit M
+  -- Data ↔ scalar: `EqualsData`'s `VBool`, `IData`/`BData`'s `VData` results.
+  have keyEqData : ∀ (R : List SExpr), WfV M (symBuiltin .EqualsData R).val := fun R => by
+    rcases R with _ | ⟨a, _ | ⟨b2, _ | ⟨c, t⟩⟩⟩ <;>
+      first | exact wfFO_unit M | exact wfFO_Vbool M _ _ (denote_sEq M _ _)
+  have keyIData : ∀ (R : List SExpr), WfV M (symBuiltin .IData R).val := fun R => by
+    rcases R with _ | ⟨a, _ | ⟨b2, t⟩⟩
+    · exact wfFO_unit M
+    · exact wfFO_Vdata M _ _ rfl
+    · exact wfFO_unit M
+  have keyBData : ∀ (R : List SExpr), WfV M (symBuiltin .BData R).val := fun R => by
+    rcases R with _ | ⟨a, _ | ⟨b2, t⟩⟩
+    · exact wfFO_unit M
+    · exact wfFO_Vdata M _ _ rfl
+    · exact wfFO_unit M
   cases b <;> first | (exfalso; revert h; decide) | skip
   case AddInteger => exact keyA _
   case SubtractInteger => exact keyS _
@@ -1695,6 +1733,9 @@ theorem wfV_symSaturate (M : Model) (b : BuiltinFun) (args : List SymV)
     obtain ⟨p, hp, rfl⟩ := List.mem_map.1 he
     obtain ⟨w, hw, rfl⟩ := List.mem_map.1 hp
     exact reifyFO_sAsBS_clean M w (wfVList_mem M hwl (List.mem_reverse.1 hw))
+  case EqualsData => exact keyEqData _
+  case IData => exact keyIData _
+  case BData => exact keyBData _
   -- Branching builtins: result is a selected arg / a `mergeVal` of two well-sorted args.
   case IfThenElse =>
     rcases args with _ | ⟨elseV, _ | ⟨thenV, _ | ⟨condV, _ | ⟨w, rest⟩⟩⟩⟩
@@ -2147,6 +2188,13 @@ theorem γList2 {M : Model} {a b : SymV} {L : List CekValue} (h : γList M [a, b
     | none => rw [hb] at h; simp at h
     | some cb => rw [hb] at h; simp only [Option.some.injEq] at h; exact ⟨ca, cb, rfl, rfl, h.symm⟩
 
+theorem γList1 {M : Model} {a : SymV} {L : List CekValue} (h : γList M [a] = some L) :
+    ∃ ca, γ M a = some ca ∧ L = [ca] := by
+  simp only [γList] at h
+  cases ha : γ M a with
+  | none => rw [ha] at h; simp at h
+  | some ca => rw [ha] at h; simp only [Option.some.injEq] at h; exact ⟨ca, rfl, h.symm⟩
+
 theorem γList3 {M : Model} {a b c : SymV} {L : List CekValue} (h : γList M [a, b, c] = some L) :
     ∃ ca cb cc, γ M a = some ca ∧ γ M b = some cb ∧ γ M c = some cc ∧ L = [ca, cb, cc] := by
   simp only [γList] at h
@@ -2516,6 +2564,184 @@ theorem unitArgErr (M : Model) {v : SymV} (hf : FaithfulV v) (hw : WfV M v)
     denoteB M (reifyFO v).1 = false ∧ denoteB M (gUnit (reifyFO v).2) = false :=
   ⟨nf_false_of_VCon M hf hv, gUnit_false_of_unit (reify_wf M v hw) (reifyγ_unit_rev M hf hv)⟩
 
+/-! ### Data argument helpers (`Data` is opaque — like a scalar — so this mirrors the
+`String` machinery exactly, via `WfFOR.pData`/`tData`). -/
+
+theorem reifyγ_data (M : Model) : ∀ {v : SymV} {d : Data}, FaithfulV v →
+    γ M (.fo (reifyFO v).2) = some (.VCon (.Data d)) → γ M v = some (.VCon (.Data d))
+  | .fo _, _, _, h => h
+  | .lam _ _, _, _, h | .delay _ _, _, _, h | .builtin _ _ _, _, _, h => by
+      simp [reifyFO, γ, V.unit, denote_atom, dNull_VUnit] at h
+  | .constr _ _, _, _, h => by simp [reifyFO, γ, V.constr, denote_app2] at h
+  | .choice c a b, d, hf, h => by
+      simp only [reifyFO] at h; rw [γ_fo_sIte] at h; rw [γ]
+      split at h <;> rename_i hc
+      · rw [if_pos hc]; exact reifyγ_data M hf.1 h
+      · rw [if_neg hc]; exact reifyγ_data M hf.2 h
+termination_by v => sizeOf v
+
+theorem reifyγ_data_rev (M : Model) : ∀ {v : SymV} {d : Data}, FaithfulV v →
+    γ M v = some (.VCon (.Data d)) → γ M (.fo (reifyFO v).2) = some (.VCon (.Data d))
+  | .fo _, _, _, h => h
+  | .lam _ _, _, _, h | .delay _ _, _, _, h | .builtin _ _ _, _, _, h => by
+      rw [γ] at h; split at h <;> simp_all
+  | .constr _ _, _, _, h => by rw [γ] at h; split at h <;> simp_all
+  | .choice c a b, d, hf, h => by
+      rw [γ] at h; simp only [reifyFO]; rw [γ_fo_sIte]
+      split at h <;> rename_i hc
+      · rw [if_pos hc]; exact reifyγ_data_rev M hf.1 h
+      · rw [if_neg hc]; exact reifyγ_data_rev M hf.2 h
+termination_by v => sizeOf v
+
+theorem argData (M : Model) {v : SymV} {c1 : CekValue} (hf : FaithfulV v) (hw : WfV M v)
+    (hv : γ M v = some c1) (hg : denoteB M (gData (reifyFO v).2) = false) :
+    ∃ d, c1 = .VCon (.Data d) ∧ denote M (V.sAsData (reifyFO v).2) = .Dd d := by
+  obtain ⟨va, hr⟩ := reify_wf M v hw
+  have ht : denoteB M (V.sIsCon "VData" (reifyFO v).2) = true := by simpa [gData, denoteB_sNot] using hg
+  rw [hr.tData] at ht
+  obtain ⟨d, hn⟩ := vIs_VData ht
+  have hγfo : γ M (.fo (reifyFO v).2) = some (.VCon (.Data d)) := by rw [γ, hr.den, hn]
+  have hvv : γ M v = some (.VCon (.Data d)) := reifyγ_data M hf hγfo
+  rw [hv] at hvv
+  exact ⟨d, by injection hvv, hr.pData d hn⟩
+
+theorem gData_false_of_data {M : Model} {e : SExpr} {d : Data}
+    (hw : WfFO M e) (h : γ M (.fo e) = some (.VCon (.Data d))) :
+    denoteB M (gData e) = false := by
+  have hr := wfFOR_of hw h; simp [gData, denoteB_sNot, hr.tData, vIs]
+
+theorem dataArgErr (M : Model) {v : SymV} {d : Data} (hf : FaithfulV v) (hw : WfV M v)
+    (hv : γ M v = some (.VCon (.Data d))) :
+    denoteB M (reifyFO v).1 = false ∧ denoteB M (gData (reifyFO v).2) = false :=
+  ⟨nf_false_of_VCon M hf hv, gData_false_of_data (reify_wf M v hw) (reifyγ_data_rev M hf hv)⟩
+
+theorem binDataClean {M : Model} {v1 v2 : SymV} {c1 c2 : CekValue}
+    (hv1 : γ M v1 = some c1) (hv2 : γ M v2 = some c2)
+    (hf1 : FaithfulV v1) (hf2 : FaithfulV v2) (hw1 : WfV M v1) (hw2 : WfV M v2)
+    (hnf1 : denoteB M (reifyFO v1).1 = false) (hnf2 : denoteB M (reifyFO v2).1 = false)
+    (hg1 : denoteB M (gData (reifyFO v1).2) = false) (hg2 : denoteB M (gData (reifyFO v2).2) = false) :
+    ∃ d1 d2, c1 = .VCon (.Data d1) ∧ c2 = .VCon (.Data d2) ∧
+      denote M (V.sAsData (reifyFO v1).2) = .Dd d1 ∧ denote M (V.sAsData (reifyFO v2).2) = .Dd d2 := by
+  obtain ⟨d1, hc1, hp1⟩ := argData M hf1 hw1 hv1 hg1
+  obtain ⟨d2, hc2, hp2⟩ := argData M hf2 hw2 hv2 hg2
+  exact ⟨d1, d2, hc1, hc2, hp1, hp2⟩
+
+theorem match2_data_none {α} (c2 c1 : CekValue) (F : Data → Data → α)
+    (h : (∀ y, c2 ≠ .VCon (.Data y)) ∨ (∀ x, c1 ≠ .VCon (.Data x))) :
+    (match [c2, c1] with
+      | [.VCon (.Data y), .VCon (.Data x)] => some (F y x)
+      | _ => none) = none := by
+  rcases h with h | h
+  · cases c2 with
+    | VCon cc2 => cases cc2 <;> first | rfl | exact absurd rfl (h _)
+    | _ => rfl
+  · cases c2 with
+    | VCon cc2 =>
+        cases cc2 <;> (try rfl) <;>
+          (cases c1 with
+           | VCon cc1 => cases cc1 <;> first | rfl | exact absurd rfl (h _)
+           | _ => rfl)
+    | _ => rfl
+
+theorem match1_int_none {α} (c1 : CekValue) (F : Int → α)
+    (h : ∀ x, c1 ≠ .VCon (.Integer x)) :
+    (match [c1] with | [.VCon (.Integer x)] => some (F x) | _ => none) = none := by
+  cases c1 with
+  | VCon cc => cases cc <;> first | rfl | exact absurd rfl (h _)
+  | _ => rfl
+
+/-- Generic binary-**Data** reconciliation (parallel to `satBinStr`; `Data` is opaque). -/
+theorem satBinData (M : Model) (b : BuiltinFun) (sargs : List SymV) (cargs : List CekValue)
+    (hγ : γList M sargs = some cargs) (hf : FaithfulVList sargs) (hwf : WfVList M sargs)
+    (valE : SExpr → SExpr → SExpr) (cv : Data → Data → CekValue)
+    (hsatval : ∀ (v2 v1 : SymV), (symSaturate b [v2, v1]).val
+        = .fo (valE (V.sAsData (reifyFO v1).2) (V.sAsData (reifyFO v2).2)))
+    (hsaterr : ∀ (v2 v1 : SymV), (symSaturate b [v2, v1]).err
+        = SExpr.sOr (sOrs [(reifyFO v1).1, (reifyFO v2).1])
+                    (SExpr.sOr (gData (reifyFO v1).2) (gData (reifyFO v2).2)))
+    (hsatinc : ∀ (s : List SymV), s.length ≠ 2 → (symSaturate b s).inc = .bool true)
+    (hden : ∀ (e1 e2 : SExpr) (d1 d2 : Data), denote M e1 = .Dd d1 → denote M e2 = .Dd d2 →
+        γ M (.fo (valE e1 e2)) = some (cv d1 d2))
+    (hspec : ∀ args, evalBuiltin b args
+        = match args with | [.VCon (.Data y), .VCon (.Data x)] => some (cv x y) | _ => none) :
+    RelR M (symSaturate b sargs) (evalBuiltin b cargs) := by
+  rcases sargs with _ | ⟨v2, _ | ⟨v1, _ | ⟨w, rest⟩⟩⟩
+  · exact relR_of_inc_true M (hsatinc [] (by simp))
+  · exact relR_of_inc_true M (hsatinc [v2] (by simp))
+  · obtain ⟨c2, c1, hv2, hv1, rfl⟩ := γList2 hγ
+    obtain ⟨hf2, hf1, -⟩ := hf
+    obtain ⟨hw2, hw1, -⟩ := hwf
+    refine ⟨fun _ herr => ?_, fun _ herr => ?_⟩
+    · rw [hsaterr v2 v1] at herr
+      simp only [sOrs, List.foldr, denoteB_sOr, denoteB_bool, Bool.or_eq_false_iff,
+        Bool.or_false] at herr
+      obtain ⟨⟨hnf1, hnf2⟩, hg1, hg2⟩ := herr
+      obtain ⟨d1, d2, hc1, hc2, hp1, hp2⟩ :=
+        binDataClean hv1 hv2 hf1 hf2 hw1 hw2 hnf1 hnf2 hg1 hg2
+      refine ⟨cv d1 d2, ?_, ?_⟩
+      · rw [hsatval v2 v1]; exact hden _ _ d1 d2 hp1 hp2
+      · rw [hc1, hc2, hspec]
+    · rw [hspec]
+      refine match2_data_none c2 c1 (fun y x => cv x y) ?_
+      by_cases h2 : ∃ y, c2 = .VCon (.Data y)
+      · by_cases h1 : ∃ x, c1 = .VCon (.Data x)
+        · exfalso
+          obtain ⟨y, hy⟩ := h2; obtain ⟨x, hx⟩ := h1
+          obtain ⟨hnf1, hg1f⟩ := dataArgErr M hf1 hw1 (hx ▸ hv1)
+          obtain ⟨hnf2, hg2f⟩ := dataArgErr M hf2 hw2 (hy ▸ hv2)
+          rw [hsaterr] at herr
+          simp [sOrs, denoteB_sOr, denoteB_bool, hnf1, hnf2, hg1f, hg2f] at herr
+        · exact Or.inr (fun x hx => h1 ⟨x, hx⟩)
+      · exact Or.inl (fun y hy => h2 ⟨y, hy⟩)
+  · exact relR_of_inc_true M (hsatinc (v2 :: v1 :: w :: rest) (by simp))
+
+/-- Generic unary-**Integer-arg** reconciliation (parallel to `satUnBS`; the result
+`cv n` may be any first-order value, e.g. `IData`'s `VData (DI n)`). -/
+theorem satUnInt (M : Model) (b : BuiltinFun) (sargs : List SymV) (cargs : List CekValue)
+    (hγ : γList M sargs = some cargs) (hf : FaithfulVList sargs) (hwf : WfVList M sargs)
+    (valE : SExpr → SExpr) (cv : Int → CekValue)
+    (hsatval : ∀ (v1 : SymV), (symSaturate b [v1]).val = .fo (valE (V.sAsInt (reifyFO v1).2)))
+    (hsaterr : ∀ (v1 : SymV), (symSaturate b [v1]).err
+        = SExpr.sOr (sOrs [(reifyFO v1).1]) (gInt (reifyFO v1).2))
+    (hsatinc : ∀ (s : List SymV), s.length ≠ 1 → (symSaturate b s).inc = .bool true)
+    (hden : ∀ (e : SExpr) (n : Int), denote M e = .I n → γ M (.fo (valE e)) = some (cv n))
+    (hspec : ∀ args, evalBuiltin b args
+        = match args with | [.VCon (.Integer n)] => some (cv n) | _ => none) :
+    RelR M (symSaturate b sargs) (evalBuiltin b cargs) := by
+  rcases sargs with _ | ⟨v1, _ | ⟨w, rest⟩⟩
+  · exact relR_of_inc_true M (hsatinc [] (by simp))
+  · obtain ⟨c1, hv1, rfl⟩ := γList1 hγ
+    obtain ⟨hf1, -⟩ := hf
+    obtain ⟨hw1, -⟩ := hwf
+    refine ⟨fun _ herr => ?_, fun _ herr => ?_⟩
+    · rw [hsaterr v1] at herr
+      simp only [sOrs, List.foldr, denoteB_sOr, denoteB_bool, Bool.or_false,
+        Bool.or_eq_false_iff] at herr
+      obtain ⟨hnf1, hg1⟩ := herr
+      obtain ⟨n, hc1, hp1⟩ := argInt M hf1 hw1 hv1 hg1
+      refine ⟨cv n, ?_, ?_⟩
+      · rw [hsatval v1]; exact hden _ n hp1
+      · rw [hc1, hspec]
+    · rw [hspec]
+      refine match1_int_none c1 cv ?_
+      intro x hx
+      obtain ⟨hnf1, hg1f⟩ := intArgErr M hf1 hw1 (hx ▸ hv1)
+      rw [hsaterr] at herr
+      simp [sOrs, denoteB_sOr, denoteB_bool, hnf1, hg1f] at herr
+  · exact relR_of_inc_true M (hsatinc (v1 :: w :: rest) (by simp))
+
+theorem symBuiltin_EqualsData_inc_ne2 (R : List SExpr) (h : R.length ≠ 2) :
+    (symBuiltin .EqualsData R).inc = .bool true := by
+  rcases R with _ | ⟨a, _ | ⟨b, _ | ⟨c, t⟩⟩⟩ <;> first | rfl | exact absurd rfl h
+
+theorem symBuiltin_IData_inc_ne1 (R : List SExpr) (h : R.length ≠ 1) :
+    (symBuiltin .IData R).inc = .bool true := by
+  rcases R with _ | ⟨a, _ | ⟨b, t⟩⟩ <;> first | rfl | exact absurd rfl h
+
+theorem symBuiltin_BData_inc_ne1 (R : List SExpr) (h : R.length ≠ 1) :
+    (symBuiltin .BData R).inc = .bool true := by
+  rcases R with _ | ⟨a, _ | ⟨b, t⟩⟩ <;> first | rfl | exact absurd rfl h
+
 theorem binStrClean {M : Model} {v1 v2 : SymV} {c1 c2 : CekValue}
     (hv1 : γ M v1 = some c1) (hv2 : γ M v2 = some c2)
     (hf1 : FaithfulV v1) (hf2 : FaithfulV v2) (hw1 : WfV M v1) (hw2 : WfV M v2)
@@ -2601,13 +2827,6 @@ theorem symBuiltin_AppendString_inc_ne2 (R : List SExpr) (h : R.length ≠ 2) :
 `ByteArray ↔ List Int` bridge `baToBytes`/`bytesToBA`) -/
 
 /-- Decompose `γList` of a one-element list. -/
-theorem γList1 {M : Model} {a : SymV} {L : List CekValue} (h : γList M [a] = some L) :
-    ∃ ca, γ M a = some ca ∧ L = [ca] := by
-  simp only [γList] at h
-  cases ha : γ M a with
-  | none => rw [ha] at h; simp at h
-  | some ca => rw [ha] at h; simp only [Option.some.injEq] at h; exact ⟨ca, rfl, h.symm⟩
-
 theorem gBS_false_of_bs {M : Model} {e : SExpr} {bs : ByteArray}
     (hw : WfFO M e) (h : γ M (.fo e) = some (.VCon (.ByteString bs))) :
     denoteB M (gBS e) = false := by
@@ -3019,6 +3238,35 @@ theorem satBuiltin (M : Model) (b : BuiltinFun) (sargs : List SymV) (cargs : Lis
       evalBuiltin_LengthOfByteString_spec
   case IndexByteString =>
     exact satIndexBS M sargs cargs hγ hf hwf
+  -- Data ↔ scalar builtins (`Data` opaque, via `satBinData`/`satUnInt`/`satUnBS`).
+  case EqualsData =>
+    exact satBinData M _ sargs cargs hγ hf hwf (fun a b => V.bool (SExpr.sEq a b))
+      (fun d1 d2 => .VCon (.Bool (d1 == d2))) (fun _ _ => rfl) (fun _ _ => rfl)
+      (fun s hl => by
+        show (symBuiltin .EqualsData (List.map Prod.snd (List.map reifyFO s.reverse))).inc = .bool true
+        exact symBuiltin_EqualsData_inc_ne2 _ (by simpa [List.length_map, List.length_reverse] using hl))
+      (fun e1 e2 d1 d2 h1 h2 => by
+        simp only [γ, V.bool, denote_app1, dUn_VBool, denote_sEq, h1, h2, SVal.asB, svalEq])
+      evalBuiltin_EqualsData_spec
+  case IData =>
+    exact satUnInt M _ sargs cargs hγ hf hwf (fun e => V.data (D.i e))
+      (fun n => .VCon (.Data (.I n))) (fun _ => rfl) (fun _ => rfl)
+      (fun s hl => by
+        show (symBuiltin .IData (List.map Prod.snd (List.map reifyFO s.reverse))).inc = .bool true
+        exact symBuiltin_IData_inc_ne1 _ (by simpa [List.length_map, List.length_reverse] using hl))
+      (fun e n h => by
+        simp only [γ, V.data, D.i, denote_app1, dUn_VData, dUn_DI, h, SVal.asD, SVal.asI])
+      evalBuiltin_IData_spec
+  case BData =>
+    exact satUnBS M _ sargs cargs hγ hf hwf (fun e => V.data (D.b e))
+      (fun bs => .VCon (.Data (.B bs))) (fun _ => rfl) (fun _ => rfl)
+      (fun s hl => by
+        show (symBuiltin .BData (List.map Prod.snd (List.map reifyFO s.reverse))).inc = .bool true
+        exact symBuiltin_BData_inc_ne1 _ (by simpa [List.length_map, List.length_reverse] using hl))
+      (fun e bs h => by
+        simp only [γ, V.data, D.b, denote_app1, dUn_VData, dUn_DB, h, SVal.asD, SVal.asBytes,
+          bytesToBA_baToBytes])
+      evalBuiltin_BData_spec
   -- Branching builtins: `evalBuiltin` returns a selected argument; the symbolic side
   -- returns that same arg (Trace/ChooseUnit) or a `mergeVal` of two args (IfThenElse).
   case Trace =>
