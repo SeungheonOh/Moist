@@ -1535,5 +1535,29 @@ axiom evalBuiltin_AppendString_spec (args : List CekValue) :
     evalBuiltin .AppendString args = match args with
       | [.VCon (.String s2), .VCon (.String s1)] => some (.VCon (.String (s1 ++ s2)))
       | _ => none
+axiom evalBuiltin_EqualsByteString_spec (args : List CekValue) :
+    evalBuiltin .EqualsByteString args = match args with
+      | [.VCon (.ByteString bs2), .VCon (.ByteString bs1)] => some (.VCon (.Bool (bs1 == bs2)))
+      | _ => none
+axiom evalBuiltin_AppendByteString_spec (args : List CekValue) :
+    evalBuiltin .AppendByteString args = match args with
+      | [.VCon (.ByteString bs2), .VCon (.ByteString bs1)] => some (.VCon (.ByteString (bs1 ++ bs2)))
+      | _ => none
+axiom evalBuiltin_LengthOfByteString_spec (args : List CekValue) :
+    evalBuiltin .LengthOfByteString args = match args with
+      | [.VCon (.ByteString bs)] => some (.VCon (.Integer (Int.ofNat bs.size)))
+      | _ => none
+axiom evalBuiltin_ConsByteString_spec (args : List CekValue) :
+    evalBuiltin .ConsByteString args = match args with
+      | [.VCon (.ByteString bs), .VCon (.Integer n)] =>
+          if n < 0 || n > 255 then none
+          else some (.VCon (.ByteString (ByteArray.mk #[n.toNat.toUInt8] ++ bs)))
+      | _ => none
+axiom evalBuiltin_IndexByteString_spec (args : List CekValue) :
+    evalBuiltin .IndexByteString args = match args with
+      | [.VCon (.Integer idx), .VCon (.ByteString bs)] =>
+          if idx < 0 || idx ≥ Int.ofNat bs.size then none
+          else some (.VCon (.Integer (Int.ofNat (bs.get! idx.toNat).toNat)))
+      | _ => none
 
 end Moist.Verified.BigStep

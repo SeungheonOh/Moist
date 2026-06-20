@@ -31,16 +31,28 @@ them, and `symbolic_success_sound`/`symbolic_error_sound` are the two CEK theore
 
 ## Scope (the proven fragment)
 
-The proven fragment is the higher-order core **plus the first symbolic builtins**:
+The proven fragment is the higher-order core **plus the symbolic builtins**:
 λ-calculus (`Var`/`Lam`/`Apply`), `Force`/`Delay`, simple constants
-(`Integer`/`Bool`/`Unit`/`String`), `Error`, and the builtins in `preciseBuiltin`
-— currently the six Integer arithmetic/comparison builtins `Add`/`Subtract`/
-`Multiply`/`Equals`/`LessThan`/`LessThanEquals` (each a one-line `satBin`
-application; the partial-application/saturation machinery, `VBuiltin` accumulation,
-and the reconciliation `satBuiltin`/`satBin` are all general). It proves the
-genuinely hard parts: higher-order closures + environments, full **partiality**
-(apply-non-function, force-non-delay, unbound-variable, *and builtin type-errors*
-all fail, both directions), and symbolic arithmetic/equality/comparison.
+(`Integer`/`Bool`/`Unit`/`String`), `Error`, and the builtins in `preciseBuiltin`:
+- **Integer** arithmetic/comparison `Add`/`Subtract`/`Multiply`/`Equals`/`LessThan`/
+  `LessThanEquals` and the division family `Divide`/`Mod`/`Quotient`/`Remainder`
+  (one-line `satBin`/`satBinDiv`);
+- **String** `EqualsString`/`AppendString` (`satBinStr`);
+- **ByteString** `EqualsByteString`/`AppendByteString` (`satBinBS`),
+  `LengthOfByteString` (`satUnBS`), `IndexByteString` (`satIndexBS`, with a two-sided
+  bounds guard) — via the `ByteArray ↔ List Int` bridge `baToBytes`/`bytesToBA`.
+The partial-application/saturation machinery (`VBuiltin` accumulation) and the
+reconciliation `satBuiltin` are all general. It proves the genuinely hard parts:
+higher-order closures + environments, full **partiality** (apply-non-function,
+force-non-delay, unbound-variable, *and builtin type-errors / division-by-zero /
+index-out-of-bounds* all fail, both directions), and symbolic
+arithmetic/equality/comparison/bytestring computation.
+
+`ConsByteString` is the one ByteString builtin deliberately *excluded*: its
+symbolic value `VBS (seq.++ (seq.unit n) bs)` carries the un-truncated integer `n`
+in the byte sequence, so it is folding-clean only when `0 ≤ n ≤ 255` (= the
+non-error condition); since `WfV` is maintained unconditionally, proving it would
+need an *error-conditional* well-sortedness invariant (see `preciseBuiltin`).
 
 **Model well-sortedness (`WfFO`).** The folding projectors (`V.sAsInt`/`V.sIsCon`)
 strip a `V`-wrapper, exposing its inner expression; under an *arbitrary* model that
@@ -52,12 +64,10 @@ what z3 guarantees. (The two `evalBuiltin_*_spec` axioms are the only non-standa
 axioms; they are the trusted per-builtin input→output tables, true by `rfl` but
 axiomatised because `evalBuiltin` whnf-times-out — the established BigStep pattern.)
 
-The remaining builtins extend this same scaffold: `Subtract`/`Multiply`/`LessThan`/
-`LessThanEquals` (mechanical, like `Add`/`Equals`); the division family (needs
-`mFdiv = haskellDiv` number-theory lemmas); ByteString ops (needs the
-`ByteArray`↔`List Int` bridge); `Data`/list/pair structural builtins; and
-`ifThenElse`/`chooseX` + `Case`/`Constr` (needs the symbolic-branching `choice`
-determinacy machinery). Opaque crypto/BLS stay out (the Moist CEK errors on them).
+The remaining builtins extend this same scaffold: `Data`/list/pair structural
+builtins; and `ifThenElse`/`chooseX` + `Case`/`Constr` (needs the symbolic-branching
+`choice` determinacy machinery). Opaque crypto/BLS stay out (the Moist CEK errors on
+them).
 -/
 
 namespace Moist.Verified.SymbolicSoundness
@@ -71,7 +81,10 @@ open Moist.Verified.BigStep (bigEval applyVal forceVal
   evalBuiltin_EqualsInteger_spec evalBuiltin_LessThanInteger_spec evalBuiltin_LessThanEqualsInteger_spec
   evalBuiltin_DivideInteger_spec evalBuiltin_ModInteger_spec
   evalBuiltin_QuotientInteger_spec evalBuiltin_RemainderInteger_spec
-  evalBuiltin_EqualsString_spec evalBuiltin_AppendString_spec)
+  evalBuiltin_EqualsString_spec evalBuiltin_AppendString_spec
+  evalBuiltin_EqualsByteString_spec evalBuiltin_AppendByteString_spec
+  evalBuiltin_LengthOfByteString_spec evalBuiltin_ConsByteString_spec
+  evalBuiltin_IndexByteString_spec)
 open Moist.Verified.Equivalence (Reaches steps)
 open Moist.Verified.SmallStep (init)
 
@@ -115,6 +128,61 @@ structure Model where
 def bytesToBA (l : List Int) : ByteArray := ⟨(l.map (fun i => i.toNat.toUInt8)).toArray⟩
 /-- `ByteArray` → bytes. -/
 def baToBytes (ba : ByteArray) : List Int := ba.data.toList.map (fun b => Int.ofNat b.toNat)
+
+/-! ### `ByteArray ↔ List Int` bridge (for the ByteString builtins)
+
+`ByteArray`'s `append`/`get!` are `copySlice`/`Array`-based with sparse core lemmas,
+so these are proved by unfolding to `Array` operations. -/
+
+theorem bytesToBA_baToBytes (bs : ByteArray) : bytesToBA (baToBytes bs) = bs := by
+  simp [bytesToBA, baToBytes, List.map_map, Function.comp_def]
+
+theorem baToBytes_length (bs : ByteArray) : (baToBytes bs).length = bs.size := by
+  simp [baToBytes, ByteArray.size]
+
+/-- `ByteString` equality (`x.data == y.data`) bridges to `List Int` equality. -/
+theorem baToBytes_beq (bs1 bs2 : ByteArray) : (baToBytes bs1 == baToBytes bs2) = (bs1 == bs2) := by
+  have hl : (baToBytes bs1 == baToBytes bs2) = decide (bs1 = bs2) := by
+    rw [Bool.eq_iff_iff, beq_iff_eq, decide_eq_true_iff]
+    exact ⟨fun h => by have := congrArg bytesToBA h; rwa [bytesToBA_baToBytes, bytesToBA_baToBytes] at this,
+           fun h => by rw [h]⟩
+  have hr : (bs1 == bs2) = decide (bs1 = bs2) := by
+    show (bs1.data == bs2.data) = decide (bs1 = bs2)
+    rw [Bool.eq_iff_iff, beq_iff_eq, decide_eq_true_iff]
+    exact ⟨fun h => by cases bs1; cases bs2; simp_all, fun h => by rw [h]⟩
+  rw [hl, hr]
+
+theorem ba_append_data (a b : ByteArray) : (a ++ b).data = a.data ++ b.data := by
+  show (ByteArray.append a b).data = _
+  unfold ByteArray.append ByteArray.copySlice
+  simp only [ByteArray.size, Nat.zero_add, Nat.sub_zero, Nat.min_self]
+  rw [Array.extract_size, Array.extract_size]
+  have he : a.data.extract (a.data.size + b.data.size) a.data.size = #[] := by
+    apply Array.eq_empty_of_size_eq_zero; rw [Array.size_extract]; omega
+  rw [he]; simp
+
+theorem baToBytes_append (bs1 bs2 : ByteArray) :
+    baToBytes (bs1 ++ bs2) = baToBytes bs1 ++ baToBytes bs2 := by
+  simp only [baToBytes, ba_append_data, Array.toList_append, List.map_append]
+
+theorem bytesToBA_append (bs1 bs2 : ByteArray) :
+    bytesToBA (baToBytes bs1 ++ baToBytes bs2) = bs1 ++ bs2 := by
+  rw [← baToBytes_append, bytesToBA_baToBytes]
+
+theorem idx_bridge (bs : ByteArray) (k : Nat) (h : k < bs.size) :
+    (((baToBytes bs)[k]?).getD 0) = Int.ofNat (bs.get! k).toNat := by
+  have hk : k < bs.data.size := by simpa [ByteArray.size] using h
+  simp only [baToBytes, List.getElem?_map, List.getElem?_eq_getElem (by simpa using hk),
+    Option.map_some, Option.getD_some, Array.getElem_toList]
+  simp [ByteArray.get!, getElem!_pos bs.data k hk]
+
+theorem cons_bridge (n : Int) (bs : ByteArray) :
+    bytesToBA (n :: baToBytes bs) = ByteArray.mk #[n.toNat.toUInt8] ++ bs := by
+  apply ByteArray.ext
+  rw [ba_append_data]
+  have hid : (fun (b : UInt8) => (Int.ofNat b.toNat).toNat.toUInt8) = id := by funext b; simp
+  simp only [bytesToBA, baToBytes, List.map_cons, List.map_map, Function.comp_def, hid, List.map_id]
+  rw [List.toArray_cons, Array.toArray_toList]
 
 /-! ## Structural equality on `SVal` (for SMT `=`) -/
 
@@ -343,7 +411,16 @@ def preciseBuiltin : BuiltinFun → Bool
   | .AddInteger | .SubtractInteger | .MultiplyInteger
   | .EqualsInteger | .LessThanInteger | .LessThanEqualsInteger
   | .DivideInteger | .ModInteger | .QuotientInteger | .RemainderInteger
-  | .EqualsString | .AppendString => true
+  | .EqualsString | .AppendString
+  | .EqualsByteString | .AppendByteString | .LengthOfByteString
+  | .IndexByteString => true
+  -- `ConsByteString` is deliberately *excluded*: its symbolic value
+  -- `VBS (seq.++ (seq.unit n) bs)` carries the **un-truncated** integer `n` in the
+  -- byte sequence, so it is folding-clean (`WfFOR.pBS`/`cleanBS`) only when
+  -- `0 ≤ n ≤ 255` — precisely the non-error condition. Since `WfV` is maintained
+  -- unconditionally (it is consumed even in `satBuiltin`'s error arm), proving it
+  -- would need an *error-conditional* well-sortedness invariant. Left as the one
+  -- ByteString builtin outside the proven fragment.
   | _ => false
 
 /-- The constants of the proven fragment (Integer/Bool/Unit/String — denote
@@ -450,6 +527,7 @@ theorem denote_sIte (M : Model) (c a b : SExpr) :
 @[simp] theorem dUn_VStr (x : SVal) : dUn "VStr" x = .Vv (.VCon (.String (SVal.asStr x))) := rfl
 @[simp] theorem dUn_VBS (x : SVal) : dUn "VBS" x = .Vv (.VCon (.ByteString (bytesToBA (SVal.asBytes x)))) := rfl
 @[simp] theorem dUn_VData (x : SVal) : dUn "VData" x = .Vv (.VCon (.Data (SVal.asD x))) := rfl
+@[simp] theorem dUn_seqlen (x : SVal) : dUn "seq.len" x = .I (Int.ofNat (SVal.asBytes x).length) := rfl
 @[simp] theorem dNull_VUnit (M : Model) : dNull M "VUnit" = .Vv (.VCon .Unit) := rfl
 
 /-! ## `γ` inversions used by the builtin simulation -/
@@ -518,6 +596,11 @@ structure WfFOR (M : Model) (e : SExpr) (va : CekValue) : Prop where
   tBS   : denoteB M (V.sIsCon "VBS" e)   = vIs "VBS" va
   tStr  : denoteB M (V.sIsCon "VStr" e)  = vIs "VStr" va
   tData : denoteB M (V.sIsCon "VData" e) = vIs "VData" va
+  -- The byte-projection of *any* folding-clean value is a genuine byte list
+  -- (`baToBytes` of some `ByteArray`), not just for `VBS` values: a non-`VBS`
+  -- folds through `vbsVal` to `Bytes []`. This is what lets `appendByteString`
+  -- combine clean operands into a clean result regardless of operand sort.
+  cleanBS : ∃ ba, denote M (V.sAsBS e) = .Bytes (baToBytes ba)
 
 def WfFO (M : Model) (e : SExpr) : Prop := ∃ va, WfFOR M e va
 
@@ -721,68 +804,110 @@ end
 
 /-! ## `WfFO` base / closure lemmas and `WfV` preservation -/
 
+/-- The *raw* byte-projection `vbsVal` always denotes to a genuine byte list: on a
+`VBS` value it is `baToBytes` of the array, and on anything else it is `Bytes []`
+(`= baToBytes ∅`). This is the engine behind the `cleanBS` field for every non-`VBS`
+folding-clean value (whose `sAsBS` folds to `asBS`). -/
+theorem denote_asBS_clean (M : Model) (e : SExpr) :
+    ∃ ba, denote M (V.asBS e) = .Bytes (baToBytes ba) := by
+  have he : denote M (V.asBS e)
+      = (match SVal.asV (denote M e) with
+         | .VCon (.ByteString bs) => .Bytes (baToBytes bs)
+         | _ => .Bytes []) := by simp only [V.asBS, denote_app1]; rfl
+  rw [he]; split
+  · next bs _ => exact ⟨bs, rfl⟩
+  · exact ⟨ByteArray.mk #[], by simp [baToBytes]⟩
+
 /-- `V.unit` is folding-clean (it is a concrete `VCon Unit`). -/
 theorem wfFO_unit (M : Model) : WfFO M V.unit := by
   refine ⟨.VCon .Unit, by simp only [V.unit, denote_atom, dNull_VUnit],
-    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro n hn; exact absurd hn (by simp)
   · intro b hb; exact absurd hb (by simp)
   · intro bs hbs; exact absurd hbs (by simp)
   · intro s hs; exact absurd hs (by simp)
   · intro d hd; exact absurd hd (by simp)
-  all_goals simp [V.unit, V.sIsCon, V.vConName, vIs, denoteB, dNull]
+  all_goals first
+    | exact denote_asBS_clean M _
+    | simp [V.unit, V.sIsCon, V.vConName, vIs, denoteB, dNull]
 
 /-- Any `V.int` wrapper of an `Int`-denoting expression is folding-clean. -/
 theorem wfFO_Vint (M : Model) (e : SExpr) (k : Int) (h : denote M e = .I k) :
     WfFO M (V.int e) := by
   refine ⟨.VCon (.Integer k), by simp only [V.int, denote_app1, dUn_VInt, h, SVal.asI],
-    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro m hm; injection hm with hm'; injection hm' with hm''; subst hm''
     simp only [V.int, V.sAsInt, h]
   · intro b hb; exact absurd hb (by simp)
   · intro bs hbs; exact absurd hbs (by simp)
   · intro s hs; exact absurd hs (by simp)
   · intro d hd; exact absurd hd (by simp)
-  all_goals simp [V.int, V.sIsCon, V.vConName, vIs, denoteB, V.knownVCons]
+  all_goals first
+    | exact denote_asBS_clean M _
+    | simp [V.int, V.sIsCon, V.vConName, vIs, denoteB, V.knownVCons]
 
 /-- Any `V.bool` wrapper of a `Bool`-denoting expression is folding-clean. -/
 theorem wfFO_Vbool (M : Model) (e : SExpr) (c : Bool) (h : denote M e = .B c) :
     WfFO M (V.bool e) := by
   refine ⟨.VCon (.Bool c), by simp only [V.bool, denote_app1, dUn_VBool, h, SVal.asB],
-    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro n hn; exact absurd hn (by simp)
   · intro b hb; injection hb with hb'; injection hb' with hb''; subst hb''
     simp only [V.bool, V.sAsBool, h]
   · intro bs hbs; exact absurd hbs (by simp)
   · intro s hs; exact absurd hs (by simp)
   · intro d hd; exact absurd hd (by simp)
-  all_goals simp [V.bool, V.sIsCon, V.vConName, vIs, denoteB, V.knownVCons]
+  all_goals first
+    | exact denote_asBS_clean M _
+    | simp [V.bool, V.sIsCon, V.vConName, vIs, denoteB, V.knownVCons]
 
 /-- Any `V.str` wrapper of a `String`-denoting expression is folding-clean. -/
 theorem wfFO_Vstr (M : Model) (e : SExpr) (s : String) (h : denote M e = .Str s) :
     WfFO M (V.str e) := by
   refine ⟨.VCon (.String s), by simp only [V.str, denote_app1, dUn_VStr, h, SVal.asStr],
-    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro n hn; exact absurd hn (by simp)
   · intro b hb; exact absurd hb (by simp)
   · intro bs hbs; exact absurd hbs (by simp)
   · intro s' hs'; injection hs' with h1; injection h1 with h2; subst h2
     simp only [V.str, V.sAsStr, h]
   · intro d hd; exact absurd hd (by simp)
-  all_goals simp [V.str, V.sIsCon, V.vConName, vIs, denoteB, V.knownVCons]
+  all_goals first
+    | exact denote_asBS_clean M _
+    | simp [V.str, V.sIsCon, V.vConName, vIs, denoteB, V.knownVCons]
 
 /-- Any `V.data` wrapper of a `Data`-denoting expression is folding-clean. -/
 theorem wfFO_Vdata (M : Model) (e : SExpr) (d : Data) (h : denote M e = .Dd d) :
     WfFO M (V.data e) := by
   refine ⟨.VCon (.Data d), by simp only [V.data, denote_app1, dUn_VData, h, SVal.asD],
-    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro n hn; exact absurd hn (by simp)
   · intro b hb; exact absurd hb (by simp)
   · intro bs hbs; exact absurd hbs (by simp)
   · intro s hs; exact absurd hs (by simp)
   · intro d' hd'; injection hd' with h1; injection h1 with h2; subst h2
     simp only [V.data, V.sAsData, h]
-  all_goals simp [V.data, V.sIsCon, V.vConName, vIs, denoteB, V.knownVCons]
+  all_goals first
+    | exact denote_asBS_clean M _
+    | simp [V.data, V.sIsCon, V.vConName, vIs, denoteB, V.knownVCons]
+
+/-- Any `V.bs` wrapper of a `(Seq Int)`-denoting expression (matching `bs`'s bytes)
+is folding-clean. -/
+theorem wfFO_Vbs (M : Model) (e : SExpr) (bs : ByteArray) (h : denote M e = .Bytes (baToBytes bs)) :
+    WfFO M (V.bs e) := by
+  refine ⟨.VCon (.ByteString bs),
+    by simp only [V.bs, denote_app1, dUn_VBS, h, SVal.asBytes, bytesToBA_baToBytes],
+    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · intro n hn; exact absurd hn (by simp)
+  · intro b hb; exact absurd hb (by simp)
+  · intro bs' hbs'; injection hbs' with h1; injection h1 with h2; subst h2
+    simp only [V.bs, V.sAsBS, h]
+  · intro s hs; exact absurd hs (by simp)
+  · intro d hd; exact absurd hd (by simp)
+  -- cleanBS: the folded projection `sAsBS (V.bs e) = e` denotes `bs`'s clean bytes.
+  all_goals first
+    | exact ⟨bs, by simp only [V.bs, V.sAsBS, h]⟩
+    | simp [V.bs, V.sIsCon, V.vConName, vIs, denoteB, V.knownVCons]
 
 /-- Encoded simple constants are folding-clean. -/
 theorem wfFO_simpleConst (M : Model) (c : Const) (h : simpleConst c = true) :
@@ -842,9 +967,71 @@ theorem denote_strapp (M : Model) (x y : SExpr) :
     denote M (.app "str.++" [x, y]) = .Str (SVal.asStr (denote M x) ++ SVal.asStr (denote M y)) := by
   simp only [denote_app2]; rfl
 
-/-- A saturated precise builtin yields a folding-clean (first-order) value. -/
+/-! ### `(Seq Int)` operator denotations. -/
+theorem denote_seqlen (M : Model) (x : SExpr) :
+    denote M (.app "seq.len" [x]) = .I (Int.ofNat (SVal.asBytes (denote M x)).length) := by
+  simp only [denote_app1]; rfl
+theorem denote_sequnit (M : Model) (x : SExpr) :
+    denote M (.app "seq.unit" [x]) = .Bytes [SVal.asI (denote M x)] := by
+  simp only [denote_app1]; rfl
+theorem denote_seqapp (M : Model) (x y : SExpr) :
+    denote M (.app "seq.++" [x, y]) = .Bytes (SVal.asBytes (denote M x) ++ SVal.asBytes (denote M y)) := by
+  simp only [denote_app2]; rfl
+theorem denote_seqnth (M : Model) (s i : SExpr) :
+    denote M (.app "seq.nth" [s, i])
+      = .I (((SVal.asBytes (denote M s))[(SVal.asI (denote M i)).toNat]?).getD 0) := by
+  simp only [denote_app2]; rfl
+
+/-- Membership extractor for `WfVList`. -/
+theorem wfVList_mem (M : Model) : ∀ {l : List SymV} {v : SymV},
+    WfVList M l → v ∈ l → WfV M v
+  | [], _, _, hmem => absurd hmem (by simp)
+  | w :: rest, v, hwl, hmem => by
+      simp only [WfVList] at hwl
+      rcases List.mem_cons.1 hmem with rfl | h
+      · exact hwl.1
+      · exact wfVList_mem M hwl.2 h
+
+/-- The byte-projection of a reified folding-clean value is a genuine byte list.
+For a `.fo` value this is the `cleanBS` field; for a non-`VBS` head the projection
+folds through `vbsVal` (`denote_asBS_clean`); a `choice` reifies to an `sIte` whose
+folds reduce to a sub-value's (recursively clean) projection. -/
+theorem reifyFO_sAsBS_clean (M : Model) : ∀ (v : SymV), WfV M v →
+    ∃ ba, denote M (V.sAsBS (reifyFO v).2) = .Bytes (baToBytes ba)
+  | .fo e, hw => by obtain ⟨va, hr⟩ := hw; exact hr.cleanBS
+  | .lam _ _, _ => denote_asBS_clean M _
+  | .delay _ _, _ => denote_asBS_clean M _
+  | .builtin _ _ _, _ => denote_asBS_clean M _
+  | .constr _ _, _ => denote_asBS_clean M _
+  | .choice c a b, hw => by
+      cases c with
+      | bool bv =>
+          cases bv <;>
+            first
+              | exact reifyFO_sAsBS_clean M a hw.1
+              | exact reifyFO_sAsBS_clean M b hw.2
+      | int _ => exact denote_asBS_clean M _
+      | str _ => exact denote_asBS_clean M _
+      | atom _ => exact denote_asBS_clean M _
+      | app _ _ => exact denote_asBS_clean M _
+termination_by v => sizeOf v
+
+/-- Appending two clean byte-projections yields a folding-clean `VBS` (the result
+list is `baToBytes (ba₁ ++ ba₂)`). The engine behind `appendByteString`'s `WfV`. -/
+theorem wfFO_append_bs (M : Model) (a b : SExpr)
+    (ha : ∃ ba, denote M (V.sAsBS a) = .Bytes (baToBytes ba))
+    (hb : ∃ ba, denote M (V.sAsBS b) = .Bytes (baToBytes ba)) :
+    WfFO M (V.bs (Seq.append (V.sAsBS a) (V.sAsBS b))) := by
+  obtain ⟨ba, hba⟩ := ha; obtain ⟨bb, hbb⟩ := hb
+  refine wfFO_Vbs M _ (ba ++ bb) ?_
+  show denote M (.app "seq.++" [V.sAsBS a, V.sAsBS b]) = _
+  simp only [denote_seqapp, hba, hbb, SVal.asBytes, baToBytes_append]
+
+/-- A saturated precise builtin yields a folding-clean (first-order) value. The
+`WfVList` hypothesis is needed for `appendByteString`, whose `VBS` result is clean
+only when its operands are. -/
 theorem wfV_symSaturate (M : Model) (b : BuiltinFun) (args : List SymV)
-    (h : preciseBuiltin b = true) : WfV M (symSaturate b args).val := by
+    (h : preciseBuiltin b = true) (hwl : WfVList M args) : WfV M (symSaturate b args).val := by
   have keyA : ∀ (R : List SExpr), WfV M (symBuiltin .AddInteger R).val := fun R => by
     rcases R with _ | ⟨a, _ | ⟨b2, _ | ⟨c, t⟩⟩⟩ <;>
       first
@@ -885,6 +1072,25 @@ theorem wfV_symSaturate (M : Model) (b : BuiltinFun) (args : List SymV)
   have keyApStr : ∀ (R : List SExpr), WfV M (symBuiltin .AppendString R).val := fun R => by
     rcases R with _ | ⟨a, _ | ⟨b2, _ | ⟨c, t⟩⟩⟩ <;>
       first | exact wfFO_unit M | exact wfFO_Vstr M _ _ (denote_strapp M _ _)
+  have keyEqBS : ∀ (R : List SExpr), WfV M (symBuiltin .EqualsByteString R).val := fun R => by
+    rcases R with _ | ⟨a, _ | ⟨b2, _ | ⟨c, t⟩⟩⟩ <;>
+      first | exact wfFO_unit M | exact wfFO_Vbool M _ _ (denote_sEq M _ _)
+  have keyLen : ∀ (R : List SExpr), WfV M (symBuiltin .LengthOfByteString R).val := fun R => by
+    rcases R with _ | ⟨a, _ | ⟨b2, t⟩⟩ <;>
+      first | exact wfFO_unit M | exact wfFO_Vint M _ _ (denote_seqlen M _)
+  have keyIdx : ∀ (R : List SExpr), WfV M (symBuiltin .IndexByteString R).val := fun R => by
+    rcases R with _ | ⟨a, _ | ⟨b2, _ | ⟨c, t⟩⟩⟩ <;>
+      first | exact wfFO_unit M | exact wfFO_Vint M _ _ (denote_seqnth M _ _)
+  -- `AppendByteString`: its `VBS` result is clean because each operand's
+  -- byte-projection is clean (`reifyFO_sAsBS_clean`, from the `WfVList`).
+  have keyApBS : ∀ (R : List SExpr),
+      (∀ e ∈ R, ∃ ba, denote M (V.sAsBS e) = .Bytes (baToBytes ba)) →
+      WfV M (symBuiltin .AppendByteString R).val := fun R hcl => by
+    rcases R with _ | ⟨a, _ | ⟨b2, _ | ⟨c, t⟩⟩⟩
+    · exact wfFO_unit M
+    · exact wfFO_unit M
+    · exact wfFO_append_bs M a b2 (hcl a (by simp)) (hcl b2 (by simp))
+    · exact wfFO_unit M
   cases b <;> first | (exfalso; revert h; decide) | skip
   case AddInteger => exact keyA _
   case SubtractInteger => exact keyS _
@@ -898,6 +1104,17 @@ theorem wfV_symSaturate (M : Model) (b : BuiltinFun) (args : List SymV)
   case RemainderInteger => exact keyR _
   case EqualsString => exact keyEqStr _
   case AppendString => exact keyApStr _
+  case EqualsByteString => exact keyEqBS _
+  case LengthOfByteString => exact keyLen _
+  case IndexByteString => exact keyIdx _
+  case AppendByteString =>
+    -- The reified argument exprs each have a clean byte-projection (from `WfVList`).
+    show WfV M (symBuiltin .AppendByteString
+      (List.map Prod.snd (List.map reifyFO args.reverse))).val
+    refine keyApBS _ (fun e he => ?_)
+    obtain ⟨p, hp, rfl⟩ := List.mem_map.1 he
+    obtain ⟨w, hw, rfl⟩ := List.mem_map.1 hp
+    exact reifyFO_sAsBS_clean M w (wfVList_mem M hwl (List.mem_reverse.1 hw))
 
 mutual
 theorem wfV_symEval (M : Model) : ∀ (n : Nat) (ρs : SymEnv) (t : Term),
@@ -944,7 +1161,7 @@ theorem wfV_symApply (M : Model) : ∀ (n : Nat) (vf va : SymV),
       | argQ => simp only [h1, errR]; exact wfFO_unit M
       | argV =>
           cases h2 : ea.tail with
-          | none => simp only [h1, h2]; exact wfV_symSaturate M b (va :: args) hf'.1
+          | none => simp only [h1, h2]; exact wfV_symSaturate M b (va :: args) hf'.1 ⟨hwa, hwf⟩
           | some rest => simp only [h1, h2]; exact ⟨hwa, hwf⟩
   | _+1, .choice _ _ _, _, hf, _, _, _ => by simp [FaithfulV] at hf
   | _+1, .fo _, _, _, _, _, _ => by simp only [symApply, errR]; exact wfFO_unit M
@@ -966,7 +1183,7 @@ theorem wfV_symForce (M : Model) : ∀ (n : Nat) (vt : SymV),
       | argV => simp only [h1, errR]; exact wfFO_unit M
       | argQ =>
           cases h2 : ea.tail with
-          | none => simp only [h1, h2]; exact wfV_symSaturate M b args ht'.1
+          | none => simp only [h1, h2]; exact wfV_symSaturate M b args ht'.1 hwt
           | some rest => simp only [h1, h2]; exact hwt
   | _+1, .choice _ _ _, ht, _ => by simp [FaithfulV] at ht
   | _+1, .fo _, _, _ => by simp only [symForce, errR]; exact wfFO_unit M
@@ -1470,9 +1687,304 @@ theorem symBuiltin_AppendString_inc_ne2 (R : List SExpr) (h : R.length ≠ 2) :
     (symBuiltin .AppendString R).inc = .bool true := by
   rcases R with _ | ⟨a, _ | ⟨b, _ | ⟨c, t⟩⟩⟩ <;> first | rfl | exact absurd rfl h
 
+/-! ### ByteString tier helpers (parallel to the string ones, via the
+`ByteArray ↔ List Int` bridge `baToBytes`/`bytesToBA`) -/
+
+/-- Decompose `γList` of a one-element list. -/
+theorem γList1 {M : Model} {a : SymV} {L : List CekValue} (h : γList M [a] = some L) :
+    ∃ ca, γ M a = some ca ∧ L = [ca] := by
+  simp only [γList] at h
+  cases ha : γ M a with
+  | none => rw [ha] at h; simp at h
+  | some ca => rw [ha] at h; simp only [Option.some.injEq] at h; exact ⟨ca, rfl, h.symm⟩
+
+theorem gBS_false_of_bs {M : Model} {e : SExpr} {bs : ByteArray}
+    (hw : WfFO M e) (h : γ M (.fo e) = some (.VCon (.ByteString bs))) :
+    denoteB M (gBS e) = false := by
+  have hr := wfFOR_of hw h; simp [gBS, denoteB_sNot, hr.tBS, vIs]
+
+theorem binBSClean {M : Model} {v1 v2 : SymV} {c1 c2 : CekValue}
+    (hv1 : γ M v1 = some c1) (hv2 : γ M v2 = some c2)
+    (hf1 : FaithfulV v1) (hf2 : FaithfulV v2) (hw1 : WfV M v1) (hw2 : WfV M v2)
+    (hnf1 : denoteB M (reifyFO v1).1 = false) (hnf2 : denoteB M (reifyFO v2).1 = false)
+    (hg1 : denoteB M (gBS (reifyFO v1).2) = false) (hg2 : denoteB M (gBS (reifyFO v2).2) = false) :
+    ∃ bs1 bs2, c1 = .VCon (.ByteString bs1) ∧ c2 = .VCon (.ByteString bs2) ∧
+      denote M (V.sAsBS (reifyFO v1).2) = .Bytes (baToBytes bs1) ∧
+      denote M (V.sAsBS (reifyFO v2).2) = .Bytes (baToBytes bs2) := by
+  obtain ⟨e1, rfl⟩ := faithful_reify_fo hf1 hnf1
+  obtain ⟨e2, rfl⟩ := faithful_reify_fo hf2 hnf2
+  simp only [reifyFO] at hg1 hg2 ⊢
+  have hw1' : WfFO M e1 := hw1
+  have hw2' : WfFO M e2 := hw2
+  obtain ⟨bs1, hc1, hp1⟩ := wf_bs hw1' hv1 hg1
+  obtain ⟨bs2, hc2, hp2⟩ := wf_bs hw2' hv2 hg2
+  exact ⟨bs1, bs2, hc1, hc2, hp1, hp2⟩
+
+theorem unBSClean {M : Model} {v1 : SymV} {c1 : CekValue}
+    (hv1 : γ M v1 = some c1) (hf1 : FaithfulV v1) (hw1 : WfV M v1)
+    (hnf1 : denoteB M (reifyFO v1).1 = false) (hg1 : denoteB M (gBS (reifyFO v1).2) = false) :
+    ∃ bs1, c1 = .VCon (.ByteString bs1) ∧
+      denote M (V.sAsBS (reifyFO v1).2) = .Bytes (baToBytes bs1) := by
+  obtain ⟨e1, rfl⟩ := faithful_reify_fo hf1 hnf1
+  simp only [reifyFO] at hg1 ⊢
+  have hw1' : WfFO M e1 := hw1
+  obtain ⟨bs1, hc1, hp1⟩ := wf_bs hw1' hv1 hg1
+  exact ⟨bs1, hc1, hp1⟩
+
+theorem match2_bs_none {α} (c2 c1 : CekValue) (F : ByteArray → ByteArray → α)
+    (h : (∀ y, c2 ≠ .VCon (.ByteString y)) ∨ (∀ x, c1 ≠ .VCon (.ByteString x))) :
+    (match [c2, c1] with
+      | [.VCon (.ByteString y), .VCon (.ByteString x)] => some (F y x)
+      | _ => none) = none := by
+  rcases h with h | h
+  · cases c2 with
+    | VCon cc2 => cases cc2 <;> first | rfl | exact absurd rfl (h _)
+    | _ => rfl
+  · cases c2 with
+    | VCon cc2 =>
+        cases cc2 <;> (try rfl) <;>
+          (cases c1 with
+           | VCon cc1 => cases cc1 <;> first | rfl | exact absurd rfl (h _)
+           | _ => rfl)
+    | _ => rfl
+
+theorem match1_bs_none {α} (c1 : CekValue) (F : ByteArray → α)
+    (h : ∀ x, c1 ≠ .VCon (.ByteString x)) :
+    (match [c1] with | [.VCon (.ByteString x)] => some (F x) | _ => none) = none := by
+  cases c1 with
+  | VCon cc1 => cases cc1 <;> first | rfl | exact absurd rfl (h _)
+  | _ => rfl
+
+/-- The `IndexByteString` success arm fires only when the args are an integer and a
+bytestring *and* the index is in range; otherwise the match (or the inner guard) is
+`none`. -/
+theorem match2_idx_none {α} (c2 c1 : CekValue)
+    (F : Int → ByteArray → α) (G : Int → ByteArray → Bool)
+    (h : (∀ y, c2 ≠ .VCon (.Integer y)) ∨ (∀ x, c1 ≠ .VCon (.ByteString x)) ∨
+         (∃ idx bs, c2 = .VCon (.Integer idx) ∧ c1 = .VCon (.ByteString bs) ∧ G idx bs = true)) :
+    (match [c2, c1] with
+      | [.VCon (.Integer idx), .VCon (.ByteString bs)] => if G idx bs then none else some (F idx bs)
+      | _ => none) = none := by
+  rcases h with h | h | ⟨idx, bs, h2, h1, hg⟩
+  · cases c2 with
+    | VCon cc2 => cases cc2 <;> first | rfl | exact absurd rfl (h _)
+    | _ => rfl
+  · cases c2 with
+    | VCon cc2 =>
+        cases cc2 <;> (try rfl) <;>
+          (cases c1 with
+           | VCon cc1 => cases cc1 <;> first | rfl | exact absurd rfl (h _)
+           | _ => rfl)
+    | _ => rfl
+  · subst h2; subst h1; simp [hg]
+
+/-- Generic binary-**ByteString** reconciliation (parallel to `satBinStr`). -/
+theorem satBinBS (M : Model) (b : BuiltinFun) (sargs : List SymV) (cargs : List CekValue)
+    (hγ : γList M sargs = some cargs) (hf : FaithfulVList sargs) (hwf : WfVList M sargs)
+    (valE : SExpr → SExpr → SExpr) (cv : ByteArray → ByteArray → CekValue)
+    (hsatval : ∀ (v2 v1 : SymV), (symSaturate b [v2, v1]).val
+        = .fo (valE (V.sAsBS (reifyFO v1).2) (V.sAsBS (reifyFO v2).2)))
+    (hsaterr : ∀ (v2 v1 : SymV), (symSaturate b [v2, v1]).err
+        = SExpr.sOr (sOrs [(reifyFO v1).1, (reifyFO v2).1])
+                    (SExpr.sOr (gBS (reifyFO v1).2) (gBS (reifyFO v2).2)))
+    (hsatinc : ∀ (s : List SymV), s.length ≠ 2 → (symSaturate b s).inc = .bool true)
+    (hden : ∀ (e1 e2 : SExpr) (bs1 bs2 : ByteArray),
+        denote M e1 = .Bytes (baToBytes bs1) → denote M e2 = .Bytes (baToBytes bs2) →
+        γ M (.fo (valE e1 e2)) = some (cv bs1 bs2))
+    (hspec : ∀ args, evalBuiltin b args
+        = match args with
+          | [.VCon (.ByteString y), .VCon (.ByteString x)] => some (cv x y) | _ => none) :
+    RelR M (symSaturate b sargs) (evalBuiltin b cargs) := by
+  rcases sargs with _ | ⟨v2, _ | ⟨v1, _ | ⟨w, rest⟩⟩⟩
+  · exact relR_of_inc_true M (hsatinc [] (by simp))
+  · exact relR_of_inc_true M (hsatinc [v2] (by simp))
+  · obtain ⟨c2, c1, hv2, hv1, rfl⟩ := γList2 hγ
+    obtain ⟨hf2, hf1, -⟩ := hf
+    obtain ⟨hw2, hw1, -⟩ := hwf
+    refine ⟨fun _ herr => ?_, fun _ herr => ?_⟩
+    · rw [hsaterr v2 v1] at herr
+      simp only [sOrs, List.foldr, denoteB_sOr, denoteB_bool, Bool.or_eq_false_iff,
+        Bool.or_false] at herr
+      obtain ⟨⟨hnf1, hnf2⟩, hg1, hg2⟩ := herr
+      obtain ⟨bs1, bs2, hc1, hc2, hp1, hp2⟩ :=
+        binBSClean hv1 hv2 hf1 hf2 hw1 hw2 hnf1 hnf2 hg1 hg2
+      refine ⟨cv bs1 bs2, ?_, ?_⟩
+      · rw [hsatval v2 v1]; exact hden _ _ bs1 bs2 hp1 hp2
+      · rw [hc1, hc2, hspec]
+    · rw [hspec]
+      refine match2_bs_none c2 c1 (fun y x => cv x y) ?_
+      by_cases h2 : ∃ y, c2 = .VCon (.ByteString y)
+      · by_cases h1 : ∃ x, c1 = .VCon (.ByteString x)
+        · exfalso
+          obtain ⟨y, hy⟩ := h2; obtain ⟨x, hx⟩ := h1
+          obtain ⟨e1, rfl⟩ := γ_VCon_fo hf1 (hx ▸ hv1)
+          obtain ⟨e2, rfl⟩ := γ_VCon_fo hf2 (hy ▸ hv2)
+          have hw1' : WfFO M e1 := hw1
+          have hw2' : WfFO M e2 := hw2
+          have hg1f : denoteB M (gBS e1) = false := gBS_false_of_bs hw1' (hx ▸ hv1)
+          have hg2f : denoteB M (gBS e2) = false := gBS_false_of_bs hw2' (hy ▸ hv2)
+          rw [hsaterr] at herr
+          simp [reifyFO, sOrs, denoteB_sOr, denoteB_bool, hg1f, hg2f] at herr
+        · exact Or.inr (fun x hx => h1 ⟨x, hx⟩)
+      · exact Or.inl (fun y hy => h2 ⟨y, hy⟩)
+  · exact relR_of_inc_true M (hsatinc (v2 :: v1 :: w :: rest) (by simp))
+
+/-- Generic unary-**ByteString** reconciliation (for `lengthOfByteString`). -/
+theorem satUnBS (M : Model) (b : BuiltinFun) (sargs : List SymV) (cargs : List CekValue)
+    (hγ : γList M sargs = some cargs) (hf : FaithfulVList sargs) (hwf : WfVList M sargs)
+    (valE : SExpr → SExpr) (cv : ByteArray → CekValue)
+    (hsatval : ∀ (v1 : SymV), (symSaturate b [v1]).val = .fo (valE (V.sAsBS (reifyFO v1).2)))
+    (hsaterr : ∀ (v1 : SymV), (symSaturate b [v1]).err
+        = SExpr.sOr (sOrs [(reifyFO v1).1]) (gBS (reifyFO v1).2))
+    (hsatinc : ∀ (s : List SymV), s.length ≠ 1 → (symSaturate b s).inc = .bool true)
+    (hden : ∀ (e : SExpr) (bs : ByteArray),
+        denote M e = .Bytes (baToBytes bs) → γ M (.fo (valE e)) = some (cv bs))
+    (hspec : ∀ args, evalBuiltin b args
+        = match args with | [.VCon (.ByteString bs)] => some (cv bs) | _ => none) :
+    RelR M (symSaturate b sargs) (evalBuiltin b cargs) := by
+  rcases sargs with _ | ⟨v1, _ | ⟨w, rest⟩⟩
+  · exact relR_of_inc_true M (hsatinc [] (by simp))
+  · obtain ⟨c1, hv1, rfl⟩ := γList1 hγ
+    obtain ⟨hf1, -⟩ := hf
+    obtain ⟨hw1, -⟩ := hwf
+    refine ⟨fun _ herr => ?_, fun _ herr => ?_⟩
+    · rw [hsaterr v1] at herr
+      simp only [sOrs, List.foldr, denoteB_sOr, denoteB_bool, Bool.or_false,
+        Bool.or_eq_false_iff] at herr
+      obtain ⟨hnf1, hg1⟩ := herr
+      obtain ⟨bs, hc1, hp1⟩ := unBSClean hv1 hf1 hw1 hnf1 hg1
+      refine ⟨cv bs, ?_, ?_⟩
+      · rw [hsatval v1]; exact hden _ bs hp1
+      · rw [hc1, hspec]
+    · rw [hspec]
+      refine match1_bs_none c1 cv ?_
+      intro x hx
+      obtain ⟨e1, rfl⟩ := γ_VCon_fo hf1 (hx ▸ hv1)
+      have hw1' : WfFO M e1 := hw1
+      have hg1f : denoteB M (gBS e1) = false := gBS_false_of_bs hw1' (hx ▸ hv1)
+      rw [hsaterr] at herr
+      simp [reifyFO, sOrs, denoteB_sOr, denoteB_bool, hg1f] at herr
+  · exact relR_of_inc_true M (hsatinc (v1 :: w :: rest) (by simp))
+
+theorem symBuiltin_EqualsByteString_inc_ne2 (R : List SExpr) (h : R.length ≠ 2) :
+    (symBuiltin .EqualsByteString R).inc = .bool true := by
+  rcases R with _ | ⟨a, _ | ⟨b, _ | ⟨c, t⟩⟩⟩ <;> first | rfl | exact absurd rfl h
+
+theorem symBuiltin_AppendByteString_inc_ne2 (R : List SExpr) (h : R.length ≠ 2) :
+    (symBuiltin .AppendByteString R).inc = .bool true := by
+  rcases R with _ | ⟨a, _ | ⟨b, _ | ⟨c, t⟩⟩⟩ <;> first | rfl | exact absurd rfl h
+
+theorem symBuiltin_IndexByteString_inc_ne2 (R : List SExpr) (h : R.length ≠ 2) :
+    (symBuiltin .IndexByteString R).inc = .bool true := by
+  rcases R with _ | ⟨a, _ | ⟨b, _ | ⟨c, t⟩⟩⟩ <;> first | rfl | exact absurd rfl h
+
+theorem symBuiltin_LengthOfByteString_inc_ne1 (R : List SExpr) (h : R.length ≠ 1) :
+    (symBuiltin .LengthOfByteString R).inc = .bool true := by
+  rcases R with _ | ⟨a, _ | ⟨b, t⟩⟩ <;> first | rfl | exact absurd rfl h
+
+/-- The two operands of `indexByteString`, once typed, are a concrete bytestring
+and integer with clean projections (`v1` the bytestring, `v2` the index). -/
+theorem binIdxClean {M : Model} {v1 v2 : SymV} {c1 c2 : CekValue}
+    (hv1 : γ M v1 = some c1) (hv2 : γ M v2 = some c2)
+    (hf1 : FaithfulV v1) (hf2 : FaithfulV v2) (hw1 : WfV M v1) (hw2 : WfV M v2)
+    (hnf1 : denoteB M (reifyFO v1).1 = false) (hnf2 : denoteB M (reifyFO v2).1 = false)
+    (hgbs : denoteB M (gBS (reifyFO v1).2) = false) (hgint : denoteB M (gInt (reifyFO v2).2) = false) :
+    ∃ bs idx, c1 = .VCon (.ByteString bs) ∧ c2 = .VCon (.Integer idx) ∧
+      denote M (V.sAsBS (reifyFO v1).2) = .Bytes (baToBytes bs) ∧
+      denote M (V.sAsInt (reifyFO v2).2) = .I idx := by
+  obtain ⟨e1, rfl⟩ := faithful_reify_fo hf1 hnf1
+  obtain ⟨e2, rfl⟩ := faithful_reify_fo hf2 hnf2
+  simp only [reifyFO] at hgbs hgint ⊢
+  obtain ⟨bs, hc1, hpbs⟩ := wf_bs (hw1 : WfFO M e1) hv1 hgbs
+  obtain ⟨idx, hc2, hpidx⟩ := wf_int (hw2 : WfFO M e2) hv2 hgint
+  exact ⟨bs, idx, hc1, hc2, hpbs, hpidx⟩
+
+/-- The `Op.lt _ 0` guard denotes to `decide (idx < 0)` for a clean integer
+projection. -/
+theorem denoteB_lt_zero {M : Model} {e : SExpr} {idx : Int} (hp : denote M (V.sAsInt e) = .I idx) :
+    denoteB M (Op.lt (V.sAsInt e) (.int 0)) = decide (idx < 0) := by
+  rw [denoteB, denote_Oplt, hp, denote_lit_int]; simp [SVal.asB, SVal.asI]
+
+/-- The `Op.le |bs| _` guard denotes to `decide (|bs| ≤ idx)` for clean projections. -/
+theorem denoteB_len_le {M : Model} {e1 e2 : SExpr} {bs : ByteArray} {idx : Int}
+    (hpb : denote M (V.sAsBS e1) = .Bytes (baToBytes bs)) (hpi : denote M (V.sAsInt e2) = .I idx) :
+    denoteB M (Op.le (Seq.len (V.sAsBS e1)) (V.sAsInt e2)) = decide (Int.ofNat bs.size ≤ idx) := by
+  rw [denoteB, denote_Ople, hpi]
+  simp only [Seq.len, denote_seqlen, hpb, SVal.asB, SVal.asI, SVal.asBytes, baToBytes_length]
+
+/-- `indexByteString` reconciliation (bespoke: mixed `BS`/`Int` operands and a
+two-sided bounds guard `idx < 0 ∨ idx ≥ |bs|`). -/
+theorem satIndexBS (M : Model) (sargs : List SymV) (cargs : List CekValue)
+    (hγ : γList M sargs = some cargs) (hf : FaithfulVList sargs) (hwf : WfVList M sargs) :
+    RelR M (symSaturate .IndexByteString sargs) (evalBuiltin .IndexByteString cargs) := by
+  have hsatval : ∀ (v2 v1 : SymV), (symSaturate .IndexByteString [v2, v1]).val
+      = .fo (V.int (Seq.nth (V.sAsBS (reifyFO v1).2) (V.sAsInt (reifyFO v2).2))) := fun _ _ => rfl
+  have hsaterr : ∀ (v2 v1 : SymV), (symSaturate .IndexByteString [v2, v1]).err
+      = SExpr.sOr (sOrs [(reifyFO v1).1, (reifyFO v2).1])
+          (sOrs [gBS (reifyFO v1).2, gInt (reifyFO v2).2,
+                 Op.lt (V.sAsInt (reifyFO v2).2) (.int 0),
+                 Op.le (Seq.len (V.sAsBS (reifyFO v1).2)) (V.sAsInt (reifyFO v2).2)]) := fun _ _ => rfl
+  have hinc : ∀ (s : List SymV), s.length ≠ 2 → (symSaturate .IndexByteString s).inc = .bool true := by
+    intro s hl
+    show (symBuiltin .IndexByteString (List.map Prod.snd (List.map reifyFO s.reverse))).inc = .bool true
+    exact symBuiltin_IndexByteString_inc_ne2 _ (by simpa [List.length_map, List.length_reverse] using hl)
+  have hspec := evalBuiltin_IndexByteString_spec
+  rcases sargs with _ | ⟨v2, _ | ⟨v1, _ | ⟨w, rest⟩⟩⟩
+  · exact relR_of_inc_true M (hinc [] (by simp))
+  · exact relR_of_inc_true M (hinc [v2] (by simp))
+  · obtain ⟨c2, c1, hv2, hv1, rfl⟩ := γList2 hγ
+    obtain ⟨hf2, hf1, -⟩ := hf
+    obtain ⟨hw2, hw1, -⟩ := hwf
+    refine ⟨fun _ herr => ?_, fun _ herr => ?_⟩
+    · rw [hsaterr v2 v1] at herr
+      simp only [sOrs, List.foldr, denoteB_sOr, denoteB_bool, Bool.or_eq_false_iff,
+        Bool.or_false] at herr
+      obtain ⟨⟨hnf1, hnf2⟩, hgbs, hgint, hlt, hle⟩ := herr
+      obtain ⟨bs, idx, hc1, hc2, hpbs, hpidx⟩ :=
+        binIdxClean hv1 hv2 hf1 hf2 hw1 hw2 hnf1 hnf2 hgbs hgint
+      rw [denoteB_lt_zero hpidx] at hlt
+      rw [denoteB_len_le hpbs hpidx] at hle
+      have h0 : (0 : Int) ≤ idx := Int.not_lt.mp (of_decide_eq_false hlt)
+      have h1 : idx < Int.ofNat bs.size := Int.not_le.mp (of_decide_eq_false hle)
+      have hkn : idx.toNat < bs.size :=
+        (Int.toNat_lt h0).mpr (by rw [Int.ofNat_eq_natCast] at h1; exact h1)
+      refine ⟨.VCon (.Integer (Int.ofNat (bs.get! idx.toNat).toNat)), ?_, ?_⟩
+      · rw [hsatval v2 v1]
+        simp only [γ, V.int, denote_app1, dUn_VInt, Seq.nth, denote_seqnth, hpbs, hpidx,
+          SVal.asI, SVal.asBytes, idx_bridge bs idx.toNat hkn]
+      · rw [hc1, hc2, hspec]
+        have hg : (decide (idx < 0) || decide (idx ≥ Int.ofNat bs.size)) = false := by
+          simp only [ge_iff_le, hlt, hle, Bool.or_self]
+        simp only [hg, Bool.false_eq_true, if_false]
+    · rw [hspec]
+      refine match2_idx_none c2 c1
+        (fun idx bs => CekValue.VCon (.Integer (Int.ofNat (bs.get! idx.toNat).toNat)))
+        (fun idx bs => idx < 0 || idx ≥ Int.ofNat bs.size) ?_
+      by_cases h2 : ∃ y, c2 = .VCon (.Integer y)
+      · by_cases h1 : ∃ x, c1 = .VCon (.ByteString x)
+        · obtain ⟨idx, hidx⟩ := h2; obtain ⟨bs, hbs⟩ := h1
+          obtain ⟨e1, rfl⟩ := γ_VCon_fo hf1 (hbs ▸ hv1)
+          obtain ⟨e2, rfl⟩ := γ_VCon_fo hf2 (hidx ▸ hv2)
+          have hgbsf : denoteB M (gBS e1) = false := gBS_false_of_bs hw1 (hbs ▸ hv1)
+          have hgintf : denoteB M (gInt e2) = false := gInt_false_of_int hw2 (hidx ▸ hv2)
+          have hnf1 : denoteB M (reifyFO (SymV.fo e1)).1 = false := by simp [reifyFO, denoteB]
+          have hnf2 : denoteB M (reifyFO (SymV.fo e2)).1 = false := by simp [reifyFO, denoteB]
+          obtain ⟨bs2, idx2, hc1', hc2', hpbs, hpidx⟩ :=
+            binIdxClean hv1 hv2 hf1 hf2 hw1 hw2 hnf1 hnf2 hgbsf hgintf
+          simp only [reifyFO] at hpbs hpidx
+          refine Or.inr (Or.inr ⟨idx2, bs2, hc2', hc1', ?_⟩)
+          rw [hsaterr (SymV.fo e2) (SymV.fo e1)] at herr
+          simp only [reifyFO, sOrs, List.foldr, denoteB_sOr, denoteB_bool, hgbsf, hgintf,
+            Bool.false_or, Bool.or_false] at herr
+          rw [denoteB_lt_zero hpidx, denoteB_len_le hpbs hpidx] at herr
+          exact herr
+        · exact Or.inr (Or.inl (fun x hx => h1 ⟨x, hx⟩))
+      · exact Or.inl (fun y hy => h2 ⟨y, hy⟩)
+  · exact relR_of_inc_true M (hinc (v2 :: v1 :: w :: rest) (by simp))
+
 /-- A saturated *precise* builtin reconciles with `evalBuiltin` — each arithmetic /
-comparison / division / string builtin is a one-line `satBin`/`satBinDiv`/`satBinStr`
-application. -/
+comparison / division / string / bytestring builtin is a one-line
+`satBin`/`satBinDiv`/`satBinStr`/`satBinBS`/`satUnBS`/`satIndexBS` application. -/
 theorem satBuiltin (M : Model) (b : BuiltinFun) (sargs : List SymV) (cargs : List CekValue)
     (hγ : γList M sargs = some cargs) (hpre : preciseBuiltin b = true)
     (hf : FaithfulVList sargs) (hwf : WfVList M sargs) :
@@ -1582,6 +2094,38 @@ theorem satBuiltin (M : Model) (b : BuiltinFun) (sargs : List SymV) (cargs : Lis
       (fun e1 e2 s1 s2 h1 h2 => by
         simp only [γ, V.str, denote_app1, dUn_VStr, denote_strapp, h1, h2, SVal.asStr])
       evalBuiltin_AppendString_spec
+  case EqualsByteString =>
+    exact satBinBS M _ sargs cargs hγ hf hwf (fun a b => V.bool (SExpr.sEq a b))
+      (fun bs1 bs2 => .VCon (.Bool (bs1 == bs2))) (fun _ _ => rfl) (fun _ _ => rfl)
+      (fun s hl => by
+        show (symBuiltin .EqualsByteString (List.map Prod.snd (List.map reifyFO s.reverse))).inc = .bool true
+        exact symBuiltin_EqualsByteString_inc_ne2 _ (by simpa [List.length_map, List.length_reverse] using hl))
+      (fun e1 e2 bs1 bs2 h1 h2 => by
+        simp only [γ, V.bool, denote_app1, dUn_VBool, denote_sEq, h1, h2, SVal.asB, svalEq,
+          baToBytes_beq])
+      evalBuiltin_EqualsByteString_spec
+  case AppendByteString =>
+    exact satBinBS M _ sargs cargs hγ hf hwf (fun a b => V.bs (Seq.append a b))
+      (fun bs1 bs2 => .VCon (.ByteString (bs1 ++ bs2))) (fun _ _ => rfl) (fun _ _ => rfl)
+      (fun s hl => by
+        show (symBuiltin .AppendByteString (List.map Prod.snd (List.map reifyFO s.reverse))).inc = .bool true
+        exact symBuiltin_AppendByteString_inc_ne2 _ (by simpa [List.length_map, List.length_reverse] using hl))
+      (fun e1 e2 bs1 bs2 h1 h2 => by
+        simp only [γ, V.bs, denote_app1, dUn_VBS, Seq.append, denote_seqapp, h1, h2,
+          SVal.asBytes, bytesToBA_append])
+      evalBuiltin_AppendByteString_spec
+  case LengthOfByteString =>
+    exact satUnBS M _ sargs cargs hγ hf hwf (fun a => V.int (Seq.len a))
+      (fun bs => .VCon (.Integer (Int.ofNat bs.size))) (fun _ => rfl) (fun _ => rfl)
+      (fun s hl => by
+        show (symBuiltin .LengthOfByteString (List.map Prod.snd (List.map reifyFO s.reverse))).inc = .bool true
+        exact symBuiltin_LengthOfByteString_inc_ne1 _ (by simpa [List.length_map, List.length_reverse] using hl))
+      (fun e bs h => by
+        simp only [γ, V.int, Seq.len, denote_app1, dUn_VInt, dUn_seqlen, h, SVal.asI,
+          SVal.asBytes, baToBytes_length])
+      evalBuiltin_LengthOfByteString_spec
+  case IndexByteString =>
+    exact satIndexBS M sargs cargs hγ hf hwf
 
 /-! ## The simulation `Sim` (the mutual adequacy induction) -/
 
@@ -1799,28 +2343,17 @@ theorem list_len2 {α} (l : List α) (h : l.length = 2) : ∃ a b, l = [a, b] :=
 hence is fuel-determinate. (Needed for `Stab`'s builtin case.) -/
 theorem symSaturate_inc_lit (b : BuiltinFun) (args : List SymV) (h : preciseBuiltin b = true) :
     (symSaturate b args).inc = .bool false ∨ (symSaturate b args).inc = .bool true := by
+  -- Uniform over arity: the `inc` field of every precise builtin's `symBuiltin`
+  -- arm is a literal, determined by the (reversed, reified) argument shape.
+  -- Exposing up to three cons cells suffices for all current precise builtins
+  -- (unary/binary; no precise ternary arm exists).
   cases b <;> first | (exfalso; revert h; decide) | skip
   all_goals (
-    by_cases hlen : (List.map Prod.snd (List.map reifyFO args.reverse)).length = 2
-    · left
-      obtain ⟨r1, r2, hR⟩ := list_len2 _ hlen
-      show (symBuiltin _ (List.map Prod.snd (List.map reifyFO args.reverse))).inc = .bool false
-      rw [hR]; rfl
-    · right
-      show (symBuiltin _ (List.map Prod.snd (List.map reifyFO args.reverse))).inc = .bool true
-      first
-        | exact symBuiltin_AddInteger_inc_ne2 _ hlen
-        | exact symBuiltin_SubtractInteger_inc_ne2 _ hlen
-        | exact symBuiltin_MultiplyInteger_inc_ne2 _ hlen
-        | exact symBuiltin_EqualsInteger_inc_ne2 _ hlen
-        | exact symBuiltin_LessThanInteger_inc_ne2 _ hlen
-        | exact symBuiltin_LessThanEqualsInteger_inc_ne2 _ hlen
-        | exact symBuiltin_DivideInteger_inc_ne2 _ hlen
-        | exact symBuiltin_ModInteger_inc_ne2 _ hlen
-        | exact symBuiltin_QuotientInteger_inc_ne2 _ hlen
-        | exact symBuiltin_RemainderInteger_inc_ne2 _ hlen
-        | exact symBuiltin_EqualsString_inc_ne2 _ hlen
-        | exact symBuiltin_AppendString_inc_ne2 _ hlen)
+    show (symBuiltin _ (List.map Prod.snd (List.map reifyFO args.reverse))).inc = .bool false ∨
+         (symBuiltin _ (List.map Prod.snd (List.map reifyFO args.reverse))).inc = .bool true
+    generalize (List.map Prod.snd (List.map reifyFO args.reverse)) = R
+    rcases R with _ | ⟨a, _ | ⟨b2, _ | ⟨c, t⟩⟩⟩ <;>
+      first | exact Or.inl rfl | exact Or.inr rfl)
 
 /-! ## Upward fuel-stability `Stab`
 
