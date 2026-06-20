@@ -261,7 +261,7 @@ def dispatchIntFrom (tagE : SExpr) : Nat → List SymR → SymR
   | i, r :: rs => symMerge (sEq tagE (.int (Int.ofNat i))) r (dispatchIntFrom tagE (i + 1) rs)
 
 /-- Safe indexing into the evaluated alternatives. -/
-private def altOr (altRs : List SymR) (i : Nat) : SymR :=
+def altOr (altRs : List SymR) (i : Nat) : SymR :=
   match altRs[i]? with | some r => r | none => errR
 
 /-! ## The evaluator (mutual, fuel-structural — a clone of `bigEval`) -/
