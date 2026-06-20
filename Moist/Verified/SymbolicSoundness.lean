@@ -3814,4 +3814,50 @@ theorem symbolic_error_sound {n : Nat} {t : Term} (ht : Faithful t)
   obtain ⟨f, hf⟩ := (Moist.Verified.BigStep.bigEval_iff_halt).2 hreach
   rw [hall f] at hf; exact absurd hf (by simp)
 
+/-! ## Symbolic-input soundness (open terms in a symbolic environment)
+
+The closed theorems are the `ρs = []` special case. These generalise them to a
+*symbolic input environment* `ρs` (e.g. a validator's datum/redeemer/context as
+symbolic atoms), parameterised by any model `M` that concretises the inputs to `ρ`
+with their declared sorts (`EnvRel`/`WfVList` — exactly z3's guarantee). The CEK
+side is the small-step machine started in env `ρ` (`compute [] ρ t`), via the
+env-general `bigEval_sound_env`/`bigEval_complete_env`. -/
+
+/-- **Symbolic-input success ⇒ the CEK halts.** For any model `M` concretising the
+faithful, well-sorted symbolic inputs `ρs` to `ρ`, if the compiled formula says `t`
+completes without error and yields the value, the CEK (computing `t` in `ρ`) halts at
+its concretization. -/
+theorem symbolic_input_success_sound {n : Nat} {t : Term} (ht : Faithful t) (M : Model)
+    (ρs : SymEnv) (ρ : CekEnv) (henv : EnvRel M ρs ρ)
+    (hfρ : FaithfulVList ρs) (hwρ : WfVList M ρs)
+    (hinc : denoteB M (symEval n ρs t).inc = false)
+    (herr : denoteB M (symEval n ρs t).err = false) :
+    ∃ cv, γ M (symEval n ρs t).val = some cv ∧ Reaches (.compute [] ρ t) (.halt cv) := by
+  obtain ⟨cv, hγ, hbig⟩ := (simEval M n ρs ρ t henv hfρ hwρ ht).1.1 hinc herr
+  exact ⟨cv, hγ, Moist.Verified.BigStep.bigEval_sound_env hbig⟩
+
+/-- **Symbolic-input error ⇒ the CEK fails.** For any such model, if the formula says
+`t` *definitely* errors, the CEK computing `t` in `ρ` never halts. -/
+theorem symbolic_input_error_sound {n : Nat} {t : Term} (ht : Faithful t) (M : Model)
+    (ρs : SymEnv) (ρ : CekEnv) (henv : EnvRel M ρs ρ)
+    (hfρ : FaithfulVList ρs) (hwρ : WfVList M ρs)
+    (hinc : denoteB M (symEval n ρs t).inc = false)
+    (herr : denoteB M (symEval n ρs t).err = true) :
+    ¬ ∃ v, Reaches (.compute [] ρ t) (.halt v) := by
+  have hsim := simEval M n ρs ρ t henv hfρ hwρ ht
+  have hbn : bigEval n ρ t = none := hsim.1.2 hinc herr
+  have hfuel : ∀ m, n ≤ m → bigEval m ρ t = bigEval n ρ t := hsim.2 hinc
+  have hall : ∀ f, bigEval f ρ t = none := by
+    intro f
+    rcases Nat.le_total n f with hnf | hfn
+    · rw [hfuel f hnf, hbn]
+    · cases hbf : bigEval f ρ t with
+      | none => rfl
+      | some v =>
+        have h2 := Moist.Verified.BigStep.bigEval_mono_le hfn hbf
+        rw [hbn] at h2; exact absurd h2 (by simp)
+  rintro ⟨v, hreach⟩
+  obtain ⟨f, hf⟩ := Moist.Verified.BigStep.bigEval_complete_env hreach
+  rw [hall f] at hf; exact absurd hf (by simp)
+
 end Moist.Verified.SymbolicSoundness
