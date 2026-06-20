@@ -76,7 +76,7 @@ open Moist.Symbolic
 open Moist.Plutus.Term (Term Const BuiltinType BuiltinFun)
 open Moist.Plutus (Data ByteString)
 open Moist.CEK (CekValue CekEnv evalBuiltin expectedArgs)
-open Moist.Verified.BigStep (bigEval applyVal forceVal
+open Moist.Verified.BigStep (bigEval bigEvalList applyVal applyValList forceVal
   evalBuiltin_AddInteger_spec evalBuiltin_SubtractInteger_spec evalBuiltin_MultiplyInteger_spec
   evalBuiltin_EqualsInteger_spec evalBuiltin_LessThanInteger_spec evalBuiltin_LessThanEqualsInteger_spec
   evalBuiltin_DivideInteger_spec evalBuiltin_ModInteger_spec
@@ -437,9 +437,10 @@ def simpleConst : Const → Bool
   | .Integer _ | .Bool _ | .Unit | .String _ => true
   | _ => false
 
-/-- A term is *faithful* (in the proven fragment): λ-calculus + `force`/`delay` +
-the Integer builtins + simple constants. `Constr`/`Case` (and other builtins) are
-the next increment, excluded here. -/
+/-! A term is *faithful* (in the proven fragment): λ-calculus + `force`/`delay` +
+the precise builtins + simple constants + `Constr`. `Case` and the structural
+builtins are the next increment. -/
+mutual
 def faithfulB : Term → Bool
   | .Var _          => true
   | .Constant (c,_) => simpleConst c
@@ -448,9 +449,13 @@ def faithfulB : Term → Bool
   | .Apply f a      => faithfulB f && faithfulB a
   | .Delay t        => faithfulB t
   | .Force t        => faithfulB t
-  | .Constr _ _     => false
+  | .Constr _ ms    => faithfulBList ms
   | .Case _ _       => false
   | .Error          => true
+def faithfulBList : List Term → Bool
+  | []      => true
+  | t :: ts => faithfulB t && faithfulBList ts
+end
 
 /-- A term is faithful (in the proven fragment). -/
 def Faithful (t : Term) : Prop := faithfulB t = true
@@ -468,7 +473,7 @@ def FaithfulV : SymV → Prop
   | .fo _ => True
   | .lam body env => faithfulB body = true ∧ FaithfulVList env
   | .delay body env => faithfulB body = true ∧ FaithfulVList env
-  | .constr _ _ => False
+  | .constr _ fs => FaithfulVList fs
   | .builtin b args _ => preciseBuiltin b = true ∧ FaithfulVList args
   | .choice _ _ _ => False
 def FaithfulVList : List SymV → Prop
@@ -590,6 +595,14 @@ theorem γ_builtin_inv {M : Model} {b : BuiltinFun} {args : List SymV} {ea} {vf 
     ∃ L, γList M args = some L ∧ vf = .VBuiltin b L ea := by
   unfold γ at h
   cases hL : γList M args with
+  | none => rw [hL] at h; simp at h
+  | some L => rw [hL] at h; simp only [Option.some.injEq] at h; exact ⟨L, rfl, h.symm⟩
+
+theorem γ_constr_inv {M : Model} {tag : Nat} {fs : List SymV} {vf : CekValue}
+    (h : γ M (.constr tag fs) = some vf) :
+    ∃ L, γList M fs = some L ∧ vf = .VConstr tag L := by
+  unfold γ at h
+  cases hL : γList M fs with
   | none => rw [hL] at h; simp at h
   | some L => rw [hL] at h; simp only [Option.some.injEq] at h; exact ⟨L, rfl, h.symm⟩
 
@@ -795,7 +808,10 @@ theorem faithfulV_symEval : ∀ (n : Nat) (ρs : SymEnv) (t : Term),
       have ht' : Faithful t := by simpa [Faithful, faithfulB] using ht
       simp only [symEval]
       exact faithfulV_symForce n (symEval n ρs t).val (faithfulV_symEval n ρs t hρ ht')
-  | _+1, _, .Constr _ _, _, ht => by simp [Faithful, faithfulB] at ht
+  | n+1, ρs, .Constr tag ms, hρ, ht => by
+      have hms : faithfulBList ms = true := by simpa [Faithful, faithfulB] using ht
+      simp only [symEval]
+      exact faithfulV_symEvalList n ρs ms hρ hms
   | _+1, _, .Case _ _, _, ht => by simp [Faithful, faithfulB] at ht
   | _+1, _, .Error, _, _ => by simp [symEval, errR, junk, FaithfulV]
 termination_by n _ t => (n, sizeOf t)
@@ -822,7 +838,7 @@ theorem faithfulV_symApply : ∀ (n : Nat) (vf va : SymV),
   | _+1, .choice _ _ _, _, hf, _ => by simp [FaithfulV] at hf
   | _+1, .fo _, _, _, _ => by simp [symApply, errR, junk, FaithfulV]
   | _+1, .delay _ _, _, _, _ => by simp [symApply, errR, junk, FaithfulV]
-  | _+1, .constr _ _, _, hf, _ => by simp [FaithfulV] at hf
+  | _+1, .constr _ _, _, _, _ => by simp [symApply, errR, junk, FaithfulV]
 termination_by n vf _ => (n, sizeOf vf)
 
 theorem faithfulV_symForce : ∀ (n : Nat) (vt : SymV),
@@ -845,8 +861,18 @@ theorem faithfulV_symForce : ∀ (n : Nat) (vt : SymV),
   | _+1, .choice _ _ _, ht => by simp [FaithfulV] at ht
   | _+1, .fo _, _ => by simp [symForce, errR, junk, FaithfulV]
   | _+1, .lam _ _, _ => by simp [symForce, errR, junk, FaithfulV]
-  | _+1, .constr _ _, ht => by simp [FaithfulV] at ht
+  | _+1, .constr _ _, _ => by simp [symForce, errR, junk, FaithfulV]
 termination_by n vt => (n, sizeOf vt)
+theorem faithfulV_symEvalList : ∀ (n : Nat) (ρs : SymEnv) (ms : List Term),
+    FaithfulVList ρs → faithfulBList ms = true →
+    FaithfulVList ((symEvalList n ρs ms).map SymR.val)
+  | _, _, [], _, _ => by simp [symEvalList, FaithfulVList]
+  | n, ρs, t :: ts, hρ, hms => by
+      have hms' : faithfulB t = true ∧ faithfulBList ts = true := by
+        simpa [faithfulBList, Bool.and_eq_true] using hms
+      simp only [symEvalList, List.map]
+      exact ⟨faithfulV_symEval n ρs t hρ hms'.1, faithfulV_symEvalList n ρs ts hρ hms'.2⟩
+termination_by n _ ms => (n, sizeOf ms)
 end
 
 /-! ## `WfFO` base / closure lemmas and `WfV` preservation -/
@@ -1276,7 +1302,10 @@ theorem wfV_symEval (M : Model) : ∀ (n : Nat) (ρs : SymEnv) (t : Term),
       simp only [symEval]
       exact wfV_symForce M n (symEval n ρs t).val
         (faithfulV_symEval n ρs t hfρ ht') (wfV_symEval M n ρs t hfρ hwf ht')
-  | _+1, _, .Constr _ _, _, _, ht => by simp [Faithful, faithfulB] at ht
+  | n+1, ρs, .Constr tag ms, hfρ, hwf, ht => by
+      have hms : faithfulBList ms = true := by simpa [Faithful, faithfulB] using ht
+      simp only [symEval]
+      exact wfV_symEvalList M n ρs ms hfρ hwf hms
   | _+1, _, .Case _ _, _, _, ht => by simp [Faithful, faithfulB] at ht
   | _+1, _, .Error, _, _, _ => by simp only [symEval, errR]; exact wfFO_unit M
 termination_by n _ t => (n, sizeOf t)
@@ -1300,7 +1329,7 @@ theorem wfV_symApply (M : Model) : ∀ (n : Nat) (vf va : SymV),
   | _+1, .choice _ _ _, _, hf, _, _, _ => by simp [FaithfulV] at hf
   | _+1, .fo _, _, _, _, _, _ => by simp only [symApply, errR]; exact wfFO_unit M
   | _+1, .delay _ _, _, _, _, _, _ => by simp only [symApply, errR]; exact wfFO_unit M
-  | _+1, .constr _ _, _, hf, _, _, _ => by simp [FaithfulV] at hf
+  | _+1, .constr _ _, _, _, _, _, _ => by simp only [symApply, errR]; exact wfFO_unit M
 termination_by n vf _ => (n, sizeOf vf)
 
 theorem wfV_symForce (M : Model) : ∀ (n : Nat) (vt : SymV),
@@ -1322,8 +1351,18 @@ theorem wfV_symForce (M : Model) : ∀ (n : Nat) (vt : SymV),
   | _+1, .choice _ _ _, ht, _ => by simp [FaithfulV] at ht
   | _+1, .fo _, _, _ => by simp only [symForce, errR]; exact wfFO_unit M
   | _+1, .lam _ _, _, _ => by simp only [symForce, errR]; exact wfFO_unit M
-  | _+1, .constr _ _, ht, _ => by simp [FaithfulV] at ht
+  | _+1, .constr _ _, _, _ => by simp only [symForce, errR]; exact wfFO_unit M
 termination_by n vt => (n, sizeOf vt)
+theorem wfV_symEvalList (M : Model) : ∀ (n : Nat) (ρs : SymEnv) (ms : List Term),
+    FaithfulVList ρs → WfVList M ρs → faithfulBList ms = true →
+    WfVList M ((symEvalList n ρs ms).map SymR.val)
+  | _, _, [], _, _, _ => by simp [symEvalList, WfVList]
+  | n, ρs, t :: ts, hfρ, hwf, hms => by
+      have hms' : faithfulB t = true ∧ faithfulBList ts = true := by
+        simpa [faithfulBList, Bool.and_eq_true] using hms
+      simp only [symEvalList, List.map]
+      exact ⟨wfV_symEval M n ρs t hfρ hwf hms'.1, wfV_symEvalList M n ρs ts hfρ hwf hms'.2⟩
+termination_by n _ ms => (n, sizeOf ms)
 end
 
 /-! ## Supporting lemmas for the simulation -/
@@ -1332,6 +1371,9 @@ end
 theorem denoteB_sOrs3 (M : Model) (a b c : SExpr) :
     denoteB M (sOrs [a, b, c]) = (denoteB M a || denoteB M b || denoteB M c) := by
   simp [sOrs, denoteB_sOr, Bool.or_assoc]
+
+/-- `sOrs` cons (structural `foldr`, so `rfl`). -/
+theorem sOrs_cons (a : SExpr) (as : List SExpr) : sOrs (a :: as) = SExpr.sOr a (sOrs as) := rfl
 
 /-- Encoded simple constants denote back to themselves. -/
 theorem denote_simpleConst (M : Model) (c : Const) (h : simpleConst c = true) :
@@ -1466,15 +1508,42 @@ theorem symMerge_relR (M : Model) (c : SExpr) {r1 r2 : SymR} {o1 o2 : Option Cek
     | true => simp only [hc, if_true] at hinc herr ⊢; exact h1e hinc herr
     | false => simp only [hc, if_false] at hinc herr ⊢; exact h2e hinc herr
 
-/-- A faithful value whose non-first-order flag denotes `false` is first-order. -/
-theorem faithful_reify_fo {M : Model} {v : SymV} (hf : FaithfulV v)
-    (h : denoteB M (reifyFO v).1 = false) : ∃ e, v = .fo e := by
+/-- A faithful value whose integer type-guard is `false` is first-order: `lam`/
+`delay`/`builtin` reify to `VUnit` and `constr` to `VConstr`, all of which make the
+guard `true`; `choice` is out of the fragment. (The bare "nf-flag `false`" no longer
+implies `.fo` once `constr` is faithful — a `constr` of first-order fields has a
+`false` flag — so the eliminators use the type guard, which a `constr` fails.) -/
+theorem fo_of_gInt {M : Model} {v : SymV} (hf : FaithfulV v)
+    (hg : denoteB M (gInt (reifyFO v).2) = false) : ∃ e, v = .fo e := by
   cases v with
   | fo e => exact ⟨e, rfl⟩
-  | lam _ _ => simp [reifyFO, denoteB] at h
-  | delay _ _ => simp [reifyFO, denoteB] at h
-  | builtin _ _ _ => simp [reifyFO, denoteB] at h
-  | constr _ _ => simp [FaithfulV] at hf
+  | lam _ _ => simp [reifyFO, gInt, V.unit, V.sIsCon, V.vConName, denoteB_sNot] at hg
+  | delay _ _ => simp [reifyFO, gInt, V.unit, V.sIsCon, V.vConName, denoteB_sNot] at hg
+  | builtin _ _ _ => simp [reifyFO, gInt, V.unit, V.sIsCon, V.vConName, denoteB_sNot] at hg
+  | constr _ _ =>
+      simp [reifyFO, gInt, V.constr, V.sIsCon, V.vConName, V.knownVCons, denoteB_sNot] at hg
+  | choice _ _ _ => simp [FaithfulV] at hf
+
+theorem fo_of_gStr {M : Model} {v : SymV} (hf : FaithfulV v)
+    (hg : denoteB M (gStr (reifyFO v).2) = false) : ∃ e, v = .fo e := by
+  cases v with
+  | fo e => exact ⟨e, rfl⟩
+  | lam _ _ => simp [reifyFO, gStr, V.unit, V.sIsCon, V.vConName, denoteB_sNot] at hg
+  | delay _ _ => simp [reifyFO, gStr, V.unit, V.sIsCon, V.vConName, denoteB_sNot] at hg
+  | builtin _ _ _ => simp [reifyFO, gStr, V.unit, V.sIsCon, V.vConName, denoteB_sNot] at hg
+  | constr _ _ =>
+      simp [reifyFO, gStr, V.constr, V.sIsCon, V.vConName, V.knownVCons, denoteB_sNot] at hg
+  | choice _ _ _ => simp [FaithfulV] at hf
+
+theorem fo_of_gBS {M : Model} {v : SymV} (hf : FaithfulV v)
+    (hg : denoteB M (gBS (reifyFO v).2) = false) : ∃ e, v = .fo e := by
+  cases v with
+  | fo e => exact ⟨e, rfl⟩
+  | lam _ _ => simp [reifyFO, gBS, V.unit, V.sIsCon, V.vConName, denoteB_sNot] at hg
+  | delay _ _ => simp [reifyFO, gBS, V.unit, V.sIsCon, V.vConName, denoteB_sNot] at hg
+  | builtin _ _ _ => simp [reifyFO, gBS, V.unit, V.sIsCon, V.vConName, denoteB_sNot] at hg
+  | constr _ _ =>
+      simp [reifyFO, gBS, V.constr, V.sIsCon, V.vConName, V.knownVCons, denoteB_sNot] at hg
   | choice _ _ _ => simp [FaithfulV] at hf
 
 /-- A faithful value concretizing to a `VCon` is first-order. -/
@@ -1485,7 +1554,7 @@ theorem γ_VCon_fo {M : Model} {v : SymV} {c : Const} (hf : FaithfulV v)
   | lam _ _ => rw [γ] at h; split at h <;> simp_all
   | delay _ _ => rw [γ] at h; split at h <;> simp_all
   | builtin _ _ _ => rw [γ] at h; split at h <;> simp_all
-  | constr _ _ => simp [FaithfulV] at hf
+  | constr _ _ => rw [γ] at h; split at h <;> simp_all
   | choice _ _ _ => simp [FaithfulV] at hf
 
 /-- Decompose `γList` of a two-element list. -/
@@ -1510,8 +1579,8 @@ theorem binIntClean {M : Model} {v1 v2 : SymV} {c1 c2 : CekValue}
     (hg1 : denoteB M (gInt (reifyFO v1).2) = false) (hg2 : denoteB M (gInt (reifyFO v2).2) = false) :
     ∃ n1 n2, c1 = .VCon (.Integer n1) ∧ c2 = .VCon (.Integer n2) ∧
       denote M (V.sAsInt (reifyFO v1).2) = .I n1 ∧ denote M (V.sAsInt (reifyFO v2).2) = .I n2 := by
-  obtain ⟨e1, rfl⟩ := faithful_reify_fo hf1 hnf1
-  obtain ⟨e2, rfl⟩ := faithful_reify_fo hf2 hnf2
+  obtain ⟨e1, rfl⟩ := fo_of_gInt hf1 hg1
+  obtain ⟨e2, rfl⟩ := fo_of_gInt hf2 hg2
   simp only [reifyFO] at hg1 hg2 ⊢
   have hw1' : WfFO M e1 := hw1
   have hw2' : WfFO M e2 := hw2
@@ -1756,8 +1825,8 @@ theorem binStrClean {M : Model} {v1 v2 : SymV} {c1 c2 : CekValue}
     (hg1 : denoteB M (gStr (reifyFO v1).2) = false) (hg2 : denoteB M (gStr (reifyFO v2).2) = false) :
     ∃ s1 s2, c1 = .VCon (.String s1) ∧ c2 = .VCon (.String s2) ∧
       denote M (V.sAsStr (reifyFO v1).2) = .Str s1 ∧ denote M (V.sAsStr (reifyFO v2).2) = .Str s2 := by
-  obtain ⟨e1, rfl⟩ := faithful_reify_fo hf1 hnf1
-  obtain ⟨e2, rfl⟩ := faithful_reify_fo hf2 hnf2
+  obtain ⟨e1, rfl⟩ := fo_of_gStr hf1 hg1
+  obtain ⟨e2, rfl⟩ := fo_of_gStr hf2 hg2
   simp only [reifyFO] at hg1 hg2 ⊢
   have hw1' : WfFO M e1 := hw1
   have hw2' : WfFO M e2 := hw2
@@ -1863,8 +1932,8 @@ theorem binBSClean {M : Model} {v1 v2 : SymV} {c1 c2 : CekValue}
     ∃ bs1 bs2, c1 = .VCon (.ByteString bs1) ∧ c2 = .VCon (.ByteString bs2) ∧
       denote M (V.sAsBS (reifyFO v1).2) = .Bytes (baToBytes bs1) ∧
       denote M (V.sAsBS (reifyFO v2).2) = .Bytes (baToBytes bs2) := by
-  obtain ⟨e1, rfl⟩ := faithful_reify_fo hf1 hnf1
-  obtain ⟨e2, rfl⟩ := faithful_reify_fo hf2 hnf2
+  obtain ⟨e1, rfl⟩ := fo_of_gBS hf1 hg1
+  obtain ⟨e2, rfl⟩ := fo_of_gBS hf2 hg2
   simp only [reifyFO] at hg1 hg2 ⊢
   have hw1' : WfFO M e1 := hw1
   have hw2' : WfFO M e2 := hw2
@@ -1877,7 +1946,7 @@ theorem unBSClean {M : Model} {v1 : SymV} {c1 : CekValue}
     (hnf1 : denoteB M (reifyFO v1).1 = false) (hg1 : denoteB M (gBS (reifyFO v1).2) = false) :
     ∃ bs1, c1 = .VCon (.ByteString bs1) ∧
       denote M (V.sAsBS (reifyFO v1).2) = .Bytes (baToBytes bs1) := by
-  obtain ⟨e1, rfl⟩ := faithful_reify_fo hf1 hnf1
+  obtain ⟨e1, rfl⟩ := fo_of_gBS hf1 hg1
   simp only [reifyFO] at hg1 ⊢
   have hw1' : WfFO M e1 := hw1
   obtain ⟨bs1, hc1, hp1⟩ := wf_bs hw1' hv1 hg1
@@ -2044,8 +2113,8 @@ theorem binIdxClean {M : Model} {v1 v2 : SymV} {c1 c2 : CekValue}
     ∃ bs idx, c1 = .VCon (.ByteString bs) ∧ c2 = .VCon (.Integer idx) ∧
       denote M (V.sAsBS (reifyFO v1).2) = .Bytes (baToBytes bs) ∧
       denote M (V.sAsInt (reifyFO v2).2) = .I idx := by
-  obtain ⟨e1, rfl⟩ := faithful_reify_fo hf1 hnf1
-  obtain ⟨e2, rfl⟩ := faithful_reify_fo hf2 hnf2
+  obtain ⟨e1, rfl⟩ := fo_of_gBS hf1 hgbs
+  obtain ⟨e2, rfl⟩ := fo_of_gInt hf2 hgint
   simp only [reifyFO] at hgbs hgint ⊢
   obtain ⟨bs, hc1, hpbs⟩ := wf_bs (hw1 : WfFO M e1) hv1 hgbs
   obtain ⟨idx, hc2, hpidx⟩ := wf_int (hw2 : WfFO M e2) hv2 hgint
@@ -2374,7 +2443,14 @@ theorem simEval : ∀ (M : Model) (n : Nat) (ρs : SymEnv) (ρ : CekEnv) (t : Te
             have := herr; simp only [denoteB_sOr, hte, Bool.false_or] at this; exact this
           simp only [bigEval, hbt]
           exact IHfo.2 hfi hfe
-  | _, n+1, _, _, .Constr _ _, _, _, _, ht => by simp [Faithful, faithfulB] at ht
+  | M, n+1, ρs, ρ, .Constr tag ms, hρ, henv, hwf, ht => by
+      have hms : faithfulBList ms = true := by simpa [Faithful, faithfulB] using ht
+      have IH := simEvalList M n ρs ρ ms hρ henv hwf hms
+      refine ⟨fun hinc herr => ?_, fun hinc herr => ?_⟩
+      · obtain ⟨vs, hγ, hbe⟩ := IH.1 (by simpa only [symEval] using hinc) (by simpa only [symEval] using herr)
+        exact ⟨.VConstr tag vs, by simp only [symEval, γ, hγ], by simp only [bigEval, hbe]⟩
+      · have h := IH.2 (by simpa only [symEval] using hinc) (by simpa only [symEval] using herr)
+        simp only [bigEval, h]
   | _, n+1, _, _, .Case _ _, _, _, _, ht => by simp [Faithful, faithfulB] at ht
   | M, n+1, _, ρ, .Error, _, _, _, _ => by
       simp only [symEval]; exact relR_errR M (by simp [bigEval])
@@ -2429,7 +2505,9 @@ theorem simApply : ∀ (M : Model) (n : Nat) (vfh vah : SymV) (vf va : CekValue)
   | M, n+1, .delay body env, _, vf, va, hvf, _, _, _, _, _ => by
       obtain ⟨L, _, rfl⟩ := γ_delay_inv hvf
       simp only [symApply]; exact relR_errR M (applyVal_VDelay (n+1) body (toCekEnv L) va)
-  | _, n+1, .constr _ _, _, _, _, _, _, hfvf, _, _, _ => by simp [FaithfulV] at hfvf
+  | M, n+1, .constr t fs, _, vf, va, hvf, _, _, _, _, _ => by
+      obtain ⟨L, _, rfl⟩ := γ_constr_inv hvf
+      simp only [symApply]; exact relR_errR M (applyVal_VConstr (n+1) t L va)
 termination_by M n _ _ _ _ => (n, 0)
 
 theorem simForce : ∀ (M : Model) (n : Nat) (vth : SymV) (vt : CekValue),
@@ -2476,8 +2554,50 @@ theorem simForce : ∀ (M : Model) (n : Nat) (vth : SymV) (vt : CekValue),
   | M, n+1, .lam body env, vt, hvt, _, _ => by
       obtain ⟨L, _, rfl⟩ := γ_lam_inv hvt
       simp only [symForce]; exact relR_errR M (forceVal_VLam (n+1) body (toCekEnv L))
-  | _, n+1, .constr _ _, _, _, hfvt, _ => by simp [FaithfulV] at hfvt
+  | M, n+1, .constr t fs, vt, hvt, _, _ => by
+      obtain ⟨L, _, rfl⟩ := γ_constr_inv hvt
+      simp only [symForce]; exact relR_errR M (forceVal_VConstr (n+1) t L)
 termination_by M n _ _ => (n, 0)
+/-- The field-list correspondence for `Constr`: the (combined-`sOrs`) outcomes of
+`symEvalList` reconcile with `bigEvalList` — all fields succeed (collecting the
+value list) or some field errors (so the whole list is `none`). -/
+theorem simEvalList : ∀ (M : Model) (n : Nat) (ρs : SymEnv) (ρ : CekEnv) (ms : List Term),
+    EnvRel M ρs ρ → FaithfulVList ρs → WfVList M ρs → faithfulBList ms = true →
+    (denoteB M (sOrs ((symEvalList n ρs ms).map SymR.inc)) = false →
+     denoteB M (sOrs ((symEvalList n ρs ms).map SymR.err)) = false →
+     ∃ vs, γList M ((symEvalList n ρs ms).map SymR.val) = some vs ∧ bigEvalList n ρ ms = some vs) ∧
+    (denoteB M (sOrs ((symEvalList n ρs ms).map SymR.inc)) = false →
+     denoteB M (sOrs ((symEvalList n ρs ms).map SymR.err)) = true →
+     bigEvalList n ρ ms = none)
+  | M, n, ρs, ρ, [], _, _, _, _ => by
+      refine ⟨fun _ _ => ⟨[], by simp [symEvalList, γList], by simp [bigEvalList]⟩, fun _ herr => ?_⟩
+      simp [symEvalList, sOrs, denoteB_bool] at herr
+  | M, n, ρs, ρ, t :: ts, hρ, henv, hwf, hms => by
+      have hms' : faithfulB t = true ∧ faithfulBList ts = true := by
+        simpa [faithfulBList, Bool.and_eq_true] using hms
+      have IHt := simEval M n ρs ρ t hρ henv hwf hms'.1
+      have IHts := simEvalList M n ρs ρ ts hρ henv hwf hms'.2
+      refine ⟨fun hinc herr => ?_, fun hinc herr => ?_⟩
+      · simp only [symEvalList, List.map_cons, sOrs, List.foldr, denoteB_sOr,
+          Bool.or_eq_false_iff] at hinc herr
+        obtain ⟨vh, hγh, hbh⟩ := IHt.1 hinc.1 herr.1
+        obtain ⟨vs, hγs, hbs⟩ := IHts.1 hinc.2 herr.2
+        exact ⟨vh :: vs, by simp only [symEvalList, List.map_cons, γList, hγh, hγs],
+               by simp only [bigEvalList, hbh, hbs]⟩
+      · simp only [symEvalList, List.map_cons, sOrs, List.foldr, denoteB_sOr,
+          Bool.or_eq_false_iff] at hinc
+        simp only [symEvalList, List.map_cons, sOrs, List.foldr, denoteB_sOr,
+          Bool.or_eq_true] at herr
+        by_cases hte : denoteB M (symEval n ρs t).err = true
+        · simp only [bigEvalList, IHt.2 hinc.1 hte]
+        · simp only [Bool.not_eq_true] at hte
+          obtain ⟨vh, hγh, hbh⟩ := IHt.1 hinc.1 hte
+          have hre : denoteB M (sOrs ((symEvalList n ρs ts).map SymR.err)) = true := by
+            rcases herr with h | h
+            · exact absurd h (by rw [hte]; simp)
+            · exact h
+          simp only [bigEvalList, hbh, IHts.2 hinc.2 hre]
+termination_by M n _ _ ms => (n, sizeOf ms)
 end
 
 /-- **`Sim` holds** for the proven fragment. -/
@@ -2552,7 +2672,11 @@ theorem stabEval : ∀ (n : Nat) (ρs : SymEnv) (t : Term),
         · exact Or.inl (by simp only [symEval]; rw [htf, hpt]; simp [SExpr.sOr])
         · exact Or.inr ⟨by simp only [symEval]; rw [htf, hpf]; simp [SExpr.sOr],
                         by simp only [symEval, hteq, hpeq]⟩
-  | n+1, _, .Constr _ _, _, ht => by simp [Faithful, faithfulB] at ht
+  | n+1, ρs, .Constr tag ms, henv, ht => by
+      have hms : faithfulBList ms = true := by simpa [Faithful, faithfulB] using ht
+      rcases stabEvalList n ρs ms henv hms with h | ⟨hf0, heq⟩
+      · exact Or.inl (by simp only [symEval]; exact h)
+      · exact Or.inr ⟨by simp only [symEval]; exact hf0, by simp only [symEval, heq]⟩
   | n+1, _, .Case _ _, _, ht => by simp [Faithful, faithfulB] at ht
   | n+1, _, .Error, _, _ => Or.inr ⟨by simp [symEval, errR], by simp [symEval]⟩
 termination_by n _ t => (n, sizeOf t)
@@ -2581,7 +2705,7 @@ theorem stabApply : ∀ (n : Nat) (vf va : SymV), FaithfulV vf → FaithfulV va 
               · exact Or.inr ⟨by rw [hval]; exact h0, by simp only [symApply, h1, h2]⟩
               · exact Or.inl (by rw [hval]; exact h0)
   | n+1, .choice _ _ _, _, hf, _ => by simp [FaithfulV] at hf
-  | n+1, .constr _ _, _, hf, _ => by simp [FaithfulV] at hf
+  | n+1, .constr _ _, _, _, _ => Or.inr ⟨by simp [symApply, errR], by simp [symApply]⟩
 termination_by n _ _ => (n, 0)
 
 theorem stabForce : ∀ (n : Nat) (vt : SymV), FaithfulV vt →
@@ -2607,8 +2731,26 @@ theorem stabForce : ∀ (n : Nat) (vt : SymV), FaithfulV vt →
               · exact Or.inr ⟨by rw [hval]; exact h0, by simp only [symForce, h1, h2]⟩
               · exact Or.inl (by rw [hval]; exact h0)
   | n+1, .choice _ _ _, ht => by simp [FaithfulV] at ht
-  | n+1, .constr _ _, ht => by simp [FaithfulV] at ht
+  | n+1, .constr _ _, _ => Or.inr ⟨by simp [symForce, errR], by simp [symForce]⟩
 termination_by n _ => (n, 0)
+theorem stabEvalList : ∀ (n : Nat) (ρs : SymEnv) (ms : List Term),
+    FaithfulVList ρs → faithfulBList ms = true →
+    sOrs ((symEvalList n ρs ms).map SymR.inc) = .bool true ∨
+    (sOrs ((symEvalList n ρs ms).map SymR.inc) = .bool false ∧
+     symEvalList (n+1) ρs ms = symEvalList n ρs ms)
+  | _, _, [], _, _ => by exact Or.inr ⟨by simp [symEvalList, sOrs], by simp [symEvalList]⟩
+  | n, ρs, t :: ts, henv, hms => by
+      have hms' : faithfulB t = true ∧ faithfulBList ts = true := by
+        simpa [faithfulBList, Bool.and_eq_true] using hms
+      simp only [symEvalList, List.map_cons, sOrs_cons]
+      rcases stabEval n ρs t henv hms'.1 with hti | ⟨htf, hteq⟩
+      · rw [hti]; exact Or.inl (by simp [SExpr.sOr])
+      · rw [htf]
+        rcases stabEvalList n ρs ts henv hms'.2 with hri | ⟨hrf, hreq⟩
+        · rw [hri]; exact Or.inl (by simp [SExpr.sOr])
+        · rw [hrf]
+          exact Or.inr ⟨by simp [SExpr.sOr], by rw [hteq, hreq]⟩
+termination_by n _ ms => (n, sizeOf ms)
 end
 
 /-- **`Stab` holds**: determinacy lifts to the `denoteB`-level upward stability. -/
