@@ -519,6 +519,45 @@ theorem denote_sIte (M : Model) (c a b : SExpr) :
   show SVal.asB (denote M (SExpr.sIte c a b)) = _
   rw [denote_sIte]; cases h : denoteB M c <;> simp [h, denoteB]
 
+/-! ## `choice`/`mergeVal` distribution (the symbolic-branching engine)
+
+`mergeVal c a b` builds `if c then a else b`, keeping `constr` structure where the
+shapes agree and deferring to a `choice` otherwise. The key fact is that `γ`
+distributes through it: concretizing the merge is the (model-decided) branch. This
+is what lets every eliminator (`symApply`/`symForce`/`symCase`) push a `choice`
+through to an SMT `ite` soundly. -/
+mutual
+theorem γ_mergeVal (M : Model) (c : SExpr) : ∀ (a b : SymV),
+    γ M (mergeVal c a b) = if denoteB M c then γ M a else γ M b
+  | .fo a, .fo b => by
+      simp only [mergeVal]; rw [γ, denote_sIte]; cases h : denoteB M c <;> simp [h, γ]
+  | .constr t1 fs1, .constr t2 fs2 => by
+      simp only [mergeVal]
+      split
+      · next hcond =>
+          rw [Bool.and_eq_true, beq_iff_eq, beq_iff_eq] at hcond
+          obtain ⟨rfl, hlen⟩ := hcond
+          rw [γ, γList_mergeValList M c fs1 fs2 hlen]
+          cases h : denoteB M c <;> simp [h, γ]
+      · rfl
+  | .fo _, .lam _ _ | .fo _, .delay _ _ | .fo _, .constr _ _ | .fo _, .builtin _ _ _
+  | .fo _, .choice _ _ _
+  | .constr _ _, .fo _ | .constr _ _, .lam _ _ | .constr _ _, .delay _ _
+  | .constr _ _, .builtin _ _ _ | .constr _ _, .choice _ _ _
+  | .lam _ _, _ | .delay _ _, _ | .builtin _ _ _, _ | .choice _ _ _, _ => by
+      rfl
+termination_by a _ => sizeOf a
+theorem γList_mergeValList (M : Model) (c : SExpr) : ∀ (as bs : List SymV),
+    as.length = bs.length →
+    γList M (mergeValList c as bs) = if denoteB M c then γList M as else γList M bs
+  | [], [], _ => by simp only [mergeValList]; cases h : denoteB M c <;> simp [h]
+  | a :: as, b :: bs, hlen => by
+      simp only [mergeValList, γList, γ_mergeVal M c a b,
+        γList_mergeValList M c as bs (by simpa using hlen)]
+      cases h : denoteB M c <;> simp [h, γList]
+termination_by as _ _ => sizeOf as
+end
+
 /-! ## Foundational `denote` reductions (needed early by `WfFO`/`WfV`) -/
 
 @[simp] theorem denote_atom (M : Model) (a : String) : denote M (.atom a) = dNull M a := rfl
@@ -1313,6 +1352,24 @@ theorem relR_of_inc_true (M : Model) {r : SymR} {o : Option CekValue}
     (h : r.inc = .bool true) : RelR M r o := by
   refine ⟨fun hinc _ => ?_, fun hinc _ => ?_⟩ <;>
     (rw [h] at hinc; simp [denoteB_bool] at hinc)
+
+/-- `symMerge` reconciles with the model-decided branch: if each side relates to its
+outcome, the merge relates to the `ite` of the outcomes. The engine for the `choice`
+cases of `symApply`/`symForce`/`symCase`. -/
+theorem symMerge_relR (M : Model) (c : SExpr) {r1 r2 : SymR} {o1 o2 : Option CekValue}
+    (h1 : RelR M r1 o1) (h2 : RelR M r2 o2) :
+    RelR M (symMerge c r1 r2) (if denoteB M c then o1 else o2) := by
+  obtain ⟨h1s, h1e⟩ := h1
+  obtain ⟨h2s, h2e⟩ := h2
+  refine ⟨fun hinc herr => ?_, fun hinc herr => ?_⟩ <;>
+    simp only [symMerge, denoteB_sIte] at hinc herr
+  · rw [show (symMerge c r1 r2).val = mergeVal c r1.val r2.val from rfl, γ_mergeVal]
+    cases hc : denoteB M c with
+    | true => simp only [hc, if_true] at hinc herr ⊢; exact h1s hinc herr
+    | false => simp only [hc, if_false] at hinc herr ⊢; exact h2s hinc herr
+  · cases hc : denoteB M c with
+    | true => simp only [hc, if_true] at hinc herr ⊢; exact h1e hinc herr
+    | false => simp only [hc, if_false] at hinc herr ⊢; exact h2e hinc herr
 
 /-- A faithful value whose non-first-order flag denotes `false` is first-order. -/
 theorem faithful_reify_fo {M : Model} {v : SymV} (hf : FaithfulV v)
