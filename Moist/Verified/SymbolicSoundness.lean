@@ -310,6 +310,14 @@ private def dUn (f : String) (x : SVal) : SVal :=
   | "is-vnil"  => .B (asVL x).isEmpty
   | "is-dnil"  => .B (asDL x).isEmpty
   | "is-mnil"  => .B (asDM x).isEmpty
+  -- Explicit `is-V*` arms for the sorts the proofs reason about: semantically equal
+  -- to the `startsWith` catch-all below, but `rfl`-reducible (String.startsWith is
+  -- not definitionally reducible), so merged-value testers compute.
+  | "is-VInt"  => .B (vIs "VInt" (asV x))
+  | "is-VBool" => .B (vIs "VBool" (asV x))
+  | "is-VBS"   => .B (vIs "VBS" (asV x))
+  | "is-VStr"  => .B (vIs "VStr" (asV x))
+  | "is-VData" => .B (vIs "VData" (asV x))
   | t =>
       if t.startsWith "is-V" then .B (vIs (t.drop 3) (asV x))
       else if t.startsWith "is-D" then .B (dIsK (t.drop 3) (asD x))
@@ -957,6 +965,93 @@ theorem wfFO_simpleConst (M : Model) (c : Const) (h : simpleConst c = true) :
   case Unit => exact wfFO_unit M
   case String s => simp only [constToSExpr]; exact wfFO_Vstr M (.str s) s rfl
   all_goals exact absurd h (by simp [simpleConst])
+
+/-- A raw `ite` denotes to the model-decided branch. -/
+theorem denote_ite_app (M : Model) (c a b : SExpr) :
+    denote M (.app "ite" [c, a, b]) = if denoteB M c then denote M a else denote M b := by
+  simp only [denote_app3, dTern_ite]; rfl
+
+/-- **Merged-value well-sortedness.** A raw `ite` of two folding-clean exprs is
+folding-clean: its head `"ite"` is not a known `V`-constructor, so every projector
+folds to the *raw* `dUn` form, which reads the right component off the model-decided
+branch's value. This is the heart of soundly pushing a `choice` through eliminators. -/
+theorem wfFO_ite_app (M : Model) (c a b : SExpr) (ha : WfFO M a) (hb : WfFO M b) :
+    WfFO M (.app "ite" [c, a, b]) := by
+  obtain ⟨va, hra⟩ := ha
+  obtain ⟨vb, hrb⟩ := hb
+  have hden : denote M (.app "ite" [c, a, b]) = .Vv (if denoteB M c then va else vb) := by
+    rw [denote_ite_app, hra.den, hrb.den]; cases denoteB M c <;> rfl
+  refine ⟨if denoteB M c then va else vb, hden, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · intro n hn
+    show denote M (V.asInt (.app "ite" [c, a, b])) = .I n
+    rw [V.asInt, denote_app1, hden, hn]; rfl
+  · intro x hn
+    show denote M (V.asBool (.app "ite" [c, a, b])) = .B x
+    rw [V.asBool, denote_app1, hden, hn]; rfl
+  · intro bs hn
+    show denote M (V.asBS (.app "ite" [c, a, b])) = .Bytes (baToBytes bs)
+    rw [V.asBS, denote_app1, hden, hn]; rfl
+  · intro s hn
+    show denote M (V.asStr (.app "ite" [c, a, b])) = .Str s
+    rw [V.asStr, denote_app1, hden, hn]; rfl
+  · intro d hn
+    show denote M (V.asData (.app "ite" [c, a, b])) = .Dd d
+    rw [V.asData, denote_app1, hden, hn]; rfl
+  · show denoteB M (.app "is-VInt" [.app "ite" [c, a, b]]) = vIs "VInt" (if denoteB M c then va else vb)
+    rw [denoteB, denote_app1, hden]; rfl
+  · show denoteB M (.app "is-VBool" [.app "ite" [c, a, b]]) = vIs "VBool" (if denoteB M c then va else vb)
+    rw [denoteB, denote_app1, hden]; rfl
+  · show denoteB M (.app "is-VBS" [.app "ite" [c, a, b]]) = vIs "VBS" (if denoteB M c then va else vb)
+    rw [denoteB, denote_app1, hden]; rfl
+  · show denoteB M (.app "is-VStr" [.app "ite" [c, a, b]]) = vIs "VStr" (if denoteB M c then va else vb)
+    rw [denoteB, denote_app1, hden]; rfl
+  · show denoteB M (.app "is-VData" [.app "ite" [c, a, b]]) = vIs "VData" (if denoteB M c then va else vb)
+    rw [denoteB, denote_app1, hden]; rfl
+  · exact denote_asBS_clean M _
+
+/-- `sIte` of two folding-clean exprs is folding-clean (a literal condition folds to
+one branch; a symbolic one yields a clean raw `ite`). -/
+theorem wfFO_sIte (M : Model) (c a b : SExpr) (ha : WfFO M a) (hb : WfFO M b) :
+    WfFO M (SExpr.sIte c a b) := by
+  cases c with
+  | bool bv => cases bv <;> simpa only [SExpr.sIte]
+  | int _ => exact wfFO_ite_app M _ a b ha hb
+  | str _ => exact wfFO_ite_app M _ a b ha hb
+  | atom _ => exact wfFO_ite_app M _ a b ha hb
+  | app _ _ => exact wfFO_ite_app M _ a b ha hb
+
+/-! `WfV` is preserved by `mergeVal`: merging two folding-clean values is
+folding-clean (`fo`/`fo` → a clean `sIte` via `wfFO_sIte`; kept `constr` structure →
+clean fields; a deferred `choice` → both sides clean). -/
+mutual
+theorem wfV_mergeVal (M : Model) (c : SExpr) : ∀ (a b : SymV),
+    WfV M a → WfV M b → WfV M (mergeVal c a b)
+  | .fo a, .fo b, ha, hb => by simp only [mergeVal]; exact wfFO_sIte M c a b ha hb
+  | .constr t1 fs1, .constr t2 fs2, ha, hb => by
+      simp only [mergeVal]
+      split
+      · next hcond =>
+          rw [Bool.and_eq_true, beq_iff_eq, beq_iff_eq] at hcond
+          obtain ⟨rfl, hlen⟩ := hcond
+          exact wfVList_mergeValList M c fs1 fs2 ha hb
+      · exact ⟨ha, hb⟩
+  | .fo _, .lam _ _, ha, hb | .fo _, .delay _ _, ha, hb | .fo _, .constr _ _, ha, hb
+  | .fo _, .builtin _ _ _, ha, hb | .fo _, .choice _ _ _, ha, hb
+  | .constr _ _, .fo _, ha, hb | .constr _ _, .lam _ _, ha, hb | .constr _ _, .delay _ _, ha, hb
+  | .constr _ _, .builtin _ _ _, ha, hb | .constr _ _, .choice _ _ _, ha, hb
+  | .lam _ _, _, ha, hb | .delay _ _, _, ha, hb | .builtin _ _ _, _, ha, hb
+  | .choice _ _ _, _, ha, hb => ⟨ha, hb⟩
+termination_by a _ _ _ => sizeOf a
+theorem wfVList_mergeValList (M : Model) (c : SExpr) : ∀ (as bs : List SymV),
+    WfVList M as → WfVList M bs → WfVList M (mergeValList c as bs)
+  | [], [], _, _ => True.intro
+  | a :: as, b :: bs, ha, hb => by
+      simp only [WfVList] at ha hb
+      exact ⟨wfV_mergeVal M c a b ha.1 hb.1, wfVList_mergeValList M c as bs ha.2 hb.2⟩
+  | [], _ :: _, _, _ => True.intro
+  | _ :: _, [], _, _ => True.intro
+termination_by as _ _ => sizeOf as
+end
 
 /-- `WfV` lookup: a folding-clean environment yields folding-clean values. -/
 theorem symLookup_wf (M : Model) : ∀ (ρs : SymEnv) (k : Nat) (v : SymV),
