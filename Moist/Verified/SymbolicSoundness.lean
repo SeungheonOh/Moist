@@ -440,7 +440,7 @@ def preciseBuiltin : BuiltinFun → Bool
   -- Branching builtins: return a selected argument (no first-order computation).
   | .IfThenElse | .ChooseUnit | .Trace
   -- Data ↔ scalar builtins (a `Data` value is opaque, like a scalar).
-  | .IData | .BData | .EqualsData => true
+  | .IData | .BData | .UnIData | .UnBData | .EqualsData => true
   -- `ConsByteString` is deliberately *excluded*: its symbolic value
   -- `VBS (seq.++ (seq.unit n) bs)` carries the **un-truncated** integer `n` in the
   -- byte sequence, so it is folding-clean (`WfFOR.pBS`/`cleanBS`) only when
@@ -678,6 +678,18 @@ end
 @[simp] theorem dUn_isDConstr (x : SVal) : dUn "is-DConstr" x = .B (dIsK "DConstr" (SVal.asD x)) := rfl
 @[simp] theorem dUn_isDList (x : SVal) : dUn "is-DList" x = .B (dIsK "DList" (SVal.asD x)) := rfl
 @[simp] theorem dUn_isDMap (x : SVal) : dUn "is-DMap" x = .B (dIsK "DMap" (SVal.asD x)) := rfl
+-- `denoteB ∘ dIs "DCon"` collapses to the Data-kind test (bypasses the `s!"is-{con}"`
+-- interpolation that blocks simp from reaching the explicit `dUn` arm).
+@[simp] theorem denoteB_dIs_DI (M : Model) (e : SExpr) :
+    denoteB M (dIs "DI" e) = dIsK "DI" (SVal.asD (denote M e)) := rfl
+@[simp] theorem denoteB_dIs_DB (M : Model) (e : SExpr) :
+    denoteB M (dIs "DB" e) = dIsK "DB" (SVal.asD (denote M e)) := rfl
+@[simp] theorem denoteB_dIs_DConstr (M : Model) (e : SExpr) :
+    denoteB M (dIs "DConstr" e) = dIsK "DConstr" (SVal.asD (denote M e)) := rfl
+@[simp] theorem denoteB_dIs_DList (M : Model) (e : SExpr) :
+    denoteB M (dIs "DList" e) = dIsK "DList" (SVal.asD (denote M e)) := rfl
+@[simp] theorem denoteB_dIs_DMap (M : Model) (e : SExpr) :
+    denoteB M (dIs "DMap" e) = dIsK "DMap" (SVal.asD (denote M e)) := rfl
 @[simp] theorem dBin_VConstr (x y : SVal) :
     dBin "VConstr" x y = .Vv (.VConstr (SVal.asI x).toNat (SVal.asVL y)) := rfl
 @[simp] theorem dNull_VUnit (M : Model) : dNull M "VUnit" = .Vv (.VCon .Unit) := rfl
@@ -1631,6 +1643,17 @@ theorem wfFO_append_bs (M : Model) (a b : SExpr)
   show denote M (.app "seq.++" [V.sAsBS a, V.sAsBS b]) = _
   simp only [denote_seqapp, hba, hbb, SVal.asBytes, baToBytes_append]
 
+/-- `diVal`/`dbVal` always denote to a scalar of the right SVal sort (default on the
+wrong Data kind), so an `UnIData`/`UnBData` result is folding-clean unconditionally. -/
+theorem diVal_isI (x : SVal) : ∃ k, dUn "diVal" x = .I k := by
+  cases h : SVal.asD x with
+  | I n => exact ⟨n, by simp [dUn_diVal, h]⟩
+  | _ => exact ⟨0, by simp [dUn_diVal, h]⟩
+theorem dbVal_isBytes (x : SVal) : ∃ ba : ByteArray, dUn "dbVal" x = .Bytes (baToBytes ba) := by
+  cases h : SVal.asD x with
+  | B bs => exact ⟨bs, by simp [dUn_dbVal, h]⟩
+  | _ => exact ⟨⟨#[]⟩, by simp [dUn_dbVal, h, baToBytes]⟩
+
 /-- A saturated precise builtin yields a folding-clean (first-order) value. The
 `WfVList` hypothesis is needed for `appendByteString`, whose `VBS` result is clean
 only when its operands are. -/
@@ -1709,6 +1732,18 @@ theorem wfV_symSaturate (M : Model) (b : BuiltinFun) (args : List SymV)
     · exact wfFO_unit M
     · exact wfFO_Vdata M _ _ rfl
     · exact wfFO_unit M
+  have keyUnIData : ∀ (R : List SExpr), WfV M (symBuiltin .UnIData R).val := fun R => by
+    rcases R with _ | ⟨a, _ | ⟨b2, t⟩⟩
+    · exact wfFO_unit M
+    · obtain ⟨k, hk⟩ := diVal_isI (denote M (V.sAsData a))
+      exact wfFO_Vint M _ k (by rw [D.diVal, denote_app1]; exact hk)
+    · exact wfFO_unit M
+  have keyUnBData : ∀ (R : List SExpr), WfV M (symBuiltin .UnBData R).val := fun R => by
+    rcases R with _ | ⟨a, _ | ⟨b2, t⟩⟩
+    · exact wfFO_unit M
+    · obtain ⟨ba, hb⟩ := dbVal_isBytes (denote M (V.sAsData a))
+      exact wfFO_Vbs M _ ba (by rw [D.dbVal, denote_app1]; exact hb)
+    · exact wfFO_unit M
   cases b <;> first | (exfalso; revert h; decide) | skip
   case AddInteger => exact keyA _
   case SubtractInteger => exact keyS _
@@ -1736,6 +1771,8 @@ theorem wfV_symSaturate (M : Model) (b : BuiltinFun) (args : List SymV)
   case EqualsData => exact keyEqData _
   case IData => exact keyIData _
   case BData => exact keyBData _
+  case UnIData => exact keyUnIData _
+  case UnBData => exact keyUnBData _
   -- Branching builtins: result is a selected arg / a `mergeVal` of two well-sorted args.
   case IfThenElse =>
     rcases args with _ | ⟨elseV, _ | ⟨thenV, _ | ⟨condV, _ | ⟨w, rest⟩⟩⟩⟩
@@ -2742,6 +2779,36 @@ theorem symBuiltin_BData_inc_ne1 (R : List SExpr) (h : R.length ≠ 1) :
     (symBuiltin .BData R).inc = .bool true := by
   rcases R with _ | ⟨a, _ | ⟨b, t⟩⟩ <;> first | rfl | exact absurd rfl h
 
+theorem symBuiltin_UnIData_inc_ne1 (R : List SExpr) (h : R.length ≠ 1) :
+    (symBuiltin .UnIData R).inc = .bool true := by
+  rcases R with _ | ⟨a, _ | ⟨b, t⟩⟩ <;> first | rfl | exact absurd rfl h
+theorem symBuiltin_UnBData_inc_ne1 (R : List SExpr) (h : R.length ≠ 1) :
+    (symBuiltin .UnBData R).inc = .bool true := by
+  rcases R with _ | ⟨a, _ | ⟨b, t⟩⟩ <;> first | rfl | exact absurd rfl h
+
+/-- `dIsK "DI"` (resp. `"DB"`) holds exactly on `.I`/`.B` data; invert it. -/
+theorem dIsK_DI_inv {dd : Data} (h : dIsK "DI" dd = true) : ∃ n, dd = .I n := by
+  cases dd with | I n => exact ⟨n, rfl⟩ | _ => simp [dIsK] at h
+theorem dIsK_DB_inv {dd : Data} (h : dIsK "DB" dd = true) : ∃ bs, dd = .B bs := by
+  cases dd with | B bs => exact ⟨bs, rfl⟩ | _ => simp [dIsK] at h
+
+theorem match1_undataI_none (cd : CekValue) (h : ∀ i, cd ≠ .VCon (.Data (.I i))) :
+    (match [cd] with
+      | [.VCon (.Data (.I i))] => some (CekValue.VCon (.Integer i)) | _ => none) = none := by
+  cases cd with
+  | VCon cc => cases cc with
+    | Data dd => cases dd with | I i => exact absurd rfl (h i) | _ => rfl
+    | _ => rfl
+  | _ => rfl
+theorem match1_undataB_none (cd : CekValue) (h : ∀ bs, cd ≠ .VCon (.Data (.B bs))) :
+    (match [cd] with
+      | [.VCon (.Data (.B bs))] => some (CekValue.VCon (.ByteString bs)) | _ => none) = none := by
+  cases cd with
+  | VCon cc => cases cc with
+    | Data dd => cases dd with | B bs => exact absurd rfl (h bs) | _ => rfl
+    | _ => rfl
+  | _ => rfl
+
 theorem binStrClean {M : Model} {v1 v2 : SymV} {c1 c2 : CekValue}
     (hv1 : γ M v1 = some c1) (hv2 : γ M v2 = some c2)
     (hf1 : FaithfulV v1) (hf2 : FaithfulV v2) (hw1 : WfV M v1) (hw2 : WfV M v2)
@@ -3267,6 +3334,83 @@ theorem satBuiltin (M : Model) (b : BuiltinFun) (sargs : List SymV) (cargs : Lis
         simp only [γ, V.data, D.b, denote_app1, dUn_VData, dUn_DB, h, SVal.asD, SVal.asBytes,
           bytesToBA_baToBytes])
       evalBuiltin_BData_spec
+  case UnIData =>
+    rcases sargs with _ | ⟨d, _ | ⟨w, rest⟩⟩
+    · exact relR_of_inc_true M rfl
+    · obtain ⟨cd, hvd, rfl⟩ := γList1 hγ
+      obtain ⟨hfd, -⟩ := hf
+      obtain ⟨hwd, -⟩ := hwf
+      rw [evalBuiltin_UnIData_spec]
+      refine ⟨fun _ herr => ?_, fun _ herr => ?_⟩
+      · have herr' : denoteB M (SExpr.sOr (sOrs [(reifyFO d).1])
+            (SExpr.sOr (gData (reifyFO d).2) (dNot "DI" (V.sAsData (reifyFO d).2)))) = false := herr
+        simp only [sOrs, List.foldr, denoteB_sOr, denoteB_bool, Bool.or_false,
+          Bool.or_eq_false_iff] at herr'
+        obtain ⟨hnf, hgd, hkind⟩ := herr'
+        obtain ⟨dd, hcd, hpd⟩ := argData M hfd hwd hvd hgd
+        have hk : dIsK "DI" dd = true := by
+          have hd2 : denoteB M (dIs "DI" (V.sAsData (reifyFO d).2)) = true := by
+            rw [dNot, denoteB_sNot] at hkind; simpa using hkind
+          simpa only [denoteB_dIs_DI, hpd, SVal.asD] using hd2
+        obtain ⟨n, hn⟩ := dIsK_DI_inv hk; subst hn
+        refine ⟨.VCon (.Integer n), ?_, ?_⟩
+        · show γ M (.fo (V.int (D.diVal (V.sAsData (reifyFO d).2)))) = some (.VCon (.Integer n))
+          simp only [γ, V.int, D.diVal, denote_app1, dUn_VInt, dUn_diVal, hpd, SVal.asD, SVal.asI]
+        · rw [hcd]
+      · refine match1_undataI_none cd ?_
+        intro i hcdi
+        rw [hcdi] at hvd
+        obtain ⟨hnf, hgd⟩ := dataArgErr M hfd hwd hvd
+        obtain ⟨dd, hcd, hpd⟩ := argData M hfd hwd hvd hgd
+        have hdd : dd = .I i := by injection hcd with h1; injection h1 with h2; exact h2.symm
+        subst hdd
+        have hkind : denoteB M (dNot "DI" (V.sAsData (reifyFO d).2)) = false := by
+          simp [dNot, denoteB_sNot, denoteB_dIs_DI, hpd, SVal.asD, dIsK]
+        have herr' : denoteB M (SExpr.sOr (sOrs [(reifyFO d).1])
+            (SExpr.sOr (gData (reifyFO d).2) (dNot "DI" (V.sAsData (reifyFO d).2)))) = true := herr
+        simp [sOrs, denoteB_sOr, denoteB_bool, hnf, hgd, hkind] at herr'
+    · refine relR_of_inc_true M ?_
+      show (symBuiltin .UnIData (List.map Prod.snd (List.map reifyFO (d :: w :: rest).reverse))).inc = .bool true
+      exact symBuiltin_UnIData_inc_ne1 _ (by simp [List.length_map, List.length_reverse])
+  case UnBData =>
+    rcases sargs with _ | ⟨d, _ | ⟨w, rest⟩⟩
+    · exact relR_of_inc_true M rfl
+    · obtain ⟨cd, hvd, rfl⟩ := γList1 hγ
+      obtain ⟨hfd, -⟩ := hf
+      obtain ⟨hwd, -⟩ := hwf
+      rw [evalBuiltin_UnBData_spec]
+      refine ⟨fun _ herr => ?_, fun _ herr => ?_⟩
+      · have herr' : denoteB M (SExpr.sOr (sOrs [(reifyFO d).1])
+            (SExpr.sOr (gData (reifyFO d).2) (dNot "DB" (V.sAsData (reifyFO d).2)))) = false := herr
+        simp only [sOrs, List.foldr, denoteB_sOr, denoteB_bool, Bool.or_false,
+          Bool.or_eq_false_iff] at herr'
+        obtain ⟨hnf, hgd, hkind⟩ := herr'
+        obtain ⟨dd, hcd, hpd⟩ := argData M hfd hwd hvd hgd
+        have hk : dIsK "DB" dd = true := by
+          have hd2 : denoteB M (dIs "DB" (V.sAsData (reifyFO d).2)) = true := by
+            rw [dNot, denoteB_sNot] at hkind; simpa using hkind
+          simpa only [denoteB_dIs_DB, hpd, SVal.asD] using hd2
+        obtain ⟨bs, hn⟩ := dIsK_DB_inv hk; subst hn
+        refine ⟨.VCon (.ByteString bs), ?_, ?_⟩
+        · show γ M (.fo (V.bs (D.dbVal (V.sAsData (reifyFO d).2)))) = some (.VCon (.ByteString bs))
+          simp only [γ, V.bs, D.dbVal, denote_app1, dUn_VBS, dUn_dbVal, hpd, SVal.asD, SVal.asBytes,
+            bytesToBA_baToBytes]
+        · rw [hcd]
+      · refine match1_undataB_none cd ?_
+        intro bs hcdi
+        rw [hcdi] at hvd
+        obtain ⟨hnf, hgd⟩ := dataArgErr M hfd hwd hvd
+        obtain ⟨dd, hcd, hpd⟩ := argData M hfd hwd hvd hgd
+        have hdd : dd = .B bs := by injection hcd with h1; injection h1 with h2; exact h2.symm
+        subst hdd
+        have hkind : denoteB M (dNot "DB" (V.sAsData (reifyFO d).2)) = false := by
+          simp [dNot, denoteB_sNot, denoteB_dIs_DB, hpd, SVal.asD, dIsK]
+        have herr' : denoteB M (SExpr.sOr (sOrs [(reifyFO d).1])
+            (SExpr.sOr (gData (reifyFO d).2) (dNot "DB" (V.sAsData (reifyFO d).2)))) = true := herr
+        simp [sOrs, denoteB_sOr, denoteB_bool, hnf, hgd, hkind] at herr'
+    · refine relR_of_inc_true M ?_
+      show (symBuiltin .UnBData (List.map Prod.snd (List.map reifyFO (d :: w :: rest).reverse))).inc = .bool true
+      exact symBuiltin_UnBData_inc_ne1 _ (by simp [List.length_map, List.length_reverse])
   -- Branching builtins: `evalBuiltin` returns a selected argument; the symbolic side
   -- returns that same arg (Trace/ChooseUnit) or a `mergeVal` of two args (IfThenElse).
   case Trace =>
