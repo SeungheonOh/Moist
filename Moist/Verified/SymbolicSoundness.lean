@@ -663,6 +663,9 @@ end
 @[simp] theorem dUn_VStr (x : SVal) : dUn "VStr" x = .Vv (.VCon (.String (SVal.asStr x))) := rfl
 @[simp] theorem dUn_VBS (x : SVal) : dUn "VBS" x = .Vv (.VCon (.ByteString (bytesToBA (SVal.asBytes x)))) := rfl
 @[simp] theorem dUn_VData (x : SVal) : dUn "VData" x = .Vv (.VCon (.Data (SVal.asD x))) := rfl
+@[simp] theorem dUn_VDList (x : SVal) : dUn "VDList" x = .Vv (.VCon (.ConstDataList (SVal.asDL x))) := rfl
+@[simp] theorem dUn_VPDList (x : SVal) : dUn "VPDList" x = .Vv (.VCon (.ConstPairDataList (SVal.asDM x))) := rfl
+@[simp] theorem dBin_VPairD (x y : SVal) : dBin "VPairD" x y = .Vv (.VCon (.PairData (SVal.asD x, SVal.asD y))) := rfl
 @[simp] theorem dUn_seqlen (x : SVal) : dUn "seq.len" x = .I (Int.ofNat (SVal.asBytes x).length) := rfl
 -- Data-sort constructors (build a `D` from a scalar / list).
 @[simp] theorem dUn_DI (x : SVal) : dUn "DI" x = .Dd (.I (SVal.asI x)) := rfl
@@ -1302,6 +1305,66 @@ theorem wfFO_Vconstr (M : Model) (e1 e2 : SExpr) : WfFO M (V.constr e1 e2) := by
   all_goals first
     | exact denote_asBS_clean M _
     | simp [V.constr, V.sIsCon, V.vConName, vIs, denoteB, V.knownVCons]
+
+/-- A `V.dlist` wrapper of a `.DLl`-denoting expr is folding-clean (a `ConstDataList`;
+its `sAsDL` folds to the argument). -/
+theorem wfFO_Vdlist (M : Model) (e : SExpr) (l : List Data) (h : denote M e = .DLl l) :
+    WfFO M (V.dlist e) := by
+  refine ⟨.VCon (.ConstDataList l), by simp only [V.dlist, denote_app1, dUn_VDList, h, SVal.asDL],
+    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · intro n hn; exact absurd hn (by simp)
+  · intro b hb; exact absurd hb (by simp)
+  · intro bs hbs; exact absurd hbs (by simp)
+  · intro s hs; exact absurd hs (by simp)
+  · intro d hd; exact absurd hd (by simp)
+  · intro l' hl'; injection hl' with h1; injection h1 with h2; subst h2; simp only [V.dlist, V.sAsDL, h]
+  · intro l' hl'; exact absurd hl' (by simp)
+  · intro a b hab; exact absurd hab (by simp)
+  · intro a b hab; exact absurd hab (by simp)
+  all_goals first
+    | exact denote_asBS_clean M _
+    | simp [V.dlist, V.sIsCon, V.vConName, vIs, denoteB, V.knownVCons]
+
+/-- A `V.pdlist` wrapper of a `.DMm`-denoting expr is folding-clean (`ConstPairDataList`). -/
+theorem wfFO_Vpdlist (M : Model) (e : SExpr) (l : List (Data × Data)) (h : denote M e = .DMm l) :
+    WfFO M (V.pdlist e) := by
+  refine ⟨.VCon (.ConstPairDataList l), by simp only [V.pdlist, denote_app1, dUn_VPDList, h, SVal.asDM],
+    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · intro n hn; exact absurd hn (by simp)
+  · intro b hb; exact absurd hb (by simp)
+  · intro bs hbs; exact absurd hbs (by simp)
+  · intro s hs; exact absurd hs (by simp)
+  · intro d hd; exact absurd hd (by simp)
+  · intro l' hl'; exact absurd hl' (by simp)
+  · intro l' hl'; injection hl' with h1; injection h1 with h2; subst h2; simp only [V.pdlist, V.sAsDM, h]
+  · intro a b hab; exact absurd hab (by simp)
+  · intro a b hab; exact absurd hab (by simp)
+  all_goals first
+    | exact denote_asBS_clean M _
+    | simp [V.pdlist, V.sIsCon, V.vConName, vIs, denoteB, V.knownVCons]
+
+/-- A `V.pairD` wrapper of two `.Dd`-denoting exprs is folding-clean (`PairData`;
+`sFstD`/`sSndD` fold to the two arguments). -/
+theorem wfFO_VpairD (M : Model) (e1 e2 : SExpr) (d1 d2 : Data)
+    (h1 : denote M e1 = .Dd d1) (h2 : denote M e2 = .Dd d2) :
+    WfFO M (V.pairD e1 e2) := by
+  refine ⟨.VCon (.PairData (d1, d2)),
+    by simp only [V.pairD, denote_app2, dBin_VPairD, h1, h2, SVal.asD],
+    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · intro n hn; exact absurd hn (by simp)
+  · intro b hb; exact absurd hb (by simp)
+  · intro bs hbs; exact absurd hbs (by simp)
+  · intro s hs; exact absurd hs (by simp)
+  · intro d hd; exact absurd hd (by simp)
+  · intro l hl; exact absurd hl (by simp)
+  · intro l hl; exact absurd hl (by simp)
+  · intro a b hab; simp only [CekValue.VCon.injEq, Const.PairData.injEq, Prod.mk.injEq] at hab
+    obtain ⟨rfl, rfl⟩ := hab; simp only [V.pairD, V.sFstD, h1]
+  · intro a b hab; simp only [CekValue.VCon.injEq, Const.PairData.injEq, Prod.mk.injEq] at hab
+    obtain ⟨rfl, rfl⟩ := hab; simp only [V.pairD, V.sSndD, h2]
+  all_goals first
+    | exact denote_asBS_clean M _
+    | simp [V.pairD, V.sIsCon, V.vConName, vIs, denoteB, V.knownVCons]
 
 /-- Encoded simple constants are folding-clean. -/
 theorem wfFO_simpleConst (M : Model) (c : Const) (h : simpleConst c = true) :
