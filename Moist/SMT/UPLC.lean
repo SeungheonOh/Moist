@@ -81,6 +81,57 @@ def prelude : List Moist.SMT.Command :=
       "   ((VNil) (VCons (vhead Val) (vtail ValList)))))"
   , .raw "(define-fun same_sign ((a Int) (b Int)) Bool (= (>= a 0) (>= b 0)))"
   , .raw "(define-fun abs_int ((a Int)) Int (ite (< a 0) (- 0 a) a))"
+  , .raw "(define-fun-rec bytes_valid_at ((bs Bytes) (i Int)) Bool (ite (>= i (seq.len bs)) true (and (>= (seq.nth bs i) 0) (<= (seq.nth bs i) 255) (bytes_valid_at bs (+ i 1)))))"
+  , .raw "(define-fun bytes_valid ((bs Bytes)) Bool (bytes_valid_at bs 0))"
+  , .raw <|
+      "(define-funs-rec\n" ++
+      "  ((data_valid ((d Data)) Bool)\n" ++
+      "   (dlist_valid ((xs DataList)) Bool)\n" ++
+      "   (dplist_valid ((xs DataPairList)) Bool)\n" ++
+      "   (val_valid ((v Val)) Bool)\n" ++
+      "   (vlist_valid ((xs ValList)) Bool)\n" ++
+      "   (const_val_valid ((v Val)) Bool)\n" ++
+      "   (const_vlist_valid ((xs ValList)) Bool))\n" ++
+      "  ((or (and ((_ is DConstr) d) (dlist_valid (dataConstrFields d)))\n" ++
+      "       (and ((_ is DMap) d) (dplist_valid (dataMapEntries d)))\n" ++
+      "       (and ((_ is DList) d) (dlist_valid (dataListItems d)))\n" ++
+      "       ((_ is DI) d)\n" ++
+      "       (and ((_ is DB) d) (bytes_valid (dataBytes d))))\n" ++
+      "   (or ((_ is DNil) xs) (and ((_ is DCons) xs) (data_valid (dhead xs)) (dlist_valid (dtail xs))))\n" ++
+      "   (or ((_ is DPNil) xs) (and ((_ is DPCons) xs) (data_valid (dpKey xs)) (data_valid (dpValue xs)) (dplist_valid (dpTail xs))))\n" ++
+      "   (or ((_ is VInt) v)\n" ++
+      "       (and ((_ is VBytes) v) (bytes_valid (unVBytes v)))\n" ++
+      "       ((_ is VString) v)\n" ++
+      "       ((_ is VBool) v)\n" ++
+      "       ((_ is VUnit) v)\n" ++
+      "       (and ((_ is VList) v) (const_vlist_valid (unVList v)))\n" ++
+      "       (and ((_ is VDataList) v) (dlist_valid (unVDataList v)))\n" ++
+      "       (and ((_ is VPairDataList) v) (dplist_valid (unVPairDataList v)))\n" ++
+      "       (and ((_ is VPair) v) (const_val_valid (vfst v)) (const_val_valid (vsnd v)))\n" ++
+      "       (and ((_ is VPairData) v) (data_valid (pdfst v)) (data_valid (pdsnd v)))\n" ++
+      "       (and ((_ is VData) v) (data_valid (unVData v)))\n" ++
+      "       (and ((_ is VArray) v) (const_vlist_valid (unVArray v)))\n" ++
+      "       ((_ is VG1) v)\n" ++
+      "       ((_ is VG2) v)\n" ++
+      "       ((_ is VMlResult) v)\n" ++
+      "       (and ((_ is VConstr) v) (>= (vConstrTag v) 0) (vlist_valid (vConstrFields v))))\n" ++
+      "   (or ((_ is VNil) xs) (and ((_ is VCons) xs) (val_valid (vhead xs)) (vlist_valid (vtail xs))))\n" ++
+      "   (or ((_ is VInt) v)\n" ++
+      "       (and ((_ is VBytes) v) (bytes_valid (unVBytes v)))\n" ++
+      "       ((_ is VString) v)\n" ++
+      "       ((_ is VBool) v)\n" ++
+      "       ((_ is VUnit) v)\n" ++
+      "       (and ((_ is VList) v) (const_vlist_valid (unVList v)))\n" ++
+      "       (and ((_ is VDataList) v) (dlist_valid (unVDataList v)))\n" ++
+      "       (and ((_ is VPairDataList) v) (dplist_valid (unVPairDataList v)))\n" ++
+      "       (and ((_ is VPair) v) (const_val_valid (vfst v)) (const_val_valid (vsnd v)))\n" ++
+      "       (and ((_ is VPairData) v) (data_valid (pdfst v)) (data_valid (pdsnd v)))\n" ++
+      "       (and ((_ is VData) v) (data_valid (unVData v)))\n" ++
+      "       (and ((_ is VArray) v) (const_vlist_valid (unVArray v)))\n" ++
+      "       ((_ is VG1) v)\n" ++
+      "       ((_ is VG2) v)\n" ++
+      "       ((_ is VMlResult) v))\n" ++
+      "   (or ((_ is VNil) xs) (and ((_ is VCons) xs) (const_val_valid (vhead xs)) (const_vlist_valid (vtail xs))))))"
   , .raw "(define-fun uplc_tdiv ((a Int) (b Int)) Int (ite (same_sign a b) (div (abs_int a) (abs_int b)) (- 0 (div (abs_int a) (abs_int b)))))"
   , .raw "(define-fun uplc_tmod ((a Int) (b Int)) Int (- a (* b (uplc_tdiv a b))))"
   , .raw "(define-fun uplc_div ((a Int) (b Int)) Int (let ((q (uplc_tdiv a b)) (r (uplc_tmod a b))) (ite (or (= r 0) (same_sign a b)) q (- q 1))))"
@@ -336,6 +387,19 @@ def asPair : SymVal → Proj (SymVal × SymVal)
   | .dyn v => ⟨SExpr.isCtor "VPair" v, (.dyn (.app "vfst" [v]), .dyn (.app "vsnd" [v]))⟩
   | _ => Proj.fail (.dyn (.app "VUnit" []), .dyn (.app "VUnit" []))
 
+def asConstVal : SymVal → Proj SExpr
+  | .const c =>
+      match encodeVal? (.const c) with
+      | some v => Proj.pure v
+      | none => Proj.fail (.app "VUnit" [])
+  | .dyn v => ⟨.app "const_val_valid" [v], v⟩
+  | .pair a b =>
+      let a' := asConstVal a
+      let b' := asConstVal b
+      ⟨SExpr.and a'.guard b'.guard, .app "VPair" [a'.val, b'.val]⟩
+  | .constr _ _ | .lam _ _ | .delay _ _ | .builtin _ _ _ =>
+      Proj.fail (.app "VUnit" [])
+
 def unitGuard : SymVal → SExpr
   | .const .unit => SExpr.trueE
   | .dyn v => SExpr.isCtor "VUnit" v
@@ -493,6 +557,17 @@ mutual
         applyListSym n vf' as
   termination_by n _ vs => (n, (2, sizeOf vs))
 
+  def applyValListSym : Nat → SymVal → SExpr → List Outcome
+    | 0, _, _ => timeout
+    | n + 1, vf, xs =>
+        let nilBranch := (SExpr.isCtor "VNil" xs, ok vf)
+        let consBranch :=
+          (SExpr.not (SExpr.isCtor "VNil" xs),
+            bindOut (applySym n vf (.dyn (.app "vhead" [xs]))) fun vf' =>
+              applyValListSym n vf' (.app "vtail" [xs]))
+        branchOutcomes [nilBranch, consBranch]
+  termination_by n _ _ => (n, (2, 0))
+
   def caseSym : Nat → List SymVal → SymVal → List Term → List Outcome
     | n, ρ, .constr tag fields, alts =>
         let branches := (enumerate alts).map fun (i, alt) =>
@@ -530,7 +605,8 @@ mutual
                   bindOut (evalSym n ρ alt) fun vAlt =>
                     applyListSym n vAlt [fieldFromValList xs, tailFromValList xs])]
             | none => []
-          branchOutcomes (consBranch ++ nilBranch) [SExpr.falseE]
+          let branches := consBranch ++ nilBranch
+          branchOutcomes branches [SExpr.not (SExpr.any (branches.map Prod.fst))]
     | n, ρ, .const (.dataList xs), alts =>
         if alts.length > 2 then err
         else
@@ -543,7 +619,8 @@ mutual
                   bindOut (evalSym n ρ alt) fun vAlt =>
                     applyListSym n vAlt [fieldFromDataList xs, tailFromDataList xs])]
             | none => []
-          branchOutcomes (consBranch ++ nilBranch) [SExpr.falseE]
+          let branches := consBranch ++ nilBranch
+          branchOutcomes branches [SExpr.not (SExpr.any (branches.map Prod.fst))]
     | n, ρ, .pair a b, alts =>
         if alts.length > 1 then err
         else match alts[0]? with
@@ -557,21 +634,101 @@ mutual
                 applyListSym n vAlt [.const (.data a), .const (.data b)]
           | none => err
     | n, ρ, .dyn v, alts =>
+        let enum := enumerate alts
+        let tagCovered (tag : SExpr) : SExpr :=
+          SExpr.any (enum.map fun (i, _) => SExpr.eq tag (.int (Int.ofNat i)))
+        let boolTag := SExpr.ite (.app "unVBool" [v]) (.int 1) (.int 0)
         let boolBranches :=
           if alts.length > 2 then []
-          else (enumerate alts).map fun (i, alt) =>
-            let tag := SExpr.ite (.app "unVBool" [v]) (.int 1) (.int 0)
-            (SExpr.all [SExpr.isCtor "VBool" v, SExpr.eq tag (.int (Int.ofNat i))], evalSym n ρ alt)
-        let intBranches := (enumerate alts).map fun (i, alt) =>
-          let x := .app "unVInt" [v]
-          (SExpr.all [SExpr.isCtor "VInt" v, nonnegGuard x, SExpr.eq x (.int (Int.ofNat i))], evalSym n ρ alt)
-        let constrBranches := (enumerate alts).map fun (i, alt) =>
-          let tag := .app "vConstrTag" [v]
-          (SExpr.all [SExpr.isCtor "VConstr" v, SExpr.eq tag (.int (Int.ofNat i)),
-              SExpr.eq (.app "vConstrFields" [v]) (.app "VNil" [])],
-            evalSym n ρ alt)
-        branchOutcomes (boolBranches ++ intBranches ++ constrBranches)
-          [SExpr.not (SExpr.any ((boolBranches ++ intBranches ++ constrBranches).map Prod.fst))]
+          else enum.map fun (i, alt) =>
+            (SExpr.all [SExpr.isCtor "VBool" v, SExpr.eq boolTag (.int (Int.ofNat i))], evalSym n ρ alt)
+        let boolError :=
+          if alts.length > 2 then SExpr.isCtor "VBool" v
+          else SExpr.and (SExpr.isCtor "VBool" v) (SExpr.not (tagCovered boolTag))
+        let unitBranches :=
+          if alts.length > 1 then []
+          else match alts[0]? with
+            | some alt => [(SExpr.isCtor "VUnit" v, evalSym n ρ alt)]
+            | none => []
+        let unitError :=
+          if alts.length > 1 then SExpr.isCtor "VUnit" v
+          else SExpr.and (SExpr.isCtor "VUnit" v) (SExpr.not (SExpr.any (unitBranches.map Prod.fst)))
+        let intVal := .app "unVInt" [v]
+        let intBranches := enum.map fun (i, alt) =>
+          (SExpr.all [SExpr.isCtor "VInt" v, nonnegGuard intVal, SExpr.eq intVal (.int (Int.ofNat i))], evalSym n ρ alt)
+        let intError := SExpr.and (SExpr.isCtor "VInt" v)
+          (SExpr.not (SExpr.and (nonnegGuard intVal) (tagCovered intVal)))
+        let listVal := .app "unVList" [v]
+        let listBranches :=
+          if alts.length > 2 then []
+          else
+            let nilBranch := match alts[1]? with
+              | some alt => [(SExpr.all [SExpr.isCtor "VList" v, SExpr.isCtor "VNil" listVal], evalSym n ρ alt)]
+              | none => []
+            let consBranch := match alts[0]? with
+              | some alt =>
+                  [(SExpr.all [SExpr.isCtor "VList" v, SExpr.not (SExpr.isCtor "VNil" listVal)],
+                    bindOut (evalSym n ρ alt) fun vAlt =>
+                      applyListSym n vAlt [fieldFromValList listVal, tailFromValList listVal])]
+              | none => []
+            consBranch ++ nilBranch
+        let listError :=
+          if alts.length > 2 then SExpr.isCtor "VList" v
+          else SExpr.and (SExpr.isCtor "VList" v) (SExpr.not (SExpr.any (listBranches.map Prod.fst)))
+        let dataListVal := .app "unVDataList" [v]
+        let dataListBranches :=
+          if alts.length > 2 then []
+          else
+            let nilBranch := match alts[1]? with
+              | some alt => [(SExpr.all [SExpr.isCtor "VDataList" v, SExpr.isCtor "DNil" dataListVal], evalSym n ρ alt)]
+              | none => []
+            let consBranch := match alts[0]? with
+              | some alt =>
+                  [(SExpr.all [SExpr.isCtor "VDataList" v, SExpr.not (SExpr.isCtor "DNil" dataListVal)],
+                    bindOut (evalSym n ρ alt) fun vAlt =>
+                      applyListSym n vAlt [fieldFromDataList dataListVal, tailFromDataList dataListVal])]
+              | none => []
+            consBranch ++ nilBranch
+        let dataListError :=
+          if alts.length > 2 then SExpr.isCtor "VDataList" v
+          else SExpr.and (SExpr.isCtor "VDataList" v) (SExpr.not (SExpr.any (dataListBranches.map Prod.fst)))
+        let pairBranches :=
+          if alts.length > 1 then []
+          else match alts[0]? with
+            | some alt =>
+                [(SExpr.isCtor "VPair" v,
+                  bindOut (evalSym n ρ alt) fun vAlt =>
+                    applyListSym n vAlt [.dyn (.app "vfst" [v]), .dyn (.app "vsnd" [v])])]
+            | none => []
+        let pairError :=
+          if alts.length > 1 then SExpr.isCtor "VPair" v
+          else SExpr.and (SExpr.isCtor "VPair" v) (SExpr.not (SExpr.any (pairBranches.map Prod.fst)))
+        let pairDataBranches :=
+          if alts.length > 1 then []
+          else match alts[0]? with
+            | some alt =>
+                [(SExpr.isCtor "VPairData" v,
+                  bindOut (evalSym n ρ alt) fun vAlt =>
+                    applyListSym n vAlt [.const (.data (.app "pdfst" [v])), .const (.data (.app "pdsnd" [v]))])]
+            | none => []
+        let pairDataError :=
+          if alts.length > 1 then SExpr.isCtor "VPairData" v
+          else SExpr.and (SExpr.isCtor "VPairData" v) (SExpr.not (SExpr.any (pairDataBranches.map Prod.fst)))
+        let constrTag := .app "vConstrTag" [v]
+        let constrBranches := enum.map fun (i, alt) =>
+          (SExpr.all [SExpr.isCtor "VConstr" v, SExpr.eq constrTag (.int (Int.ofNat i))],
+            bindOut (evalSym n ρ alt) fun vAlt =>
+              applyValListSym n vAlt (.app "vConstrFields" [v]))
+        let constrError := SExpr.and (SExpr.isCtor "VConstr" v) (SExpr.not (tagCovered constrTag))
+        let unsupportedError := SExpr.any [
+          SExpr.isCtor "VBytes" v, SExpr.isCtor "VString" v, SExpr.isCtor "VData" v,
+          SExpr.isCtor "VPairDataList" v, SExpr.isCtor "VArray" v, SExpr.isCtor "VG1" v,
+          SExpr.isCtor "VG2" v, SExpr.isCtor "VMlResult" v]
+        let branches := boolBranches ++ unitBranches ++ intBranches ++ listBranches ++
+          dataListBranches ++ pairBranches ++ pairDataBranches ++ constrBranches
+        branchOutcomes branches [
+          boolError, unitError, intError, listError, dataListError,
+          pairError, pairDataError, constrError, unsupportedError]
     | _, _, _, _ => err
   termination_by n _ _ _ => (n, (3, 0))
 
@@ -683,15 +840,12 @@ mutual
         let dl := asDataList tail
         let hd := asData head
         let vl := asConstList tail
-        let hv? := encodeVal? head
-        let dataBranch :=
-          let g := SExpr.and dl.guard hd.guard
-          .ok g (.const (.dataList (.app "DCons" [hd.val, dl.val])))
-        let constBranch :=
-          match hv? with
-          | some hv => .ok vl.guard (.const (.constList (.app "VCons" [hv, vl.val])))
-          | none => .error SExpr.trueE
-        [dataBranch, constBranch, .error (SExpr.not (SExpr.or (SExpr.and dl.guard hd.guard) vl.guard))]
+        let hv := asConstVal head
+        let dataOk := SExpr.and dl.guard hd.guard
+        let constOk := SExpr.and vl.guard hv.guard
+        [.ok dataOk (.const (.dataList (.app "DCons" [hd.val, dl.val]))),
+         .ok constOk (.const (.constList (.app "VCons" [hv.val, vl.val]))),
+         .error (SExpr.not (SExpr.or dataOk constOk))]
     | .HeadList, [xs] =>
         let dl := asDataList xs
         let vl := asConstList xs
@@ -903,7 +1057,7 @@ def symBool (name : String) : SymDecl :=
 
 def symBytes (name : String) : SymDecl :=
   let n := Moist.SMT.sanitize name
-  ⟨n, .bytes, .const (.bytes (.sym n)), []⟩
+  ⟨n, .bytes, .const (.bytes (.sym n)), [.app "bytes_valid" [.sym n]]⟩
 
 def symString (name : String) : SymDecl :=
   let n := Moist.SMT.sanitize name
@@ -911,11 +1065,11 @@ def symString (name : String) : SymDecl :=
 
 def symData (name : String) : SymDecl :=
   let n := Moist.SMT.sanitize name
-  ⟨n, .data, .const (.data (.sym n)), []⟩
+  ⟨n, .data, .const (.data (.sym n)), [.app "data_valid" [.sym n]]⟩
 
 def symVal (name : String) : SymDecl :=
   let n := Moist.SMT.sanitize name
-  ⟨n, .val, .dyn (.sym n), []⟩
+  ⟨n, .val, .dyn (.sym n), [.app "val_valid" [.sym n]]⟩
 
 def symConstr (name : String) (fields : List SymVal := []) : SymDecl :=
   let n := Moist.SMT.sanitize name

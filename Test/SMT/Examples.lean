@@ -8,6 +8,7 @@ open Moist.SMT.UPLC
 
 abbrev tyInt : BuiltinType := .AtomicType .TypeInteger
 abbrev tyBool : BuiltinType := .AtomicType .TypeBool
+abbrev tyListInt : BuiltinType := .TypeOperator (.TypeList tyInt)
 
 def int (n : Int) : Term := .Constant (.Integer n, tyInt)
 def bool (b : Bool) : Term := .Constant (.Bool b, tyBool)
@@ -36,6 +37,12 @@ def caseIfConstrExample : Term :=
 
 def forceDelayExample : Term :=
   app2 .EqualsInteger (int 42) (.Force (.Delay (.Var 1)))
+
+def caseEmptyConstListMissingNilExample : Term :=
+  .Case (.Constant (.ConstList [], tyListInt)) [bool true]
+
+def mkConsRejectsRuntimeConstrExample : Term :=
+  app (app (forceBuiltin .MkCons) (.Constr 0 [])) (.Constant (.ConstList [], tyListInt))
 
 def shaCongruenceTerm : Term :=
   app2 .EqualsByteString
@@ -70,6 +77,12 @@ def scriptCaseIfConstr : Script :=
 def scriptForceDelay : Script :=
   scriptForBoolTrue 20 [xInt] forceDelayExample
 
+def scriptCaseEmptyConstListMissingNilError : Script :=
+  scriptForError 20 [] caseEmptyConstListMissingNilExample
+
+def scriptMkConsRejectsRuntimeConstrError : Script :=
+  scriptForError 20 [] mkConsRejectsRuntimeConstrExample
+
 def scriptShaCongruenceUnsat : Script :=
   let decls := [xBytes, yBytes]
   let outs := evalSym 20 (envOf decls) shaCongruenceTerm
@@ -87,6 +100,8 @@ def examples : List (String × Script) :=
   , ("case_integer.smt2", scriptCaseInteger)
   , ("case_if_constr.smt2", scriptCaseIfConstr)
   , ("force_delay.smt2", scriptForceDelay)
+  , ("case_empty_const_list_missing_nil_error.smt2", scriptCaseEmptyConstListMissingNilError)
+  , ("mkcons_rejects_runtime_constr_error.smt2", scriptMkConsRejectsRuntimeConstrError)
   , ("sha_congruence_unsat.smt2", scriptShaCongruenceUnsat)
   , ("recursive_sum_55.smt2", scriptRecursiveSum55)
   ]
