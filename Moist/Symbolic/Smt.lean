@@ -18,10 +18,11 @@ Design choices (validated against z3 4.13):
   `Data` maps `DM`) rather than `Seq V`, so head/tail/null/chooseList are native
   datatype selectors/testers and recursion is well-supported by z3.
 * **ByteStrings are `(Seq Int)`** (bytes 0..255), so length/index/append/slice/
-  equality are real SMT; crypto/bitwise stay opaque (uninterpreted functions).
-* **Opaque builtins** (hashing, BLS, signature verification, serialisation) are
-  uninterpreted functions declared in the preamble: congruence
-  `x = y ⇒ f x = f y` is then free, which is all their soundness needs.
+  equality are real SMT. CEK-supported operations without a symbolic denotation
+  are incomplete; crypto operations absent from the CEK are definite errors.
+* Legacy uninterpreted declarations for crypto/BLS remain in the preamble, but
+  the compiler does not call them: the reference CEK has no denotation for those
+  builtins and therefore reports a definite error at saturation.
 
 This AST is plain Lean (no `Lean.Meta`) precisely so it can be given a Lean-level
 denotation in the Stage-2 soundness proof.
@@ -327,12 +328,11 @@ def neg (a : SExpr) : SExpr := .app "-" [a]
 
 end Op
 
-/-! ## Opaque (uninterpreted) builtins
+/-! ## Legacy opaque (uninterpreted) builtin declarations
 
-Functions whose semantics we deliberately do NOT model in SMT (hashing, BLS,
-signature checks, serialisation, …). Each is a declared uninterpreted function;
-z3's congruence closure gives `x = y ⇒ f x = f y` for free. We declare the full
-set in the preamble (unused ones are harmless). -/
+These declarations are retained for compatibility with previously emitted scripts.
+The compiler no longer calls them: the reference CEK errors on those builtins, so
+the symbolic compiler reports the same definite error. -/
 
 /-- A single uninterpreted-function declaration: name, argument sorts, result sort. -/
 structure UFDecl where
@@ -341,7 +341,7 @@ structure UFDecl where
   ret  : SSort
 deriving Repr
 
-/-- The fixed roster of opaque builtins. Argument sorts are the *projected*
+/-- The retained roster of opaque builtins. Argument sorts are the *projected*
 first-order sorts (e.g. a bytestring argument is `(Seq Int)`), not `V`. -/
 def opaqueUFs : List UFDecl :=
   let bs := SSort.seqInt
@@ -357,7 +357,7 @@ def opaqueUFs : List UFDecl :=
   , ⟨"uf_verifySchnorr",  [bs, bs, bs], .bool⟩
   -- serialisation: Data → bytestring
   , ⟨"uf_serializeData", [.data], bs⟩
-  -- BLS12-381 (opaque group operations; congruence is all we model)
+  -- Retained BLS12-381 declarations (not emitted by the compiler)
   , ⟨"uf_bls_g1_add",         [.g1, .g1], .g1⟩
   , ⟨"uf_bls_g1_neg",         [.g1], .g1⟩
   , ⟨"uf_bls_g1_scalarMul",   [.int, .g1], .g1⟩
@@ -407,13 +407,45 @@ def datatypePreamble : String :=
   "   (VG1 (vg1Val G1)) (VG2 (vg2Val G2)) (VMl (vmlVal MlResult)))\n" ++
   "  ((vnil) (vcons (vhd V) (vtl VL)))\n" ++
   " ))\n" ++
+  "; recursive well-formedness for values supplied directly by an SMT model\n" ++
+  "(define-fun moist_wf_seq ((s (Seq Int))) Bool\n" ++
+  " (forall ((i Int)) (=> (and (<= 0 i) (< i (seq.len s)))\n" ++
+  "   (and (<= 0 (seq.nth s i)) (<= (seq.nth s i) 255)))))\n" ++
+  "(define-funs-rec\n" ++
+  " ((moist_wf_d ((x D)) Bool) (moist_wf_dl ((xs DL)) Bool) (moist_wf_dm ((xs DM)) Bool))\n" ++
+  " ((ite (is-DConstr x) (moist_wf_dl (dcArgs x))\n" ++
+  "    (ite (is-DMap x) (moist_wf_dm (dmEntries x))\n" ++
+  "     (ite (is-DList x) (moist_wf_dl (dlElems x))\n" ++
+  "      (ite (is-DB x) (moist_wf_seq (dbVal x)) true))))\n" ++
+  "  (ite (is-dnil xs) true (and (moist_wf_d (dhd xs)) (moist_wf_dl (dtl xs))))\n" ++
+  "  (ite (is-mnil xs) true (and (moist_wf_d (mkey xs))\n" ++
+  "    (moist_wf_d (mval xs)) (moist_wf_dm (mtl xs))))))\n" ++
+  "(define-funs-rec\n" ++
+  " ((moist_const_v ((x V)) Bool) (moist_const_vl ((xs VL)) Bool))\n" ++
+  " ((ite (is-VConstr x) false\n" ++
+  "    (ite (is-VBS x) (moist_wf_seq (vbsVal x))\n" ++
+  "     (ite (is-VData x) (moist_wf_d (vdVal x))\n" ++
+  "      (ite (is-VList x) (moist_const_vl (vlElems x))\n" ++
+  "       (ite (is-VArr x) (moist_const_vl (varrElems x))\n" ++
+  "        (ite (is-VPair x) (and (moist_const_v (vpFst x)) (moist_const_v (vpSnd x)))\n" ++
+  "         (ite (is-VDList x) (moist_wf_dl (vdlElems x))\n" ++
+  "          (ite (is-VPDList x) (moist_wf_dm (vpdlElems x))\n" ++
+  "           (ite (is-VPairD x) (and (moist_wf_d (vpdFst x))\n" ++
+  "             (moist_wf_d (vpdSnd x))) true)))))))))\n" ++
+  "  (ite (is-vnil xs) true (and (moist_const_v (vhd xs))\n" ++
+  "    (moist_const_vl (vtl xs))))))\n" ++
   "; degenerate defaults for the (effectively unused) BLS element *constants*\n" ++
   "(declare-const bls_g1_default G1)\n(declare-const bls_g2_default G2)\n(declare-const bls_ml_default MlResult)\n" ++
   "; integer division helpers: floor (Haskell div/mod) and truncated (quot/rem)\n" ++
   "(define-fun moist_fdiv ((a Int)(b Int)) Int (ite (= b 0) 0 (ite (< b 0) (div (- a) (- b)) (div a b))))\n" ++
   "(define-fun moist_fmod ((a Int)(b Int)) Int (ite (= b 0) 0 (ite (< b 0) (- (mod (- a) b)) (mod a b))))\n" ++
   "(define-fun moist_qdiv ((a Int)(b Int)) Int (ite (= b 0) 0 (ite (= (>= a 0) (>= b 0)) (div (abs a) (abs b)) (- (div (abs a) (abs b))))))\n" ++
-  "(define-fun moist_qrem ((a Int)(b Int)) Int (ite (= b 0) 0 (- a (* b (moist_qdiv a b)))))"
+  "(define-fun moist_qrem ((a Int)(b Int)) Int (ite (= b 0) 0 (- a (* b (moist_qdiv a b)))))\n" ++
+  "; list drop for batch-7 DropList over both ConstList and ConstDataList\n" ++
+  "(define-funs-rec\n" ++
+  " ((moist_vdrop ((n Int) (xs VL)) VL) (moist_ddrop ((n Int) (xs DL)) DL))\n" ++
+  " ((ite (or (<= n 0) (is-vnil xs)) xs (moist_vdrop (- n 1) (vtl xs)))\n" ++
+  "  (ite (or (<= n 0) (is-dnil xs)) xs (moist_ddrop (- n 1) (dtl xs)))))"
 
 /-! ## Script assembly -/
 

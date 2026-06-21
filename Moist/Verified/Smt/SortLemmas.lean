@@ -71,14 +71,66 @@ theorem vConName_eval (M : Model) {e : SExpr} {c : String} (h : V.vConName e = s
   · next c hvc => rw [vConName_eval M hvc]; simp
   · show (evalDyn M (.app "is-VUnit" [e])).toBool = _; simp
 
+@[simp] theorem sIsCon_VList (M : Model) (e : SExpr) :
+    (evalDyn M (V.sIsCon "VList" e)).toBool = ((evalDyn M e).toV.conName == "VList") := by
+  unfold V.sIsCon; split
+  · next c hvc => rw [vConName_eval M hvc]; simp
+  · show (evalDyn M (.app "is-VList" [e])).toBool = _; simp
+
+@[simp] theorem sIsCon_VDList (M : Model) (e : SExpr) :
+    (evalDyn M (V.sIsCon "VDList" e)).toBool = ((evalDyn M e).toV.conName == "VDList") := by
+  unfold V.sIsCon; split
+  · next c hvc => rw [vConName_eval M hvc]; simp
+  · show (evalDyn M (.app "is-VDList" [e])).toBool = _; simp
+
+@[simp] theorem sIsCon_VPDList (M : Model) (e : SExpr) :
+    (evalDyn M (V.sIsCon "VPDList" e)).toBool = ((evalDyn M e).toV.conName == "VPDList") := by
+  unfold V.sIsCon; split
+  · next c hvc => rw [vConName_eval M hvc]; simp
+  · show (evalDyn M (.app "is-VPDList" [e])).toBool = _; simp
+
+@[simp] theorem sIsCon_VPair (M : Model) (e : SExpr) :
+    (evalDyn M (V.sIsCon "VPair" e)).toBool = ((evalDyn M e).toV.conName == "VPair") := by
+  unfold V.sIsCon; split
+  · next c hvc => rw [vConName_eval M hvc]; simp
+  · show (evalDyn M (.app "is-VPair" [e])).toBool = _; simp
+
+@[simp] theorem sIsCon_VPairD (M : Model) (e : SExpr) :
+    (evalDyn M (V.sIsCon "VPairD" e)).toBool = ((evalDyn M e).toV.conName == "VPairD") := by
+  unfold V.sIsCon; split
+  · next c hvc => rw [vConName_eval M hvc]; simp
+  · show (evalDyn M (.app "is-VPairD" [e])).toBool = _; simp
+
+@[simp] theorem sIsCon_VConstr (M : Model) (e : SExpr) :
+    (evalDyn M (V.sIsCon "VConstr" e)).toBool = ((evalDyn M e).toV.conName == "VConstr") := by
+  unfold V.sIsCon; split
+  · next c hvc => rw [vConName_eval M hvc]; simp
+  · show (evalDyn M (.app "is-VConstr" [e])).toBool = _; simp
+
 /-! ## List emptiness discriminators -/
 
 @[simp] theorem evalDyn_vlSIsNil (M : Model) (e : SExpr) :
     (evalDyn M (VL.sIsNil e)).toBool = (evalDyn M e).toVL.isNil := by
   unfold VL.sIsNil; split <;> simp_all [VL.isNil, SemVL.isNil]
 
+@[simp] theorem evalDyn_vlSHd (M : Model) (e : SExpr) :
+    evalDyn M (VL.sHd e) = .v ((evalDyn M e).toVL.hd) := by
+  simp [VL.sHd, VL.hd]
+
+@[simp] theorem evalDyn_vlSTl (M : Model) (e : SExpr) :
+    evalDyn M (VL.sTl e) = .vl ((evalDyn M e).toVL.tl) := by
+  simp [VL.sTl, VL.tl]
+
 @[simp] theorem evalDyn_dlSIsNil (M : Model) (e : SExpr) :
     (evalDyn M (DL.sIsNil e)).toBool = (evalDyn M e).toDL.isNil := by
   unfold DL.sIsNil; split <;> simp_all [DL.isNil, SemDL.isNil]
+
+@[simp] theorem evalDyn_dlSHd (M : Model) (e : SExpr) :
+    evalDyn M (DL.sHd e) = .d ((evalDyn M e).toDL.hd) := by
+  simp [DL.sHd, DL.hd]
+
+@[simp] theorem evalDyn_dlSTl (M : Model) (e : SExpr) :
+    evalDyn M (DL.sTl e) = .dl ((evalDyn M e).toDL.tl) := by
+  simp [DL.sTl, DL.tl]
 
 end Moist.Verified.Smt

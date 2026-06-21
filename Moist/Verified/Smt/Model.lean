@@ -17,9 +17,9 @@ and the helper functions `moist_{fdiv,fmod,qdiv,qrem}`. To prove the compiler
   are term-generated; under-specified selectors resolve to a fixed default — and the
   compiler only ever applies a selector under its matching `is-Con` guard, so the
   default is never observed where `¬err`).
-* `(Seq Int)` is `List Int`; the opaque BLS sorts collapse to nullary `SemV.g1/g2/ml`
-  (the only BLS things the compiler emits are the element *constants* — every BLS
-  *operation* is now `inc`/"no claim", see `Moist.Symbolic.symBuiltin`).
+* `(Seq Int)` is `List Int`; the opaque BLS sorts collapse to nullary `SemV.g1/g2/ml`.
+  The compiler emits only BLS element constants; BLS operations are definite errors,
+  matching the reference CEK.
 * `Dyn` is the sort-tagged disjoint union of all these, the codomain of the single
   evaluator `evalDyn : Model → SExpr → Dyn` (next file section).
 
@@ -188,10 +188,10 @@ def SemDM.isNil : SemDM → Bool | .nil => true | _ => false
 
 /-! ## The model and the integer-division helpers
 
-A `Model` is a valuation of the declared symbolic input atoms. (The opaque `uf_*`
-functions and BLS *operations* no longer appear in compiler output — they are all
-`inc`/"no claim" — so the model carries nothing for them. The BLS element *constants*
-`bls_*_default` are nullary and collapse to `SemV.g1/g2/ml`.) -/
+A `Model` is a valuation of the declared symbolic input atoms. The opaque `uf_*`
+functions and BLS operations no longer appear in compiler output, so the model
+carries nothing for them. The BLS element constants `bls_*_default` are nullary and
+collapse to `SemV.g1/g2/ml`. -/
 
 /-- A first-order structure for the SMT signature: just the input-atom valuation. -/
 structure Model where

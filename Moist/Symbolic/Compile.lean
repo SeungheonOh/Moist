@@ -18,27 +18,21 @@ work: a recursive validator built with `force`/`delay` thunks unrolls lazily
 through `choice` distribution, so the fuel-out condition `inc` is a *path
 condition in the symbolic inputs* (e.g. `x ≥ depth`), not a blanket failure.
 
-## Builtin coverage (v1)
+## Builtin coverage (formally verified fragment)
 
-* **Precise SMT**: all `Integer` ops (incl. floor/trunc div & mod), `EqualsByteString`/
-  `AppendByteString`/`ConsByteString`/`LengthOfByteString`/`IndexByteString`,
-  `EqualsString`/`AppendString`, `IfThenElse`/`ChooseUnit`/`Trace`, `FstPair`/`SndPair`/
-  `MkPairData`, `ChooseList`/`MkCons`/`HeadList`/`TailList`/`NullList`/`MkNil*`,
-  `ChooseData` + all `Data` con/destructors + `EqualsData`.
-* **Indeterminate (`inc = true`, no claim)**: every builtin the reference CEK
-  (`Moist.CEK.evalBuiltin`) does **not** compute. This includes the cryptographic
-  hashes (`Sha2_256`/…/`Ripemd_160`), signature checks, `SerializeData`, **all BLS**
-  ops — which the CEK *errors* on (no `evalBuiltinConst` case), so modelling them as
-  succeeding opaque UFs would be **unsound** (Stage-2 soundness: SMT-pass must imply
-  CEK-pass). It also covers builtins the CEK *does* implement but we have not modelled
-  precisely yet: `SliceByteString`, bytestring `<`/`≤`, utf8 encode/decode, bitwise
-  batch-5, int↔bytestring conversions, `ExpModInteger`, batch-7. All of these make
-  **no claim** (`inc = true`): sound but incomplete; widen coverage by giving them a
-  precise arm (and, for the crypto/BLS family, a matching CEK denotation) as needed.
+* **Precise SMT**: integer arithmetic/comparison/division, simple byte/string
+  operations, structural list/pair builtins, data constructors/destructors, and
+  the CEK pass-through builtins (`ifThenElse`, `chooseUnit`, `trace`,
+  `chooseData`, `chooseList`).
+* **Definite error**: every builtin for which the reference CEK has no denotation,
+  including hashes, signature checks, `SerializeData`, BLS, and unsupported batch-7
+  operations. Saturating one of these enters `State.error`, just as the CEK does.
+* **Indeterminate (`inc = true`, no CEK-value claim)**: remaining CEK-supported
+  operations whose symbolic denotations are not yet connected to the formal
+  adequacy proof.
 
-> Note: the opaque `uf_*` declarations and BLS element sorts remain in the SMT
-> preamble (`Smt.lean`) — harmless, and they let a future "precise opaque" mode
-> (CEK extended with trusted hash/BLS denotations) be switched back on.
+> Note: legacy opaque `uf_*` declarations and BLS element sorts remain in the SMT
+> preamble (`Smt.lean`), but compiler output does not call those functions.
 -/
 
 namespace Moist.Symbolic
@@ -55,6 +49,7 @@ def gBS   (e : SExpr) : SExpr := sNot (V.sIsCon "VBS" e)
 def gStr  (e : SExpr) : SExpr := sNot (V.sIsCon "VStr" e)
 def gData (e : SExpr) : SExpr := sNot (V.sIsCon "VData" e)
 def gUnit (e : SExpr) : SExpr := sNot (V.sIsCon "VUnit" e)
+def gCon (con : String) (e : SExpr) : SExpr := sNot (V.sIsCon con e)
 
 /-- Data-kind discriminator `(is-DCon dd)`. -/
 def dIs (con : String) (dd : SExpr) : SExpr := .app s!"is-{con}" [dd]
@@ -66,16 +61,12 @@ def errR' : SymR := ⟨.bool false, .bool true, junk⟩
 /-- An indeterminate result (out of fuel / unsupported / undetermined flavour). -/
 def incR' : SymR := ⟨.bool true, .bool false, junk⟩
 
-/-- Dispatch a list builtin across the two valid `Const` list flavours, exactly as
-the CEK does: `VDList` (`ConstDataList`, elements projected as a `DL`) or `VList`
-(`ConstList`, elements a `VL`); a *known* non-list variant errors; an *unknown*
-flavour is indeterminate (no claim). -/
+/-- Dispatch a list builtin across the two valid `Const` list flavours.  The
+discriminators remain symbolic when `l` is a bare `V` input, so this agrees with
+the CEK for every runtime variant instead of becoming indeterminate. -/
 def onList (l : SExpr) (onD : SExpr → SymR) (onV : SExpr → SymR) : SymR :=
-  match V.vConName l with
-  | some "VDList" => onD (V.sAsDL l)
-  | some "VList"  => onV (V.sAsList l)
-  | none          => incR'
-  | some _        => errR'
+  symMerge (V.sIsCon "VDList" l) (onD (V.sAsDL l))
+    (symMerge (V.sIsCon "VList" l) (onV (V.sAsList l)) errR')
 
 /-- A definite-error result. -/
 def errR : SymR := ⟨.bool false, .bool true, junk⟩
@@ -83,148 +74,225 @@ def errR : SymR := ⟨.bool false, .bool true, junk⟩
 def incR : SymR := ⟨.bool true, .bool false, junk⟩
 /-- A pure (non-erroring, complete) first-order result. -/
 def okFO (e : SExpr) : SymR := ⟨.bool false, .bool false, .fo e⟩
+/-- A pure (non-erroring, complete) result that can be higher-order. -/
+def okV (v : SymV) : SymR := ⟨.bool false, .bool false, v⟩
 /-- A first-order result that errors under `g`. -/
 def foGuard (g e : SExpr) : SymR := ⟨.bool false, g, .fo e⟩
 
 /-! ## Saturated builtin evaluation on first-order arguments
 
 `symBuiltin b argEs` takes the builtin's value arguments **in application order**
-as `V`-sorted `SExpr`s and returns the saturated result. `inc = true` marks an
-unsupported builtin (no claim); otherwise `err` is the precise UPLC failure
-condition (type mismatch, division by zero, head-of-nil, …). -/
+as `V`-sorted `SExpr`s and returns the saturated result. `inc = true` marks a
+CEK-supported builtin whose symbolic denotation is not implemented yet;
+otherwise `err` is the precise UPLC failure condition (type mismatch, division
+by zero, head-of-nil, or a builtin absent from the CEK denotation). -/
 
-open V (sAsInt sAsBool sAsBS sAsStr sAsData sAsList sFst sSnd)
+open V (sAsInt sAsBool sAsBS sAsStr sAsData sAsList sAsDL sAsDM sFst sSnd)
+
+def intDivZero (b : SExpr) : SExpr := sEq b (.int 0)
+def intBinGuard (a b : SExpr) : SExpr := sOr (gInt a) (gInt b)
+def dataKindGuard (con : String) (e : SExpr) : SExpr :=
+  sOr (gData e) (dNot con (sAsData e))
+def seqLen (e : SExpr) : SExpr := Seq.len e
+def seqNth (s i : SExpr) : SExpr := Seq.nth s i
+def seqExtractCEK (s start len : SExpr) : SExpr :=
+  let start' := sIte (Op.lt start (.int 0)) (.int 0) start
+  let len' := sIte (Op.lt len (.int 0)) (.int 0) len
+  Seq.extract s start' len'
+def byteInRange (n : SExpr) : SExpr :=
+  sAnd (Op.le (.int 0) n) (Op.le n (.int 255))
+def dropVL (n xs : SExpr) : SExpr := .app "moist_vdrop" [n, xs]
+def dropDL (n xs : SExpr) : SExpr := .app "moist_ddrop" [n, xs]
 
 def symBuiltin : BuiltinFun → List SExpr → SymR
   -- Integer arithmetic
   | .AddInteger,      [a, b] => foGuard (sOr (gInt a) (gInt b)) (V.int (Op.add (sAsInt a) (sAsInt b)))
   | .SubtractInteger, [a, b] => foGuard (sOr (gInt a) (gInt b)) (V.int (Op.sub (sAsInt a) (sAsInt b)))
   | .MultiplyInteger, [a, b] => foGuard (sOr (gInt a) (gInt b)) (V.int (Op.mul (sAsInt a) (sAsInt b)))
-  | .DivideInteger,   [a, b] =>
-      foGuard (sOrs [gInt a, gInt b, sEq (sAsInt b) (.int 0)]) (V.int (.app "moist_fdiv" [sAsInt a, sAsInt b]))
-  | .ModInteger,      [a, b] =>
-      foGuard (sOrs [gInt a, gInt b, sEq (sAsInt b) (.int 0)]) (V.int (.app "moist_fmod" [sAsInt a, sAsInt b]))
-  | .QuotientInteger, [a, b] =>
-      foGuard (sOrs [gInt a, gInt b, sEq (sAsInt b) (.int 0)]) (V.int (.app "moist_qdiv" [sAsInt a, sAsInt b]))
-  | .RemainderInteger,[a, b] =>
-      foGuard (sOrs [gInt a, gInt b, sEq (sAsInt b) (.int 0)]) (V.int (.app "moist_qrem" [sAsInt a, sAsInt b]))
+  | .DivideInteger,   [a, b] => foGuard (sOr (intBinGuard a b) (intDivZero (sAsInt b)))
+      (V.int (.app "moist_fdiv" [sAsInt a, sAsInt b]))
+  | .QuotientInteger, [a, b] => foGuard (sOr (intBinGuard a b) (intDivZero (sAsInt b)))
+      (V.int (.app "moist_qdiv" [sAsInt a, sAsInt b]))
+  | .RemainderInteger, [a, b] => foGuard (sOr (intBinGuard a b) (intDivZero (sAsInt b)))
+      (V.int (.app "moist_qrem" [sAsInt a, sAsInt b]))
+  | .ModInteger, [a, b] => foGuard (sOr (intBinGuard a b) (intDivZero (sAsInt b)))
+      (V.int (.app "moist_fmod" [sAsInt a, sAsInt b]))
   -- Integer comparison
   | .EqualsInteger,         [a, b] => foGuard (sOr (gInt a) (gInt b)) (V.bool (sEq (sAsInt a) (sAsInt b)))
   | .LessThanInteger,       [a, b] => foGuard (sOr (gInt a) (gInt b)) (V.bool (Op.lt (sAsInt a) (sAsInt b)))
   | .LessThanEqualsInteger, [a, b] => foGuard (sOr (gInt a) (gInt b)) (V.bool (Op.le (sAsInt a) (sAsInt b)))
-  -- ByteString
-  | .EqualsByteString, [a, b] => foGuard (sOr (gBS a) (gBS b)) (V.bool (sEq (sAsBS a) (sAsBS b)))
-  | .AppendByteString, [a, b] => foGuard (sOr (gBS a) (gBS b)) (V.bs (Seq.append (sAsBS a) (sAsBS b)))
-  | .ConsByteString,   [n, bs] =>
-      foGuard (sOrs [gInt n, gBS bs, Op.lt (sAsInt n) (.int 0), Op.lt (.int 255) (sAsInt n)])
-              (V.bs (Seq.append (Seq.unit (sAsInt n)) (sAsBS bs)))
-  | .LengthOfByteString, [bs] => foGuard (gBS bs) (V.int (Seq.len (sAsBS bs)))
-  | .IndexByteString,    [bs, idx] =>
-      foGuard (sOrs [gBS bs, gInt idx, Op.lt (sAsInt idx) (.int 0), Op.le (Seq.len (sAsBS bs)) (sAsInt idx)])
-              (V.int (Seq.nth (sAsBS bs) (sAsInt idx)))
-  -- String
-  | .EqualsString, [a, b] => foGuard (sOr (gStr a) (gStr b)) (V.bool (sEq (sAsStr a) (sAsStr b)))
-  | .AppendString, [a, b] => foGuard (sOr (gStr a) (gStr b)) (V.str (.app "str.++" [sAsStr a, sAsStr b]))
-  -- Pairs (flavour-faithful: VPairD returns the projected Data; VPair the raw const)
+  -- ByteString operations expressible exactly with SMT sequences.
+  | .AppendByteString, [a, b] =>
+      foGuard (sOr (gBS a) (gBS b)) (V.bs (Seq.append (sAsBS a) (sAsBS b)))
+  | .EqualsByteString, [a, b] =>
+      foGuard (sOr (gBS a) (gBS b)) (V.bool (sEq (sAsBS a) (sAsBS b)))
+  | .SliceByteString, [start, len, bs] =>
+      foGuard (sOr (sOr (gInt start) (gInt len)) (gBS bs))
+        (V.bs (seqExtractCEK (sAsBS bs) (sAsInt start) (sAsInt len)))
+  | .LengthOfByteString, [bs] =>
+      foGuard (gBS bs) (V.int (seqLen (sAsBS bs)))
+  | .IndexByteString, [bs, idx] =>
+      foGuard (sOr (sOr (gBS bs) (gInt idx))
+        (sOr (Op.lt (sAsInt idx) (.int 0)) (Op.ge (sAsInt idx) (seqLen (sAsBS bs)))))
+        (V.int (seqNth (sAsBS bs) (sAsInt idx)))
+  | .ConsByteString, [n, bs] =>
+      foGuard (sOr (sOr (gInt n) (gBS bs)) (sNot (byteInRange (sAsInt n))))
+        (V.bs (Seq.append (Seq.unit (sAsInt n)) (sAsBS bs)))
+  -- String operations expressible exactly in SMT.
+  | .AppendString, [a, b] =>
+      foGuard (sOr (gStr a) (gStr b)) (V.str (.app "str.++" [sAsStr a, sAsStr b]))
+  | .EqualsString, [a, b] =>
+      foGuard (sOr (gStr a) (gStr b)) (V.bool (sEq (sAsStr a) (sAsStr b)))
+  -- Pair destructors
   | .FstPair, [p] =>
-      match V.vConName p with
-      | some "VPairD" => okFO (V.data (V.sFstD p))
-      | some "VPair"  => okFO (sFst p)
-      | none => incR | some _ => errR
+      symMerge (V.sIsCon "VPairD" p) (okFO (V.data (V.sFstD p)))
+        (symMerge (V.sIsCon "VPair" p) (okFO (V.sFst p)) errR)
   | .SndPair, [p] =>
-      match V.vConName p with
-      | some "VPairD" => okFO (V.data (V.sSndD p))
-      | some "VPair"  => okFO (sSnd p)
-      | none => incR | some _ => errR
-  | .MkPairData, [a, b] => foGuard (sOr (gData a) (gData b)) (V.pairD (sAsData a) (sAsData b))
-  -- Lists (both ConstDataList = VDList and ConstList = VList)
-  | .HeadList, [l] => onList l (fun dl => foGuard (DL.sIsNil dl) (V.data (DL.sHd dl)))
-                               (fun vl => foGuard (VL.sIsNil vl) (VL.sHd vl))
-  | .TailList, [l] => onList l (fun dl => foGuard (DL.sIsNil dl) (V.dlist (DL.sTl dl)))
-                               (fun vl => foGuard (VL.sIsNil vl) (V.list (VL.sTl vl)))
-  | .NullList, [l] => onList l (fun dl => okFO (V.bool (DL.sIsNil dl)))
-                               (fun vl => okFO (V.bool (VL.sIsNil vl)))
-  -- MkCons: onto a data-list the head MUST be Data (else CEK errors); onto a
-  -- general list any value conses; onto any other flavour it errors.
-  | .MkCons, [h, l] =>
-      match V.vConName l with
-      | some "VDList" => foGuard (gData h) (V.dlist (DL.cons (sAsData h) (V.sAsDL l)))
-      | some "VList"  => okFO (V.list (VL.cons h (V.sAsList l)))
-      | none => incR | some _ => errR
-  | .MkNilData,     [u] => foGuard (gUnit u) (V.dlist DL.nil)
-  | .MkNilPairData, [u] => foGuard (gUnit u) (V.pdlist DM.nil)
-  -- Data constructors (require the exact source flavour, like evalBuiltinConst)
+      symMerge (V.sIsCon "VPairD" p) (okFO (V.data (V.sSndD p)))
+        (symMerge (V.sIsCon "VPair" p) (okFO (V.sSnd p)) errR)
+  -- List operations over both `ConstDataList` and general `ConstList`.
+  | .HeadList, [l] =>
+      onList l
+        (fun dl => foGuard (DL.sIsNil dl) (V.data (DL.sHd dl)))
+        (fun vl => foGuard (VL.sIsNil vl) (VL.sHd vl))
+  | .TailList, [l] =>
+      onList l
+        (fun dl => foGuard (DL.sIsNil dl) (V.dlist (DL.sTl dl)))
+        (fun vl => foGuard (VL.sIsNil vl) (V.list (VL.sTl vl)))
+  | .NullList, [l] =>
+      onList l
+        (fun dl => okFO (V.bool (DL.sIsNil dl)))
+        (fun vl => okFO (V.bool (VL.sIsNil vl)))
+  | .MkCons, [h, t] =>
+      symMerge (V.sIsCon "VDList" t)
+        (foGuard (gData h) (V.dlist (DL.cons (sAsData h) (sAsDL t))))
+        (symMerge (V.sIsCon "VList" t)
+          -- Any well-formed first-order value except an SOP `VConstr` denotes a `Const`.
+          (foGuard (V.sIsCon "VConstr" h) (V.list (VL.cons h (sAsList t))))
+          errR)
+  | .DropList, [n, l] =>
+      onList l
+        (fun dl => foGuard (gInt n) (V.dlist (dropDL (sAsInt n) dl)))
+        (fun vl => foGuard (gInt n) (V.list (dropVL (sAsInt n) vl)))
+  -- Data constructors/destructors.
   | .ConstrData, [tag, fields] =>
-      match V.vConName fields with
-      | some "VDList" => foGuard (gInt tag) (V.data (D.constr (sAsInt tag) (V.sAsDL fields)))
-      | none => incR | some _ => errR
-  | .IData,    [i] => foGuard (gInt i)  (V.data (D.i (sAsInt i)))
-  | .BData,    [b] => foGuard (gBS b)   (V.data (D.b (sAsBS b)))
+      foGuard (sOr (gInt tag) (gCon "VDList" fields))
+        (V.data (D.constr (sAsInt tag) (sAsDL fields)))
+  | .MapData, [m] =>
+      foGuard (gCon "VPDList" m) (V.data (D.map (sAsDM m)))
   | .ListData, [l] =>
-      match V.vConName l with
-      | some "VDList" => okFO (V.data (D.list (V.sAsDL l)))
-      | none => incR | some _ => errR
-  | .MapData,  [l] =>
-      match V.vConName l with
-      | some "VPDList" => okFO (V.data (D.map (V.sAsDM l)))
-      | none => incR | some _ => errR
-  -- Data destructors
+      foGuard (gCon "VDList" l) (V.data (D.list (sAsDL l)))
+  | .IData, [i] =>
+      foGuard (gInt i) (V.data (D.i (sAsInt i)))
+  | .BData, [bs] =>
+      foGuard (gBS bs) (V.data (D.b (sAsBS bs)))
   | .UnConstrData, [d] =>
-      foGuard (sOr (gData d) (dNot "DConstr" (sAsData d)))
-              (V.pairD (D.i (D.dcTag (sAsData d))) (D.list (D.dcArgs (sAsData d))))
-  | .UnIData,    [d] => foGuard (sOr (gData d) (dNot "DI" (sAsData d)))    (V.int (D.diVal (sAsData d)))
-  | .UnBData,    [d] => foGuard (sOr (gData d) (dNot "DB" (sAsData d)))    (V.bs (D.dbVal (sAsData d)))
-  | .UnListData, [d] => foGuard (sOr (gData d) (dNot "DList" (sAsData d))) (V.dlist (D.dlElems (sAsData d)))
-  | .UnMapData,  [d] => foGuard (sOr (gData d) (dNot "DMap" (sAsData d)))  (V.pdlist (D.dmEntries (sAsData d)))
-  | .EqualsData, [a, b] => foGuard (sOr (gData a) (gData b)) (V.bool (sEq (sAsData a) (sAsData b)))
-  -- Indeterminate / unsupported (sound: no claim). This includes every builtin the
-  -- reference CEK (`evalBuiltin`) does not compute — the cryptographic hashes,
-  -- signature checks, `SerializeData`, and all BLS operations (the CEK *errors* on
-  -- them), as well as the not-yet-modelled `SliceByteString`, bytestring `<`/`≤`,
-  -- utf8, bitwise, int↔bytestring, `ExpModInteger`, and batch-7 builtins.
+      foGuard (dataKindGuard "DConstr" d)
+        (V.pairD (D.i (D.dcTag (sAsData d))) (D.list (D.dcArgs (sAsData d))))
+  | .UnMapData, [d] =>
+      foGuard (dataKindGuard "DMap" d) (V.pdlist (D.dmEntries (sAsData d)))
+  | .UnListData, [d] =>
+      foGuard (dataKindGuard "DList" d) (V.dlist (D.dlElems (sAsData d)))
+  | .UnIData, [d] =>
+      foGuard (dataKindGuard "DI" d) (V.int (D.diVal (sAsData d)))
+  | .UnBData, [d] =>
+      foGuard (dataKindGuard "DB" d) (V.bs (D.dbVal (sAsData d)))
+  | .EqualsData, [a, b] =>
+      foGuard (sOr (gData a) (gData b)) (V.bool (sEq (sAsData a) (sAsData b)))
+  | .MkPairData, [a, b] =>
+      foGuard (sOr (gData a) (gData b)) (V.pairD (sAsData a) (sAsData b))
+  -- Empty data-list constructors.
+  | .MkNilData, [u] =>
+      foGuard (gUnit u) (V.dlist DL.nil)
+  | .MkNilPairData, [u] =>
+      foGuard (gUnit u) (V.pdlist DM.nil)
+  -- The reference CEK has no denotation for these builtins.  Saturation therefore
+  -- deterministically enters `State.error`; reporting `inc` here was observably
+  -- different and made a stable CEK error look like a fuel/coverage limitation.
+  | .Sha2_256, _ | .Sha3_256, _ | .Blake2b_256, _
+  | .VerifyEd25519Signature, _ | .SerializeData, _
+  | .VerifyEcdsaSecp256k1Signature, _ | .VerifySchnorrSecp256k1Signature, _
+  | .Bls12_381_G1_add, _ | .Bls12_381_G1_neg, _ | .Bls12_381_G1_scalarMul, _
+  | .Bls12_381_G1_equal, _ | .Bls12_381_G1_hashToGroup, _
+  | .Bls12_381_G1_compress, _ | .Bls12_381_G1_uncompress, _
+  | .Bls12_381_G2_add, _ | .Bls12_381_G2_neg, _ | .Bls12_381_G2_scalarMul, _
+  | .Bls12_381_G2_equal, _ | .Bls12_381_G2_hashToGroup, _
+  | .Bls12_381_G2_compress, _ | .Bls12_381_G2_uncompress, _
+  | .Bls12_381_millerLoop, _ | .Bls12_381_mulMlResult, _ | .Bls12_381_finalVerify, _
+  | .Keccak_256, _ | .Blake2b_224, _ | .Ripemd_160, _
+  | .IndexArray, _ | .LengthOfArray, _ | .ListToArray, _
+  | .InsertCoin, _ | .LookupCoin, _ | .ScaleValue, _ | .UnionValue, _
+  | .ValueContains, _ | .ValueData, _ | .UnValueData, _
+  | .Bls12_381_G1_multiScalarMul, _ | .Bls12_381_G2_multiScalarMul, _ => errR
+  -- CEK-supported operations whose symbolic denotations are not implemented yet,
+  -- including the remaining Data constructors/destructors and higher-order
+  -- pass-through builtins.
   | _, _ => incR
+
+def addErr (extra : SExpr) (r : SymR) : SymR :=
+  ⟨r.inc, sOr extra r.err, r.val⟩
+
+def passGuard (guard : SExpr) (v : SymV) : SymR :=
+  ⟨.bool false, guard, v⟩
+
+def symPassThrough (b : BuiltinFun) (args : List SymV) : Option SymR :=
+  match b with
+  | .IfThenElse =>
+      match args with
+      -- Application order: condition thenCase elseCase.
+      | [c, t, e] =>
+          let (nf, ce) := reifyFO c
+          some ⟨.bool false, sOr nf (gBool ce), mergeVal (sAsBool ce) t e⟩
+      | _ => none
+  | .ChooseUnit =>
+      match args with
+      | [u, r] =>
+          let (nf, ue) := reifyFO u
+          some (passGuard (sOr nf (gUnit ue)) r)
+      | _ => none
+  | .Trace =>
+      match args with
+      | [msg, r] =>
+          let (nf, me) := reifyFO msg
+          some (passGuard (sOr nf (gStr me)) r)
+      | _ => none
+  | .ChooseList =>
+      match args with
+      | [l, nilCase, consCase] =>
+          let (nf, le) := reifyFO l
+          let r :=
+            onList le
+              (fun dl => symMerge (DL.sIsNil dl) (okV nilCase) (okV consCase))
+              (fun vl => symMerge (VL.sIsNil vl) (okV nilCase) (okV consCase))
+          some (addErr nf r)
+      | _ => none
+  | .ChooseData =>
+      match args with
+      | [d, constrCase, mapCase, listCase, iCase, bCase] =>
+          let (nf, de) := reifyFO d
+          let dd := sAsData de
+          let r :=
+            symMerge (dIs "DConstr" dd) (okV constrCase)
+              (symMerge (dIs "DMap" dd) (okV mapCase)
+                (symMerge (dIs "DList" dd) (okV listCase)
+                  (symMerge (dIs "DI" dd) (okV iCase)
+                    (symMerge (dIs "DB" dd) (okV bCase) errR))))
+          some (addErr (sOr nf (gData de)) r)
+      | _ => none
+  | _ => none
 
 /-! ## Saturating a builtin from its accumulated (reversed) value arguments
 
-Pass-through builtins keep their non-condition arguments *as values* (they may be
-higher-order: a `Case`/`if` branch can be a closure). Everything else reifies its
-arguments to first order and dispatches to `symBuiltin`. -/
+All saturated arguments are reified to first order and dispatched to `symBuiltin`.
+Higher-order CEK pass-through builtins are currently reported as indeterminate until
+their symbolic denotations are connected to the adequacy proof. -/
 
 def symSaturate (b : BuiltinFun) (args : List SymV) : SymR :=
-  match b, args with
-  -- IfThenElse [elseV, thenV, condV] (args reversed): branch on the condition's V-Bool.
-  | .IfThenElse, [elseV, thenV, condV] =>
-      let (cNf, cE) := reifyFO condV
-      ⟨.bool false, sOrs [cNf, gBool cE], mergeVal (sAsBool cE) thenV elseV⟩
-  -- ChooseUnit [result, unitV]
-  | .ChooseUnit, [result, unitV] =>
-      let (uNf, uE) := reifyFO unitV
-      ⟨.bool false, sOrs [uNf, gUnit uE], result⟩
-  -- Trace [result, strV]
-  | .Trace, [result, strV] =>
-      let (sNf, sE) := reifyFO strV
-      ⟨.bool false, sOrs [sNf, gStr sE], result⟩
-  -- ChooseData [bCase, iCase, listCase, mapCase, constrCase, dataV]
-  | .ChooseData, [bCase, iCase, listCase, mapCase, constrCase, dataV] =>
-      let (dNf, dE) := reifyFO dataV
-      let dd := sAsData dE
-      let chosen :=
-        mergeVal (dIs "DConstr" dd) constrCase
-          (mergeVal (dIs "DMap" dd) mapCase
-            (mergeVal (dIs "DList" dd) listCase
-              (mergeVal (dIs "DI" dd) iCase bCase)))
-      ⟨.bool false, sOrs [dNf, gData dE], chosen⟩
-  -- ChooseList [consCase, nilCase, listV] — works on VDList and VList only
-  | .ChooseList, [consCase, nilCase, listV] =>
-      let (lNf, lE) := reifyFO listV
-      match V.vConName lE with
-      | some "VDList" => ⟨.bool false, lNf, mergeVal (DL.sIsNil (V.sAsDL lE)) nilCase consCase⟩
-      | some "VList"  => ⟨.bool false, lNf, mergeVal (VL.sIsNil (V.sAsList lE)) nilCase consCase⟩
-      | none          => incR
-      | some _        => errR
-  -- everything else: reify args to first order, dispatch to symBuiltin
-  | _, _ =>
-      let reified := (args.reverse).map reifyFO
+  let appArgs := args.reverse
+  match symPassThrough b appArgs with
+  | some r => r
+  | none =>
+      let reified := appArgs.map reifyFO
       let nfErr := sOrs (reified.map Prod.fst)
       let r := symBuiltin b (reified.map Prod.snd)
       ⟨r.inc, sOr nfErr r.err, r.val⟩
@@ -260,18 +328,18 @@ def symEval : Nat → SymEnv → Term → SymR
       let rf := symEval n ρ f
       let ra := symEval n ρ a
       let rap := symApply n rf.val ra.val
-      ⟨sOrs [rf.inc, ra.inc, rap.inc], sOrs [rf.err, ra.err, rap.err], rap.val⟩
+      symThen rf (symThen ra rap)
   | n+1, ρ, .Force t =>
       let rt := symEval n ρ t
       let rfo := symForce n rt.val
-      ⟨sOr rt.inc rfo.inc, sOr rt.err rfo.err, rfo.val⟩
+      symThen rt rfo
   | n+1, ρ, .Constr tag ms =>
       let rs := symEvalList n ρ ms
-      ⟨sOrs (rs.map SymR.inc), sOrs (rs.map SymR.err), .constr tag (rs.map SymR.val)⟩
+      symThenList rs (.constr tag (rs.map SymR.val))
   | n+1, ρ, .Case scrut alts =>
       let rsc := symEval n ρ scrut
       let rc := symCase n ρ alts rsc.val
-      ⟨sOr rsc.inc rc.inc, sOr rsc.err rc.err, rc.val⟩
+      symThen rsc rc
   | _+1, _, .Error => errR
 termination_by n _ t => (n, sizeOf t)
 
@@ -311,51 +379,55 @@ def symCase : Nat → SymEnv → List Term → SymV → SymR
       | some alt =>
           let r := symEval m ρ alt
           let ra := symApplyList m r.val fields
-          ⟨sOr r.inc ra.inc, sOr r.err ra.err, ra.val⟩
+          symThen r ra
       | none => errR
   | m+1, ρ, alts, .choice c x y => symMerge c (symCase m ρ alts x) (symCase m ρ alts y)
   | m+1, ρ, alts, .fo e =>
       let altRs := symEvalList m ρ alts
-      -- apply branch `i` (0 fields) — for Bool/Unit/Integer scrutinees
-      match V.vConName e with
-      | some "VBool" =>   -- false→0, true→1 (2 constructors)
-          if altRs.length > 2 then errR
-          else symMerge (sAsBool e) (altOr altRs 1) (altOr altRs 0)
-      | some "VUnit" =>   -- 1 constructor, tag 0
-          if altRs.length > 1 then errR else altOr altRs 0
-      | some "VInt" => dispatchIntFrom (sAsInt e) 0 altRs
-      | some "VList" =>   -- ConstList: nil→1, cons→0 [head (raw), VList tail]
-          if altRs.length > 2 then errR
-          else
-            let lE := sAsList e
-            let consR :=
-              let r := altOr altRs 0
-              let ra := symApplyList m r.val [.fo (VL.sHd lE), .fo (V.list (VL.sTl lE))]
-              ⟨sOr r.inc ra.inc, sOr r.err ra.err, ra.val⟩
-            symMerge (VL.sIsNil lE) (altOr altRs 1) consR
-      | some "VDList" =>  -- ConstDataList: nil→1, cons→0 [VData head, VDList tail]
-          if altRs.length > 2 then errR
-          else
-            let dl := V.sAsDL e
-            let consR :=
-              let r := altOr altRs 0
-              let ra := symApplyList m r.val [.fo (V.data (DL.sHd dl)), .fo (V.dlist (DL.sTl dl))]
-              ⟨sOr r.inc ra.inc, sOr r.err ra.err, ra.val⟩
-            symMerge (DL.sIsNil dl) (altOr altRs 1) consR
-      | some "VPair" =>   -- Pair: 1 constructor, tag 0, fields [fst, snd]
-          if altRs.length > 1 then errR
-          else
-            let r := altOr altRs 0
-            let ra := symApplyList m r.val [.fo (sFst e), .fo (sSnd e)]
-            ⟨sOr r.inc ra.inc, sOr r.err ra.err, ra.val⟩
-      | some "VPairD" =>  -- PairData: 1 constructor, fields [VData a, VData b]
-          if altRs.length > 1 then errR
-          else
-            let r := altOr altRs 0
-            let ra := symApplyList m r.val [.fo (V.data (V.sFstD e)), .fo (V.data (V.sSndD e))]
-            ⟨sOr r.inc ra.inc, sOr r.err ra.err, ra.val⟩
-      | none   => incR   -- unknown variant: no claim
-      | some _ => errR   -- known non-`case`-able variant (ByteString/String/Data/…): CEK errors
+      -- Dispatch on every CEK-caseable constant flavour symbolically. Smart
+      -- `sIsCon` folds this to a single arm when `e` has a known constructor.
+      -- A symbolic SOP constructor remains indeterminate because its `VL` field
+      -- count is unbounded; `compile`'s `.anyV` input excludes that case.
+      let boolR :=
+        if altRs.length > 2 then errR
+        else symMerge (sAsBool e) (altOr altRs 1) (altOr altRs 0)
+      let unitR :=
+        if altRs.length > 1 then errR else altOr altRs 0
+      let intR := dispatchIntFrom (sAsInt e) 0 altRs
+      let listR :=
+        if altRs.length > 2 then errR
+        else
+          let lE := sAsList e
+          let r := altOr altRs 0
+          let ra := symApplyList m r.val [.fo (VL.sHd lE), .fo (V.list (VL.sTl lE))]
+          symMerge (VL.sIsNil lE) (altOr altRs 1) (symThen r ra)
+      let dlistR :=
+        if altRs.length > 2 then errR
+        else
+          let dl := V.sAsDL e
+          let r := altOr altRs 0
+          let ra := symApplyList m r.val
+            [.fo (V.data (DL.sHd dl)), .fo (V.dlist (DL.sTl dl))]
+          symMerge (DL.sIsNil dl) (altOr altRs 1) (symThen r ra)
+      let pairR :=
+        if altRs.length > 1 then errR
+        else
+          let r := altOr altRs 0
+          symThen r (symApplyList m r.val [.fo (sFst e), .fo (sSnd e)])
+      let pairDR :=
+        if altRs.length > 1 then errR
+        else
+          let r := altOr altRs 0
+          symThen r (symApplyList m r.val
+            [.fo (V.data (V.sFstD e)), .fo (V.data (V.sSndD e))])
+      symMerge (V.sIsCon "VBool" e) boolR
+        (symMerge (V.sIsCon "VUnit" e) unitR
+          (symMerge (V.sIsCon "VInt" e) intR
+            (symMerge (V.sIsCon "VList" e) listR
+              (symMerge (V.sIsCon "VDList" e) dlistR
+                (symMerge (V.sIsCon "VPair" e) pairR
+                  (symMerge (V.sIsCon "VPairD" e) pairDR
+                    (symMerge (V.sIsCon "VConstr" e) incR errR)))))))
   | _+1, _, _, _ => errR
 termination_by n _ _ _ => (n, 0)
 
@@ -371,7 +443,7 @@ def symApplyList : Nat → SymV → List SymV → SymR
   | n, vf, a :: as =>
       let r := symApply n vf a
       let r2 := symApplyList n r.val as
-      ⟨sOr r.inc r2.inc, sOr r.err r2.err, r2.val⟩
+      symThen r r2
 termination_by n _ vs => (n, sizeOf vs)
 end
 
@@ -386,7 +458,8 @@ inductive InputKind where
   | pairDataList
   /-- A general `list(a)` — a `ConstList`. -/
   | list
-  /-- An input of unknown/polymorphic type: a bare `V` constant. -/
+  /-- An input of unknown/polymorphic `Const` type: a bare, well-formed `V`.
+  SOP constructors are runtime values rather than `Const`s and are excluded. -/
   | anyV
 deriving Repr, DecidableEq
 
@@ -405,6 +478,14 @@ private def byteRange (name : String) : SExpr :=
              (sAnd (Op.le (.int 0) (Seq.nth (.atom name) (.atom "i")))
                    (Op.le (Seq.nth (.atom name) (.atom "i")) (.int 255)))]
 
+/-- Recursive well-formedness predicates from the SMT preamble. They ensure raw
+symbolic datatype inputs decode losslessly to the corresponding CEK constants. -/
+private def wfData (e : SExpr) : SExpr := .app "moist_wf_d" [e]
+private def wfDataList (e : SExpr) : SExpr := .app "moist_wf_dl" [e]
+private def wfDataMap (e : SExpr) : SExpr := .app "moist_wf_dm" [e]
+private def wfConstList (e : SExpr) : SExpr := .app "moist_const_vl" [e]
+private def wfConstV (e : SExpr) : SExpr := .app "moist_const_v" [e]
+
 /-- Build a symbolic input of the given kind. The raw SMT constant is declared at
 its natural sort and wrapped in the matching `V` constructor. -/
 def mkInput (name : String) : InputKind → SymInput
@@ -412,12 +493,12 @@ def mkInput (name : String) : InputKind → SymInput
   | .bool       => ⟨.fo (V.bool (.atom name)), [⟨name, .bool⟩],   []⟩
   | .bytestring => ⟨.fo (V.bs (.atom name)),   [⟨name, .seqInt⟩], [byteRange name]⟩
   | .str        => ⟨.fo (V.str (.atom name)),  [⟨name, .string⟩], []⟩
-  | .data       => ⟨.fo (V.data (.atom name)), [⟨name, .data⟩],   []⟩
+  | .data       => ⟨.fo (V.data (.atom name)), [⟨name, .data⟩],   [wfData (.atom name)]⟩
   | .unit       => ⟨.fo V.unit, [], []⟩
-  | .dataList     => ⟨.fo (V.dlist (.atom name)),  [⟨name, .dataList⟩], []⟩
-  | .pairDataList => ⟨.fo (V.pdlist (.atom name)), [⟨name, .dataMap⟩], []⟩
-  | .list         => ⟨.fo (V.list (.atom name)),   [⟨name, .valList⟩], []⟩
-  | .anyV       => ⟨.fo (.atom name), [⟨name, .val⟩], []⟩
+  | .dataList     => ⟨.fo (V.dlist (.atom name)),  [⟨name, .dataList⟩], [wfDataList (.atom name)]⟩
+  | .pairDataList => ⟨.fo (V.pdlist (.atom name)), [⟨name, .dataMap⟩], [wfDataMap (.atom name)]⟩
+  | .list         => ⟨.fo (V.list (.atom name)),   [⟨name, .valList⟩], [wfConstList (.atom name)]⟩
+  | .anyV       => ⟨.fo (.atom name), [⟨name, .val⟩], [wfConstV (.atom name)]⟩
 
 /-- The result of compiling a UPLC term against a list of symbolic inputs. -/
 structure Compiled where

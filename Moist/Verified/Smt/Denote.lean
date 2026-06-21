@@ -90,6 +90,28 @@ def WFDM : SemDM → Prop
   | .cons k v t => WFD k ∧ WFD v ∧ WFDM t
 end
 
+/-! ConstSemV is the additional invariant for semantic values that are stored
+inside CEK Const positions (ConstList, Pair, ConstArray). Runtime SOP
+constructors (VConstr) are valid CEK values, but they are not constants; if they
+were allowed under ConstList/Pair, cekToConst would silently replace them with
+junk and the formal denotation would no longer be lossless. -/
+
+mutual
+def ConstSemV : SemV → Prop
+  | .list vl   => ConstSemVL vl
+  | .pair a b  => ConstSemV a ∧ ConstSemV b
+  | .arr vl    => ConstSemVL vl
+  | .constr _ _ => False
+  | _          => True
+def ConstSemVL : SemVL → Prop
+  | .nil      => True
+  | .cons h t => ConstSemV h ∧ ConstSemVL t
+end
+
+theorem decodeV_constSem (v : SemV) (h : ConstSemV v) :
+    decodeV v = .VCon (cekToConst (decodeV v)) := by
+  cases v <;> simp [ConstSemV, decodeV, cekToConst] at h ⊢
+
 mutual
 def WFV : SemV → Prop
   | .int _     => True
@@ -98,12 +120,12 @@ def WFV : SemV → Prop
   | .unit      => True
   | .str _     => True
   | .data d    => WFD d
-  | .list vl   => WFVL vl
+  | .list vl   => WFVL vl ∧ ConstSemVL vl
   | .dlist dl  => WFDL dl
   | .pdlist dm => WFDM dm
-  | .pair a b  => WFV a ∧ WFV b
+  | .pair a b  => WFV a ∧ WFV b ∧ ConstSemV a ∧ ConstSemV b
   | .pairD a b => WFD a ∧ WFD b
-  | .arr vl    => WFVL vl
+  | .arr vl    => WFVL vl ∧ ConstSemVL vl
   | .constr _ fields => WFVL fields
   | .g1 => True | .g2 => True | .ml => True
 def WFVL : SemVL → Prop
@@ -120,6 +142,12 @@ def WFDyn : Dyn → Prop
   | .v x   => WFV x
   | .vl x  => WFVL x
   | _      => True
+
+@[simp] theorem default_SemV : (default : SemV) = .int 0 := rfl
+
+theorem WFV_toV_of_WFDyn {d : Dyn} (h : WFDyn d) : WFV d.toV := by
+  cases d <;> simp [WFDyn, Dyn.toV, WFV, default_SemV] at h ⊢
+  exact h
 
 mutual
 /-- Well-formedness of a symbolic value under model `M` (recursively WF byte ranges;

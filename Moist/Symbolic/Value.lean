@@ -281,6 +281,34 @@ end
 def symMerge (c : SExpr) (x y : SymR) : SymR :=
   ⟨sIte c x.inc y.inc, sIte c x.err y.err, mergeVal c x.val y.val⟩
 
+/-! ## Sequential outcome composition
+
+The CEK stops at the first incomplete or failing computation.  Merely OR-ing the
+`inc` and `err` bits of computations that appear later in the syntax is too
+conservative: an out-of-fuel argument must not hide an error in the function
+position, for example.  `symThen x y` is the symbolic form of
+
+```
+match x with
+| incomplete => incomplete
+| error      => error
+| value _    => y
+```
+
+`y` may already have been constructed by Lean, but its outcome is observable only
+on paths where `x` completed successfully. -/
+
+/-- Sequence two symbolic computations, preserving CEK left-to-right stopping. -/
+def symThen (x y : SymR) : SymR :=
+  ⟨sIte x.inc (.bool true) (sIte x.err (.bool false) y.inc),
+   sIte x.inc (.bool false) (sIte x.err (.bool true) y.err),
+   y.val⟩
+
+/-- Sequence a list of computations and return `v` after all of them succeed. -/
+def symThenList : List SymR → SymV → SymR
+  | [], v      => ⟨.bool false, .bool false, v⟩
+  | r :: rs, v => symThen r (symThenList rs v)
+
 /-! ## Environment lookup (1-based de Bruijn, mirroring `CekEnv.lookup`) -/
 
 /-- Look up a de Bruijn index (`Var 1` = head). `none` = out of scope. -/
