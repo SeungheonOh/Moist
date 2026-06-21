@@ -25,12 +25,20 @@ condition in the symbolic inputs* (e.g. `x ≥ depth`), not a blanket failure.
   `EqualsString`/`AppendString`, `IfThenElse`/`ChooseUnit`/`Trace`, `FstPair`/`SndPair`/
   `MkPairData`, `ChooseList`/`MkCons`/`HeadList`/`TailList`/`NullList`/`MkNil*`,
   `ChooseData` + all `Data` con/destructors + `EqualsData`.
-* **Opaque (uninterpreted functions)**: hashing (`Sha2_256`/…/`Ripemd_160`),
-  signature checks, `SerializeData`, all BLS — congruence `x = y ⇒ f x = f y` only.
-* **Indeterminate (`inc = true`, no claim)**: `SliceByteString`, bytestring `<`/`≤`,
-  utf8 encode/decode, bitwise batch-5, int↔bytestring conversions, `ExpModInteger`,
-  batch-7. These are *sound* (they make no false claim) but incomplete; increase
-  coverage as needed.
+* **Indeterminate (`inc = true`, no claim)**: every builtin the reference CEK
+  (`Moist.CEK.evalBuiltin`) does **not** compute. This includes the cryptographic
+  hashes (`Sha2_256`/…/`Ripemd_160`), signature checks, `SerializeData`, **all BLS**
+  ops — which the CEK *errors* on (no `evalBuiltinConst` case), so modelling them as
+  succeeding opaque UFs would be **unsound** (Stage-2 soundness: SMT-pass must imply
+  CEK-pass). It also covers builtins the CEK *does* implement but we have not modelled
+  precisely yet: `SliceByteString`, bytestring `<`/`≤`, utf8 encode/decode, bitwise
+  batch-5, int↔bytestring conversions, `ExpModInteger`, batch-7. All of these make
+  **no claim** (`inc = true`): sound but incomplete; widen coverage by giving them a
+  precise arm (and, for the crypto/BLS family, a matching CEK denotation) as needed.
+
+> Note: the opaque `uf_*` declarations and BLS element sorts remain in the SMT
+> preamble (`Smt.lean`) — harmless, and they let a future "precise opaque" mode
+> (CEK extended with trusted hash/BLS denotations) be switched back on.
 -/
 
 namespace Moist.Symbolic
@@ -41,31 +49,28 @@ open SExpr (sNot sAnd sOr sImplies sIte sEq)
 
 /-! ## Type-guard helpers (error when a `V` value has the wrong variant) -/
 
-private def gInt  (e : SExpr) : SExpr := sNot (V.sIsCon "VInt" e)
-private def gBool (e : SExpr) : SExpr := sNot (V.sIsCon "VBool" e)
-private def gBS   (e : SExpr) : SExpr := sNot (V.sIsCon "VBS" e)
-private def gStr  (e : SExpr) : SExpr := sNot (V.sIsCon "VStr" e)
-private def gData (e : SExpr) : SExpr := sNot (V.sIsCon "VData" e)
-private def gUnit (e : SExpr) : SExpr := sNot (V.sIsCon "VUnit" e)
-private def gG1   (e : SExpr) : SExpr := sNot (V.sIsCon "VG1" e)
-private def gG2   (e : SExpr) : SExpr := sNot (V.sIsCon "VG2" e)
-private def gMl   (e : SExpr) : SExpr := sNot (V.sIsCon "VMl" e)
+def gInt  (e : SExpr) : SExpr := sNot (V.sIsCon "VInt" e)
+def gBool (e : SExpr) : SExpr := sNot (V.sIsCon "VBool" e)
+def gBS   (e : SExpr) : SExpr := sNot (V.sIsCon "VBS" e)
+def gStr  (e : SExpr) : SExpr := sNot (V.sIsCon "VStr" e)
+def gData (e : SExpr) : SExpr := sNot (V.sIsCon "VData" e)
+def gUnit (e : SExpr) : SExpr := sNot (V.sIsCon "VUnit" e)
 
 /-- Data-kind discriminator `(is-DCon dd)`. -/
-private def dIs (con : String) (dd : SExpr) : SExpr := .app s!"is-{con}" [dd]
+def dIs (con : String) (dd : SExpr) : SExpr := .app s!"is-{con}" [dd]
 /-- Negated Data-kind discriminator. -/
-private def dNot (con : String) (dd : SExpr) : SExpr := sNot (dIs con dd)
+def dNot (con : String) (dd : SExpr) : SExpr := sNot (dIs con dd)
 
 /-- A definite-error result (declared early; reused by the list dispatcher). -/
-private def errR' : SymR := ⟨.bool false, .bool true, junk⟩
+def errR' : SymR := ⟨.bool false, .bool true, junk⟩
 /-- An indeterminate result (out of fuel / unsupported / undetermined flavour). -/
-private def incR' : SymR := ⟨.bool true, .bool false, junk⟩
+def incR' : SymR := ⟨.bool true, .bool false, junk⟩
 
 /-- Dispatch a list builtin across the two valid `Const` list flavours, exactly as
 the CEK does: `VDList` (`ConstDataList`, elements projected as a `DL`) or `VList`
 (`ConstList`, elements a `VL`); a *known* non-list variant errors; an *unknown*
 flavour is indeterminate (no claim). -/
-private def onList (l : SExpr) (onD : SExpr → SymR) (onV : SExpr → SymR) : SymR :=
+def onList (l : SExpr) (onD : SExpr → SymR) (onV : SExpr → SymR) : SymR :=
   match V.vConName l with
   | some "VDList" => onD (V.sAsDL l)
   | some "VList"  => onV (V.sAsList l)
@@ -73,13 +78,13 @@ private def onList (l : SExpr) (onD : SExpr → SymR) (onV : SExpr → SymR) : S
   | some _        => errR'
 
 /-- A definite-error result. -/
-private def errR : SymR := ⟨.bool false, .bool true, junk⟩
+def errR : SymR := ⟨.bool false, .bool true, junk⟩
 /-- An indeterminate result (out of fuel / unsupported). -/
-private def incR : SymR := ⟨.bool true, .bool false, junk⟩
+def incR : SymR := ⟨.bool true, .bool false, junk⟩
 /-- A pure (non-erroring, complete) first-order result. -/
-private def okFO (e : SExpr) : SymR := ⟨.bool false, .bool false, .fo e⟩
+def okFO (e : SExpr) : SymR := ⟨.bool false, .bool false, .fo e⟩
 /-- A first-order result that errors under `g`. -/
-private def foGuard (g e : SExpr) : SymR := ⟨.bool false, g, .fo e⟩
+def foGuard (g e : SExpr) : SymR := ⟨.bool false, g, .fo e⟩
 
 /-! ## Saturated builtin evaluation on first-order arguments
 
@@ -88,7 +93,7 @@ as `V`-sorted `SExpr`s and returns the saturated result. `inc = true` marks an
 unsupported builtin (no claim); otherwise `err` is the precise UPLC failure
 condition (type mismatch, division by zero, head-of-nil, …). -/
 
-open V (sAsInt sAsBool sAsBS sAsStr sAsData sAsList sFst sSnd asG1 asG2 asMl)
+open V (sAsInt sAsBool sAsBS sAsStr sAsData sAsList sFst sSnd)
 
 def symBuiltin : BuiltinFun → List SExpr → SymR
   -- Integer arithmetic
@@ -172,39 +177,11 @@ def symBuiltin : BuiltinFun → List SExpr → SymR
   | .UnListData, [d] => foGuard (sOr (gData d) (dNot "DList" (sAsData d))) (V.dlist (D.dlElems (sAsData d)))
   | .UnMapData,  [d] => foGuard (sOr (gData d) (dNot "DMap" (sAsData d)))  (V.pdlist (D.dmEntries (sAsData d)))
   | .EqualsData, [a, b] => foGuard (sOr (gData a) (gData b)) (V.bool (sEq (sAsData a) (sAsData b)))
-  -- Opaque hashing
-  | .Sha2_256,    [bs] => foGuard (gBS bs) (V.bs (.app "uf_sha2_256" [sAsBS bs]))
-  | .Sha3_256,    [bs] => foGuard (gBS bs) (V.bs (.app "uf_sha3_256" [sAsBS bs]))
-  | .Blake2b_256, [bs] => foGuard (gBS bs) (V.bs (.app "uf_blake2b_256" [sAsBS bs]))
-  | .Blake2b_224, [bs] => foGuard (gBS bs) (V.bs (.app "uf_blake2b_224" [sAsBS bs]))
-  | .Keccak_256,  [bs] => foGuard (gBS bs) (V.bs (.app "uf_keccak_256" [sAsBS bs]))
-  | .Ripemd_160,  [bs] => foGuard (gBS bs) (V.bs (.app "uf_ripemd_160" [sAsBS bs]))
-  | .VerifyEd25519Signature, [k, m, s] =>
-      foGuard (sOrs [gBS k, gBS m, gBS s]) (V.bool (.app "uf_verifyEd25519" [sAsBS k, sAsBS m, sAsBS s]))
-  | .VerifyEcdsaSecp256k1Signature, [k, m, s] =>
-      foGuard (sOrs [gBS k, gBS m, gBS s]) (V.bool (.app "uf_verifyEcdsa" [sAsBS k, sAsBS m, sAsBS s]))
-  | .VerifySchnorrSecp256k1Signature, [k, m, s] =>
-      foGuard (sOrs [gBS k, gBS m, gBS s]) (V.bool (.app "uf_verifySchnorr" [sAsBS k, sAsBS m, sAsBS s]))
-  | .SerializeData, [d] => foGuard (gData d) (V.bs (.app "uf_serializeData" [sAsData d]))
-  -- BLS (opaque)
-  | .Bls12_381_G1_add,       [a, b] => foGuard (sOr (gG1 a) (gG1 b)) (V.g1 (.app "uf_bls_g1_add" [asG1 a, asG1 b]))
-  | .Bls12_381_G1_neg,       [a]    => foGuard (gG1 a) (V.g1 (.app "uf_bls_g1_neg" [asG1 a]))
-  | .Bls12_381_G1_scalarMul, [n, a] => foGuard (sOr (gInt n) (gG1 a)) (V.g1 (.app "uf_bls_g1_scalarMul" [sAsInt n, asG1 a]))
-  | .Bls12_381_G1_equal,     [a, b] => foGuard (sOr (gG1 a) (gG1 b)) (V.bool (.app "uf_bls_g1_equal" [asG1 a, asG1 b]))
-  | .Bls12_381_G1_hashToGroup, [m, d] => foGuard (sOr (gBS m) (gBS d)) (V.g1 (.app "uf_bls_g1_hashToGroup" [sAsBS m, sAsBS d]))
-  | .Bls12_381_G1_compress,   [a] => foGuard (gG1 a) (V.bs (.app "uf_bls_g1_compress" [asG1 a]))
-  | .Bls12_381_G1_uncompress, [a] => foGuard (gBS a) (V.g1 (.app "uf_bls_g1_uncompress" [sAsBS a]))
-  | .Bls12_381_G2_add,       [a, b] => foGuard (sOr (gG2 a) (gG2 b)) (V.g2 (.app "uf_bls_g2_add" [asG2 a, asG2 b]))
-  | .Bls12_381_G2_neg,       [a]    => foGuard (gG2 a) (V.g2 (.app "uf_bls_g2_neg" [asG2 a]))
-  | .Bls12_381_G2_scalarMul, [n, a] => foGuard (sOr (gInt n) (gG2 a)) (V.g2 (.app "uf_bls_g2_scalarMul" [sAsInt n, asG2 a]))
-  | .Bls12_381_G2_equal,     [a, b] => foGuard (sOr (gG2 a) (gG2 b)) (V.bool (.app "uf_bls_g2_equal" [asG2 a, asG2 b]))
-  | .Bls12_381_G2_hashToGroup, [m, d] => foGuard (sOr (gBS m) (gBS d)) (V.g2 (.app "uf_bls_g2_hashToGroup" [sAsBS m, sAsBS d]))
-  | .Bls12_381_G2_compress,   [a] => foGuard (gG2 a) (V.bs (.app "uf_bls_g2_compress" [asG2 a]))
-  | .Bls12_381_G2_uncompress, [a] => foGuard (gBS a) (V.g2 (.app "uf_bls_g2_uncompress" [sAsBS a]))
-  | .Bls12_381_millerLoop,   [a, b] => foGuard (sOr (gG1 a) (gG2 b)) (V.ml (.app "uf_bls_millerLoop" [asG1 a, asG2 b]))
-  | .Bls12_381_mulMlResult,  [a, b] => foGuard (sOr (gMl a) (gMl b)) (V.ml (.app "uf_bls_mulMlResult" [asMl a, asMl b]))
-  | .Bls12_381_finalVerify,  [a, b] => foGuard (sOr (gMl a) (gMl b)) (V.bool (.app "uf_bls_finalVerify" [asMl a, asMl b]))
-  -- Unsupported / indeterminate (sound: no claim)
+  -- Indeterminate / unsupported (sound: no claim). This includes every builtin the
+  -- reference CEK (`evalBuiltin`) does not compute — the cryptographic hashes,
+  -- signature checks, `SerializeData`, and all BLS operations (the CEK *errors* on
+  -- them), as well as the not-yet-modelled `SliceByteString`, bytestring `<`/`≤`,
+  -- utf8, bitwise, int↔bytestring, `ExpModInteger`, and batch-7 builtins.
   | _, _ => incR
 
 /-! ## Saturating a builtin from its accumulated (reversed) value arguments
@@ -261,7 +238,7 @@ def dispatchIntFrom (tagE : SExpr) : Nat → List SymR → SymR
   | i, r :: rs => symMerge (sEq tagE (.int (Int.ofNat i))) r (dispatchIntFrom tagE (i + 1) rs)
 
 /-- Safe indexing into the evaluated alternatives. -/
-private def altOr (altRs : List SymR) (i : Nat) : SymR :=
+def altOr (altRs : List SymR) (i : Nat) : SymR :=
   match altRs[i]? with | some r => r | none => errR
 
 /-! ## The evaluator (mutual, fuel-structural — a clone of `bigEval`) -/

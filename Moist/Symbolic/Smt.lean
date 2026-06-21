@@ -89,15 +89,24 @@ def sImplies : SExpr → SExpr → SExpr
   | .bool true,  b => b
   | a, b           => .app "=>" [a, b]
 
-/-- Structural equality of S-expressions, used for the `ite c a a ⇒ a` peephole. -/
-partial def beq : SExpr → SExpr → Bool
+/- Structural equality of S-expressions, used for the `ite c a a ⇒ a` peephole.
+Mutual-structural (not `partial`) so it carries equation lemmas for the Stage-2
+soundness proof (`beq a b = true → a = b`). -/
+mutual
+/-- Structural equality of S-expressions (used for the `ite c a a ⇒ a` peephole). -/
+def beq : SExpr → SExpr → Bool
   | .int a,    .int b    => a == b
   | .bool a,   .bool b   => a == b
   | .str a,    .str b    => a == b
   | .atom a,   .atom b   => a == b
-  | .app f as, .app g bs =>
-      f == g && as.length == bs.length && (as.zip bs).all (fun (x, y) => beq x y)
+  | .app f as, .app g bs => f == g && beqList as bs
   | _, _ => false
+/-- Pointwise structural equality of `SExpr` lists (same length + elementwise `beq`). -/
+def beqList : List SExpr → List SExpr → Bool
+  | [],      []      => true
+  | x :: xs, y :: ys => beq x y && beqList xs ys
+  | _,       _       => false
+end
 
 /-- Smart `ite`, folding a literal condition and collapsing `ite c a a`. -/
 def sIte (c t e : SExpr) : SExpr :=

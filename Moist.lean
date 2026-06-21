@@ -20,3 +20,13 @@ import Moist.Onchain
 import Moist.Symbolic.Smt
 import Moist.Symbolic.Value
 import Moist.Symbolic.Compile
+import Moist.Verified.Smt.Model
+import Moist.Verified.Smt.Denote
+import Moist.Verified.Smt.EvalLemmas
+import Moist.Verified.Smt.SortLemmas
+import Moist.Verified.Smt.MergeReify
+import Moist.Verified.Smt.BuiltinLemmas
+import Moist.Verified.Smt.Induction
+import Moist.Verified.Smt.Simulation
+import Moist.Verified.Smt.Soundness
+import Moist.Verified.Smt.Validate

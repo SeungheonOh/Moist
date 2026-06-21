@@ -89,11 +89,29 @@ def knownVCons : List String :=
   ["VInt","VBS","VBool","VStr","VData","VList","VDList","VPDList",
    "VPair","VPairD","VArr","VConstr","VG1","VG2","VMl"]
 
-/-- The `V` constructor head of `e`, if statically apparent. -/
+/-- The `V` constructor head of `e`, if statically apparent. Matched per-constructor at
+the *correct arity*, so it is faithful to evaluation: `vConName e = some c` exactly when
+`e` is a well-formed application of the `c` constructor, hence `(eval e)` really has head
+`c` (needed by the Stage-2 soundness proof). The compiler only builds correct-arity apps,
+so dispatch behaviour is unchanged from the old `knownVCons.contains` check. -/
 def vConName : SExpr → Option String
-  | .atom "VUnit" => some "VUnit"
-  | .app c _      => if knownVCons.contains c then some c else none
-  | _             => none
+  | .atom "VUnit"         => some "VUnit"
+  | .app "VInt"    [_]    => some "VInt"
+  | .app "VBS"     [_]    => some "VBS"
+  | .app "VBool"   [_]    => some "VBool"
+  | .app "VStr"    [_]    => some "VStr"
+  | .app "VData"   [_]    => some "VData"
+  | .app "VList"   [_]    => some "VList"
+  | .app "VDList"  [_]    => some "VDList"
+  | .app "VPDList" [_]    => some "VPDList"
+  | .app "VArr"    [_]    => some "VArr"
+  | .app "VG1"     [_]    => some "VG1"
+  | .app "VG2"     [_]    => some "VG2"
+  | .app "VMl"     [_]    => some "VMl"
+  | .app "VPair"   [_, _] => some "VPair"
+  | .app "VPairD"  [_, _] => some "VPairD"
+  | .app "VConstr" [_, _] => some "VConstr"
+  | _                     => none
 
 /-- Smart discriminator `(is-Con e)`, folded when `e`'s head is statically known. -/
 def sIsCon (con : String) (e : SExpr) : SExpr :=
@@ -101,49 +119,55 @@ def sIsCon (con : String) (e : SExpr) : SExpr :=
   | some c => .bool (c == con)
   | none   => isCon con e
 
-def sAsInt  : SExpr → SExpr | .app "VInt"   [e] => e | e => asInt e
-def sAsBool : SExpr → SExpr | .app "VBool"  [e] => e | e => asBool e
-def sAsBS   : SExpr → SExpr | .app "VBS"    [e] => e | e => asBS e
-def sAsStr  : SExpr → SExpr | .app "VStr"   [e] => e | e => asStr e
-def sAsData : SExpr → SExpr | .app "VData"  [e] => e | e => asData e
-def sAsList : SExpr → SExpr | .app "VList"  [e] => e | e => asList e
-def sAsDL   : SExpr → SExpr | .app "VDList" [e] => e | e => asDL e
-def sAsDM   : SExpr → SExpr | .app "VPDList" [e] => e | e => asDM e
-def sAsArr  : SExpr → SExpr | .app "VArr"   [e] => e | e => asArr e
-def sFst    : SExpr → SExpr | .app "VPair"  [a, _] => a | e => fst e
-def sSnd    : SExpr → SExpr | .app "VPair"  [_, b] => b | e => snd e
-def sFstD   : SExpr → SExpr | .app "VPairD" [a, _] => a | e => fstD e
-def sSndD   : SExpr → SExpr | .app "VPairD" [_, b] => b | e => sndD e
-def sCTag   : SExpr → SExpr | .app "VConstr" [t, _] => t | e => cTag e
-def sCArgs  : SExpr → SExpr | .app "VConstr" [_, a] => a | e => cArgs e
+-- Projectors are *non-folding* (always emit the SMT selector): `viVal (VInt 5)` instead
+-- of `5`. z3 reduces these via the datatype-selector axiom, so the emitted script is
+-- semantically identical (just less pre-folded); and the Stage-2 denotation of `sAsInt e`
+-- is then `viVal`'s — the canonical `Int` projection of `⟦e⟧` — *unconditionally*, with no
+-- payload well-sortedness side condition (needed by `EqualsInteger`/pairs/`Case`, where the
+-- projected payload is compared/used as a value rather than only `.toInt`'d).
+def sAsInt  (e : SExpr) : SExpr := asInt e
+def sAsBool (e : SExpr) : SExpr := asBool e
+def sAsBS   (e : SExpr) : SExpr := asBS e
+def sAsStr  (e : SExpr) : SExpr := asStr e
+def sAsData (e : SExpr) : SExpr := asData e
+def sAsList (e : SExpr) : SExpr := asList e
+def sAsDL   (e : SExpr) : SExpr := asDL e
+def sAsDM   (e : SExpr) : SExpr := asDM e
+def sAsArr  (e : SExpr) : SExpr := asArr e
+def sFst    (e : SExpr) : SExpr := fst e
+def sSnd    (e : SExpr) : SExpr := snd e
+def sFstD   (e : SExpr) : SExpr := fstD e
+def sSndD   (e : SExpr) : SExpr := sndD e
+def sCTag   (e : SExpr) : SExpr := cTag e
+def sCArgs  (e : SExpr) : SExpr := cArgs e
 
 end V
 
 namespace VL
 
-/-- Smart `is-vnil`, folded against `vnil`/`vcons`. -/
+/-- Smart `is-vnil`, folded against `vnil`/`vcons` (arity-checked cons: faithful to eval). -/
 def sIsNil : SExpr → SExpr
-  | .atom "vnil"   => .bool true
-  | .app "vcons" _ => .bool false
-  | e              => isNil e
-/-- Smart head, folded against `vcons`. -/
-def sHd : SExpr → SExpr | .app "vcons" [h, _] => h | e => hd e
-/-- Smart tail, folded against `vcons`. -/
-def sTl : SExpr → SExpr | .app "vcons" [_, t] => t | e => tl e
+  | .atom "vnil"      => .bool true
+  | .app "vcons" [_, _] => .bool false
+  | e                 => isNil e
+/-- Head (non-folding selector; see the note on `V.sAsInt`). -/
+def sHd (e : SExpr) : SExpr := hd e
+/-- Tail (non-folding selector). -/
+def sTl (e : SExpr) : SExpr := tl e
 
 end VL
 
 namespace DL
 
-/-- Smart `is-dnil`, folded against `dnil`/`dcons`. -/
+/-- Smart `is-dnil`, folded against `dnil`/`dcons` (arity-checked cons: faithful to eval). -/
 def sIsNil : SExpr → SExpr
-  | .atom "dnil"   => .bool true
-  | .app "dcons" _ => .bool false
-  | e              => isNil e
-/-- Smart head (a `D`), folded against `dcons`. -/
-def sHd : SExpr → SExpr | .app "dcons" [h, _] => h | e => hd e
-/-- Smart tail (a `DL`), folded against `dcons`. -/
-def sTl : SExpr → SExpr | .app "dcons" [_, t] => t | e => tl e
+  | .atom "dnil"      => .bool true
+  | .app "dcons" [_, _] => .bool false
+  | e                 => isNil e
+/-- Head `D` (non-folding selector). -/
+def sHd (e : SExpr) : SExpr := hd e
+/-- Tail `DL` (non-folding selector). -/
+def sTl (e : SExpr) : SExpr := tl e
 
 end DL
 

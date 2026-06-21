@@ -121,16 +121,20 @@ def ex4 : Term :=
 #eval demo "Example 4: force (if x<0 then delay 100 else delay (x+x)) = 6   (expect x = 3)"
   (compile 14 [("x", .integer)] ex4) (goalReturnsInt · 6)
 
-/-! ## Example 5 — opaque hashing congruence
+/-! ## Example 5 — hashing is `inc` ("no claim")
 
-`equalsByteString (sha2_256 a) (sha2_256 b)` with `a b : ByteString` symbolic.
-Hashing is an *uninterpreted* function, so z3 only knows congruence. Asking for
-`a = b` ∧ hashes-equal is trivially `sat`; asking for hashes-equal alone is also
-`sat` (the UF can collide) — this demonstrates the opaque modelling. -/
+`equalsByteString (sha2_256 a) (sha2_256 b)` with `a b : ByteString` symbolic. The
+reference CEK (`Moist.CEK.evalBuiltin`) does **not** implement `sha2_256` (it errors),
+so for Stage-2 soundness the compiler models it as **indeterminate** (`inc = true`),
+not as a succeeding uninterpreted function — otherwise "SMT-pass ⟹ CEK-pass" would be
+false. Any goal asserting determinacy (`¬inc`) here is therefore `unsat` with
+`determinate` in the unsat core: no claim is made. (Re-enabling opaque hash *congruence*
+reasoning would require extending the CEK with trusted hash denotations; see the note
+in `Moist.Symbolic.symBuiltin`.) -/
 
 def ex5 : Term := b2 .EqualsByteString (b1 .Sha2_256 (.Var 1)) (b1 .Sha2_256 (.Var 2))
 
-#eval demo "Example 5: equalsByteString (sha2_256 a) (sha2_256 b) = true (opaque hash)"
+#eval demo "Example 5: equalsByteString (sha2_256 a) (sha2_256 b) = true (now inc: no claim)"
   (compile 12 [("a", .bytestring), ("b", .bytestring)] ex5) (goalReturnsBool · true)
 
 /-! ## Example 6 — bounded recursion (the fueled `sum`)
