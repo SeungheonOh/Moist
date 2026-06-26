@@ -277,7 +277,7 @@ def dataPairListExpr : List (SExpr × SExpr) → SExpr
   | [] => .app "DPNil" []
   | (k, v) :: xs => .app "DPCons" [k, v, dataPairListExpr xs]
 
-partial def encodeVal? : SymVal → Option SExpr
+def encodeVal? : SymVal → Option SExpr
   | .const c => encodeConst? c
   | .dyn e => some e
   | .pair a b => do
@@ -418,43 +418,32 @@ def checked2 (p : Proj α) (mk : α → List Outcome) : List Outcome :=
   (mk p.val).map (Outcome.guard p.guard) ++ [.error (SExpr.not p.guard)]
 
 def bytesLiteral (bs : ByteString) : SExpr :=
-  bs.data.foldl (fun acc b => SExpr.seqAppend acc (SExpr.seqUnit (.int (Int.ofNat b.toNat))))
-    (SExpr.seqEmpty "Bytes")
+  .bytes bs
 
 mutual
   def dataLiteral : Data → SExpr
-    | .Constr tag fields => .app "DConstr" [.int tag, dataListLiteral fields]
-    | .Map ps => .app "DMap" [dataPairListLiteral ps]
-    | .List xs => .app "DList" [dataListLiteral xs]
-    | .I i => .app "DI" [.int i]
-    | .B bs => .app "DB" [bytesLiteral bs]
+    | d => .dataLit d
 
   def dataListLiteral : List Data → SExpr
-    | [] => .app "DNil" []
-    | x :: xs => .app "DCons" [dataLiteral x, dataListLiteral xs]
+    | xs => .dataListLit xs
 
   def dataPairListLiteral : List (Data × Data) → SExpr
-    | [] => .app "DPNil" []
-    | (k, v) :: xs => .app "DPCons" [dataLiteral k, dataLiteral v, dataPairListLiteral xs]
+    | xs => .dataPairListLit xs
 end
 
-partial def constLiteral : Const → SymVal
+def constLiteral : Const → SymVal
   | .Integer i => .const (.integer (.int i))
   | .ByteString bs => .const (.bytes (bytesLiteral bs))
   | .String s => .const (.string (.str s))
   | .Unit => .const .unit
   | .Bool b => .const (.bool (.bool b))
-  | .ConstList xs =>
-      let vals := xs.filterMap (fun c => encodeVal? (constLiteral c))
-      .const (.constList (valListExpr vals))
+  | .ConstList xs => .const (.constList (.constListLit xs))
   | .ConstDataList xs => .const (.dataList (dataListLiteral xs))
   | .ConstPairDataList xs => .const (.pairDataList (dataPairListLiteral xs))
   | .Pair (a, b) => .pair (constLiteral a) (constLiteral b)
   | .PairData (a, b) => .const (.pairData (dataLiteral a) (dataLiteral b))
   | .Data d => .const (.data (dataLiteral d))
-  | .ConstArray xs =>
-      let vals := xs.filterMap (fun c => encodeVal? (constLiteral c))
-      .const (.array (valListExpr vals))
+  | .ConstArray xs => .const (.array (.constListLit xs))
   | .Bls12_381_G1_element => .const (.g1 (.sym "g1_default"))
   | .Bls12_381_G2_element => .const (.g2 (.sym "g2_default"))
   | .Bls12_381_MlResult => .const (.ml (.sym "ml_default"))

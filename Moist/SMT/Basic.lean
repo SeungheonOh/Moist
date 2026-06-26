@@ -2,6 +2,9 @@ import Moist.Plutus.Term
 
 namespace Moist.SMT
 
+open Moist.Plutus (Data)
+open Moist.Plutus.Term (Const)
+
 /-! # Small SMTLib surface
 
 This is intentionally tiny and first-order.  The UPLC symbolic compiler builds
@@ -48,6 +51,11 @@ end SSort
 inductive Expr where
   | sym : String → Expr
   | int : Int → Expr
+  | bytes : ByteArray → Expr
+  | dataLit : Data → Expr
+  | dataListLit : List Data → Expr
+  | dataPairListLit : List (Data × Data) → Expr
+  | constListLit : List Const → Expr
   | bool : Bool → Expr
   | str : String → Expr
   | app : String → List Expr → Expr
@@ -64,28 +72,11 @@ def not : Expr → Expr
   | .bool false => .bool true
   | a => .app "not" [a]
 
-def and : Expr → Expr → Expr
-  | .bool true, b => b
-  | a, .bool true => a
-  | .bool false, _ => .bool false
-  | _, .bool false => .bool false
-  | a, b => .app "and" [a, b]
+def and (a b : Expr) : Expr := .app "and" [a, b]
 
-def or : Expr → Expr → Expr
-  | .bool false, b => b
-  | a, .bool false => a
-  | .bool true, _ => .bool true
-  | _, .bool true => .bool true
-  | a, b => .app "or" [a, b]
+def or (a b : Expr) : Expr := .app "or" [a, b]
 def imp (a b : Expr) : Expr := .app "=>" [a, b]
-def eq (a b : Expr) : Expr :=
-  if a == b then .bool true
-  else
-    match a, b with
-    | .int _, .int _ => .bool false
-    | .bool _, .bool _ => .bool false
-    | .str _, .str _ => .bool false
-    | _, _ => .app "=" [a, b]
+def eq (a b : Expr) : Expr := .app "=" [a, b]
 def ne (a b : Expr) : Expr := not (eq a b)
 def add (a b : Expr) : Expr := .app "+" [a, b]
 def sub (a b : Expr) : Expr := .app "-" [a, b]
@@ -114,15 +105,79 @@ private def escapeString (s : String) : String :=
     | c :: cs => c :: loop cs
   String.mk (loop s.data)
 
-partial def render : Expr → String
+private def renderByte (b : UInt8) : String :=
+  "(seq.unit " ++ toString b.toNat ++ ")"
+
+private def renderBytes (bs : ByteArray) : String :=
+  bs.data.foldl
+    (fun acc b => "(seq.++ " ++ acc ++ " " ++ renderByte b ++ ")")
+    "(as seq.empty Bytes)"
+
+private def renderInt (i : Int) : String :=
+  if i < 0 then "(- " ++ toString i.natAbs ++ ")" else toString i
+
+mutual
+  private def renderData : Data → String
+    | .Constr tag fields => "(DConstr " ++ renderInt tag ++ " " ++ renderDataList fields ++ ")"
+    | .Map ps => "(DMap " ++ renderDataPairList ps ++ ")"
+    | .List xs => "(DList " ++ renderDataList xs ++ ")"
+    | .I i => "(DI " ++ renderInt i ++ ")"
+    | .B bs => "(DB " ++ renderBytes bs ++ ")"
+
+  private def renderDataList : List Data → String
+    | [] => "DNil"
+    | x :: xs => "(DCons " ++ renderData x ++ " " ++ renderDataList xs ++ ")"
+
+  private def renderDataPairList : List (Data × Data) → String
+    | [] => "DPNil"
+    | (k, v) :: xs => "(DPCons " ++ renderData k ++ " " ++ renderData v ++ " " ++ renderDataPairList xs ++ ")"
+
+  private def renderConstVal : Const → String
+    | .Integer i => "(VInt " ++ renderInt i ++ ")"
+    | .ByteString bs => "(VBytes " ++ renderBytes bs ++ ")"
+    | .String s => "(VString \"" ++ escapeString s ++ "\")"
+    | .Unit => "VUnit"
+    | .Bool b => "(VBool " ++ (if b then "true)" else "false)")
+    | .ConstList xs => "(VList " ++ renderConstValList xs ++ ")"
+    | .ConstDataList xs => "(VDataList " ++ renderDataList xs ++ ")"
+    | .ConstPairDataList xs => "(VPairDataList " ++ renderDataPairList xs ++ ")"
+    | .Pair (a, b) => "(VPair " ++ renderConstVal a ++ " " ++ renderConstVal b ++ ")"
+    | .PairData (a, b) => "(VPairData " ++ renderData a ++ " " ++ renderData b ++ ")"
+    | .Data d => "(VData " ++ renderData d ++ ")"
+    | .ConstArray xs => "(VArray " ++ renderConstValList xs ++ ")"
+    | .Bls12_381_G1_element => "(VG1 g1_default)"
+    | .Bls12_381_G2_element => "(VG2 g2_default)"
+    | .Bls12_381_MlResult => "(VMlResult ml_default)"
+
+  private def renderConstValList : List Const → String
+    | [] => "VNil"
+    | x :: xs => "(VCons " ++ renderConstVal x ++ " " ++ renderConstValList xs ++ ")"
+end
+
+mutual
+def render : Expr → String
   | .sym s => s
-  | .int i => if i < 0 then "(- " ++ toString i.natAbs ++ ")" else toString i
+  | .int i => renderInt i
+  | .bytes bs => renderBytes bs
+  | .dataLit d => renderData d
+  | .dataListLit xs => renderDataList xs
+  | .dataPairListLit xs => renderDataPairList xs
+  | .constListLit xs => renderConstValList xs
   | .bool true => "true"
   | .bool false => "false"
   | .str s => "\"" ++ escapeString s ++ "\""
   | .app f [] => f
-  | .app f args => "(" ++ f ++ " " ++ String.intercalate " " (args.map render) ++ ")"
+  | .app f args => "(" ++ f ++ " " ++ renderArgs args ++ ")"
   | .ite c t e => "(ite " ++ render c ++ " " ++ render t ++ " " ++ render e ++ ")"
+
+def renderArgs : List Expr → String
+  | [] => ""
+  | x :: xs => render x ++ renderArgsTail xs
+
+def renderArgsTail : List Expr → String
+  | [] => ""
+  | x :: xs => " " ++ render x ++ renderArgsTail xs
+end
 
 end Expr
 

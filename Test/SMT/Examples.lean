@@ -83,13 +83,15 @@ def scriptCaseEmptyConstListMissingNilError : Script :=
 def scriptMkConsRejectsRuntimeConstrError : Script :=
   scriptForError 20 [] mkConsRejectsRuntimeConstrExample
 
-def scriptShaCongruenceUnsat : Script :=
+def scriptShaTimeoutNoOkOrError : Script :=
   let decls := [xBytes, yBytes]
   let outs := evalSym 20 (envOf decls) shaCongruenceTerm
   ⟨prelude ++ declCommands decls ++ assumptionCommands decls ++
-    [ .assert (SExpr.eq (.sym "x") (.sym "y"))
+    [ .assert (timeoutCond outs)
     , .assert (SExpr.not (okBoolTrueCond outs))
+    , .assert (SExpr.not (errorCond outs))
     , .checkSat
+    , .getModel
     ]⟩
 
 def scriptRecursiveSum55 : Script :=
@@ -102,7 +104,7 @@ def examples : List (String × Script) :=
   , ("force_delay.smt2", scriptForceDelay)
   , ("case_empty_const_list_missing_nil_error.smt2", scriptCaseEmptyConstListMissingNilError)
   , ("mkcons_rejects_runtime_constr_error.smt2", scriptMkConsRejectsRuntimeConstrError)
-  , ("sha_congruence_unsat.smt2", scriptShaCongruenceUnsat)
+  , ("sha_timeout_no_ok_or_error.smt2", scriptShaTimeoutNoOkOrError)
   , ("recursive_sum_55.smt2", scriptRecursiveSum55)
   ]
 
