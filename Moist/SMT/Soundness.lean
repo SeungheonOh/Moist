@@ -768,6 +768,29 @@ theorem evalBoolIs_true_false_contra {m : SmtSem.Model} {e : SExpr}
   | some b =>
       cases b <;> simp [h] at ht hf
 
+theorem evalBoolIs_false_eq {m : SmtSem.Model} {e : SExpr} :
+    SmtSem.evalBoolIs m e false = true ↔ SmtSem.eval m e = some (.bool false) := by
+  unfold SmtSem.evalBoolIs Moist.SMT.Semantics.evalBoolIs
+    Moist.SMT.Semantics.evalBool?
+  cases he : SmtSem.eval m e with
+  | none =>
+      simp [he]
+  | some v =>
+      cases v with
+      | bool b =>
+          cases b <;> simp [he]
+      | int i => simp [he]
+      | string s => simp [he]
+      | bytes bs => simp [he]
+      | data d => simp [he]
+      | dataList xs => simp [he]
+      | dataPairList xs => simp [he]
+      | val v => simp [he]
+      | valList xs => simp [he]
+      | g1 g => simp [he]
+      | g2 g => simp [he]
+      | ml r => simp [he]
+
 theorem pcHolds_not_contra {m : SmtSem.Model} {e : SExpr}
     (ht : pcHolds m e = true)
     (hn : pcHolds m (SExpr.not e) = true) : False := by
@@ -776,6 +799,44 @@ theorem pcHolds_not_contra {m : SmtSem.Model} {e : SExpr}
       (by simpa [pcHolds] using hn)
   exact evalBoolIs_true_false_contra
     (by simpa [pcHolds] using ht) hf
+
+theorem pcHolds_not_or_contra_left {m : SmtSem.Model} {a b : SExpr}
+    (ha : pcHolds m a = true)
+    (hn : pcHolds m (SExpr.not (SExpr.or a b)) = true) : False := by
+  have hf : SmtSem.evalBoolIs m (SExpr.or a b) false = true :=
+    (Moist.SMT.Semantics.evalBoolIs_not_true m (SExpr.or a b)).mp
+      (by simpa [pcHolds] using hn)
+  have horFalse := (evalBoolIs_false_eq (m := m) (e := SExpr.or a b)).mp hf
+  have haEval :=
+    (Moist.SMT.Semantics.evalBoolIs_true_eq m a).mp
+      (by simpa [pcHolds] using ha)
+  cases hbEval : SmtSem.eval m b with
+  | none =>
+      simp [SExpr.or, Moist.SMT.Expr.or, Moist.SMT.Semantics.eval, haEval,
+        hbEval] at horFalse
+  | some svb =>
+      cases svb <;>
+        simp [SExpr.or, Moist.SMT.Expr.or, Moist.SMT.Semantics.eval, haEval,
+          hbEval] at horFalse
+
+theorem pcHolds_not_or_contra_right {m : SmtSem.Model} {a b : SExpr}
+    (hb : pcHolds m b = true)
+    (hn : pcHolds m (SExpr.not (SExpr.or a b)) = true) : False := by
+  have hf : SmtSem.evalBoolIs m (SExpr.or a b) false = true :=
+    (Moist.SMT.Semantics.evalBoolIs_not_true m (SExpr.or a b)).mp
+      (by simpa [pcHolds] using hn)
+  have horFalse := (evalBoolIs_false_eq (m := m) (e := SExpr.or a b)).mp hf
+  have hbEval :=
+    (Moist.SMT.Semantics.evalBoolIs_true_eq m b).mp
+      (by simpa [pcHolds] using hb)
+  cases haEval : SmtSem.eval m a with
+  | none =>
+      simp [SExpr.or, Moist.SMT.Expr.or, Moist.SMT.Semantics.eval, haEval,
+        hbEval] at horFalse
+  | some sva =>
+      cases sva <;>
+        simp [SExpr.or, Moist.SMT.Expr.or, Moist.SMT.Semantics.eval, haEval,
+          hbEval] at horFalse
 
 theorem evalBoolIs_has_bool_eval {m : SmtSem.Model} {e : SExpr} {b : Bool}
     (h : SmtSem.evalBoolIs m e b = true) :
@@ -789,16 +850,6 @@ theorem evalBoolIs_has_bool_eval {m : SmtSem.Model} {e : SExpr} {b : Bool}
       cases sv <;> simp [he] at h
       case bool bv =>
         exact ⟨bv, by simpa [SmtSem.eval] using he⟩
-
-theorem evalBoolIs_false_eq {m : SmtSem.Model} {e : SExpr} :
-    SmtSem.evalBoolIs m e false = true ↔ SmtSem.eval m e = some (.bool false) := by
-  unfold SmtSem.evalBoolIs Moist.SMT.Semantics.evalBoolIs
-    Moist.SMT.Semantics.evalBool?
-  cases he : SmtSem.eval m e with
-  | none =>
-      simp [he]
-  | some v =>
-      cases v <;> simp [he]
 
 theorem evalBoolExists_all2 {m : SmtSem.Model} {a b : SExpr} {ba bb : Bool}
     (ha : SmtSem.eval m a = some (.bool ba))
@@ -2264,6 +2315,50 @@ theorem asInt_sound {m : SmtSem.Model} {v : SymVal} {cv : CekValue}
   | builtin b args ea =>
       simp [asInt, valueProj, Proj.fail, pcHolds] at hg
 
+theorem asInt_guard_of_cek {m : SmtSem.Model} {v : SymVal} {i : Int}
+    (hv : symValToCek? m v = some (.VCon (.Integer i))) :
+    pcHolds m (asInt v).guard = true := by
+  cases v with
+  | const c =>
+      obtain ⟨e, hc, _he⟩ :=
+        symConstToCek_integer (by simpa [symValToCek?] using hv)
+      subst c
+      simp [asInt, Proj.pure, pcHolds]
+  | dyn e =>
+      simp [asInt, valueProj, pcHolds, symValToCek?] at hv ⊢
+      cases he : SmtSem.eval m e <;> simp [he] at hv
+      rename_i sv
+      cases sv <;> simp at hv
+      case val val =>
+        have hval := semValToCek_integer hv
+        subst val
+        exact Moist.SMT.Semantics.evalBoolIs_isVInt_of he
+  | pair a b =>
+      simp [symValToCek?] at hv
+      cases ha : symValToCek? m a <;> simp [ha] at hv
+      rename_i cva
+      cases hb : symValToCek? m b <;> simp [hb] at hv
+      rename_i cvb
+      cases cva <;> cases cvb <;> simp at hv
+  | constr tag fields =>
+      simp [symValToCek?] at hv
+      cases htag : SmtSem.eval m tag <;> simp [htag] at hv
+      rename_i sv
+      cases sv <;> simp [htag] at hv
+      rename_i i'
+      by_cases hneg : i' < 0
+      · exact False.elim ((Int.not_le).mpr hneg hv.1)
+      · cases hfields : symValListToCekList? m fields <;> simp [hfields] at hv
+  | lam body ρ =>
+      simp [symValToCek?] at hv
+      cases henv : symEnvToCek? m ρ <;> simp [henv] at hv
+  | delay body ρ =>
+      simp [symValToCek?] at hv
+      cases henv : symEnvToCek? m ρ <;> simp [henv] at hv
+  | builtin b args ea =>
+      simp [symValToCek?] at hv
+      cases hargs : symValListToCekList? m args <;> simp [hargs] at hv
+
 theorem asBytes_sound {m : SmtSem.Model} {v : SymVal} {cv : CekValue}
     (hv : symValToCek? m v = some cv)
     (hg : pcHolds m (asBytes v).guard = true) :
@@ -2407,6 +2502,50 @@ theorem asDataList_sound {m : SmtSem.Model} {v : SymVal} {cv : CekValue}
       simp [asDataList, valueProj, Proj.fail, pcHolds] at hg
   | builtin b args ea =>
       simp [asDataList, valueProj, Proj.fail, pcHolds] at hg
+
+theorem asDataList_guard_of_cek {m : SmtSem.Model} {v : SymVal} {xs : List Plutus.Data}
+    (hv : symValToCek? m v = some (.VCon (.ConstDataList xs))) :
+    pcHolds m (asDataList v).guard = true := by
+  cases v with
+  | const c =>
+      obtain ⟨e, hc, _he⟩ :=
+        symConstToCek_dataList (by simpa [symValToCek?] using hv)
+      subst c
+      simp [asDataList, Proj.pure, pcHolds]
+  | dyn e =>
+      simp [asDataList, valueProj, pcHolds, symValToCek?] at hv ⊢
+      cases he : SmtSem.eval m e <;> simp [he] at hv
+      rename_i sv
+      cases sv <;> simp at hv
+      case val val =>
+        have hval := semValToCek_dataList hv
+        subst val
+        exact Moist.SMT.Semantics.evalBoolIs_isVDataList_of he
+  | pair a b =>
+      simp [symValToCek?] at hv
+      cases ha : symValToCek? m a <;> simp [ha] at hv
+      rename_i cva
+      cases hb : symValToCek? m b <;> simp [hb] at hv
+      rename_i cvb
+      cases cva <;> cases cvb <;> simp at hv
+  | constr tag fields =>
+      simp [symValToCek?] at hv
+      cases htag : SmtSem.eval m tag <;> simp [htag] at hv
+      rename_i sv
+      cases sv <;> simp [htag] at hv
+      rename_i i
+      by_cases hneg : i < 0
+      · exact False.elim ((Int.not_le).mpr hneg hv.1)
+      · cases hfields : symValListToCekList? m fields <;> simp [hfields] at hv
+  | lam body ρ =>
+      simp [symValToCek?] at hv
+      cases henv : symEnvToCek? m ρ <;> simp [henv] at hv
+  | delay body ρ =>
+      simp [symValToCek?] at hv
+      cases henv : symEnvToCek? m ρ <;> simp [henv] at hv
+  | builtin b args ea =>
+      simp [symValToCek?] at hv
+      cases hargs : symValListToCekList? m args <;> simp [hargs] at hv
 
 theorem asPairDataList_sound {m : SmtSem.Model} {v : SymVal} {cv : CekValue}
     (hv : symValToCek? m v = some cv)
@@ -6634,6 +6773,59 @@ theorem evalBuiltin_ListToArray_none_of_single_not_list {cv : CekValue}
   | VDelay body ρ => rfl
   | VConstr tag fields => rfl
   | VBuiltin b args expected => rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinConst_DropList_none_of_length_ne_two {cs : List Const}
+    (h : cs.length ≠ 2) :
+    Moist.CEK.evalBuiltinConst .DropList cs = none := by
+  cases cs with
+  | nil =>
+      rfl
+  | cons c rest =>
+      cases rest with
+      | nil =>
+          cases c <;> rfl
+      | cons c2 rest2 =>
+          cases rest2 with
+          | nil => exact False.elim (h rfl)
+          | cons c3 rest3 =>
+              cases c <;> cases c2 <;> rfl
+
+theorem evalBuiltin_DropList_none_of_length_ne_two {args : List CekValue}
+    (h : args.length ≠ 2) :
+    Moist.CEK.evalBuiltin .DropList args = none := by
+  cases hconst : Moist.CEK.extractConsts args with
+  | none =>
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst]
+  | some cs =>
+      have hlen := extractConsts_length hconst
+      have hcs : cs.length ≠ 2 := by
+        intro hcs2
+        apply h
+        omega
+      have hnone := evalBuiltinConst_DropList_none_of_length_ne_two hcs
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst, hnone]
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltin_DropList_none_of_pair_not_supported {a b : CekValue}
+    (hlist : ∀ cs i, ¬ (a = .VCon (.ConstList cs) ∧ b = .VCon (.Integer i)))
+    (hdata : ∀ ds i, ¬ (a = .VCon (.ConstDataList ds) ∧ b = .VCon (.Integer i))) :
+    Moist.CEK.evalBuiltin .DropList [a, b] = none := by
+  cases a with
+  | VCon ca =>
+      cases b with
+      | VCon cb =>
+          cases ca <;> cases cb <;> try rfl
+          · exact False.elim (hlist _ _ ⟨rfl, rfl⟩)
+          · exact False.elim (hdata _ _ ⟨rfl, rfl⟩)
+      | VLam body ρ => cases ca <;> rfl
+      | VDelay body ρ => cases ca <;> rfl
+      | VConstr tag fields => cases ca <;> rfl
+      | VBuiltin fn args expected => cases ca <;> rfl
+  | VLam body ρ => rfl
+  | VDelay body ρ => rfl
+  | VConstr tag fields => rfl
+  | VBuiltin fn args expected => rfl
 axiom evalBuiltinSym_active_ok_InsertCoin : BuiltinOkSound .InsertCoin
 axiom evalBuiltinSym_active_ok_LookupCoin : BuiltinOkSound .LookupCoin
 axiom evalBuiltinSym_active_ok_ScaleValue : BuiltinOkSound .ScaleValue
@@ -6731,7 +6923,88 @@ axiom evalBuiltinSym_active_error_CountSetBits : BuiltinErrorSound .CountSetBits
 axiom evalBuiltinSym_active_error_FindFirstSetBit : BuiltinErrorSound .FindFirstSetBit
 axiom evalBuiltinSym_active_error_Ripemd_160 : BuiltinErrorSound .Ripemd_160
 axiom evalBuiltinSym_active_error_ExpModInteger : BuiltinErrorSound .ExpModInteger
-axiom evalBuiltinSym_active_error_DropList : BuiltinErrorSound .DropList
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_error_DropList : BuiltinErrorSound .DropList := by
+  intro m args cargs out hargs hmem hactive
+  cases args with
+  | nil =>
+      have hlen := symValListToCekList_length hargs
+      exact evalBuiltin_DropList_none_of_length_ne_two (by
+        intro h2
+        have hzero : cargs.length = 0 := by simpa using hlen
+        omega)
+  | cons xs rest =>
+      cases rest with
+      | nil =>
+          have hlen := symValListToCekList_length hargs
+          exact evalBuiltin_DropList_none_of_length_ne_two (by
+            intro h2
+            have hone : cargs.length = 1 := by simpa using hlen
+            omega)
+      | cons n rest2 =>
+          cases rest2 with
+          | nil =>
+              change out ∈
+                (let vl := Proj.map2 (fun n xs => .app "vlist_drop" [n, xs])
+                    (asInt n) (asConstList xs)
+                 let dl := Proj.map2 (fun n xs => .app "dlist_drop" [n, xs])
+                    (asInt n) (asDataList xs)
+                 [Outcome.ok vl.guard (.const (.constList vl.val)),
+                  Outcome.ok dl.guard (.const (.dataList dl.val)),
+                  Outcome.error (SExpr.not (SExpr.or vl.guard dl.guard))]) at hmem
+              simp only [List.mem_cons, List.not_mem_nil] at hmem
+              obtain ⟨cxs, cn, hxs, hn, rfl⟩ := symValListToCekList_pair hargs
+              rcases hmem with hokVl | hokDl | herr
+              · subst out
+                simp [outcomeErrorActive] at hactive
+              · subst out
+                simp [outcomeErrorActive] at hactive
+              · rcases herr with herr | hfalse
+                · subst out
+                  by_cases hlist :
+                      ∃ cs i, cxs = .VCon (.ConstList cs) ∧ cn = .VCon (.Integer i)
+                  · rcases hlist with ⟨cs, i, rfl, rfl⟩
+                    have hgInt := asInt_guard_of_cek (m := m) (v := n) (i := i) hn
+                    have hgList := asConstList_guard_of_cek (m := m) (v := xs) (cs := cs) hxs
+                    have hvl : pcHolds m
+                        (SExpr.and (asInt n).guard (asConstList xs).guard) = true :=
+                      pcHolds_all2_intro (m := m) hgInt hgList
+                    exact False.elim
+                      (pcHolds_not_or_contra_left (m := m)
+                        (a := SExpr.and (asInt n).guard (asConstList xs).guard)
+                        (b := SExpr.and (asInt n).guard (asDataList xs).guard)
+                        hvl hactive)
+                  · by_cases hdata :
+                      ∃ ds i, cxs = .VCon (.ConstDataList ds) ∧ cn = .VCon (.Integer i)
+                    · rcases hdata with ⟨ds, i, rfl, rfl⟩
+                      have hgInt := asInt_guard_of_cek (m := m) (v := n) (i := i) hn
+                      have hgData :=
+                        asDataList_guard_of_cek (m := m) (v := xs) (xs := ds) hxs
+                      have hdl : pcHolds m
+                          (SExpr.and (asInt n).guard (asDataList xs).guard) = true :=
+                        pcHolds_all2_intro (m := m) hgInt hgData
+                      exact False.elim
+                        (pcHolds_not_or_contra_right (m := m)
+                          (a := SExpr.and (asInt n).guard (asConstList xs).guard)
+                          (b := SExpr.and (asInt n).guard (asDataList xs).guard)
+                          hdl hactive)
+                    · exact evalBuiltin_DropList_none_of_pair_not_supported
+                        (a := cxs) (b := cn)
+                        (by
+                          intro cs i h
+                          exact hlist ⟨cs, i, h⟩)
+                        (by
+                          intro ds i h
+                          exact hdata ⟨ds, i, h⟩)
+                · cases hfalse
+          | cons extra rest3 =>
+              have hlen := symValListToCekList_length hargs
+              exact evalBuiltin_DropList_none_of_length_ne_two (by
+                intro h2
+                have hthree : 3 ≤ cargs.length := by
+                  rw [hlen]
+                  simp
+                omega)
 axiom evalBuiltinSym_active_error_IndexArray : BuiltinErrorSound .IndexArray
 set_option maxHeartbeats 0 in
 theorem evalBuiltinSym_active_error_LengthOfArray :
