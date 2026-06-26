@@ -7769,6 +7769,104 @@ theorem evalBuiltin_ListData_none_of_single_not_data_list {cv : CekValue}
   | VBuiltin b args expected => rfl
 
 set_option maxHeartbeats 0 in
+theorem evalBuiltinConst_AppendString_none_of_length_ne_two {cs : List Const}
+    (h : cs.length ≠ 2) :
+    Moist.CEK.evalBuiltinConst .AppendString cs = none := by
+  cases cs with
+  | nil => rfl
+  | cons c rest =>
+      cases rest with
+      | nil => cases c <;> rfl
+      | cons c2 rest2 =>
+          cases rest2 with
+          | nil => exact False.elim (h rfl)
+          | cons c3 rest3 =>
+              cases c <;> cases c2 <;> rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinConst_EqualsString_none_of_length_ne_two {cs : List Const}
+    (h : cs.length ≠ 2) :
+    Moist.CEK.evalBuiltinConst .EqualsString cs = none := by
+  cases cs with
+  | nil => rfl
+  | cons c rest =>
+      cases rest with
+      | nil => cases c <;> rfl
+      | cons c2 rest2 =>
+          cases rest2 with
+          | nil => exact False.elim (h rfl)
+          | cons c3 rest3 =>
+              cases c <;> cases c2 <;> rfl
+
+theorem evalBuiltin_AppendString_none_of_length_ne_two {args : List CekValue}
+    (h : args.length ≠ 2) :
+    Moist.CEK.evalBuiltin .AppendString args = none := by
+  cases hconst : Moist.CEK.extractConsts args with
+  | none =>
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst]
+  | some cs =>
+      have hlen := extractConsts_length hconst
+      have hcs : cs.length ≠ 2 := by
+        intro hcs2
+        apply h
+        omega
+      have hnone := evalBuiltinConst_AppendString_none_of_length_ne_two hcs
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst, hnone]
+
+theorem evalBuiltin_EqualsString_none_of_length_ne_two {args : List CekValue}
+    (h : args.length ≠ 2) :
+    Moist.CEK.evalBuiltin .EqualsString args = none := by
+  cases hconst : Moist.CEK.extractConsts args with
+  | none =>
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst]
+  | some cs =>
+      have hlen := extractConsts_length hconst
+      have hcs : cs.length ≠ 2 := by
+        intro hcs2
+        apply h
+        omega
+      have hnone := evalBuiltinConst_EqualsString_none_of_length_ne_two hcs
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst, hnone]
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltin_AppendString_none_of_pair_not_strings {b a : CekValue}
+    (h : ∀ sb sa, ¬ (b = .VCon (.String sb) ∧ a = .VCon (.String sa))) :
+    Moist.CEK.evalBuiltin .AppendString [b, a] = none := by
+  cases b with
+  | VCon cb =>
+      cases a with
+      | VCon ca =>
+          cases cb <;> cases ca <;> try rfl
+          exact False.elim (h _ _ ⟨rfl, rfl⟩)
+      | VLam body ρ => cases cb <;> rfl
+      | VDelay body ρ => cases cb <;> rfl
+      | VConstr tag fields => cases cb <;> rfl
+      | VBuiltin fn args expected => cases cb <;> rfl
+  | VLam body ρ => rfl
+  | VDelay body ρ => rfl
+  | VConstr tag fields => rfl
+  | VBuiltin fn args expected => rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltin_EqualsString_none_of_pair_not_strings {b a : CekValue}
+    (h : ∀ sb sa, ¬ (b = .VCon (.String sb) ∧ a = .VCon (.String sa))) :
+    Moist.CEK.evalBuiltin .EqualsString [b, a] = none := by
+  cases b with
+  | VCon cb =>
+      cases a with
+      | VCon ca =>
+          cases cb <;> cases ca <;> try rfl
+          exact False.elim (h _ _ ⟨rfl, rfl⟩)
+      | VLam body ρ => cases cb <;> rfl
+      | VDelay body ρ => cases cb <;> rfl
+      | VConstr tag fields => cases cb <;> rfl
+      | VBuiltin fn args expected => cases cb <;> rfl
+  | VLam body ρ => rfl
+  | VDelay body ρ => rfl
+  | VConstr tag fields => rfl
+  | VBuiltin fn args expected => rfl
+
+set_option maxHeartbeats 0 in
 theorem evalBuiltinConst_DropList_none_of_length_ne_two {cs : List Const}
     (h : cs.length ≠ 2) :
     Moist.CEK.evalBuiltinConst .DropList cs = none := by
@@ -7960,8 +8058,131 @@ axiom evalBuiltinSym_active_error_Sha2_256 : BuiltinErrorSound .Sha2_256
 axiom evalBuiltinSym_active_error_Sha3_256 : BuiltinErrorSound .Sha3_256
 axiom evalBuiltinSym_active_error_Blake2b_256 : BuiltinErrorSound .Blake2b_256
 axiom evalBuiltinSym_active_error_VerifyEd25519Signature : BuiltinErrorSound .VerifyEd25519Signature
-axiom evalBuiltinSym_active_error_AppendString : BuiltinErrorSound .AppendString
-axiom evalBuiltinSym_active_error_EqualsString : BuiltinErrorSound .EqualsString
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_error_AppendString :
+    BuiltinErrorSound .AppendString := by
+  intro m args cargs out hargs hmem hactive
+  cases args with
+  | nil =>
+      have hlen := symValListToCekList_length hargs
+      exact evalBuiltin_AppendString_none_of_length_ne_two (by
+        intro h2
+        have hzero : cargs.length = 0 := by simpa using hlen
+        omega)
+  | cons bSym rest =>
+      cases rest with
+      | nil =>
+          have hlen := symValListToCekList_length hargs
+          exact evalBuiltin_AppendString_none_of_length_ne_two (by
+            intro h2
+            have hone : cargs.length = 1 := by simpa using hlen
+            omega)
+      | cons aSym rest2 =>
+          cases rest2 with
+          | nil =>
+              rw [evalBuiltinSym_AppendString_eq bSym aSym] at hmem
+              change out ∈
+                [Outcome.ok (SExpr.and (asString aSym).guard (asString bSym).guard)
+                  (SymVal.const (SymConst.string
+                    (SExpr.strAppend (asString aSym).val (asString bSym).val))),
+                 Outcome.error (SExpr.not
+                  (SExpr.and (asString aSym).guard (asString bSym).guard))] at hmem
+              simp only [List.mem_cons, List.not_mem_nil] at hmem
+              obtain ⟨cb, ca, hb, ha, rfl⟩ := symValListToCekList_pair hargs
+              rcases hmem with hok | herr
+              · subst out
+                simp [outcomeErrorActive] at hactive
+              · rcases herr with herr | hfalse
+                · subst out
+                  by_cases hshape :
+                      ∃ sb sa, cb = .VCon (.String sb) ∧ ca = .VCon (.String sa)
+                  · rcases hshape with ⟨sb, sa, rfl, rfl⟩
+                    have hga := asString_guard_of_cek (m := m) (v := aSym) (s := sa) ha
+                    have hgb := asString_guard_of_cek (m := m) (v := bSym) (s := sb) hb
+                    have hg :
+                        pcHolds m
+                          (SExpr.and (asString aSym).guard (asString bSym).guard) = true := by
+                      simpa [pcHolds] using
+                        ((Moist.SMT.Semantics.evalBoolIs_and_true m
+                          (asString aSym).guard (asString bSym).guard).mpr
+                            ⟨by simpa [pcHolds] using hga,
+                             by simpa [pcHolds] using hgb⟩)
+                    exact False.elim (pcHolds_not_contra hg hactive)
+                  · exact evalBuiltin_AppendString_none_of_pair_not_strings (by
+                      intro sb sa h
+                      exact hshape ⟨sb, sa, h.1, h.2⟩)
+                · cases hfalse
+          | cons extra rest3 =>
+              have hlen := symValListToCekList_length hargs
+              exact evalBuiltin_AppendString_none_of_length_ne_two (by
+                intro h2
+                have hthree : 3 ≤ cargs.length := by
+                  rw [hlen]
+                  simp
+                omega)
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_error_EqualsString :
+    BuiltinErrorSound .EqualsString := by
+  intro m args cargs out hargs hmem hactive
+  cases args with
+  | nil =>
+      have hlen := symValListToCekList_length hargs
+      exact evalBuiltin_EqualsString_none_of_length_ne_two (by
+        intro h2
+        have hzero : cargs.length = 0 := by simpa using hlen
+        omega)
+  | cons bSym rest =>
+      cases rest with
+      | nil =>
+          have hlen := symValListToCekList_length hargs
+          exact evalBuiltin_EqualsString_none_of_length_ne_two (by
+            intro h2
+            have hone : cargs.length = 1 := by simpa using hlen
+            omega)
+      | cons aSym rest2 =>
+          cases rest2 with
+          | nil =>
+              rw [evalBuiltinSym_EqualsString_eq bSym aSym] at hmem
+              change out ∈
+                [Outcome.ok (SExpr.and (asString aSym).guard (asString bSym).guard)
+                  (SymVal.const (SymConst.bool
+                    (SExpr.eq (asString aSym).val (asString bSym).val))),
+                 Outcome.error (SExpr.not
+                  (SExpr.and (asString aSym).guard (asString bSym).guard))] at hmem
+              simp only [List.mem_cons, List.not_mem_nil] at hmem
+              obtain ⟨cb, ca, hb, ha, rfl⟩ := symValListToCekList_pair hargs
+              rcases hmem with hok | herr
+              · subst out
+                simp [outcomeErrorActive] at hactive
+              · rcases herr with herr | hfalse
+                · subst out
+                  by_cases hshape :
+                      ∃ sb sa, cb = .VCon (.String sb) ∧ ca = .VCon (.String sa)
+                  · rcases hshape with ⟨sb, sa, rfl, rfl⟩
+                    have hga := asString_guard_of_cek (m := m) (v := aSym) (s := sa) ha
+                    have hgb := asString_guard_of_cek (m := m) (v := bSym) (s := sb) hb
+                    have hg :
+                        pcHolds m
+                          (SExpr.and (asString aSym).guard (asString bSym).guard) = true := by
+                      simpa [pcHolds] using
+                        ((Moist.SMT.Semantics.evalBoolIs_and_true m
+                          (asString aSym).guard (asString bSym).guard).mpr
+                            ⟨by simpa [pcHolds] using hga,
+                             by simpa [pcHolds] using hgb⟩)
+                    exact False.elim (pcHolds_not_contra hg hactive)
+                  · exact evalBuiltin_EqualsString_none_of_pair_not_strings (by
+                      intro sb sa h
+                      exact hshape ⟨sb, sa, h.1, h.2⟩)
+                · cases hfalse
+          | cons extra rest3 =>
+              have hlen := symValListToCekList_length hargs
+              exact evalBuiltin_EqualsString_none_of_length_ne_two (by
+                intro h2
+                have hthree : 3 ≤ cargs.length := by
+                  rw [hlen]
+                  simp
+                omega)
 axiom evalBuiltinSym_active_error_EncodeUtf8 : BuiltinErrorSound .EncodeUtf8
 axiom evalBuiltinSym_active_error_DecodeUtf8 : BuiltinErrorSound .DecodeUtf8
 axiom evalBuiltinSym_active_error_IfThenElse : BuiltinErrorSound .IfThenElse
