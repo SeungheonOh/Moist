@@ -7663,6 +7663,112 @@ theorem evalBuiltin_BData_none_of_single_not_bytes {cv : CekValue}
   | VBuiltin b args expected => rfl
 
 set_option maxHeartbeats 0 in
+theorem evalBuiltinConst_MapData_none_of_length_ne_one {cs : List Const}
+    (h : cs.length ≠ 1) :
+    Moist.CEK.evalBuiltinConst .MapData cs = none := by
+  cases cs with
+  | nil => rfl
+  | cons c rest =>
+      cases rest with
+      | nil => exact False.elim (h rfl)
+      | cons c2 rest =>
+          cases c <;> rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinConst_ListData_none_of_length_ne_one {cs : List Const}
+    (h : cs.length ≠ 1) :
+    Moist.CEK.evalBuiltinConst .ListData cs = none := by
+  cases cs with
+  | nil => rfl
+  | cons c rest =>
+      cases rest with
+      | nil => exact False.elim (h rfl)
+      | cons c2 rest =>
+          cases c <;> rfl
+
+theorem evalBuiltin_MapData_none_of_length_ne_one {args : List CekValue}
+    (h : args.length ≠ 1) :
+    Moist.CEK.evalBuiltin .MapData args = none := by
+  cases hconst : Moist.CEK.extractConsts args with
+  | none =>
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst]
+  | some cs =>
+      have hlen := extractConsts_length hconst
+      have hcs : cs.length ≠ 1 := by
+        intro hcs1
+        apply h
+        omega
+      have hnone := evalBuiltinConst_MapData_none_of_length_ne_one hcs
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst, hnone]
+
+theorem evalBuiltin_ListData_none_of_length_ne_one {args : List CekValue}
+    (h : args.length ≠ 1) :
+    Moist.CEK.evalBuiltin .ListData args = none := by
+  cases hconst : Moist.CEK.extractConsts args with
+  | none =>
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst]
+  | some cs =>
+      have hlen := extractConsts_length hconst
+      have hcs : cs.length ≠ 1 := by
+        intro hcs1
+        apply h
+        omega
+      have hnone := evalBuiltinConst_ListData_none_of_length_ne_one hcs
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst, hnone]
+
+theorem evalBuiltin_MapData_none_of_single_not_pair_data_list {cv : CekValue}
+    (h : ∀ ps, cv ≠ .VCon (.ConstPairDataList ps)) :
+    Moist.CEK.evalBuiltin .MapData [cv] = none := by
+  cases cv with
+  | VCon c =>
+      cases c with
+      | ConstPairDataList ps => exact False.elim (h ps rfl)
+      | Integer i => rfl
+      | ByteString bs => rfl
+      | String s => rfl
+      | Unit => rfl
+      | Bool b => rfl
+      | Data d => rfl
+      | Pair p => rfl
+      | PairData p => rfl
+      | ConstList xs => rfl
+      | ConstDataList xs => rfl
+      | ConstArray xs => rfl
+      | Bls12_381_G1_element => rfl
+      | Bls12_381_G2_element => rfl
+      | Bls12_381_MlResult => rfl
+  | VLam body ρ => rfl
+  | VDelay body ρ => rfl
+  | VConstr tag fields => rfl
+  | VBuiltin b args expected => rfl
+
+theorem evalBuiltin_ListData_none_of_single_not_data_list {cv : CekValue}
+    (h : ∀ ds, cv ≠ .VCon (.ConstDataList ds)) :
+    Moist.CEK.evalBuiltin .ListData [cv] = none := by
+  cases cv with
+  | VCon c =>
+      cases c with
+      | ConstDataList ds => exact False.elim (h ds rfl)
+      | Integer i => rfl
+      | ByteString bs => rfl
+      | String s => rfl
+      | Unit => rfl
+      | Bool b => rfl
+      | Data d => rfl
+      | Pair p => rfl
+      | PairData p => rfl
+      | ConstList xs => rfl
+      | ConstPairDataList xs => rfl
+      | ConstArray xs => rfl
+      | Bls12_381_G1_element => rfl
+      | Bls12_381_G2_element => rfl
+      | Bls12_381_MlResult => rfl
+  | VLam body ρ => rfl
+  | VDelay body ρ => rfl
+  | VConstr tag fields => rfl
+  | VBuiltin b args expected => rfl
+
+set_option maxHeartbeats 0 in
 theorem evalBuiltinConst_DropList_none_of_length_ne_two {cs : List Const}
     (h : cs.length ≠ 2) :
     Moist.CEK.evalBuiltinConst .DropList cs = none := by
@@ -7870,8 +7976,93 @@ axiom evalBuiltinSym_active_error_TailList : BuiltinErrorSound .TailList
 axiom evalBuiltinSym_active_error_NullList : BuiltinErrorSound .NullList
 axiom evalBuiltinSym_active_error_ChooseData : BuiltinErrorSound .ChooseData
 axiom evalBuiltinSym_active_error_ConstrData : BuiltinErrorSound .ConstrData
-axiom evalBuiltinSym_active_error_MapData : BuiltinErrorSound .MapData
-axiom evalBuiltinSym_active_error_ListData : BuiltinErrorSound .ListData
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_error_MapData :
+    BuiltinErrorSound .MapData := by
+  intro m args cargs out hargs hmem hactive
+  cases args with
+  | nil =>
+      have hlen := symValListToCekList_length hargs
+      exact evalBuiltin_MapData_none_of_length_ne_one (by
+        intro h1
+        have hzero : cargs.length = 0 := by simpa using hlen
+        omega)
+  | cons psSym rest =>
+      cases rest with
+      | nil =>
+          rw [evalBuiltinSym_MapData_eq psSym] at hmem
+          change out ∈
+            [Outcome.ok (asPairDataList psSym).guard
+              (SymVal.const (SymConst.data (.app "DMap" [(asPairDataList psSym).val]))),
+             Outcome.error (SExpr.not (asPairDataList psSym).guard)] at hmem
+          simp only [List.mem_cons, List.not_mem_nil] at hmem
+          obtain ⟨cps, hps, rfl⟩ := symValListToCekList_singleton hargs
+          rcases hmem with hok | herr
+          · subst out
+            simp [outcomeErrorActive] at hactive
+          · rcases herr with herr | hfalse
+            · subst out
+              by_cases hshape : ∃ ps, cps = .VCon (.ConstPairDataList ps)
+              · rcases hshape with ⟨ps, rfl⟩
+                have hg :=
+                  asPairDataList_guard_of_cek (m := m) (v := psSym) (xs := ps) hps
+                exact False.elim (pcHolds_not_contra hg hactive)
+              · exact evalBuiltin_MapData_none_of_single_not_pair_data_list (by
+                  intro ps h
+                  exact hshape ⟨ps, h⟩)
+            · cases hfalse
+      | cons extra rest2 =>
+          have hlen := symValListToCekList_length hargs
+          exact evalBuiltin_MapData_none_of_length_ne_one (by
+            intro h1
+            have htwo : 2 ≤ cargs.length := by
+              rw [hlen]
+              simp
+            omega)
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_error_ListData :
+    BuiltinErrorSound .ListData := by
+  intro m args cargs out hargs hmem hactive
+  cases args with
+  | nil =>
+      have hlen := symValListToCekList_length hargs
+      exact evalBuiltin_ListData_none_of_length_ne_one (by
+        intro h1
+        have hzero : cargs.length = 0 := by simpa using hlen
+        omega)
+  | cons xsSym rest =>
+      cases rest with
+      | nil =>
+          rw [evalBuiltinSym_ListData_eq xsSym] at hmem
+          change out ∈
+            [Outcome.ok (asDataList xsSym).guard
+              (SymVal.const (SymConst.data (.app "DList" [(asDataList xsSym).val]))),
+             Outcome.error (SExpr.not (asDataList xsSym).guard)] at hmem
+          simp only [List.mem_cons, List.not_mem_nil] at hmem
+          obtain ⟨cxs, hxs, rfl⟩ := symValListToCekList_singleton hargs
+          rcases hmem with hok | herr
+          · subst out
+            simp [outcomeErrorActive] at hactive
+          · rcases herr with herr | hfalse
+            · subst out
+              by_cases hshape : ∃ ds, cxs = .VCon (.ConstDataList ds)
+              · rcases hshape with ⟨ds, rfl⟩
+                have hg :=
+                  asDataList_guard_of_cek (m := m) (v := xsSym) (xs := ds) hxs
+                exact False.elim (pcHolds_not_contra hg hactive)
+              · exact evalBuiltin_ListData_none_of_single_not_data_list (by
+                  intro ds h
+                  exact hshape ⟨ds, h⟩)
+            · cases hfalse
+      | cons extra rest2 =>
+          have hlen := symValListToCekList_length hargs
+          exact evalBuiltin_ListData_none_of_length_ne_one (by
+            intro h1
+            have htwo : 2 ≤ cargs.length := by
+              rw [hlen]
+              simp
+            omega)
 set_option maxHeartbeats 0 in
 theorem evalBuiltinSym_active_error_IData :
     BuiltinErrorSound .IData := by
