@@ -113,6 +113,57 @@ mutual
 end
 
 mutual
+  def constValCompatible : Val → Bool
+    | .int _ | .bytes _ | .string _ | .bool _ | .unit | .data _
+    | .dataList _ | .pairDataList _ | .pairData _ _
+    | .g1 _ | .g2 _ | .ml _ => true
+    | .list xs => constValListCompatible xs
+    | .pair a b => constValCompatible a && constValCompatible b
+    | .array xs => constValListCompatible xs
+    | .constr _ _ => false
+
+  def constValListCompatible : List Val → Bool
+    | [] => true
+    | x :: xs => constValCompatible x && constValListCompatible xs
+end
+
+mutual
+  theorem constValCompatible_eq_constValValid : ∀ v,
+      constValCompatible v = constValValid v
+    | .int _ => rfl
+    | .bytes _ => rfl
+    | .string _ => rfl
+    | .bool _ => rfl
+    | .unit => rfl
+    | .data _ => rfl
+    | .dataList _ => rfl
+    | .pairDataList _ => rfl
+    | .pairData _ _ => rfl
+    | .g1 _ => rfl
+    | .g2 _ => rfl
+    | .ml _ => rfl
+    | .constr _ _ => rfl
+    | .list xs => by
+        simp [constValCompatible, constValValid,
+          constValListCompatible_eq_constValListValid xs]
+    | .pair a b => by
+        simp [constValCompatible, constValValid,
+          constValCompatible_eq_constValValid a,
+          constValCompatible_eq_constValValid b]
+    | .array xs => by
+        simp [constValCompatible, constValValid,
+          constValListCompatible_eq_constValListValid xs]
+
+  theorem constValListCompatible_eq_constValListValid : ∀ xs,
+      constValListCompatible xs = constValListValid xs
+    | [] => rfl
+    | x :: xs => by
+        simp [constValListCompatible, constValListValid,
+          constValCompatible_eq_constValValid x,
+          constValListCompatible_eq_constValListValid xs]
+end
+
+mutual
   private def valValid : Val → Bool
     | .constr tag fields => tag >= 0 && valListValid fields
     | .list xs => constValListValid xs
@@ -3044,6 +3095,24 @@ theorem evalBoolIs_constValValid_constr_false {m : Model} {e : Expr}
   unfold evalBoolIs evalBool?
   rw [eval.eq_def]
   simp [evalList.eq_def, evalApp_constValValid_constr_false, h]
+
+theorem evalBoolIs_constValValid_true_of_compatible {m : Model} {e : Expr}
+    {v : Val}
+    (he : eval m e = some (SVal.val v))
+    (hv : constValCompatible v = true) :
+    evalBoolIs m (.app "const_val_valid" [e]) true = true := by
+  exact (evalBoolIs_true_eq m (.app "const_val_valid" [e])).mpr (by
+    rw [eval.eq_def]
+    change
+      (do
+        let vs ← evalList m [e]
+        evalApp "const_val_valid" vs) = some (.bool true)
+    rw [evalList.eq_def]
+    simp [he]
+    rw [evalList.eq_def]
+    change (some (.bool (constValValid v)) : Option SVal) = some (.bool true)
+    rw [← constValCompatible_eq_constValValid v]
+    simp [hv])
 
 theorem eval_VPair_of {m : Model} {a b : Expr} {av bv : Val}
     (ha : eval m a = some (SVal.val av))

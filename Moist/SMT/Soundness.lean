@@ -1368,6 +1368,89 @@ theorem semValListToConstList_length :
       subst cs
       simp [ih hcs]
 
+set_option maxHeartbeats 0 in
+theorem semValToCek_vcon_const {v : SmtSem.Val} {c : Const}
+    (h : semValToCek? v = some (.VCon c)) :
+    semValToConst? v = some c := by
+  cases v with
+  | int i => simpa [semValToCek?, semValToConst?] using h
+  | bytes bs => simpa [semValToCek?, semValToConst?] using h
+  | string s => simpa [semValToCek?, semValToConst?] using h
+  | bool b => simpa [semValToCek?, semValToConst?] using h
+  | unit => simpa [semValToCek?, semValToConst?] using h
+  | data d => simpa [semValToCek?, semValToConst?] using h
+  | dataList ds => simpa [semValToCek?, semValToConst?] using h
+  | pairDataList ps => simpa [semValToCek?, semValToConst?] using h
+  | pairData a b => simpa [semValToCek?, semValToConst?] using h
+  | g1 g => simpa [semValToCek?, semValToConst?] using h
+  | g2 g => simpa [semValToCek?, semValToConst?] using h
+  | ml r => simpa [semValToCek?, semValToConst?] using h
+  | list xs =>
+      simp [semValToCek?, semValToConst?] at h ⊢
+      cases hcs : semValListToConstList? xs <;> simp [hcs] at h ⊢
+      exact h
+  | pair a b =>
+      simp [semValToCek?, semValToConst?] at h ⊢
+      cases ha : semValToConst? a <;> simp [ha] at h ⊢
+      cases hb : semValToConst? b <;> simp [hb] at h ⊢
+      exact h
+  | array xs =>
+      simp [semValToCek?, semValToConst?] at h ⊢
+      cases hcs : semValListToConstList? xs <;> simp [hcs] at h ⊢
+      exact h
+  | constr tag fields =>
+      simp [semValToCek?] at h
+      cases hfields : semValListToCekList? fields <;> simp [hfields] at h
+
+mutual
+  theorem semValToConst_constValCompatible {v : SmtSem.Val} {c : Const}
+      (h : semValToConst? v = some c) :
+      Moist.SMT.Semantics.constValCompatible v = true := by
+    cases v with
+    | int i => rfl
+    | bytes bs => rfl
+    | string s => rfl
+    | bool b => rfl
+    | unit => rfl
+    | data d => rfl
+    | dataList ds => rfl
+    | pairDataList ps => rfl
+    | pairData a b => rfl
+    | g1 g => rfl
+    | g2 g => rfl
+    | ml r => rfl
+    | constr tag fields => simp [semValToConst?] at h
+    | list xs =>
+        simp [semValToConst?] at h
+        cases hcs : semValListToConstList? xs <;> simp [hcs] at h
+        exact semValListToConstList_constValListCompatible hcs
+    | pair a b =>
+        simp [semValToConst?] at h
+        cases ha : semValToConst? a <;> simp [ha] at h
+        cases hb : semValToConst? b <;> simp [hb] at h
+        simp [Moist.SMT.Semantics.constValCompatible,
+          semValToConst_constValCompatible ha,
+          semValToConst_constValCompatible hb]
+    | array xs =>
+        simp [semValToConst?] at h
+        cases hcs : semValListToConstList? xs <;> simp [hcs] at h
+        exact semValListToConstList_constValListCompatible hcs
+
+  theorem semValListToConstList_constValListCompatible {xs : List SmtSem.Val}
+      {cs : List Const}
+      (h : semValListToConstList? xs = some cs) :
+      Moist.SMT.Semantics.constValListCompatible xs = true := by
+    cases xs with
+    | nil => rfl
+    | cons x xs =>
+        simp [semValListToConstList?] at h
+        cases hx : semValToConst? x <;> simp [hx] at h
+        cases hxs : semValListToConstList? xs <;> simp [hxs] at h
+        simp [Moist.SMT.Semantics.constValListCompatible,
+          semValToConst_constValCompatible hx,
+          semValListToConstList_constValListCompatible hxs]
+end
+
 theorem semValListToConstList_get? :
     ∀ {vals : List Moist.SMT.Semantics.Val} {cs : List Const}
       {i : Nat} {v : Moist.SMT.Semantics.Val},
@@ -4306,6 +4389,91 @@ theorem asConstVal_sound {m : SmtSem.Model} {v : SymVal} {cv : CekValue}
     trivial
     (fun _ _ _ _ => trivial)
     v) hv hg
+
+set_option maxHeartbeats 0 in
+theorem asConstVal_guard_of_cek {m : SmtSem.Model} {v : SymVal} {c : Const}
+    (hv : symValToCek? m v = some (.VCon c)) :
+    pcHolds m (asConstVal v).guard = true := by
+  let motive1 := fun v : SymVal => ∀ {c : Const},
+    symValToCek? m v = some (.VCon c) →
+    pcHolds m (asConstVal v).guard = true
+  let motive2 := fun _ : List SymVal => True
+  exact (SymVal.rec
+    (motive_1 := motive1)
+    (motive_2 := motive2)
+    (fun sc => by
+      intro c hv
+      cases sc <;> simp [asConstVal, encodeVal?, encodeVal?.encodeConst?,
+        Proj.pure, pcHolds])
+    (fun e => by
+      intro c hv
+      simp [asConstVal, symValToCek?, pcHolds] at hv ⊢
+      cases he : SmtSem.eval m e <;> simp [he] at hv
+      rename_i sv
+      cases sv with
+      | val val =>
+          simp at hv
+          have hconst : semValToConst? val = some c :=
+            semValToCek_vcon_const hv
+          have hcompat := semValToConst_constValCompatible hconst
+          exact Moist.SMT.Semantics.evalBoolIs_constValValid_true_of_compatible
+            he hcompat
+      | bool b => simp [semValToCek?] at hv
+      | int i => simp [semValToCek?] at hv
+      | string s => simp [semValToCek?] at hv
+      | bytes bs => simp [semValToCek?] at hv
+      | data d => simp [semValToCek?] at hv
+      | dataList ds => simp [semValToCek?] at hv
+      | dataPairList ds => simp [semValToCek?] at hv
+      | valList vs => simp [semValToCek?] at hv
+      | g1 g => simp [semValToCek?] at hv
+      | g2 g => simp [semValToCek?] at hv
+      | ml r => simp [semValToCek?] at hv)
+    (fun a b iha ihb => by
+      intro c hv
+      simp [symValToCek?, asConstVal, pcHolds] at hv ⊢
+      cases ha : symValToCek? m a <;> simp [ha] at hv
+      rename_i cva
+      cases hb : symValToCek? m b <;> simp [hb] at hv
+      rename_i cvb
+      cases cva with
+      | VCon ca =>
+          cases cvb with
+          | VCon cb =>
+              simp at hv
+              subst c
+              exact pcHolds_and_intro (iha ha) (ihb hb)
+          | VLam body ρ => simp at hv
+          | VDelay body ρ => simp at hv
+          | VConstr tag fields => simp at hv
+          | VBuiltin b args ea => simp at hv
+      | VLam body ρ => simp at hv
+      | VDelay body ρ => simp at hv
+      | VConstr tag fields => simp at hv
+      | VBuiltin b args ea => simp at hv)
+    (fun tag fields _ => by
+      intro c hv
+      simp [symValToCek?, asConstVal, Proj.fail, pcHolds] at hv ⊢
+      cases htag : SmtSem.eval m tag <;> simp [htag] at hv
+      rename_i sv
+      cases sv <;> simp at hv
+      rename_i i
+      cases hfields : symValListToCekList? m fields <;> simp [hfields] at hv)
+    (fun body ρ _ => by
+      intro c hv
+      simp [symValToCek?, asConstVal, Proj.fail, pcHolds] at hv ⊢
+      cases henv : symEnvToCek? m ρ <;> simp [henv] at hv)
+    (fun body ρ _ => by
+      intro c hv
+      simp [symValToCek?, asConstVal, Proj.fail, pcHolds] at hv ⊢
+      cases henv : symEnvToCek? m ρ <;> simp [henv] at hv)
+    (fun b args ea _ => by
+      intro c hv
+      simp [symValToCek?, asConstVal, Proj.fail, pcHolds] at hv ⊢
+      cases hargs : symValListToCekList? m args <;> simp [hargs] at hv)
+    trivial
+    (fun _ _ _ _ => trivial)
+    v) hv
 
 theorem unitGuard_sound {m : SmtSem.Model} {u : SymVal} {cv : CekValue}
     (hu : symValToCek? m u = some cv)
@@ -11925,6 +12093,295 @@ theorem evalBuiltin_NullList_none_of_single_not_list {xs : CekValue}
   | VBuiltin b args expected => rfl
 
 set_option maxHeartbeats 0 in
+theorem evalBuiltinConst_MkCons_none_of_length_ne_two {cs : List Const}
+    (h : cs.length ≠ 2) :
+    Moist.CEK.evalBuiltinConst .MkCons cs = none := by
+  cases cs with
+  | nil => rfl
+  | cons c rest =>
+      cases rest with
+      | nil => cases c <;> rfl
+      | cons c2 rest2 =>
+          cases rest2 with
+          | nil => exact False.elim (h rfl)
+          | cons c3 rest3 =>
+              cases c <;> try rfl
+              case ConstDataList ds =>
+                cases c2 <;> cases c3 <;> cases rest3 <;> rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinPassThrough_MkCons_none_of_length_ne_two {args : List CekValue}
+    (h : args.length ≠ 2) :
+    Moist.CEK.evalBuiltinPassThrough .MkCons args = none := by
+  cases args with
+  | nil => rfl
+  | cons a r1 =>
+      cases r1 with
+      | nil =>
+          cases a with
+          | VCon c => cases c <;> rfl
+          | VLam body ρ => rfl
+          | VDelay body ρ => rfl
+          | VConstr tag fields => rfl
+          | VBuiltin b args expected => rfl
+      | cons b r2 =>
+          cases r2 with
+          | nil => exact False.elim (h rfl)
+          | cons c r3 =>
+              simp [Moist.CEK.evalBuiltinPassThrough]
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltin_MkCons_none_of_length_ne_two {args : List CekValue}
+    (h : args.length ≠ 2) :
+    Moist.CEK.evalBuiltin .MkCons args = none := by
+  have hpass := evalBuiltinPassThrough_MkCons_none_of_length_ne_two h
+  simp [Moist.CEK.evalBuiltin, hpass]
+  cases hconst : Moist.CEK.extractConsts args with
+  | none => simp
+  | some cs =>
+      have hlen := extractConsts_length hconst
+      have hcs : cs.length ≠ 2 := by
+        intro h2
+        apply h
+        omega
+      have hnone := evalBuiltinConst_MkCons_none_of_length_ne_two hcs
+      simp [hnone]
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltin_MkCons_none_of_pair_not_consable {tail head : CekValue}
+    (hdata :
+      ∀ ds d, ¬(tail = .VCon (.ConstDataList ds) ∧ head = .VCon (.Data d)))
+    (hconst :
+      ∀ cs c, ¬(tail = .VCon (.ConstList cs) ∧ head = .VCon c)) :
+    Moist.CEK.evalBuiltin .MkCons [tail, head] = none := by
+  cases tail with
+  | VCon tc =>
+      cases tc with
+      | ConstDataList ds =>
+          cases head with
+          | VCon hc =>
+              cases hc with
+              | Data d => exact False.elim (hdata ds d ⟨rfl, rfl⟩)
+              | Integer i => rfl
+              | ByteString bs => rfl
+              | String s => rfl
+              | Unit => rfl
+              | Bool b => rfl
+              | Pair p => rfl
+              | PairData p => rfl
+              | ConstList xs => rfl
+              | ConstDataList xs => rfl
+              | ConstPairDataList xs => rfl
+              | ConstArray xs => rfl
+              | Bls12_381_G1_element => rfl
+              | Bls12_381_G2_element => rfl
+              | Bls12_381_MlResult => rfl
+          | VLam body ρ => rfl
+          | VDelay body ρ => rfl
+          | VConstr tag fields => rfl
+          | VBuiltin b args expected => rfl
+      | ConstList cs =>
+          cases head with
+          | VCon hc => exact False.elim (hconst cs hc ⟨rfl, rfl⟩)
+          | VLam body ρ => rfl
+          | VDelay body ρ => rfl
+          | VConstr tag fields => rfl
+          | VBuiltin b args expected => rfl
+      | Integer i => cases head <;> rfl
+      | ByteString bs => cases head <;> rfl
+      | String s => cases head <;> rfl
+      | Unit => cases head <;> rfl
+      | Bool b => cases head <;> rfl
+      | Data d => cases head <;> rfl
+      | Pair p => cases head <;> rfl
+      | PairData p => cases head <;> rfl
+      | ConstPairDataList xs => cases head <;> rfl
+      | ConstArray xs => cases head <;> rfl
+      | Bls12_381_G1_element => cases head <;> rfl
+      | Bls12_381_G2_element => cases head <;> rfl
+      | Bls12_381_MlResult => cases head <;> rfl
+  | VLam body ρ => cases head <;> rfl
+  | VDelay body ρ => cases head <;> rfl
+  | VConstr tag fields => cases head <;> rfl
+  | VBuiltin b args expected => cases head <;> rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinConst_HeadList_none_of_length_ne_one {cs : List Const}
+    (h : cs.length ≠ 1) :
+    Moist.CEK.evalBuiltinConst .HeadList cs = none := by
+  cases cs with
+  | nil => rfl
+  | cons c rest =>
+      cases rest with
+      | nil => exact False.elim (h rfl)
+      | cons c2 rest =>
+          cases c <;> try rfl
+          case ConstDataList ds =>
+            cases ds <;> cases c2 <;> cases rest <;> rfl
+          case ConstList xs =>
+            cases xs <;> cases c2 <;> cases rest <;> rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinConst_TailList_none_of_length_ne_one {cs : List Const}
+    (h : cs.length ≠ 1) :
+    Moist.CEK.evalBuiltinConst .TailList cs = none := by
+  cases cs with
+  | nil => rfl
+  | cons c rest =>
+      cases rest with
+      | nil => exact False.elim (h rfl)
+      | cons c2 rest =>
+          cases c <;> try rfl
+          case ConstDataList ds =>
+            cases ds <;> cases c2 <;> cases rest <;> rfl
+          case ConstList xs =>
+            cases xs <;> cases c2 <;> cases rest <;> rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltin_HeadList_none_of_length_ne_one {args : List CekValue}
+    (h : args.length ≠ 1) :
+    Moist.CEK.evalBuiltin .HeadList args = none := by
+  cases hconst : Moist.CEK.extractConsts args with
+  | none =>
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst]
+  | some cs =>
+      have hlen := extractConsts_length hconst
+      have hcs : cs.length ≠ 1 := by
+        intro h1
+        apply h
+        omega
+      have hnone := evalBuiltinConst_HeadList_none_of_length_ne_one hcs
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst, hnone]
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltin_TailList_none_of_length_ne_one {args : List CekValue}
+    (h : args.length ≠ 1) :
+    Moist.CEK.evalBuiltin .TailList args = none := by
+  cases hconst : Moist.CEK.extractConsts args with
+  | none =>
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst]
+  | some cs =>
+      have hlen := extractConsts_length hconst
+      have hcs : cs.length ≠ 1 := by
+        intro h1
+        apply h
+        omega
+      have hnone := evalBuiltinConst_TailList_none_of_length_ne_one hcs
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst, hnone]
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltin_HeadList_none_of_single_not_nonempty_list {xs : CekValue}
+    (hdl : ∀ d ds, xs ≠ .VCon (.ConstDataList (d :: ds)))
+    (hvl : ∀ c cs, xs ≠ .VCon (.ConstList (c :: cs))) :
+    Moist.CEK.evalBuiltin .HeadList [xs] = none := by
+  cases xs with
+  | VCon c =>
+      cases c with
+      | ConstDataList ds =>
+          cases ds with
+          | nil => rfl
+          | cons d ds => exact False.elim (hdl d ds rfl)
+      | ConstList cs =>
+          cases cs with
+          | nil => rfl
+          | cons c cs => exact False.elim (hvl c cs rfl)
+      | Integer i => rfl
+      | ByteString bs => rfl
+      | String s => rfl
+      | Unit => rfl
+      | Bool b => rfl
+      | Data d => rfl
+      | Pair p => rfl
+      | PairData p => rfl
+      | ConstPairDataList xs => rfl
+      | ConstArray xs => rfl
+      | Bls12_381_G1_element => rfl
+      | Bls12_381_G2_element => rfl
+      | Bls12_381_MlResult => rfl
+  | VLam body ρ => rfl
+  | VDelay body ρ => rfl
+  | VConstr tag fields => rfl
+  | VBuiltin b args expected => rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltin_TailList_none_of_single_not_nonempty_list {xs : CekValue}
+    (hdl : ∀ d ds, xs ≠ .VCon (.ConstDataList (d :: ds)))
+    (hvl : ∀ c cs, xs ≠ .VCon (.ConstList (c :: cs))) :
+    Moist.CEK.evalBuiltin .TailList [xs] = none := by
+  cases xs with
+  | VCon c =>
+      cases c with
+      | ConstDataList ds =>
+          cases ds with
+          | nil => rfl
+          | cons d ds => exact False.elim (hdl d ds rfl)
+      | ConstList cs =>
+          cases cs with
+          | nil => rfl
+          | cons c cs => exact False.elim (hvl c cs rfl)
+      | Integer i => rfl
+      | ByteString bs => rfl
+      | String s => rfl
+      | Unit => rfl
+      | Bool b => rfl
+      | Data d => rfl
+      | Pair p => rfl
+      | PairData p => rfl
+      | ConstPairDataList xs => rfl
+      | ConstArray xs => rfl
+      | Bls12_381_G1_element => rfl
+      | Bls12_381_G2_element => rfl
+      | Bls12_381_MlResult => rfl
+  | VLam body ρ => rfl
+  | VDelay body ρ => rfl
+  | VConstr tag fields => rfl
+  | VBuiltin b args expected => rfl
+
+set_option maxHeartbeats 0 in
+theorem asDataList_nonempty_guard_of_cek {m : SmtSem.Model} {v : SymVal}
+    {d : Moist.Plutus.Data} {ds : List Moist.Plutus.Data}
+    (hv : symValToCek? m v = some (.VCon (.ConstDataList (d :: ds)))) :
+    pcHolds m
+      (SExpr.and (asDataList v).guard
+        (SExpr.not (SExpr.isCtor "DNil" (asDataList v).val))) = true := by
+  have hg := asDataList_guard_of_cek (m := m) (v := v) (xs := d :: ds) hv
+  obtain ⟨xs, hcv, heval⟩ := asDataList_sound hv hg
+  injection hcv with hconst
+  injection hconst with hxs
+  subst xs
+  have hfalse := Moist.SMT.Semantics.evalBoolIs_isDNil_false_of_dataList_cons heval
+  have hnot :
+      pcHolds m (SExpr.not (SExpr.isCtor "DNil" (asDataList v).val)) = true := by
+    simpa [pcHolds] using
+      (Moist.SMT.Semantics.evalBoolIs_not_true m
+        (SExpr.isCtor "DNil" (asDataList v).val)).mpr hfalse
+  exact pcHolds_and_intro hg hnot
+
+set_option maxHeartbeats 0 in
+theorem asConstList_nonempty_guard_of_cek {m : SmtSem.Model} {v : SymVal}
+    {c : Const} {cs : List Const}
+    (hv : symValToCek? m v = some (.VCon (.ConstList (c :: cs)))) :
+    pcHolds m
+      (SExpr.and (asConstList v).guard
+        (SExpr.not (SExpr.isCtor "VNil" (asConstList v).val))) = true := by
+  have hg := asConstList_guard_of_cek (m := m) (v := v) (cs := c :: cs) hv
+  obtain ⟨vals, cs', hcv, heval, hconsts⟩ := asConstList_sound hv hg
+  injection hcv with hconst
+  injection hconst with hcsEq
+  subst cs'
+  cases vals with
+  | nil =>
+      simp [semValListToConstList?] at hconsts
+  | cons vh vt =>
+      have hfalse := Moist.SMT.Semantics.evalBoolIs_isVNil_false_of_valList_cons heval
+      have hnot :
+          pcHolds m (SExpr.not (SExpr.isCtor "VNil" (asConstList v).val)) = true := by
+        simpa [pcHolds] using
+          (Moist.SMT.Semantics.evalBoolIs_not_true m
+            (SExpr.isCtor "VNil" (asConstList v).val)).mpr hfalse
+      exact pcHolds_and_intro hg hnot
+
+set_option maxHeartbeats 0 in
 theorem evalBuiltinSym_active_error_FstPair : BuiltinErrorSound .FstPair := by
   intro m args cargs out hargs hmem hactive
   cases args with
@@ -12146,9 +12603,256 @@ theorem evalBuiltinSym_active_error_ChooseList : BuiltinErrorSound .ChooseList :
                       rw [hlen]
                       simp
                     omega)
-axiom evalBuiltinSym_active_error_MkCons : BuiltinErrorSound .MkCons
-axiom evalBuiltinSym_active_error_HeadList : BuiltinErrorSound .HeadList
-axiom evalBuiltinSym_active_error_TailList : BuiltinErrorSound .TailList
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_error_MkCons : BuiltinErrorSound .MkCons := by
+  intro m args cargs out hargs hmem hactive
+  cases args with
+  | nil =>
+      have hlen := symValListToCekList_length hargs
+      exact evalBuiltin_MkCons_none_of_length_ne_two (by
+        intro h2
+        have hzero : cargs.length = 0 := by simpa using hlen
+        omega)
+  | cons tail rest =>
+      cases rest with
+      | nil =>
+          have hlen := symValListToCekList_length hargs
+          exact evalBuiltin_MkCons_none_of_length_ne_two (by
+            intro h2
+            have hone : cargs.length = 1 := by simpa using hlen
+            omega)
+      | cons head rest2 =>
+          cases rest2 with
+          | nil =>
+              change out ∈
+                (let dl := asDataList tail
+                 let hd := asData head
+                 let vl := asConstList tail
+                 let hv := asConstVal head
+                 let dataOk := SExpr.and dl.guard hd.guard
+                 let constOk := SExpr.and vl.guard hv.guard
+                 [Outcome.ok dataOk (.const (.dataList (.app "DCons" [hd.val, dl.val]))),
+                  Outcome.ok constOk (.const (.constList (.app "VCons" [hv.val, vl.val]))),
+                  Outcome.error (SExpr.not (SExpr.or dataOk constOk))]) at hmem
+              simp only [List.mem_cons, List.not_mem_nil] at hmem
+              obtain ⟨ctail, chead, htail, hhead, rfl⟩ :=
+                symValListToCekList_pair hargs
+              rcases hmem with hokData | hokConst | herr
+              · subst out
+                simp [outcomeErrorActive] at hactive
+              · subst out
+                simp [outcomeErrorActive] at hactive
+              · rcases herr with herr | hfalse
+                · subst out
+                  simp [outcomeErrorActive] at hactive
+                  by_cases hdataCek :
+                      ∃ ds d,
+                        ctail = .VCon (.ConstDataList ds) ∧
+                          chead = .VCon (.Data d)
+                  · rcases hdataCek with ⟨ds, d, rfl, rfl⟩
+                    have hgtail := asDataList_guard_of_cek
+                      (m := m) (v := tail) (xs := ds) htail
+                    have hghead := asData_guard_of_cek
+                      (m := m) (v := head) (d := d) hhead
+                    have hg := pcHolds_and_intro hgtail hghead
+                    exact False.elim
+                      (pcHolds_not_or_contra_left
+                        (m := m)
+                        (a := SExpr.and (asDataList tail).guard (asData head).guard)
+                        (b := SExpr.and (asConstList tail).guard (asConstVal head).guard)
+                        hg hactive)
+                  · by_cases hconstCek :
+                      ∃ cs c,
+                        ctail = .VCon (.ConstList cs) ∧ chead = .VCon c
+                    · rcases hconstCek with ⟨cs, c, rfl, rfl⟩
+                      have hgtail := asConstList_guard_of_cek
+                        (m := m) (v := tail) (cs := cs) htail
+                      have hghead := asConstVal_guard_of_cek
+                        (m := m) (v := head) (c := c) hhead
+                      have hg := pcHolds_and_intro hgtail hghead
+                      exact False.elim
+                        (pcHolds_not_or_contra_right
+                          (m := m)
+                          (a := SExpr.and (asDataList tail).guard (asData head).guard)
+                          (b := SExpr.and (asConstList tail).guard (asConstVal head).guard)
+                          hg hactive)
+                    · exact evalBuiltin_MkCons_none_of_pair_not_consable
+                        (tail := ctail) (head := chead)
+                        (by
+                          intro ds d h
+                          exact hdataCek ⟨ds, d, h⟩)
+                        (by
+                          intro cs c h
+                          exact hconstCek ⟨cs, c, h⟩)
+                · cases hfalse
+          | cons extra rest3 =>
+              have hlen := symValListToCekList_length hargs
+              exact evalBuiltin_MkCons_none_of_length_ne_two (by
+                intro h2
+                have hthree : 3 ≤ cargs.length := by
+                  rw [hlen]
+                  simp
+                omega)
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_error_HeadList : BuiltinErrorSound .HeadList := by
+  intro m args cargs out hargs hmem hactive
+  cases args with
+  | nil =>
+      have hlen := symValListToCekList_length hargs
+      exact evalBuiltin_HeadList_none_of_length_ne_one (by
+        intro h1
+        have hzero : cargs.length = 0 := by simpa using hlen
+        omega)
+  | cons xs rest =>
+      cases rest with
+      | nil =>
+          change out ∈
+            (let dl := asDataList xs
+             let vl := asConstList xs
+             [Outcome.ok
+                (SExpr.and dl.guard (SExpr.not (SExpr.isCtor "DNil" dl.val)))
+                (.const (.data (.app "dhead" [dl.val]))),
+              Outcome.ok
+                (SExpr.and vl.guard (SExpr.not (SExpr.isCtor "VNil" vl.val)))
+                (.dyn (.app "vhead" [vl.val])),
+              Outcome.error (SExpr.not
+                (SExpr.or
+                  (SExpr.and dl.guard (SExpr.not (SExpr.isCtor "DNil" dl.val)))
+                  (SExpr.and vl.guard (SExpr.not (SExpr.isCtor "VNil" vl.val)))))]) at hmem
+          simp only [List.mem_cons, List.not_mem_nil] at hmem
+          obtain ⟨cxs, hxs, rfl⟩ := symValListToCekList_singleton hargs
+          rcases hmem with hokData | hokConst | herr
+          · subst out
+            simp [outcomeErrorActive] at hactive
+          · subst out
+            simp [outcomeErrorActive] at hactive
+          · rcases herr with herr | hfalse
+            · subst out
+              simp [outcomeErrorActive] at hactive
+              by_cases hdl :
+                  ∃ d ds, cxs = .VCon (.ConstDataList (d :: ds))
+              · rcases hdl with ⟨d, ds, rfl⟩
+                have hg := asDataList_nonempty_guard_of_cek
+                  (m := m) (v := xs) (d := d) (ds := ds) hxs
+                exact False.elim
+                  (pcHolds_not_or_contra_left
+                    (m := m)
+                    (a := SExpr.and (asDataList xs).guard
+                      (SExpr.not (SExpr.isCtor "DNil" (asDataList xs).val)))
+                    (b := SExpr.and (asConstList xs).guard
+                      (SExpr.not (SExpr.isCtor "VNil" (asConstList xs).val)))
+                    hg hactive)
+              · by_cases hvl :
+                  ∃ c cs, cxs = .VCon (.ConstList (c :: cs))
+                · rcases hvl with ⟨c, cs, rfl⟩
+                  have hg := asConstList_nonempty_guard_of_cek
+                    (m := m) (v := xs) (c := c) (cs := cs) hxs
+                  exact False.elim
+                    (pcHolds_not_or_contra_right
+                      (m := m)
+                      (a := SExpr.and (asDataList xs).guard
+                        (SExpr.not (SExpr.isCtor "DNil" (asDataList xs).val)))
+                      (b := SExpr.and (asConstList xs).guard
+                        (SExpr.not (SExpr.isCtor "VNil" (asConstList xs).val)))
+                      hg hactive)
+                · exact evalBuiltin_HeadList_none_of_single_not_nonempty_list
+                    (xs := cxs)
+                    (by
+                      intro d ds h
+                      exact hdl ⟨d, ds, h⟩)
+                    (by
+                      intro c cs h
+                      exact hvl ⟨c, cs, h⟩)
+            · cases hfalse
+      | cons extra rest2 =>
+          have hlen := symValListToCekList_length hargs
+          exact evalBuiltin_HeadList_none_of_length_ne_one (by
+            intro h1
+            have htwo : 2 ≤ cargs.length := by
+              rw [hlen]
+              simp
+            omega)
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_error_TailList : BuiltinErrorSound .TailList := by
+  intro m args cargs out hargs hmem hactive
+  cases args with
+  | nil =>
+      have hlen := symValListToCekList_length hargs
+      exact evalBuiltin_TailList_none_of_length_ne_one (by
+        intro h1
+        have hzero : cargs.length = 0 := by simpa using hlen
+        omega)
+  | cons xs rest =>
+      cases rest with
+      | nil =>
+          change out ∈
+            (let dl := asDataList xs
+             let vl := asConstList xs
+             [Outcome.ok
+                (SExpr.and dl.guard (SExpr.not (SExpr.isCtor "DNil" dl.val)))
+                (.const (.dataList (.app "dtail" [dl.val]))),
+              Outcome.ok
+                (SExpr.and vl.guard (SExpr.not (SExpr.isCtor "VNil" vl.val)))
+                (.const (.constList (.app "vtail" [vl.val]))),
+              Outcome.error (SExpr.not
+                (SExpr.or
+                  (SExpr.and dl.guard (SExpr.not (SExpr.isCtor "DNil" dl.val)))
+                  (SExpr.and vl.guard (SExpr.not (SExpr.isCtor "VNil" vl.val)))))]) at hmem
+          simp only [List.mem_cons, List.not_mem_nil] at hmem
+          obtain ⟨cxs, hxs, rfl⟩ := symValListToCekList_singleton hargs
+          rcases hmem with hokData | hokConst | herr
+          · subst out
+            simp [outcomeErrorActive] at hactive
+          · subst out
+            simp [outcomeErrorActive] at hactive
+          · rcases herr with herr | hfalse
+            · subst out
+              simp [outcomeErrorActive] at hactive
+              by_cases hdl :
+                  ∃ d ds, cxs = .VCon (.ConstDataList (d :: ds))
+              · rcases hdl with ⟨d, ds, rfl⟩
+                have hg := asDataList_nonempty_guard_of_cek
+                  (m := m) (v := xs) (d := d) (ds := ds) hxs
+                exact False.elim
+                  (pcHolds_not_or_contra_left
+                    (m := m)
+                    (a := SExpr.and (asDataList xs).guard
+                      (SExpr.not (SExpr.isCtor "DNil" (asDataList xs).val)))
+                    (b := SExpr.and (asConstList xs).guard
+                      (SExpr.not (SExpr.isCtor "VNil" (asConstList xs).val)))
+                    hg hactive)
+              · by_cases hvl :
+                  ∃ c cs, cxs = .VCon (.ConstList (c :: cs))
+                · rcases hvl with ⟨c, cs, rfl⟩
+                  have hg := asConstList_nonempty_guard_of_cek
+                    (m := m) (v := xs) (c := c) (cs := cs) hxs
+                  exact False.elim
+                    (pcHolds_not_or_contra_right
+                      (m := m)
+                      (a := SExpr.and (asDataList xs).guard
+                        (SExpr.not (SExpr.isCtor "DNil" (asDataList xs).val)))
+                      (b := SExpr.and (asConstList xs).guard
+                        (SExpr.not (SExpr.isCtor "VNil" (asConstList xs).val)))
+                      hg hactive)
+                · exact evalBuiltin_TailList_none_of_single_not_nonempty_list
+                    (xs := cxs)
+                    (by
+                      intro d ds h
+                      exact hdl ⟨d, ds, h⟩)
+                    (by
+                      intro c cs h
+                      exact hvl ⟨c, cs, h⟩)
+            · cases hfalse
+      | cons extra rest2 =>
+          have hlen := symValListToCekList_length hargs
+          exact evalBuiltin_TailList_none_of_length_ne_one (by
+            intro h1
+            have htwo : 2 ≤ cargs.length := by
+              rw [hlen]
+              simp
+            omega)
 set_option maxHeartbeats 0 in
 theorem evalBuiltinSym_active_error_NullList : BuiltinErrorSound .NullList := by
   intro m args cargs out hargs hmem hactive
