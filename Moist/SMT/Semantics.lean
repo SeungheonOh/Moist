@@ -1473,6 +1473,20 @@ theorem evalBoolIs_isVList_true {m : Model} {e : Expr}
   | g2 g => simp [isCtor] at hc
   | ml r => simp [isCtor] at hc
 
+theorem evalBoolIs_isVList_of {m : Model} {e : Expr} {xs : List Val}
+    (he : eval m e = some (.val (.list xs))) :
+    evalBoolIs m (.app "(_ is VList)" [e]) true = true := by
+  rw [evalBoolIs_true_eq]
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "(_ is VList)" vs) = some (.bool true)
+  rw [evalList.eq_def]
+  simp [he]
+  rw [evalList.eq_def]
+  rfl
+
 theorem evalBoolIs_isVDataList_true {m : Model} {e : Expr}
     (h : evalBoolIs m (.app "(_ is VDataList)" [e]) true = true) :
     ∃ xs, eval m e = some (.val (.dataList xs)) := by
@@ -2097,6 +2111,20 @@ theorem evalBoolIs_isVArray_true {m : Model} {e : Expr}
   | g1 g => simp [isCtor] at hc
   | g2 g => simp [isCtor] at hc
   | ml r => simp [isCtor] at hc
+
+theorem evalBoolIs_isVArray_of {m : Model} {e : Expr} {xs : List Val}
+    (he : eval m e = some (SVal.val (Val.array xs))) :
+    evalBoolIs m (.app "(_ is VArray)" [e]) true = true := by
+  rw [evalBoolIs_true_eq]
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "(_ is VArray)" vs) = some (.bool true)
+  rw [evalList.eq_def]
+  simp [he]
+  rw [evalList.eq_def]
+  rfl
 
 theorem evalBoolIs_isVG1_true {m : Model} {e : Expr}
     (h : evalBoolIs m (.app "(_ is VG1)" [e]) true = true) :
