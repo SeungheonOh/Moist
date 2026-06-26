@@ -1588,6 +1588,36 @@ theorem evalBoolIs_isVPairDataList_of {m : Model} {e : Expr}
   rw [evalList.eq_def]
   rfl
 
+theorem evalBoolIs_isVPair_of {m : Model} {e : Expr}
+    {a b : Val}
+    (he : eval m e = some (.val (.pair a b))) :
+    evalBoolIs m (.app "(_ is VPair)" [e]) true = true := by
+  rw [evalBoolIs_true_eq]
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "(_ is VPair)" vs) = some (.bool true)
+  rw [evalList.eq_def]
+  simp [he]
+  rw [evalList.eq_def]
+  rfl
+
+theorem evalBoolIs_isVPairData_of {m : Model} {e : Expr}
+    {a b : Data}
+    (he : eval m e = some (.val (.pairData a b))) :
+    evalBoolIs m (.app "(_ is VPairData)" [e]) true = true := by
+  rw [evalBoolIs_true_eq]
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "(_ is VPairData)" vs) = some (.bool true)
+  rw [evalList.eq_def]
+  simp [he]
+  rw [evalList.eq_def]
+  rfl
+
 theorem evalBoolIs_isVDataList_true {m : Model} {e : Expr}
     (h : evalBoolIs m (.app "(_ is VDataList)" [e]) true = true) :
     ∃ xs, eval m e = some (.val (.dataList xs)) := by
