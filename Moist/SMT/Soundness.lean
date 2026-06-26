@@ -7972,6 +7972,202 @@ theorem evalBuiltin_ModInteger_none_of_divisor_zero {a b : Int}
   rfl
 
 set_option maxHeartbeats 0 in
+theorem evalBuiltinConst_AppendByteString_none_of_length_ne_two {cs : List Const}
+    (h : cs.length ≠ 2) :
+    Moist.CEK.evalBuiltinConst .AppendByteString cs = none := by
+  cases cs with
+  | nil => rfl
+  | cons c rest =>
+      cases rest with
+      | nil => cases c <;> rfl
+      | cons c2 rest2 =>
+          cases rest2 with
+          | nil => exact False.elim (h rfl)
+          | cons c3 rest3 =>
+              cases c <;> cases c2 <;> rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinConst_EqualsByteString_none_of_length_ne_two {cs : List Const}
+    (h : cs.length ≠ 2) :
+    Moist.CEK.evalBuiltinConst .EqualsByteString cs = none := by
+  cases cs with
+  | nil => rfl
+  | cons c rest =>
+      cases rest with
+      | nil => cases c <;> rfl
+      | cons c2 rest2 =>
+          cases rest2 with
+          | nil => exact False.elim (h rfl)
+          | cons c3 rest3 =>
+              cases c <;> cases c2 <;> rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinConst_LessThanByteString_none_of_length_ne_two {cs : List Const}
+    (h : cs.length ≠ 2) :
+    Moist.CEK.evalBuiltinConst .LessThanByteString cs = none := by
+  cases cs with
+  | nil => rfl
+  | cons c rest =>
+      cases rest with
+      | nil => cases c <;> rfl
+      | cons c2 rest2 =>
+          cases rest2 with
+          | nil => exact False.elim (h rfl)
+          | cons c3 rest3 =>
+              cases c <;> cases c2 <;> rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinConst_LessThanEqualsByteString_none_of_length_ne_two {cs : List Const}
+    (h : cs.length ≠ 2) :
+    Moist.CEK.evalBuiltinConst .LessThanEqualsByteString cs = none := by
+  cases cs with
+  | nil => rfl
+  | cons c rest =>
+      cases rest with
+      | nil => cases c <;> rfl
+      | cons c2 rest2 =>
+          cases rest2 with
+          | nil => exact False.elim (h rfl)
+          | cons c3 rest3 =>
+              cases c <;> cases c2 <;> rfl
+
+theorem evalBuiltin_AppendByteString_none_of_length_ne_two {args : List CekValue}
+    (h : args.length ≠ 2) :
+    Moist.CEK.evalBuiltin .AppendByteString args = none := by
+  cases hconst : Moist.CEK.extractConsts args with
+  | none =>
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst]
+  | some cs =>
+      have hlen := extractConsts_length hconst
+      have hcs : cs.length ≠ 2 := by
+        intro hcs2
+        apply h
+        omega
+      have hnone := evalBuiltinConst_AppendByteString_none_of_length_ne_two hcs
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst, hnone]
+
+theorem evalBuiltin_EqualsByteString_none_of_length_ne_two {args : List CekValue}
+    (h : args.length ≠ 2) :
+    Moist.CEK.evalBuiltin .EqualsByteString args = none := by
+  cases hconst : Moist.CEK.extractConsts args with
+  | none =>
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst]
+  | some cs =>
+      have hlen := extractConsts_length hconst
+      have hcs : cs.length ≠ 2 := by
+        intro hcs2
+        apply h
+        omega
+      have hnone := evalBuiltinConst_EqualsByteString_none_of_length_ne_two hcs
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst, hnone]
+
+theorem evalBuiltin_LessThanByteString_none_of_length_ne_two {args : List CekValue}
+    (h : args.length ≠ 2) :
+    Moist.CEK.evalBuiltin .LessThanByteString args = none := by
+  cases hconst : Moist.CEK.extractConsts args with
+  | none =>
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst]
+  | some cs =>
+      have hlen := extractConsts_length hconst
+      have hcs : cs.length ≠ 2 := by
+        intro hcs2
+        apply h
+        omega
+      have hnone := evalBuiltinConst_LessThanByteString_none_of_length_ne_two hcs
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst, hnone]
+
+theorem evalBuiltin_LessThanEqualsByteString_none_of_length_ne_two {args : List CekValue}
+    (h : args.length ≠ 2) :
+    Moist.CEK.evalBuiltin .LessThanEqualsByteString args = none := by
+  cases hconst : Moist.CEK.extractConsts args with
+  | none =>
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst]
+  | some cs =>
+      have hlen := extractConsts_length hconst
+      have hcs : cs.length ≠ 2 := by
+        intro hcs2
+        apply h
+        omega
+      have hnone := evalBuiltinConst_LessThanEqualsByteString_none_of_length_ne_two hcs
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst, hnone]
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltin_AppendByteString_none_of_pair_not_bytes {b a : CekValue}
+    (h : ∀ bs2 bs1, ¬ (b = .VCon (.ByteString bs2) ∧ a = .VCon (.ByteString bs1))) :
+    Moist.CEK.evalBuiltin .AppendByteString [b, a] = none := by
+  cases b with
+  | VCon cb =>
+      cases a with
+      | VCon ca =>
+          cases cb <;> cases ca <;> try rfl
+          exact False.elim (h _ _ ⟨rfl, rfl⟩)
+      | VLam body ρ => cases cb <;> rfl
+      | VDelay body ρ => cases cb <;> rfl
+      | VConstr tag fields => cases cb <;> rfl
+      | VBuiltin fn args expected => cases cb <;> rfl
+  | VLam body ρ => rfl
+  | VDelay body ρ => rfl
+  | VConstr tag fields => rfl
+  | VBuiltin fn args expected => rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltin_EqualsByteString_none_of_pair_not_bytes {b a : CekValue}
+    (h : ∀ bs2 bs1, ¬ (b = .VCon (.ByteString bs2) ∧ a = .VCon (.ByteString bs1))) :
+    Moist.CEK.evalBuiltin .EqualsByteString [b, a] = none := by
+  cases b with
+  | VCon cb =>
+      cases a with
+      | VCon ca =>
+          cases cb <;> cases ca <;> try rfl
+          exact False.elim (h _ _ ⟨rfl, rfl⟩)
+      | VLam body ρ => cases cb <;> rfl
+      | VDelay body ρ => cases cb <;> rfl
+      | VConstr tag fields => cases cb <;> rfl
+      | VBuiltin fn args expected => cases cb <;> rfl
+  | VLam body ρ => rfl
+  | VDelay body ρ => rfl
+  | VConstr tag fields => rfl
+  | VBuiltin fn args expected => rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltin_LessThanByteString_none_of_pair_not_bytes {b a : CekValue}
+    (h : ∀ bs2 bs1, ¬ (b = .VCon (.ByteString bs2) ∧ a = .VCon (.ByteString bs1))) :
+    Moist.CEK.evalBuiltin .LessThanByteString [b, a] = none := by
+  cases b with
+  | VCon cb =>
+      cases a with
+      | VCon ca =>
+          cases cb <;> cases ca <;> try rfl
+          exact False.elim (h _ _ ⟨rfl, rfl⟩)
+      | VLam body ρ => cases cb <;> rfl
+      | VDelay body ρ => cases cb <;> rfl
+      | VConstr tag fields => cases cb <;> rfl
+      | VBuiltin fn args expected => cases cb <;> rfl
+  | VLam body ρ => rfl
+  | VDelay body ρ => rfl
+  | VConstr tag fields => rfl
+  | VBuiltin fn args expected => rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltin_LessThanEqualsByteString_none_of_pair_not_bytes {b a : CekValue}
+    (h : ∀ bs2 bs1, ¬ (b = .VCon (.ByteString bs2) ∧ a = .VCon (.ByteString bs1))) :
+    Moist.CEK.evalBuiltin .LessThanEqualsByteString [b, a] = none := by
+  cases b with
+  | VCon cb =>
+      cases a with
+      | VCon ca =>
+          cases cb <;> cases ca <;> try rfl
+          exact False.elim (h _ _ ⟨rfl, rfl⟩)
+      | VLam body ρ => cases cb <;> rfl
+      | VDelay body ρ => cases cb <;> rfl
+      | VConstr tag fields => cases cb <;> rfl
+      | VBuiltin fn args expected => cases cb <;> rfl
+  | VLam body ρ => rfl
+  | VDelay body ρ => rfl
+  | VConstr tag fields => rfl
+  | VBuiltin fn args expected => rfl
+
+set_option maxHeartbeats 0 in
 theorem evalBuiltinConst_LengthOfArray_none_of_length_ne_one {cs : List Const}
     (h : cs.length ≠ 1) :
     Moist.CEK.evalBuiltinConst .LengthOfArray cs = none := by
@@ -9657,7 +9853,69 @@ theorem evalBuiltinSym_active_error_LessThanEqualsInteger :
                   rw [hlen]
                   simp
                 omega)
-axiom evalBuiltinSym_active_error_AppendByteString : BuiltinErrorSound .AppendByteString
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_error_AppendByteString :
+    BuiltinErrorSound .AppendByteString := by
+  intro m args cargs out hargs hmem hactive
+  cases args with
+  | nil =>
+      have hlen := symValListToCekList_length hargs
+      exact evalBuiltin_AppendByteString_none_of_length_ne_two (by
+        intro h2
+        have hzero : cargs.length = 0 := by simpa using hlen
+        omega)
+  | cons bSym rest =>
+      cases rest with
+      | nil =>
+          have hlen := symValListToCekList_length hargs
+          exact evalBuiltin_AppendByteString_none_of_length_ne_two (by
+            intro h2
+            have hone : cargs.length = 1 := by simpa using hlen
+            omega)
+      | cons aSym rest2 =>
+          cases rest2 with
+          | nil =>
+              rw [evalBuiltinSym_AppendByteString_eq bSym aSym] at hmem
+              change out ∈
+                [Outcome.ok (SExpr.and (asBytes aSym).guard (asBytes bSym).guard)
+                  (SymVal.const (SymConst.bytes
+                    (SExpr.seqAppend (asBytes aSym).val (asBytes bSym).val))),
+                 Outcome.error (SExpr.not
+                  (SExpr.and (asBytes aSym).guard (asBytes bSym).guard))] at hmem
+              simp only [List.mem_cons, List.not_mem_nil] at hmem
+              obtain ⟨cb, ca, hb, ha, rfl⟩ := symValListToCekList_pair hargs
+              rcases hmem with hok | herr
+              · subst out
+                simp [outcomeErrorActive] at hactive
+              · rcases herr with herr | hfalse
+                · subst out
+                  by_cases hshape :
+                      ∃ bs2 bs1, cb = .VCon (.ByteString bs2) ∧
+                        ca = .VCon (.ByteString bs1)
+                  · rcases hshape with ⟨bs2, bs1, rfl, rfl⟩
+                    have hga := asBytes_guard_of_cek (m := m) (v := aSym) (bs := bs1) ha
+                    have hgb := asBytes_guard_of_cek (m := m) (v := bSym) (bs := bs2) hb
+                    have hg :
+                        pcHolds m
+                          (SExpr.and (asBytes aSym).guard (asBytes bSym).guard) = true := by
+                      simpa [pcHolds] using
+                        ((Moist.SMT.Semantics.evalBoolIs_and_true m
+                          (asBytes aSym).guard (asBytes bSym).guard).mpr
+                            ⟨by simpa [pcHolds] using hga,
+                             by simpa [pcHolds] using hgb⟩)
+                    exact False.elim (pcHolds_not_contra hg hactive)
+                  · exact evalBuiltin_AppendByteString_none_of_pair_not_bytes (by
+                      intro bs2 bs1 h
+                      exact hshape ⟨bs2, bs1, h.1, h.2⟩)
+                · cases hfalse
+          | cons extra rest3 =>
+              have hlen := symValListToCekList_length hargs
+              exact evalBuiltin_AppendByteString_none_of_length_ne_two (by
+                intro h2
+                have hthree : 3 ≤ cargs.length := by
+                  rw [hlen]
+                  simp
+                omega)
 axiom evalBuiltinSym_active_error_ConsByteString : BuiltinErrorSound .ConsByteString
 axiom evalBuiltinSym_active_error_SliceByteString : BuiltinErrorSound .SliceByteString
 set_option maxHeartbeats 0 in
@@ -9703,9 +9961,197 @@ theorem evalBuiltinSym_active_error_LengthOfByteString :
               simp
             omega)
 axiom evalBuiltinSym_active_error_IndexByteString : BuiltinErrorSound .IndexByteString
-axiom evalBuiltinSym_active_error_EqualsByteString : BuiltinErrorSound .EqualsByteString
-axiom evalBuiltinSym_active_error_LessThanByteString : BuiltinErrorSound .LessThanByteString
-axiom evalBuiltinSym_active_error_LessThanEqualsByteString : BuiltinErrorSound .LessThanEqualsByteString
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_error_EqualsByteString :
+    BuiltinErrorSound .EqualsByteString := by
+  intro m args cargs out hargs hmem hactive
+  cases args with
+  | nil =>
+      have hlen := symValListToCekList_length hargs
+      exact evalBuiltin_EqualsByteString_none_of_length_ne_two (by
+        intro h2
+        have hzero : cargs.length = 0 := by simpa using hlen
+        omega)
+  | cons bSym rest =>
+      cases rest with
+      | nil =>
+          have hlen := symValListToCekList_length hargs
+          exact evalBuiltin_EqualsByteString_none_of_length_ne_two (by
+            intro h2
+            have hone : cargs.length = 1 := by simpa using hlen
+            omega)
+      | cons aSym rest2 =>
+          cases rest2 with
+          | nil =>
+              rw [evalBuiltinSym_EqualsByteString_eq bSym aSym] at hmem
+              change out ∈
+                [Outcome.ok (SExpr.and (asBytes aSym).guard (asBytes bSym).guard)
+                  (SymVal.const (SymConst.bool
+                    (SExpr.eq (asBytes aSym).val (asBytes bSym).val))),
+                 Outcome.error (SExpr.not
+                  (SExpr.and (asBytes aSym).guard (asBytes bSym).guard))] at hmem
+              simp only [List.mem_cons, List.not_mem_nil] at hmem
+              obtain ⟨cb, ca, hb, ha, rfl⟩ := symValListToCekList_pair hargs
+              rcases hmem with hok | herr
+              · subst out
+                simp [outcomeErrorActive] at hactive
+              · rcases herr with herr | hfalse
+                · subst out
+                  by_cases hshape :
+                      ∃ bs2 bs1, cb = .VCon (.ByteString bs2) ∧
+                        ca = .VCon (.ByteString bs1)
+                  · rcases hshape with ⟨bs2, bs1, rfl, rfl⟩
+                    have hga := asBytes_guard_of_cek (m := m) (v := aSym) (bs := bs1) ha
+                    have hgb := asBytes_guard_of_cek (m := m) (v := bSym) (bs := bs2) hb
+                    have hg :
+                        pcHolds m
+                          (SExpr.and (asBytes aSym).guard (asBytes bSym).guard) = true := by
+                      simpa [pcHolds] using
+                        ((Moist.SMT.Semantics.evalBoolIs_and_true m
+                          (asBytes aSym).guard (asBytes bSym).guard).mpr
+                            ⟨by simpa [pcHolds] using hga,
+                             by simpa [pcHolds] using hgb⟩)
+                    exact False.elim (pcHolds_not_contra hg hactive)
+                  · exact evalBuiltin_EqualsByteString_none_of_pair_not_bytes (by
+                      intro bs2 bs1 h
+                      exact hshape ⟨bs2, bs1, h.1, h.2⟩)
+                · cases hfalse
+          | cons extra rest3 =>
+              have hlen := symValListToCekList_length hargs
+              exact evalBuiltin_EqualsByteString_none_of_length_ne_two (by
+                intro h2
+                have hthree : 3 ≤ cargs.length := by
+                  rw [hlen]
+                  simp
+                omega)
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_error_LessThanByteString :
+    BuiltinErrorSound .LessThanByteString := by
+  intro m args cargs out hargs hmem hactive
+  cases args with
+  | nil =>
+      have hlen := symValListToCekList_length hargs
+      exact evalBuiltin_LessThanByteString_none_of_length_ne_two (by
+        intro h2
+        have hzero : cargs.length = 0 := by simpa using hlen
+        omega)
+  | cons bSym rest =>
+      cases rest with
+      | nil =>
+          have hlen := symValListToCekList_length hargs
+          exact evalBuiltin_LessThanByteString_none_of_length_ne_two (by
+            intro h2
+            have hone : cargs.length = 1 := by simpa using hlen
+            omega)
+      | cons aSym rest2 =>
+          cases rest2 with
+          | nil =>
+              rw [evalBuiltinSym_LessThanByteString_eq bSym aSym] at hmem
+              change out ∈
+                [Outcome.ok (SExpr.and (asBytes aSym).guard (asBytes bSym).guard)
+                  (SymVal.const (SymConst.bool
+                    (.app "bytes_lt" [(asBytes aSym).val, (asBytes bSym).val]))),
+                 Outcome.error (SExpr.not
+                  (SExpr.and (asBytes aSym).guard (asBytes bSym).guard))] at hmem
+              simp only [List.mem_cons, List.not_mem_nil] at hmem
+              obtain ⟨cb, ca, hb, ha, rfl⟩ := symValListToCekList_pair hargs
+              rcases hmem with hok | herr
+              · subst out
+                simp [outcomeErrorActive] at hactive
+              · rcases herr with herr | hfalse
+                · subst out
+                  by_cases hshape :
+                      ∃ bs2 bs1, cb = .VCon (.ByteString bs2) ∧
+                        ca = .VCon (.ByteString bs1)
+                  · rcases hshape with ⟨bs2, bs1, rfl, rfl⟩
+                    have hga := asBytes_guard_of_cek (m := m) (v := aSym) (bs := bs1) ha
+                    have hgb := asBytes_guard_of_cek (m := m) (v := bSym) (bs := bs2) hb
+                    have hg :
+                        pcHolds m
+                          (SExpr.and (asBytes aSym).guard (asBytes bSym).guard) = true := by
+                      simpa [pcHolds] using
+                        ((Moist.SMT.Semantics.evalBoolIs_and_true m
+                          (asBytes aSym).guard (asBytes bSym).guard).mpr
+                            ⟨by simpa [pcHolds] using hga,
+                             by simpa [pcHolds] using hgb⟩)
+                    exact False.elim (pcHolds_not_contra hg hactive)
+                  · exact evalBuiltin_LessThanByteString_none_of_pair_not_bytes (by
+                      intro bs2 bs1 h
+                      exact hshape ⟨bs2, bs1, h.1, h.2⟩)
+                · cases hfalse
+          | cons extra rest3 =>
+              have hlen := symValListToCekList_length hargs
+              exact evalBuiltin_LessThanByteString_none_of_length_ne_two (by
+                intro h2
+                have hthree : 3 ≤ cargs.length := by
+                  rw [hlen]
+                  simp
+                omega)
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_error_LessThanEqualsByteString :
+    BuiltinErrorSound .LessThanEqualsByteString := by
+  intro m args cargs out hargs hmem hactive
+  cases args with
+  | nil =>
+      have hlen := symValListToCekList_length hargs
+      exact evalBuiltin_LessThanEqualsByteString_none_of_length_ne_two (by
+        intro h2
+        have hzero : cargs.length = 0 := by simpa using hlen
+        omega)
+  | cons bSym rest =>
+      cases rest with
+      | nil =>
+          have hlen := symValListToCekList_length hargs
+          exact evalBuiltin_LessThanEqualsByteString_none_of_length_ne_two (by
+            intro h2
+            have hone : cargs.length = 1 := by simpa using hlen
+            omega)
+      | cons aSym rest2 =>
+          cases rest2 with
+          | nil =>
+              rw [evalBuiltinSym_LessThanEqualsByteString_eq bSym aSym] at hmem
+              change out ∈
+                [Outcome.ok (SExpr.and (asBytes aSym).guard (asBytes bSym).guard)
+                  (SymVal.const (SymConst.bool
+                    (.app "bytes_le" [(asBytes aSym).val, (asBytes bSym).val]))),
+                 Outcome.error (SExpr.not
+                  (SExpr.and (asBytes aSym).guard (asBytes bSym).guard))] at hmem
+              simp only [List.mem_cons, List.not_mem_nil] at hmem
+              obtain ⟨cb, ca, hb, ha, rfl⟩ := symValListToCekList_pair hargs
+              rcases hmem with hok | herr
+              · subst out
+                simp [outcomeErrorActive] at hactive
+              · rcases herr with herr | hfalse
+                · subst out
+                  by_cases hshape :
+                      ∃ bs2 bs1, cb = .VCon (.ByteString bs2) ∧
+                        ca = .VCon (.ByteString bs1)
+                  · rcases hshape with ⟨bs2, bs1, rfl, rfl⟩
+                    have hga := asBytes_guard_of_cek (m := m) (v := aSym) (bs := bs1) ha
+                    have hgb := asBytes_guard_of_cek (m := m) (v := bSym) (bs := bs2) hb
+                    have hg :
+                        pcHolds m
+                          (SExpr.and (asBytes aSym).guard (asBytes bSym).guard) = true := by
+                      simpa [pcHolds] using
+                        ((Moist.SMT.Semantics.evalBoolIs_and_true m
+                          (asBytes aSym).guard (asBytes bSym).guard).mpr
+                            ⟨by simpa [pcHolds] using hga,
+                             by simpa [pcHolds] using hgb⟩)
+                    exact False.elim (pcHolds_not_contra hg hactive)
+                  · exact evalBuiltin_LessThanEqualsByteString_none_of_pair_not_bytes (by
+                      intro bs2 bs1 h
+                      exact hshape ⟨bs2, bs1, h.1, h.2⟩)
+                · cases hfalse
+          | cons extra rest3 =>
+              have hlen := symValListToCekList_length hargs
+              exact evalBuiltin_LessThanEqualsByteString_none_of_length_ne_two (by
+                intro h2
+                have hthree : 3 ≤ cargs.length := by
+                  rw [hlen]
+                  simp
+                omega)
 axiom evalBuiltinSym_active_error_Sha2_256 : BuiltinErrorSound .Sha2_256
 axiom evalBuiltinSym_active_error_Sha3_256 : BuiltinErrorSound .Sha3_256
 axiom evalBuiltinSym_active_error_Blake2b_256 : BuiltinErrorSound .Blake2b_256
