@@ -344,6 +344,10 @@ private def evalApp (f : String) (vs : List SVal) : Option SVal :=
       | "seq.nth", [.bytes a, .int i] => SVal.int <$> bytesNth a i
       | "seq.extract", [.bytes a, .int start, .int len] => some (.bytes (bytesExtract a start len))
       | "str.++", [.string a, .string b] => some (.string (a ++ b))
+      | "uplc_encodeUtf8", [.string s] => some (.bytes s.toUTF8)
+      | "valid_utf8", [.bytes bs] => some (.bool (String.validateUTF8 bs))
+      | "uplc_decodeUtf8", [.bytes bs] =>
+          if h : String.validateUTF8 bs then some (.string (String.fromUTF8 bs h)) else none
       | "same_sign", [.int a, .int b] => some (.bool (sameSign a b))
       | "abs_int", [.int a] => some (.int (Int.ofNat a.natAbs))
       | "uplc_tdiv", [.int a, .int b] => if b == 0 then none else some (.int (a.tdiv b))
@@ -560,6 +564,23 @@ private theorem evalApp_bytesLe (a b : ByteArray) :
 private theorem evalApp_strAppend (a b : String) :
     evalApp "str.++" [SVal.string a, SVal.string b] = some (SVal.string (a ++ b)) := by
   rfl
+
+private theorem evalApp_uplcEncodeUtf8 (s : String) :
+    evalApp "uplc_encodeUtf8" [SVal.string s] = some (SVal.bytes s.toUTF8) := by
+  rfl
+
+private theorem evalApp_validUtf8 (bs : ByteArray) :
+    evalApp "valid_utf8" [SVal.bytes bs] =
+      some (SVal.bool (String.validateUTF8 bs)) := by
+  rfl
+
+private theorem evalApp_uplcDecodeUtf8 {bs : ByteArray} (h : String.validateUTF8 bs) :
+    evalApp "uplc_decodeUtf8" [SVal.bytes bs] =
+      some (SVal.string (String.fromUTF8 bs h)) := by
+  change (if h' : String.validateUTF8 bs then
+      some (SVal.string (String.fromUTF8 bs h')) else none) =
+    some (SVal.string (String.fromUTF8 bs h))
+  simp [h]
 
 private theorem evalApp_isCtor_VBytes (sv : SVal) :
     evalApp "(_ is VBytes)" [sv] = (isCtor "VBytes" sv).map SVal.bool := by
@@ -2110,6 +2131,71 @@ theorem eval_strAppend_of {m : Model} {a b : Expr} {x y : String}
   simp [hb]
   rw [evalList.eq_def]
   exact evalApp_strAppend x y
+
+theorem eval_uplcEncodeUtf8_of {m : Model} {e : Expr} {s : String}
+    (he : eval m e = some (SVal.string s)) :
+    eval m (.app "uplc_encodeUtf8" [e]) = some (SVal.bytes s.toUTF8) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "uplc_encodeUtf8" vs) = some (SVal.bytes s.toUTF8)
+  rw [evalList.eq_def]
+  simp [he]
+  rw [evalList.eq_def]
+  exact evalApp_uplcEncodeUtf8 s
+
+theorem eval_validUtf8_of {m : Model} {e : Expr} {bs : ByteArray}
+    (he : eval m e = some (SVal.bytes bs)) :
+    eval m (.app "valid_utf8" [e]) =
+      some (SVal.bool (String.validateUTF8 bs)) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "valid_utf8" vs) =
+        some (SVal.bool (String.validateUTF8 bs))
+  rw [evalList.eq_def]
+  simp [he]
+  rw [evalList.eq_def]
+  exact evalApp_validUtf8 bs
+
+theorem validUtf8_of_evalBoolIs_validUtf8_true {m : Model} {e : Expr} {bs : ByteArray}
+    (he : eval m e = some (SVal.bytes bs))
+    (hpc : evalBoolIs m (.app "valid_utf8" [e]) true = true) :
+    String.validateUTF8 bs := by
+  have hv := eval_validUtf8_of (m := m) (e := e) (bs := bs) he
+  have hb := (evalBoolIs_true_eq m (.app "valid_utf8" [e])).mp hpc
+  rw [hv] at hb
+  simp at hb
+  exact hb
+
+theorem not_validUtf8_of_evalBoolIs_validUtf8_false {m : Model} {e : Expr} {bs : ByteArray}
+    (he : eval m e = some (SVal.bytes bs))
+    (hpc : evalBoolIs m (.app "valid_utf8" [e]) false = true) :
+    ¬ String.validateUTF8 bs := by
+  unfold evalBoolIs evalBool? at hpc
+  rw [eval_validUtf8_of (m := m) (e := e) (bs := bs) he] at hpc
+  simp at hpc
+  intro h
+  rw [h] at hpc
+  simp at hpc
+
+theorem eval_uplcDecodeUtf8_of {m : Model} {e : Expr} {bs : ByteArray}
+    (he : eval m e = some (SVal.bytes bs))
+    (h : String.validateUTF8 bs) :
+    eval m (.app "uplc_decodeUtf8" [e]) =
+      some (SVal.string (String.fromUTF8 bs h)) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "uplc_decodeUtf8" vs) =
+        some (SVal.string (String.fromUTF8 bs h))
+  rw [evalList.eq_def]
+  simp [he]
+  rw [evalList.eq_def]
+  exact evalApp_uplcDecodeUtf8 h
 
 theorem eval_unVBytes_of {m : Model} {e : Expr} {bs : ByteArray}
     (h : eval m e = some (SVal.val (Val.bytes bs))) :

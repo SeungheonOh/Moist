@@ -86,7 +86,6 @@ def mkConsRejectsRuntimeConstrExample : Term :=
 
 def builtinOpaqueForSoundness : BuiltinFun → Bool
   | .Sha2_256 | .Sha3_256 | .Blake2b_256 | .VerifyEd25519Signature
-  | .EncodeUtf8 | .DecodeUtf8
   | .SerializeData
   | .VerifyEcdsaSecp256k1Signature | .VerifySchnorrSecp256k1Signature
   | .Bls12_381_G1_add | .Bls12_381_G1_neg | .Bls12_381_G1_scalarMul
@@ -4833,6 +4832,20 @@ theorem evalBuiltinSym_EqualsString_eq (b a : SymVal) :
   rfl
 
 set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_EncodeUtf8_eq (s : SymVal) :
+    evalBuiltinSym .EncodeUtf8 [s] =
+      checkedConst ((asString s).map fun x => .app "uplc_encodeUtf8" [x]) .bytes := by
+  rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_DecodeUtf8_eq (bs : SymVal) :
+    evalBuiltinSym .DecodeUtf8 [bs] =
+      checked2 (asBytes bs) fun b =>
+        [.ok (.app "valid_utf8" [b]) (.const (.string (.app "uplc_decodeUtf8" [b]))),
+         .error (SExpr.not (.app "valid_utf8" [b]))] := by
+  rfl
+
+set_option maxHeartbeats 0 in
 theorem evalBuiltinSym_IfThenElse_eq (elseV thenV cond : SymVal) :
     evalBuiltinSym .IfThenElse [elseV, thenV, cond] =
       (let c := asBool cond
@@ -6091,8 +6104,92 @@ theorem evalBuiltinSym_active_ok_EqualsString : BuiltinOkSound .EqualsString := 
           | cons _ _ =>
               change Outcome.ok pc v ∈ err at hmem
               simp [err] at hmem
-axiom evalBuiltinSym_active_ok_EncodeUtf8 : BuiltinOkSound .EncodeUtf8
-axiom evalBuiltinSym_active_ok_DecodeUtf8 : BuiltinOkSound .DecodeUtf8
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltin_DecodeUtf8_of_valid {bs : ByteArray}
+    (h : String.validateUTF8 bs) :
+    Moist.CEK.evalBuiltin .DecodeUtf8 [.VCon (.ByteString bs)] =
+      some (.VCon (.String (String.fromUTF8 bs h))) := by
+  change (match (if h' : String.validateUTF8 bs then
+      some (Const.String (String.fromUTF8 bs h')) else none) with
+    | some c => some (CekValue.VCon c)
+    | none => none) =
+      some (.VCon (.String (String.fromUTF8 bs h)))
+  simp [h]
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_ok_EncodeUtf8 : BuiltinOkSound .EncodeUtf8 := by
+  intro m args cargs pc v hargs _hnoArgs hmem hpc
+  cases args with
+  | nil =>
+      change Outcome.ok pc v ∈ err at hmem
+      simp [err] at hmem
+  | cons sSym rest =>
+      cases rest with
+      | nil =>
+          rw [evalBuiltinSym_EncodeUtf8_eq sSym] at hmem
+          change Outcome.ok pc v ∈
+            [Outcome.ok (asString sSym).guard
+              (SymVal.const (SymConst.bytes
+                (.app "uplc_encodeUtf8" [(asString sSym).val]))),
+             Outcome.error (SExpr.not (asString sSym).guard)] at hmem
+          simp only [List.mem_cons, List.not_mem_nil] at hmem
+          rcases hmem with hmem | hmem
+          · injection hmem with hpcEq hvEq
+            subst pc
+            subst v
+            obtain ⟨cs, hs, rfl⟩ := symValListToCekList_singleton hargs
+            obtain ⟨s, rfl, hsEval⟩ := asString_sound hs hpc
+            refine ⟨.VCon (.ByteString s.toUTF8), ?_, ?_, ?_⟩
+            ·
+              have henc := Moist.SMT.Semantics.eval_uplcEncodeUtf8_of
+                (m := m) (e := (asString sSym).val) (s := s) hsEval
+              simp [symValToCek?, symConstToCek?, henc]
+            · simp [symValNoOpaqueForSoundness]
+            · rfl
+          · rcases hmem with hbad | hfalse
+            · cases hbad
+            · cases hfalse
+      | cons extra rest2 =>
+          change Outcome.ok pc v ∈ err at hmem
+          simp [err] at hmem
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_ok_DecodeUtf8 : BuiltinOkSound .DecodeUtf8 := by
+  intro m args cargs pc v hargs _hnoArgs hmem hpc
+  cases args with
+  | nil =>
+      change Outcome.ok pc v ∈ err at hmem
+      simp [err] at hmem
+  | cons bsSym rest =>
+      cases rest with
+      | nil =>
+          rw [evalBuiltinSym_DecodeUtf8_eq bsSym] at hmem
+          have hpath := checked2_path_ok hmem hpc
+          rcases hpath with ⟨innerPc, hinner, hpcEq, hguard, hinnerPc⟩
+          simp only [List.mem_cons, List.not_mem_nil] at hinner
+          rcases hinner with hinner | hinner
+          · injection hinner with hinnerPcEq hvEq
+            subst innerPc
+            subst v
+            obtain ⟨cbs, hbs, rfl⟩ := symValListToCekList_singleton hargs
+            obtain ⟨bs, rfl, hbsEval⟩ := asBytes_sound hbs hguard
+            have hvalid := Moist.SMT.Semantics.validUtf8_of_evalBoolIs_validUtf8_true
+              (m := m) (e := (asBytes bsSym).val) (bs := bs) hbsEval
+              (by simpa [pcHolds] using hinnerPc)
+            refine ⟨.VCon (.String (String.fromUTF8 bs hvalid)), ?_, ?_, ?_⟩
+            ·
+              have hdec := Moist.SMT.Semantics.eval_uplcDecodeUtf8_of
+                (m := m) (e := (asBytes bsSym).val) (bs := bs) hbsEval hvalid
+              simp [symValToCek?, symConstToCek?, hdec]
+            · simp [symValNoOpaqueForSoundness]
+            · exact evalBuiltin_DecodeUtf8_of_valid hvalid
+          · rcases hinner with hbad | hfalse
+            · cases hbad
+            · cases hfalse
+      | cons extra rest2 =>
+          change Outcome.ok pc v ∈ err at hmem
+          simp [err] at hmem
 set_option maxHeartbeats 0 in
 theorem evalBuiltinSym_active_ok_IfThenElse : BuiltinOkSound .IfThenElse := by
   intro m args cargs pc v hargs hnoArgs hmem hpc
@@ -9683,6 +9780,126 @@ theorem evalBuiltin_EqualsString_none_of_length_ne_two {args : List CekValue}
       simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst, hnone]
 
 set_option maxHeartbeats 0 in
+theorem evalBuiltinConst_EncodeUtf8_none_of_length_ne_one {cs : List Const}
+    (h : cs.length ≠ 1) :
+    Moist.CEK.evalBuiltinConst .EncodeUtf8 cs = none := by
+  cases cs with
+  | nil => rfl
+  | cons c rest =>
+      cases rest with
+      | nil => exact False.elim (h rfl)
+      | cons c2 rest2 =>
+          cases c <;> rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinConst_DecodeUtf8_none_of_length_ne_one {cs : List Const}
+    (h : cs.length ≠ 1) :
+    Moist.CEK.evalBuiltinConst .DecodeUtf8 cs = none := by
+  cases cs with
+  | nil => rfl
+  | cons c rest =>
+      cases rest with
+      | nil => exact False.elim (h rfl)
+      | cons c2 rest2 =>
+          cases c <;> rfl
+
+theorem evalBuiltin_EncodeUtf8_none_of_length_ne_one {args : List CekValue}
+    (h : args.length ≠ 1) :
+    Moist.CEK.evalBuiltin .EncodeUtf8 args = none := by
+  cases hconst : Moist.CEK.extractConsts args with
+  | none =>
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst]
+  | some cs =>
+      have hlen := extractConsts_length hconst
+      have hcs : cs.length ≠ 1 := by
+        intro hcs1
+        apply h
+        omega
+      have hnone := evalBuiltinConst_EncodeUtf8_none_of_length_ne_one hcs
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst, hnone]
+
+theorem evalBuiltin_DecodeUtf8_none_of_length_ne_one {args : List CekValue}
+    (h : args.length ≠ 1) :
+    Moist.CEK.evalBuiltin .DecodeUtf8 args = none := by
+  cases hconst : Moist.CEK.extractConsts args with
+  | none =>
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst]
+  | some cs =>
+      have hlen := extractConsts_length hconst
+      have hcs : cs.length ≠ 1 := by
+        intro hcs1
+        apply h
+        omega
+      have hnone := evalBuiltinConst_DecodeUtf8_none_of_length_ne_one hcs
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst, hnone]
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltin_EncodeUtf8_none_of_single_not_string {cv : CekValue}
+    (h : ∀ s, cv ≠ .VCon (.String s)) :
+    Moist.CEK.evalBuiltin .EncodeUtf8 [cv] = none := by
+  cases cv with
+  | VCon c =>
+      cases c with
+      | Integer i => rfl
+      | ByteString bs => rfl
+      | String s => exact False.elim (h s rfl)
+      | Unit => rfl
+      | Bool b => rfl
+      | Pair p => rfl
+      | PairData p => rfl
+      | ConstList xs => rfl
+      | Data d => rfl
+      | ConstDataList xs => rfl
+      | ConstPairDataList xs => rfl
+      | ConstArray xs => rfl
+      | Bls12_381_G1_element => rfl
+      | Bls12_381_G2_element => rfl
+      | Bls12_381_MlResult => rfl
+  | VLam body ρ => rfl
+  | VDelay body ρ => rfl
+  | VConstr tag fields => rfl
+  | VBuiltin b args expected => rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltin_DecodeUtf8_none_of_single_not_bytes {cv : CekValue}
+    (h : ∀ bs, cv ≠ .VCon (.ByteString bs)) :
+    Moist.CEK.evalBuiltin .DecodeUtf8 [cv] = none := by
+  cases cv with
+  | VCon c =>
+      cases c with
+      | Integer i => rfl
+      | ByteString bs => exact False.elim (h bs rfl)
+      | String s => rfl
+      | Unit => rfl
+      | Bool b => rfl
+      | Pair p => rfl
+      | PairData p => rfl
+      | ConstList xs => rfl
+      | Data d => rfl
+      | ConstDataList xs => rfl
+      | ConstPairDataList xs => rfl
+      | ConstArray xs => rfl
+      | Bls12_381_G1_element => rfl
+      | Bls12_381_G2_element => rfl
+      | Bls12_381_MlResult => rfl
+  | VLam body ρ => rfl
+  | VDelay body ρ => rfl
+  | VConstr tag fields => rfl
+  | VBuiltin b args expected => rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltin_DecodeUtf8_none_of_invalid {bs : ByteArray}
+    (h : ¬ String.validateUTF8 bs) :
+    Moist.CEK.evalBuiltin .DecodeUtf8 [.VCon (.ByteString bs)] = none := by
+  change (match (if h' : String.validateUTF8 bs then
+      some (Const.String (String.fromUTF8 bs h')) else none) with
+    | some c => some (CekValue.VCon c)
+    | none => none) = none
+  by_cases hv : String.validateUTF8 bs
+  · exact False.elim (h hv)
+  · simp [hv]
+
+set_option maxHeartbeats 0 in
 theorem evalBuiltin_AppendString_none_of_pair_not_strings {b a : CekValue}
     (h : ∀ sb sa, ¬ (b = .VCon (.String sb) ∧ a = .VCon (.String sa))) :
     Moist.CEK.evalBuiltin .AppendString [b, a] = none := by
@@ -11540,8 +11757,107 @@ theorem evalBuiltinSym_active_error_EqualsString :
                   rw [hlen]
                   simp
                 omega)
-axiom evalBuiltinSym_active_error_EncodeUtf8 : BuiltinErrorSound .EncodeUtf8
-axiom evalBuiltinSym_active_error_DecodeUtf8 : BuiltinErrorSound .DecodeUtf8
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_error_EncodeUtf8 :
+    BuiltinErrorSound .EncodeUtf8 := by
+  intro m args cargs out hargs hmem hactive
+  cases args with
+  | nil =>
+      have hlen := symValListToCekList_length hargs
+      exact evalBuiltin_EncodeUtf8_none_of_length_ne_one (by
+        intro h1
+        have hzero : cargs.length = 0 := by simpa using hlen
+        omega)
+  | cons sSym rest =>
+      cases rest with
+      | nil =>
+          rw [evalBuiltinSym_EncodeUtf8_eq sSym] at hmem
+          change out ∈
+            [Outcome.ok (asString sSym).guard
+              (SymVal.const (SymConst.bytes
+                (.app "uplc_encodeUtf8" [(asString sSym).val]))),
+             Outcome.error (SExpr.not (asString sSym).guard)] at hmem
+          simp only [List.mem_cons, List.not_mem_nil] at hmem
+          obtain ⟨cs, hs, rfl⟩ := symValListToCekList_singleton hargs
+          rcases hmem with hok | herr
+          · subst out
+            simp [outcomeErrorActive] at hactive
+          · rcases herr with herr | hfalse
+            · subst out
+              by_cases hshape : ∃ s, cs = .VCon (.String s)
+              · rcases hshape with ⟨s, rfl⟩
+                have hg := asString_guard_of_cek (m := m) (v := sSym) (s := s) hs
+                exact False.elim (pcHolds_not_contra hg hactive)
+              · exact evalBuiltin_EncodeUtf8_none_of_single_not_string (by
+                  intro s h
+                  exact hshape ⟨s, h⟩)
+            · cases hfalse
+      | cons extra rest2 =>
+          have hlen := symValListToCekList_length hargs
+          exact evalBuiltin_EncodeUtf8_none_of_length_ne_one (by
+            intro h1
+            have htwo : 2 ≤ cargs.length := by
+              rw [hlen]
+              simp
+            omega)
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_error_DecodeUtf8 :
+    BuiltinErrorSound .DecodeUtf8 := by
+  intro m args cargs out hargs hmem hactive
+  cases args with
+  | nil =>
+      have hlen := symValListToCekList_length hargs
+      exact evalBuiltin_DecodeUtf8_none_of_length_ne_one (by
+        intro h1
+        have hzero : cargs.length = 0 := by simpa using hlen
+        omega)
+  | cons bsSym rest =>
+      cases rest with
+      | nil =>
+          rw [evalBuiltinSym_DecodeUtf8_eq bsSym] at hmem
+          obtain ⟨cbs, hbs, rfl⟩ := symValListToCekList_singleton hargs
+          rcases checked2_active_error hmem hactive with hinner | hproj
+          · rcases hinner with ⟨inner, hinnerMem, hguard, hinnerActive⟩
+            simp only [List.mem_cons, List.not_mem_nil] at hinnerMem
+            rcases hinnerMem with hok | herr
+            · subst inner
+              simp [outcomeErrorActive] at hinnerActive
+            · rcases herr with herr | hfalse
+              · subst inner
+                by_cases hshape : ∃ bs, cbs = .VCon (.ByteString bs)
+                · rcases hshape with ⟨bs, rfl⟩
+                  obtain ⟨bs', hcv, hbsEval⟩ := asBytes_sound hbs hguard
+                  cases hcv
+                  have hfalseValid :
+                      SmtSem.evalBoolIs m
+                        (.app "valid_utf8" [(asBytes bsSym).val]) false = true :=
+                    (Moist.SMT.Semantics.evalBoolIs_not_true m
+                      (.app "valid_utf8" [(asBytes bsSym).val])).mp
+                      (by simpa [outcomeErrorActive, pcHolds] using hinnerActive)
+                  have hnotValid :=
+                    Moist.SMT.Semantics.not_validUtf8_of_evalBoolIs_validUtf8_false
+                      (m := m) (e := (asBytes bsSym).val) (bs := bs) hbsEval hfalseValid
+                  exact evalBuiltin_DecodeUtf8_none_of_invalid hnotValid
+                · exact evalBuiltin_DecodeUtf8_none_of_single_not_bytes (by
+                    intro bs h
+                    exact hshape ⟨bs, h⟩)
+              · cases hfalse
+          · by_cases hshape : ∃ bs, cbs = .VCon (.ByteString bs)
+            · rcases hshape with ⟨bs, rfl⟩
+              have hg := asBytes_guard_of_cek (m := m) (v := bsSym) (bs := bs) hbs
+              exact False.elim (pcHolds_not_contra hg hproj)
+            · exact evalBuiltin_DecodeUtf8_none_of_single_not_bytes (by
+                intro bs h
+                exact hshape ⟨bs, h⟩)
+      | cons extra rest2 =>
+          have hlen := symValListToCekList_length hargs
+          exact evalBuiltin_DecodeUtf8_none_of_length_ne_one (by
+            intro h1
+            have htwo : 2 ≤ cargs.length := by
+              rw [hlen]
+              simp
+            omega)
 set_option maxHeartbeats 0 in
 theorem evalBuiltinSym_active_error_IfThenElse :
     BuiltinErrorSound .IfThenElse := by
