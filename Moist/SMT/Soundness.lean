@@ -768,6 +768,15 @@ theorem evalBoolIs_true_false_contra {m : SmtSem.Model} {e : SExpr}
   | some b =>
       cases b <;> simp [h] at ht hf
 
+theorem pcHolds_not_contra {m : SmtSem.Model} {e : SExpr}
+    (ht : pcHolds m e = true)
+    (hn : pcHolds m (SExpr.not e) = true) : False := by
+  have hf : SmtSem.evalBoolIs m e false = true :=
+    (Moist.SMT.Semantics.evalBoolIs_not_true m e).mp
+      (by simpa [pcHolds] using hn)
+  exact evalBoolIs_true_false_contra
+    (by simpa [pcHolds] using ht) hf
+
 theorem evalBoolIs_has_bool_eval {m : SmtSem.Model} {e : SExpr} {b : Bool}
     (h : SmtSem.evalBoolIs m e b = true) :
     ∃ b', SmtSem.eval m e = some (.bool b') := by
@@ -1969,6 +1978,22 @@ theorem symValListToCekList_pair {m : SmtSem.Model} {a b : SymVal}
   cases hb : symValToCek? m b <;> simp [hb] at h
   cases ha : symValToCek? m a <;> simp [ha] at h
   exact ⟨_, _, rfl, rfl, h.symm⟩
+
+theorem symValListToCekList_length {m : SmtSem.Model}
+    {args : List SymVal} {cargs : List CekValue}
+    (h : symValListToCekList? m args = some cargs) :
+    cargs.length = args.length := by
+  induction args generalizing cargs with
+  | nil =>
+      simp [symValListToCekList?] at h
+      subst cargs
+      rfl
+  | cons v vs ih =>
+      simp [symValListToCekList?] at h
+      cases hv : symValToCek? m v <;> simp [hv] at h
+      cases hvs : symValListToCekList? m vs <;> simp [hvs] at h
+      subst cargs
+      simp [ih hvs]
 
 theorem symValListToCekList_triple {m : SmtSem.Model} {a b c : SymVal}
     {cargs : List CekValue}
@@ -6289,6 +6314,127 @@ theorem evalBuiltinSym_active_ok_ListToArray : BuiltinOkSound .ListToArray := by
       | cons _ _ =>
           change Outcome.ok pc v ∈ err at hmem
           simp [err] at hmem
+
+theorem extractConsts_length {args : List CekValue} {cs : List Const}
+    (h : Moist.CEK.extractConsts args = some cs) :
+    cs.length = args.length := by
+  induction args generalizing cs with
+  | nil =>
+      simp [Moist.CEK.extractConsts] at h
+      subst cs
+      rfl
+  | cons v vs ih =>
+      cases v <;> simp [Moist.CEK.extractConsts] at h
+      rename_i c
+      cases hvs : Moist.CEK.extractConsts vs <;> simp [hvs] at h
+      subst cs
+      simp [ih hvs]
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinConst_LengthOfArray_none_of_length_ne_one {cs : List Const}
+    (h : cs.length ≠ 1) :
+    Moist.CEK.evalBuiltinConst .LengthOfArray cs = none := by
+  cases cs with
+  | nil => rfl
+  | cons c rest =>
+      cases rest with
+      | nil => exact False.elim (h rfl)
+      | cons c2 rest =>
+          cases c <;> rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinConst_ListToArray_none_of_length_ne_one {cs : List Const}
+    (h : cs.length ≠ 1) :
+    Moist.CEK.evalBuiltinConst .ListToArray cs = none := by
+  cases cs with
+  | nil => rfl
+  | cons c rest =>
+      cases rest with
+      | nil => exact False.elim (h rfl)
+      | cons c2 rest =>
+          cases c <;> rfl
+
+theorem evalBuiltin_LengthOfArray_none_of_length_ne_one {args : List CekValue}
+    (h : args.length ≠ 1) :
+    Moist.CEK.evalBuiltin .LengthOfArray args = none := by
+  cases hconst : Moist.CEK.extractConsts args with
+  | none =>
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst]
+  | some cs =>
+      have hlen := extractConsts_length hconst
+      have hcs : cs.length ≠ 1 := by
+        intro hcs1
+        apply h
+        omega
+      have hnone := evalBuiltinConst_LengthOfArray_none_of_length_ne_one hcs
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst, hnone]
+
+theorem evalBuiltin_ListToArray_none_of_length_ne_one {args : List CekValue}
+    (h : args.length ≠ 1) :
+    Moist.CEK.evalBuiltin .ListToArray args = none := by
+  cases hconst : Moist.CEK.extractConsts args with
+  | none =>
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst]
+  | some cs =>
+      have hlen := extractConsts_length hconst
+      have hcs : cs.length ≠ 1 := by
+        intro hcs1
+        apply h
+        omega
+      have hnone := evalBuiltinConst_ListToArray_none_of_length_ne_one hcs
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst, hnone]
+
+theorem evalBuiltin_LengthOfArray_none_of_single_not_array {cv : CekValue}
+    (h : ∀ cs, cv ≠ .VCon (.ConstArray cs)) :
+    Moist.CEK.evalBuiltin .LengthOfArray [cv] = none := by
+  cases cv with
+  | VCon c =>
+      cases c with
+      | ConstArray cs => exact False.elim (h cs rfl)
+      | Integer i => rfl
+      | ByteString bs => rfl
+      | String s => rfl
+      | Unit => rfl
+      | Bool b => rfl
+      | Data d => rfl
+      | Pair p => rfl
+      | PairData p => rfl
+      | ConstList xs => rfl
+      | ConstDataList xs => rfl
+      | ConstPairDataList xs => rfl
+      | Bls12_381_G1_element => rfl
+      | Bls12_381_G2_element => rfl
+      | Bls12_381_MlResult => rfl
+  | VLam body ρ => rfl
+  | VDelay body ρ => rfl
+  | VConstr tag fields => rfl
+  | VBuiltin b args expected => rfl
+
+theorem evalBuiltin_ListToArray_none_of_single_not_list {cv : CekValue}
+    (h : ∀ cs, cv ≠ .VCon (.ConstList cs)) :
+    Moist.CEK.evalBuiltin .ListToArray [cv] = none := by
+  cases cv with
+  | VCon c =>
+      cases c with
+      | ConstList cs => exact False.elim (h cs rfl)
+      | Integer i => rfl
+      | ByteString bs => rfl
+      | String s => rfl
+      | Unit => rfl
+      | Bool b => rfl
+      | Data d => rfl
+      | Pair p => rfl
+      | PairData p => rfl
+      | ConstArray xs => rfl
+      | ConstDataList xs => rfl
+      | ConstPairDataList xs => rfl
+      | Bls12_381_G1_element => rfl
+      | Bls12_381_G2_element => rfl
+      | Bls12_381_MlResult => rfl
+  | VLam body ρ => rfl
+  | VDelay body ρ => rfl
+  | VConstr tag fields => rfl
+  | VBuiltin b args expected => rfl
 axiom evalBuiltinSym_active_ok_InsertCoin : BuiltinOkSound .InsertCoin
 axiom evalBuiltinSym_active_ok_LookupCoin : BuiltinOkSound .LookupCoin
 axiom evalBuiltinSym_active_ok_ScaleValue : BuiltinOkSound .ScaleValue
@@ -6388,8 +6534,90 @@ axiom evalBuiltinSym_active_error_Ripemd_160 : BuiltinErrorSound .Ripemd_160
 axiom evalBuiltinSym_active_error_ExpModInteger : BuiltinErrorSound .ExpModInteger
 axiom evalBuiltinSym_active_error_DropList : BuiltinErrorSound .DropList
 axiom evalBuiltinSym_active_error_IndexArray : BuiltinErrorSound .IndexArray
-axiom evalBuiltinSym_active_error_LengthOfArray : BuiltinErrorSound .LengthOfArray
-axiom evalBuiltinSym_active_error_ListToArray : BuiltinErrorSound .ListToArray
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_error_LengthOfArray :
+    BuiltinErrorSound .LengthOfArray := by
+  intro m args cargs out hargs hmem hactive
+  cases args with
+  | nil =>
+      have hlen := symValListToCekList_length hargs
+      exact evalBuiltin_LengthOfArray_none_of_length_ne_one (by
+        intro h1
+        have hzero : cargs.length = 0 := by simpa using hlen
+        omega)
+  | cons arr rest =>
+      cases rest with
+      | nil =>
+          change out ∈
+            [Outcome.ok (asArray arr).guard
+              (SymVal.const (SymConst.integer
+                (.app "vlist_length" [(asArray arr).val]))),
+             Outcome.error (SExpr.not (asArray arr).guard)] at hmem
+          simp only [List.mem_cons, List.not_mem_nil] at hmem
+          obtain ⟨carr, harr, rfl⟩ := symValListToCekList_singleton hargs
+          rcases hmem with hok | herr
+          · subst out
+            simp [outcomeErrorActive] at hactive
+          · rcases herr with herr | hfalse
+            · subst out
+              by_cases hshape : ∃ cs, carr = .VCon (.ConstArray cs)
+              · rcases hshape with ⟨cs, rfl⟩
+                have hg := asArray_guard_of_cek harr
+                exact False.elim (pcHolds_not_contra hg hactive)
+              · exact evalBuiltin_LengthOfArray_none_of_single_not_array (by
+                  intro cs h
+                  exact hshape ⟨cs, h⟩)
+            · cases hfalse
+      | cons a rest =>
+          have hlen := symValListToCekList_length hargs
+          exact evalBuiltin_LengthOfArray_none_of_length_ne_one (by
+            intro h1
+            have htwo : 2 ≤ cargs.length := by
+              rw [hlen]
+              simp
+            omega)
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_error_ListToArray :
+    BuiltinErrorSound .ListToArray := by
+  intro m args cargs out hargs hmem hactive
+  cases args with
+  | nil =>
+      have hlen := symValListToCekList_length hargs
+      exact evalBuiltin_ListToArray_none_of_length_ne_one (by
+        intro h1
+        have hzero : cargs.length = 0 := by simpa using hlen
+        omega)
+  | cons xs rest =>
+      cases rest with
+      | nil =>
+          change out ∈
+            [Outcome.ok (asConstList xs).guard
+              (SymVal.const (SymConst.array (asConstList xs).val)),
+             Outcome.error (SExpr.not (asConstList xs).guard)] at hmem
+          simp only [List.mem_cons, List.not_mem_nil] at hmem
+          obtain ⟨cxs, hxs, rfl⟩ := symValListToCekList_singleton hargs
+          rcases hmem with hok | herr
+          · subst out
+            simp [outcomeErrorActive] at hactive
+          · rcases herr with herr | hfalse
+            · subst out
+              by_cases hshape : ∃ cs, cxs = .VCon (.ConstList cs)
+              · rcases hshape with ⟨cs, rfl⟩
+                have hg := asConstList_guard_of_cek hxs
+                exact False.elim (pcHolds_not_contra hg hactive)
+              · exact evalBuiltin_ListToArray_none_of_single_not_list (by
+                  intro cs h
+                  exact hshape ⟨cs, h⟩)
+            · cases hfalse
+      | cons a rest =>
+          have hlen := symValListToCekList_length hargs
+          exact evalBuiltin_ListToArray_none_of_length_ne_one (by
+            intro h1
+            have htwo : 2 ≤ cargs.length := by
+              rw [hlen]
+              simp
+            omega)
 axiom evalBuiltinSym_active_error_InsertCoin : BuiltinErrorSound .InsertCoin
 axiom evalBuiltinSym_active_error_LookupCoin : BuiltinErrorSound .LookupCoin
 axiom evalBuiltinSym_active_error_ScaleValue : BuiltinErrorSound .ScaleValue
