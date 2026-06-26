@@ -11722,6 +11722,84 @@ theorem evalBuiltin_SndPair_none_of_single_not_pair {cv : CekValue}
   | VBuiltin b args expected => rfl
 
 set_option maxHeartbeats 0 in
+theorem evalBuiltinConst_ChooseData_none (cs : List Const) :
+    Moist.CEK.evalBuiltinConst .ChooseData cs = none := by
+  cases cs with
+  | nil => rfl
+  | cons c rest => cases rest <;> cases c <;> rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltin_ChooseData_none_of_length_ne_six {args : List CekValue}
+    (h : args.length ≠ 6) :
+    Moist.CEK.evalBuiltin .ChooseData args = none := by
+  have hpass : Moist.CEK.evalBuiltinPassThrough .ChooseData args = none := by
+    cases args with
+    | nil => rfl
+    | cons a r1 =>
+        cases r1 with
+        | nil => rfl
+        | cons b r2 =>
+            cases r2 with
+            | nil => rfl
+            | cons c r3 =>
+                cases r3 with
+                | nil => rfl
+                | cons d r4 =>
+                    cases r4 with
+                    | nil => rfl
+                    | cons e r5 =>
+                        cases r5 with
+                        | nil => rfl
+                        | cons f r6 =>
+                            cases r6 with
+                            | nil => exact False.elim (h rfl)
+                            | cons g r7 =>
+                                simp [Moist.CEK.evalBuiltinPassThrough]
+  simp [Moist.CEK.evalBuiltin, hpass]
+  cases hconst : Moist.CEK.extractConsts args with
+  | none => simp
+  | some cs =>
+      have hnone := evalBuiltinConst_ChooseData_none cs
+      simp [hnone]
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltin_ChooseData_none_of_six_not_data
+    {cb ci cl cm cc cd : CekValue}
+    (h : ∀ d, cd ≠ .VCon (.Data d)) :
+    Moist.CEK.evalBuiltin .ChooseData [cb, ci, cl, cm, cc, cd] = none := by
+  have hpass :
+      Moist.CEK.evalBuiltinPassThrough .ChooseData [cb, ci, cl, cm, cc, cd] =
+        none := by
+    cases cd with
+    | VCon c =>
+        cases c with
+        | Data d => exact False.elim (h d rfl)
+        | Integer i => rfl
+        | ByteString bs => rfl
+        | String s => rfl
+        | Unit => rfl
+        | Bool b => rfl
+        | Pair p => rfl
+        | PairData p => rfl
+        | ConstList xs => rfl
+        | ConstDataList xs => rfl
+        | ConstPairDataList xs => rfl
+        | ConstArray xs => rfl
+        | Bls12_381_G1_element => rfl
+        | Bls12_381_G2_element => rfl
+        | Bls12_381_MlResult => rfl
+    | VLam body ρ => rfl
+    | VDelay body ρ => rfl
+    | VConstr tag fields => rfl
+    | VBuiltin b args expected => rfl
+  simp [Moist.CEK.evalBuiltin, hpass]
+  cases hconst : Moist.CEK.extractConsts [cb, ci, cl, cm, cc, cd] with
+  | none => simp
+  | some cs =>
+      have hnone := evalBuiltinConst_ChooseData_none cs
+      simp [hnone]
+
+set_option maxHeartbeats 0 in
 theorem evalBuiltinSym_active_error_FstPair : BuiltinErrorSound .FstPair := by
   intro m args cargs out hargs hmem hactive
   cases args with
@@ -11847,7 +11925,116 @@ axiom evalBuiltinSym_active_error_MkCons : BuiltinErrorSound .MkCons
 axiom evalBuiltinSym_active_error_HeadList : BuiltinErrorSound .HeadList
 axiom evalBuiltinSym_active_error_TailList : BuiltinErrorSound .TailList
 axiom evalBuiltinSym_active_error_NullList : BuiltinErrorSound .NullList
-axiom evalBuiltinSym_active_error_ChooseData : BuiltinErrorSound .ChooseData
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_error_ChooseData : BuiltinErrorSound .ChooseData := by
+  intro m args cargs out hargs hmem hactive
+  cases args with
+  | nil =>
+      have hlen := symValListToCekList_length hargs
+      exact evalBuiltin_ChooseData_none_of_length_ne_six (by
+        intro h6
+        have hzero : cargs.length = 0 := by simpa using hlen
+        omega)
+  | cons bCase rest =>
+      cases rest with
+      | nil =>
+          have hlen := symValListToCekList_length hargs
+          exact evalBuiltin_ChooseData_none_of_length_ne_six (by
+            intro h6
+            have hone : cargs.length = 1 := by simpa using hlen
+            omega)
+      | cons iCase rest2 =>
+          cases rest2 with
+          | nil =>
+              have hlen := symValListToCekList_length hargs
+              exact evalBuiltin_ChooseData_none_of_length_ne_six (by
+                intro h6
+                have htwo : cargs.length = 2 := by simpa using hlen
+                omega)
+          | cons listCase rest3 =>
+              cases rest3 with
+              | nil =>
+                  have hlen := symValListToCekList_length hargs
+                  exact evalBuiltin_ChooseData_none_of_length_ne_six (by
+                    intro h6
+                    have hthree : cargs.length = 3 := by simpa using hlen
+                    omega)
+              | cons mapCase rest4 =>
+                  cases rest4 with
+                  | nil =>
+                      have hlen := symValListToCekList_length hargs
+                      exact evalBuiltin_ChooseData_none_of_length_ne_six (by
+                        intro h6
+                        have hfour : cargs.length = 4 := by simpa using hlen
+                        omega)
+                  | cons constrCase rest5 =>
+                      cases rest5 with
+                      | nil =>
+                          have hlen := symValListToCekList_length hargs
+                          exact evalBuiltin_ChooseData_none_of_length_ne_six (by
+                            intro h6
+                            have hfive : cargs.length = 5 := by simpa using hlen
+                            omega)
+                      | cons dVal rest6 =>
+                          cases rest6 with
+                          | nil =>
+                              change out ∈
+                                (let d := asData dVal
+                                 [Outcome.ok (SExpr.and d.guard (SExpr.isCtor "DConstr" d.val))
+                                    constrCase,
+                                  Outcome.ok (SExpr.and d.guard (SExpr.isCtor "DMap" d.val))
+                                    mapCase,
+                                  Outcome.ok (SExpr.and d.guard (SExpr.isCtor "DList" d.val))
+                                    listCase,
+                                  Outcome.ok (SExpr.and d.guard (SExpr.isCtor "DI" d.val))
+                                    iCase,
+                                  Outcome.ok (SExpr.and d.guard (SExpr.isCtor "DB" d.val))
+                                    bCase,
+                                  Outcome.error (SExpr.not d.guard)]) at hmem
+                              simp only [List.mem_cons, List.not_mem_nil] at hmem
+                              obtain ⟨cb, ci, cl, cm, cc, cd, hb, hi, hl, hm, hc, hd,
+                                  rfl⟩ :=
+                                symValListToCekList_six hargs
+                              rcases hmem with hConstr | rest
+                              · subst out
+                                simp [outcomeErrorActive] at hactive
+                              · rcases rest with hMap | rest
+                                · subst out
+                                  simp [outcomeErrorActive] at hactive
+                                · rcases rest with hList | rest
+                                  · subst out
+                                    simp [outcomeErrorActive] at hactive
+                                  · rcases rest with hI | rest
+                                    · subst out
+                                      simp [outcomeErrorActive] at hactive
+                                    · rcases rest with hB | herr
+                                      · subst out
+                                        simp [outcomeErrorActive] at hactive
+                                      · rcases herr with herr | hfalse
+                                        · subst out
+                                          simp [outcomeErrorActive] at hactive
+                                          by_cases hdata : ∃ d, cd = .VCon (.Data d)
+                                          · rcases hdata with ⟨d, rfl⟩
+                                            have hg := asData_guard_of_cek
+                                              (m := m) (v := dVal) (d := d) hd
+                                            exact False.elim
+                                              (pcHolds_not_contra hg hactive)
+                                          · exact
+                                              evalBuiltin_ChooseData_none_of_six_not_data
+                                                (cb := cb) (ci := ci) (cl := cl)
+                                                (cm := cm) (cc := cc) (cd := cd)
+                                                (by
+                                                  intro d hcd
+                                                  exact hdata ⟨d, hcd⟩)
+                                        · cases hfalse
+                          | cons extra rest7 =>
+                              have hlen := symValListToCekList_length hargs
+                              exact evalBuiltin_ChooseData_none_of_length_ne_six (by
+                                intro h6
+                                have hseven : 7 ≤ cargs.length := by
+                                  rw [hlen]
+                                  simp
+                                omega)
 set_option maxHeartbeats 0 in
 theorem evalBuiltinSym_active_error_ConstrData :
     BuiltinErrorSound .ConstrData := by
