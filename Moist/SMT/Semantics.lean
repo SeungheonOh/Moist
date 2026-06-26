@@ -1,5 +1,7 @@
 import Moist.SMT.Basic
+import Moist.Plutus.ByteString
 import Moist.Plutus.DecidableEq
+import Moist.Plutus.Integer
 
 namespace Moist.SMT.Semantics
 
@@ -63,43 +65,37 @@ end Model
 
 def bytesEmpty : ByteArray := ByteArray.empty
 
+@[irreducible] def bytesSingletonValue (n : Int) : ByteArray :=
+  Moist.Plutus.bytesSingletonValue n
+
+@[irreducible] def bytesNthValue (bs : ByteArray) (i : Int) : Int :=
+  Moist.Plutus.bytesNthValue bs i
+
+@[irreducible] def bytesExtractValue (bs : ByteArray) (start len : Int) : ByteArray :=
+  Moist.Plutus.bytesExtractValue bs start len
+
 def bytesSingleton (n : Int) : Option ByteArray :=
-  if n < 0 || n > 255 then none
-  else some (ByteArray.mk #[n.toNat.toUInt8])
+  Moist.Plutus.bytesSingleton? n
 
 private def bytesNth (bs : ByteArray) (i : Int) : Option Int :=
-  if i < 0 || i ≥ Int.ofNat bs.size then none
-  else some (Int.ofNat (bs.get! i.toNat).toNat)
+  Moist.Plutus.bytesNth? bs i
 
 private def bytesExtract (bs : ByteArray) (start len : Int) : ByteArray :=
-  let s := if start < 0 then 0 else start.toNat
-  let l := if len < 0 then 0 else len.toNat
-  let s := min s bs.size
-  let e := min (s + l) bs.size
-  bs.extract s e
+  Moist.Plutus.bytesExtractValue bs start len
 
 private def bsLt (a b : ByteArray) : Bool :=
-  let len := min a.size b.size
-  go 0 len
-where
-  go (i len : Nat) : Bool :=
-    if i >= len then a.size < b.size
-    else
-      let ai := a.get! i
-      let bi := b.get! i
-      if ai < bi then true
-      else if ai > bi then false
-      else go (i + 1) len
+  Moist.Plutus.bytesLt a b
+
+private def bsLe (a b : ByteArray) : Bool :=
+  Moist.Plutus.bytesLe a b
 
 private def sameSign (a b : Int) : Bool := (a >= 0) == (b >= 0)
 
 private def haskellDiv (a b : Int) : Int :=
-  let q := a.tdiv b
-  let r := a.tmod b
-  if r == 0 || sameSign a b then q else q - 1
+  Moist.Plutus.uplcIntegerDiv a b
 
 private def haskellMod (a b : Int) : Int :=
-  a - b * haskellDiv a b
+  Moist.Plutus.uplcIntegerMod a b
 
 mutual
   private def constValValid : Val → Bool
@@ -304,7 +300,7 @@ private def evalApp (f : String) (vs : List SVal) : Option SVal :=
       | "uplc_div", [.int a, .int b] => if b == 0 then none else some (.int (haskellDiv a b))
       | "uplc_mod", [.int a, .int b] => if b == 0 then none else some (.int (haskellMod a b))
       | "bytes_lt", [.bytes a, .bytes b] => some (.bool (bsLt a b))
-      | "bytes_le", [.bytes a, .bytes b] => some (.bool (a == b || bsLt a b))
+      | "bytes_le", [.bytes a, .bytes b] => some (.bool (bsLe a b))
       | "bytes_valid", [.bytes _] => some (.bool true)
       | "data_valid", [.data _] => some (.bool true)
       | "dlist_valid", [.dataList _] => some (.bool true)
@@ -407,6 +403,11 @@ private theorem evalApp_unVArray (xs : List Val) :
     evalApp "unVArray" [SVal.val (Val.array xs)] = some (SVal.valList xs) := by
   rfl
 
+private theorem evalApp_constValValid_constr_false (tag : Int) (fields : List Val) :
+    evalApp "const_val_valid" [SVal.val (Val.constr tag fields)] =
+      some (SVal.bool false) := by
+  rfl
+
 private theorem evalApp_vfst (a b : Val) :
     evalApp "vfst" [SVal.val (Val.pair a b)] = some (SVal.val a) := by
   rfl
@@ -473,6 +474,40 @@ private theorem evalApp_le (a b : Int) :
 
 private theorem evalApp_ge (a b : Int) :
     evalApp ">=" [SVal.int a, SVal.int b] = some (SVal.bool (a >= b)) := by
+  rfl
+
+private theorem evalApp_eq_bytes (a b : ByteArray) :
+    evalApp "=" [SVal.bytes a, SVal.bytes b] = some (SVal.bool (a == b)) := by
+  rfl
+
+private theorem evalApp_eq_string (a b : String) :
+    evalApp "=" [SVal.string a, SVal.string b] = some (SVal.bool (a == b)) := by
+  rfl
+
+private theorem evalApp_eq_data (a b : Data) :
+    evalApp "=" [SVal.data a, SVal.data b] = some (SVal.bool (a == b)) := by
+  rfl
+
+private theorem evalApp_seqAppend (a b : ByteArray) :
+    evalApp "seq.++" [SVal.bytes a, SVal.bytes b] = some (SVal.bytes (a ++ b)) := by
+  rfl
+
+private theorem evalApp_seqLen (a : ByteArray) :
+    evalApp "seq.len" [SVal.bytes a] = some (SVal.int (Int.ofNat a.size)) := by
+  rfl
+
+private theorem evalApp_bytesLt (a b : ByteArray) :
+    evalApp "bytes_lt" [SVal.bytes a, SVal.bytes b] =
+      some (SVal.bool (Moist.Plutus.bytesLt a b)) := by
+  rfl
+
+private theorem evalApp_bytesLe (a b : ByteArray) :
+    evalApp "bytes_le" [SVal.bytes a, SVal.bytes b] =
+      some (SVal.bool (Moist.Plutus.bytesLe a b)) := by
+  rfl
+
+private theorem evalApp_strAppend (a b : String) :
+    evalApp "str.++" [SVal.string a, SVal.string b] = some (SVal.string (a ++ b)) := by
   rfl
 
 private theorem evalApp_isCtor_VBytes (sv : SVal) :
@@ -769,6 +804,111 @@ private theorem evalApp_isCtor_VMlResult (sv : SVal) :
   | g2 g => rfl
   | ml r => rfl
 
+private theorem evalApp_isCtor_DConstr (sv : SVal) :
+    evalApp "(_ is DConstr)" [sv] = (isCtor "DConstr" sv).map SVal.bool := by
+  cases sv with
+  | val v =>
+      cases v <;> rfl
+  | bool b => rfl
+  | int i => rfl
+  | string s => rfl
+  | bytes bs => rfl
+  | data d =>
+      cases d <;> rfl
+  | dataList xs =>
+      cases xs <;> rfl
+  | dataPairList xs =>
+      cases xs <;> rfl
+  | valList xs =>
+      cases xs <;> rfl
+  | g1 g => rfl
+  | g2 g => rfl
+  | ml r => rfl
+
+private theorem evalApp_isCtor_DMap (sv : SVal) :
+    evalApp "(_ is DMap)" [sv] = (isCtor "DMap" sv).map SVal.bool := by
+  cases sv with
+  | val v =>
+      cases v <;> rfl
+  | bool b => rfl
+  | int i => rfl
+  | string s => rfl
+  | bytes bs => rfl
+  | data d =>
+      cases d <;> rfl
+  | dataList xs =>
+      cases xs <;> rfl
+  | dataPairList xs =>
+      cases xs <;> rfl
+  | valList xs =>
+      cases xs <;> rfl
+  | g1 g => rfl
+  | g2 g => rfl
+  | ml r => rfl
+
+private theorem evalApp_isCtor_DList (sv : SVal) :
+    evalApp "(_ is DList)" [sv] = (isCtor "DList" sv).map SVal.bool := by
+  cases sv with
+  | val v =>
+      cases v <;> rfl
+  | bool b => rfl
+  | int i => rfl
+  | string s => rfl
+  | bytes bs => rfl
+  | data d =>
+      cases d <;> rfl
+  | dataList xs =>
+      cases xs <;> rfl
+  | dataPairList xs =>
+      cases xs <;> rfl
+  | valList xs =>
+      cases xs <;> rfl
+  | g1 g => rfl
+  | g2 g => rfl
+  | ml r => rfl
+
+private theorem evalApp_isCtor_DI (sv : SVal) :
+    evalApp "(_ is DI)" [sv] = (isCtor "DI" sv).map SVal.bool := by
+  cases sv with
+  | val v =>
+      cases v <;> rfl
+  | bool b => rfl
+  | int i => rfl
+  | string s => rfl
+  | bytes bs => rfl
+  | data d =>
+      cases d <;> rfl
+  | dataList xs =>
+      cases xs <;> rfl
+  | dataPairList xs =>
+      cases xs <;> rfl
+  | valList xs =>
+      cases xs <;> rfl
+  | g1 g => rfl
+  | g2 g => rfl
+  | ml r => rfl
+
+private theorem evalApp_isCtor_DB (sv : SVal) :
+    evalApp "(_ is DB)" [sv] = (isCtor "DB" sv).map SVal.bool := by
+  cases sv with
+  | val v =>
+      cases v <;> rfl
+  | bool b => rfl
+  | int i => rfl
+  | string s => rfl
+  | bytes bs => rfl
+  | data d =>
+      cases d <;> rfl
+  | dataList xs =>
+      cases xs <;> rfl
+  | dataPairList xs =>
+      cases xs <;> rfl
+  | valList xs =>
+      cases xs <;> rfl
+  | g1 g => rfl
+  | g2 g => rfl
+  | ml r => rfl
+
 mutual
   def eval (m : Model) : Expr → Option SVal
     | .sym "(as seq.empty Bytes)" => some (.bytes bytesEmpty)
@@ -801,6 +941,42 @@ mutual
     | .app "or" [a, b] => do
         match ← eval m a, ← eval m b with
         | .bool ba, .bool bb => some (.bool (ba || bb))
+        | _, _ => none
+    | .app "seq.unit" [e] => do
+        match ← eval m e with
+        | .int n => SVal.bytes <$> bytesSingleton n
+        | _ => none
+    | .app "seq.nth" [bs, idx] => do
+        match ← eval m bs, ← eval m idx with
+        | .bytes x, .int i => SVal.int <$> bytesNth x i
+        | _, _ => none
+    | .app "seq.extract" [bs, start, len] => do
+        match ← eval m bs, ← eval m start, ← eval m len with
+        | .bytes x, .int s, .int l => some (.bytes (bytesExtract x s l))
+        | _, _, _ => none
+    | .app "uplc_tdiv" [a, b] => do
+        match ← eval m a, ← eval m b with
+        | .int x, .int y =>
+            if y == 0 then none
+            else some (.int (Moist.Plutus.uplcIntegerTDiv x y))
+        | _, _ => none
+    | .app "uplc_tmod" [a, b] => do
+        match ← eval m a, ← eval m b with
+        | .int x, .int y =>
+            if y == 0 then none
+            else some (.int (Moist.Plutus.uplcIntegerTMod x y))
+        | _, _ => none
+    | .app "uplc_div" [a, b] => do
+        match ← eval m a, ← eval m b with
+        | .int x, .int y =>
+            if y == 0 then none
+            else some (.int (Moist.Plutus.uplcIntegerDiv x y))
+        | _, _ => none
+    | .app "uplc_mod" [a, b] => do
+        match ← eval m a, ← eval m b with
+        | .int x, .int y =>
+            if y == 0 then none
+            else some (.int (Moist.Plutus.uplcIntegerMod x y))
         | _, _ => none
     | .app "(_ is VInt)" [a] => do
         let v ← eval m a
@@ -1457,6 +1633,58 @@ theorem eval_mul_of {m : Model} {a b : Expr} {x y : Int}
   rw [evalList.eq_def]
   exact evalApp_mul x y
 
+theorem eval_uplc_tdiv_of {m : Model} {a b : Expr} {x y : Int}
+    (ha : eval m a = some (SVal.int x))
+    (hb : eval m b = some (SVal.int y))
+    (hy : (y == 0) = false) :
+    eval m (.app "uplc_tdiv" [a, b]) =
+      some (SVal.int (Moist.Plutus.uplcIntegerTDiv x y)) := by
+  have hneq : y ≠ 0 := by
+    intro hz
+    subst y
+    simp at hy
+  rw [eval.eq_def]
+  simp [ha, hb, hneq]
+
+theorem eval_uplc_tmod_of {m : Model} {a b : Expr} {x y : Int}
+    (ha : eval m a = some (SVal.int x))
+    (hb : eval m b = some (SVal.int y))
+    (hy : (y == 0) = false) :
+    eval m (.app "uplc_tmod" [a, b]) =
+      some (SVal.int (Moist.Plutus.uplcIntegerTMod x y)) := by
+  have hneq : y ≠ 0 := by
+    intro hz
+    subst y
+    simp at hy
+  rw [eval.eq_def]
+  simp [ha, hb, hneq]
+
+theorem eval_uplc_div_of {m : Model} {a b : Expr} {x y : Int}
+    (ha : eval m a = some (SVal.int x))
+    (hb : eval m b = some (SVal.int y))
+    (hy : (y == 0) = false) :
+    eval m (.app "uplc_div" [a, b]) =
+      some (SVal.int (Moist.Plutus.uplcIntegerDiv x y)) := by
+  have hneq : y ≠ 0 := by
+    intro hz
+    subst y
+    simp at hy
+  rw [eval.eq_def]
+  simp [ha, hb, hneq]
+
+theorem eval_uplc_mod_of {m : Model} {a b : Expr} {x y : Int}
+    (ha : eval m a = some (SVal.int x))
+    (hb : eval m b = some (SVal.int y))
+    (hy : (y == 0) = false) :
+    eval m (.app "uplc_mod" [a, b]) =
+      some (SVal.int (Moist.Plutus.uplcIntegerMod x y)) := by
+  have hneq : y ≠ 0 := by
+    intro hz
+    subst y
+    simp at hy
+  rw [eval.eq_def]
+  simp [ha, hb, hneq]
+
 theorem eval_eq_int_of {m : Model} {a b : Expr} {x y : Int}
     (ha : eval m a = some (SVal.int x))
     (hb : eval m b = some (SVal.int y)) :
@@ -1520,6 +1748,172 @@ theorem eval_ge_of {m : Model} {a b : Expr} {x y : Int}
   simp [hb]
   rw [evalList.eq_def]
   exact evalApp_ge x y
+
+theorem eval_eq_bytes_of {m : Model} {a b : Expr} {x y : ByteArray}
+    (ha : eval m a = some (SVal.bytes x))
+    (hb : eval m b = some (SVal.bytes y)) :
+    eval m (Expr.eq a b) = some (SVal.bool (x == y)) := by
+  rw [Expr.eq, eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [a, b]
+      evalApp "=" vs) = some (SVal.bool (x == y))
+  rw [evalList.eq_def]
+  simp [ha]
+  rw [evalList.eq_def]
+  simp [hb]
+  rw [evalList.eq_def]
+  exact evalApp_eq_bytes x y
+
+theorem eval_bytesLt_of {m : Model} {a b : Expr} {x y : ByteArray}
+    (ha : eval m a = some (SVal.bytes x))
+    (hb : eval m b = some (SVal.bytes y)) :
+    eval m (.app "bytes_lt" [a, b]) =
+      some (SVal.bool (Moist.Plutus.bytesLt x y)) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [a, b]
+      evalApp "bytes_lt" vs) =
+        some (SVal.bool (Moist.Plutus.bytesLt x y))
+  rw [evalList.eq_def]
+  simp [ha]
+  rw [evalList.eq_def]
+  simp [hb]
+  rw [evalList.eq_def]
+  exact evalApp_bytesLt x y
+
+theorem eval_bytesLe_of {m : Model} {a b : Expr} {x y : ByteArray}
+    (ha : eval m a = some (SVal.bytes x))
+    (hb : eval m b = some (SVal.bytes y)) :
+    eval m (.app "bytes_le" [a, b]) =
+      some (SVal.bool (Moist.Plutus.bytesLe x y)) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [a, b]
+      evalApp "bytes_le" vs) =
+        some (SVal.bool (Moist.Plutus.bytesLe x y))
+  rw [evalList.eq_def]
+  simp [ha]
+  rw [evalList.eq_def]
+  simp [hb]
+  rw [evalList.eq_def]
+  exact evalApp_bytesLe x y
+
+theorem eval_eq_string_of {m : Model} {a b : Expr} {x y : String}
+    (ha : eval m a = some (SVal.string x))
+    (hb : eval m b = some (SVal.string y)) :
+    eval m (Expr.eq a b) = some (SVal.bool (x == y)) := by
+  rw [Expr.eq, eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [a, b]
+      evalApp "=" vs) = some (SVal.bool (x == y))
+  rw [evalList.eq_def]
+  simp [ha]
+  rw [evalList.eq_def]
+  simp [hb]
+  rw [evalList.eq_def]
+  exact evalApp_eq_string x y
+
+theorem eval_eq_data_of {m : Model} {a b : Expr} {x y : Data}
+    (ha : eval m a = some (SVal.data x))
+    (hb : eval m b = some (SVal.data y)) :
+    eval m (Expr.eq a b) = some (SVal.bool (x == y)) := by
+  rw [Expr.eq, eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [a, b]
+      evalApp "=" vs) = some (SVal.bool (x == y))
+  rw [evalList.eq_def]
+  simp [ha]
+  rw [evalList.eq_def]
+  simp [hb]
+  rw [evalList.eq_def]
+  exact evalApp_eq_data x y
+
+theorem eval_seqAppend_of {m : Model} {a b : Expr} {x y : ByteArray}
+    (ha : eval m a = some (SVal.bytes x))
+    (hb : eval m b = some (SVal.bytes y)) :
+    eval m (.app "seq.++" [a, b]) = some (SVal.bytes (x ++ y)) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [a, b]
+      evalApp "seq.++" vs) = some (SVal.bytes (x ++ y))
+  rw [evalList.eq_def]
+  simp [ha]
+  rw [evalList.eq_def]
+  simp [hb]
+  rw [evalList.eq_def]
+  exact evalApp_seqAppend x y
+
+theorem eval_seqUnit_of {m : Model} {e : Expr} {x : Int}
+    (he : eval m e = some (SVal.int x))
+    (hge : 0 ≤ x)
+    (hle : x ≤ 255) :
+    eval m (.app "seq.unit" [e]) =
+      some (SVal.bytes (bytesSingletonValue x)) := by
+  have hnlt : ¬ x < 0 := by omega
+  have hngt : ¬ x > 255 := by omega
+  rw [eval.eq_def]
+  simp [he, bytesSingleton, Moist.Plutus.bytesSingleton?, hnlt, hngt,
+    bytesSingletonValue]
+
+theorem eval_seqLen_of {m : Model} {a : Expr} {x : ByteArray}
+    (ha : eval m a = some (SVal.bytes x)) :
+    eval m (.app "seq.len" [a]) = some (SVal.int (Int.ofNat x.size)) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [a]
+      evalApp "seq.len" vs) = some (SVal.int (Int.ofNat x.size))
+  rw [evalList.eq_def]
+  simp [ha]
+  rw [evalList.eq_def]
+  exact evalApp_seqLen x
+
+theorem eval_seqNth_of {m : Model} {bs idx : Expr} {x : ByteArray} {i : Int}
+    (hbs : eval m bs = some (SVal.bytes x))
+    (hidx : eval m idx = some (SVal.int i))
+    (hge : 0 ≤ i)
+    (hlt : i < Int.ofNat x.size) :
+    eval m (.app "seq.nth" [bs, idx]) =
+      some (SVal.int (bytesNthValue x i)) := by
+  have hnlt : ¬ i < 0 := by omega
+  have hnge : ¬ i ≥ Int.ofNat x.size := by omega
+  have hlt' : i < ↑x.size := by
+    simpa using hlt
+  rw [eval.eq_def]
+  simp [hbs, hidx, bytesNth, Moist.Plutus.bytesNth?, hnlt, hlt',
+    bytesNthValue]
+
+theorem eval_seqExtract_of {m : Model} {bs start len : Expr}
+    {x : ByteArray} {s l : Int}
+    (hbs : eval m bs = some (SVal.bytes x))
+    (hstart : eval m start = some (SVal.int s))
+    (hlen : eval m len = some (SVal.int l)) :
+    eval m (.app "seq.extract" [bs, start, len]) =
+      some (SVal.bytes (bytesExtractValue x s l)) := by
+  rw [eval.eq_def]
+  simp [hbs, hstart, hlen, bytesExtract, bytesExtractValue]
+
+theorem eval_strAppend_of {m : Model} {a b : Expr} {x y : String}
+    (ha : eval m a = some (SVal.string x))
+    (hb : eval m b = some (SVal.string y)) :
+    eval m (.app "str.++" [a, b]) = some (SVal.string (x ++ y)) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [a, b]
+      evalApp "str.++" vs) = some (SVal.string (x ++ y))
+  rw [evalList.eq_def]
+  simp [ha]
+  rw [evalList.eq_def]
+  simp [hb]
+  rw [evalList.eq_def]
+  exact evalApp_strAppend x y
 
 theorem eval_unVBytes_of {m : Model} {e : Expr} {bs : ByteArray}
     (h : eval m e = some (SVal.val (Val.bytes bs))) :
@@ -1788,6 +2182,146 @@ theorem evalBoolIs_isVMlResult_true {m : Model} {e : Expr}
   | g2 g => simp [isCtor] at hc
   | ml r => simp [isCtor] at hc
 
+theorem evalBoolIs_isDConstr_true {m : Model} {e : Expr}
+    (h : evalBoolIs m (.app "(_ is DConstr)" [e]) true = true) :
+    ∃ tag fields, eval m e = some (SVal.data (.Constr tag fields)) := by
+  obtain ⟨sv, he, hc⟩ :=
+    evalBoolIs_isCtor_true_core (m := m) (e := e)
+      (f := "(_ is DConstr)") (ctor := "DConstr")
+      evalApp_isCtor_DConstr (by rw [eval.eq_def]; rfl) h
+  cases sv with
+  | val v =>
+      cases v <;> simp [isCtor] at hc
+  | bool b => simp [isCtor] at hc
+  | int i => simp [isCtor] at hc
+  | string s => simp [isCtor] at hc
+  | bytes bs => simp [isCtor] at hc
+  | data d =>
+      cases d <;> simp [isCtor] at hc
+      rename_i tag fields
+      exact ⟨tag, fields, he⟩
+  | dataList xs =>
+      cases xs <;> simp [isCtor] at hc
+  | dataPairList xs =>
+      cases xs <;> simp [isCtor] at hc
+  | valList xs =>
+      cases xs <;> simp [isCtor] at hc
+  | g1 g => simp [isCtor] at hc
+  | g2 g => simp [isCtor] at hc
+  | ml r => simp [isCtor] at hc
+
+theorem evalBoolIs_isDMap_true {m : Model} {e : Expr}
+    (h : evalBoolIs m (.app "(_ is DMap)" [e]) true = true) :
+    ∃ ps, eval m e = some (SVal.data (.Map ps)) := by
+  obtain ⟨sv, he, hc⟩ :=
+    evalBoolIs_isCtor_true_core (m := m) (e := e)
+      (f := "(_ is DMap)") (ctor := "DMap")
+      evalApp_isCtor_DMap (by rw [eval.eq_def]; rfl) h
+  cases sv with
+  | val v =>
+      cases v <;> simp [isCtor] at hc
+  | bool b => simp [isCtor] at hc
+  | int i => simp [isCtor] at hc
+  | string s => simp [isCtor] at hc
+  | bytes bs => simp [isCtor] at hc
+  | data d =>
+      cases d <;> simp [isCtor] at hc
+      rename_i ps
+      exact ⟨ps, he⟩
+  | dataList xs =>
+      cases xs <;> simp [isCtor] at hc
+  | dataPairList xs =>
+      cases xs <;> simp [isCtor] at hc
+  | valList xs =>
+      cases xs <;> simp [isCtor] at hc
+  | g1 g => simp [isCtor] at hc
+  | g2 g => simp [isCtor] at hc
+  | ml r => simp [isCtor] at hc
+
+theorem evalBoolIs_isDList_true {m : Model} {e : Expr}
+    (h : evalBoolIs m (.app "(_ is DList)" [e]) true = true) :
+    ∃ xs, eval m e = some (SVal.data (.List xs)) := by
+  obtain ⟨sv, he, hc⟩ :=
+    evalBoolIs_isCtor_true_core (m := m) (e := e)
+      (f := "(_ is DList)") (ctor := "DList")
+      evalApp_isCtor_DList (by rw [eval.eq_def]; rfl) h
+  cases sv with
+  | val v =>
+      cases v <;> simp [isCtor] at hc
+  | bool b => simp [isCtor] at hc
+  | int i => simp [isCtor] at hc
+  | string s => simp [isCtor] at hc
+  | bytes bs => simp [isCtor] at hc
+  | data d =>
+      cases d <;> simp [isCtor] at hc
+      rename_i xs
+      exact ⟨xs, he⟩
+  | dataList xs =>
+      cases xs <;> simp [isCtor] at hc
+  | dataPairList xs =>
+      cases xs <;> simp [isCtor] at hc
+  | valList xs =>
+      cases xs <;> simp [isCtor] at hc
+  | g1 g => simp [isCtor] at hc
+  | g2 g => simp [isCtor] at hc
+  | ml r => simp [isCtor] at hc
+
+theorem evalBoolIs_isDI_true {m : Model} {e : Expr}
+    (h : evalBoolIs m (.app "(_ is DI)" [e]) true = true) :
+    ∃ i, eval m e = some (SVal.data (.I i)) := by
+  obtain ⟨sv, he, hc⟩ :=
+    evalBoolIs_isCtor_true_core (m := m) (e := e)
+      (f := "(_ is DI)") (ctor := "DI")
+      evalApp_isCtor_DI (by rw [eval.eq_def]; rfl) h
+  cases sv with
+  | val v =>
+      cases v <;> simp [isCtor] at hc
+  | bool b => simp [isCtor] at hc
+  | int i => simp [isCtor] at hc
+  | string s => simp [isCtor] at hc
+  | bytes bs => simp [isCtor] at hc
+  | data d =>
+      cases d <;> simp [isCtor] at hc
+      rename_i i
+      exact ⟨i, he⟩
+  | dataList xs =>
+      cases xs <;> simp [isCtor] at hc
+  | dataPairList xs =>
+      cases xs <;> simp [isCtor] at hc
+  | valList xs =>
+      cases xs <;> simp [isCtor] at hc
+  | g1 g => simp [isCtor] at hc
+  | g2 g => simp [isCtor] at hc
+  | ml r => simp [isCtor] at hc
+
+theorem evalBoolIs_isDB_true {m : Model} {e : Expr}
+    (h : evalBoolIs m (.app "(_ is DB)" [e]) true = true) :
+    ∃ bs, eval m e = some (SVal.data (.B bs)) := by
+  obtain ⟨sv, he, hc⟩ :=
+    evalBoolIs_isCtor_true_core (m := m) (e := e)
+      (f := "(_ is DB)") (ctor := "DB")
+      evalApp_isCtor_DB (by rw [eval.eq_def]; rfl) h
+  cases sv with
+  | val v =>
+      cases v <;> simp [isCtor] at hc
+  | bool b => simp [isCtor] at hc
+  | int i => simp [isCtor] at hc
+  | string s => simp [isCtor] at hc
+  | bytes bs => simp [isCtor] at hc
+  | data d =>
+      cases d <;> simp [isCtor] at hc
+      rename_i bs
+      exact ⟨bs, he⟩
+  | dataList xs =>
+      cases xs <;> simp [isCtor] at hc
+  | dataPairList xs =>
+      cases xs <;> simp [isCtor] at hc
+  | valList xs =>
+      cases xs <;> simp [isCtor] at hc
+  | g1 g => simp [isCtor] at hc
+  | g2 g => simp [isCtor] at hc
+  | ml r => simp [isCtor] at hc
+
 theorem eval_unVString_of {m : Model} {e : Expr} {s : String}
     (h : eval m e = some (SVal.val (Val.string s))) :
     eval m (.app "unVString" [e]) = some (SVal.string s) := by
@@ -1995,6 +2529,428 @@ theorem eval_dtail_of {m : Model} {e : Expr} {h : Data} {t : List Data}
   simp [he]
   rw [evalList.eq_def]
   exact evalApp_dtail h t
+
+theorem eval_DNil (m : Model) :
+    eval m (.app "DNil" []) = some (.dataList []) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m []
+      evalApp "DNil" vs) = some (.dataList [])
+  rw [evalList.eq_def]
+  rfl
+
+theorem eval_DPNil (m : Model) :
+    eval m (.app "DPNil" []) = some (.dataPairList []) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m []
+      evalApp "DPNil" vs) = some (.dataPairList [])
+  rw [evalList.eq_def]
+  rfl
+
+theorem eval_VInt_of {m : Model} {e : Expr} {i : Int}
+    (h : eval m e = some (SVal.int i)) :
+    eval m (.app "VInt" [e]) = some (.val (.int i)) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "VInt" vs) = some (.val (.int i))
+  rw [evalList.eq_def]
+  simp [h]
+  rw [evalList.eq_def]
+  rfl
+
+theorem eval_VBytes_of {m : Model} {e : Expr} {bs : ByteArray}
+    (h : eval m e = some (SVal.bytes bs)) :
+    eval m (.app "VBytes" [e]) = some (.val (.bytes bs)) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "VBytes" vs) = some (.val (.bytes bs))
+  rw [evalList.eq_def]
+  simp [h]
+  rw [evalList.eq_def]
+  rfl
+
+theorem eval_VString_of {m : Model} {e : Expr} {s : String}
+    (h : eval m e = some (SVal.string s)) :
+    eval m (.app "VString" [e]) = some (.val (.string s)) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "VString" vs) = some (.val (.string s))
+  rw [evalList.eq_def]
+  simp [h]
+  rw [evalList.eq_def]
+  rfl
+
+theorem eval_VBool_of {m : Model} {e : Expr} {b : Bool}
+    (h : eval m e = some (SVal.bool b)) :
+    eval m (.app "VBool" [e]) = some (.val (.bool b)) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "VBool" vs) = some (.val (.bool b))
+  rw [evalList.eq_def]
+  simp [h]
+  rw [evalList.eq_def]
+  rfl
+
+theorem eval_VUnit (m : Model) :
+    eval m (.app "VUnit" []) = some (.val .unit) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m []
+      evalApp "VUnit" vs) = some (.val .unit)
+  rw [evalList.eq_def]
+  rfl
+
+theorem eval_VData_of {m : Model} {e : Expr} {d : Data}
+    (h : eval m e = some (SVal.data d)) :
+    eval m (.app "VData" [e]) = some (.val (.data d)) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "VData" vs) = some (.val (.data d))
+  rw [evalList.eq_def]
+  simp [h]
+  rw [evalList.eq_def]
+  rfl
+
+theorem eval_VList_of {m : Model} {e : Expr} {xs : List Val}
+    (h : eval m e = some (SVal.valList xs)) :
+    eval m (.app "VList" [e]) = some (.val (.list xs)) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "VList" vs) = some (.val (.list xs))
+  rw [evalList.eq_def]
+  simp [h]
+  rw [evalList.eq_def]
+  rfl
+
+theorem eval_VDataList_of {m : Model} {e : Expr} {xs : List Data}
+    (h : eval m e = some (SVal.dataList xs)) :
+    eval m (.app "VDataList" [e]) = some (.val (.dataList xs)) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "VDataList" vs) = some (.val (.dataList xs))
+  rw [evalList.eq_def]
+  simp [h]
+  rw [evalList.eq_def]
+  rfl
+
+theorem eval_VPairDataList_of {m : Model} {e : Expr}
+    {xs : List (Data × Data)}
+    (h : eval m e = some (SVal.dataPairList xs)) :
+    eval m (.app "VPairDataList" [e]) = some (.val (.pairDataList xs)) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "VPairDataList" vs) = some (.val (.pairDataList xs))
+  rw [evalList.eq_def]
+  simp [h]
+  rw [evalList.eq_def]
+  rfl
+
+theorem eval_VPairData_of {m : Model} {a b : Expr} {da db : Data}
+    (ha : eval m a = some (SVal.data da))
+    (hb : eval m b = some (SVal.data db)) :
+    eval m (.app "VPairData" [a, b]) = some (.val (.pairData da db)) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [a, b]
+      evalApp "VPairData" vs) = some (.val (.pairData da db))
+  rw [evalList.eq_def]
+  simp [ha]
+  rw [evalList.eq_def]
+  simp [hb]
+  rw [evalList.eq_def]
+  rfl
+
+theorem eval_VArray_of {m : Model} {e : Expr} {xs : List Val}
+    (h : eval m e = some (SVal.valList xs)) :
+    eval m (.app "VArray" [e]) = some (.val (.array xs)) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "VArray" vs) = some (.val (.array xs))
+  rw [evalList.eq_def]
+  simp [h]
+  rw [evalList.eq_def]
+  rfl
+
+theorem eval_VG1_of {m : Model} {e : Expr} {g : String}
+    (h : eval m e = some (SVal.g1 g)) :
+    eval m (.app "VG1" [e]) = some (.val (.g1 g)) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "VG1" vs) = some (.val (.g1 g))
+  rw [evalList.eq_def]
+  simp [h]
+  rw [evalList.eq_def]
+  rfl
+
+theorem eval_VG2_of {m : Model} {e : Expr} {g : String}
+    (h : eval m e = some (SVal.g2 g)) :
+    eval m (.app "VG2" [e]) = some (.val (.g2 g)) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "VG2" vs) = some (.val (.g2 g))
+  rw [evalList.eq_def]
+  simp [h]
+  rw [evalList.eq_def]
+  rfl
+
+theorem eval_VMlResult_of {m : Model} {e : Expr} {r : String}
+    (h : eval m e = some (SVal.ml r)) :
+    eval m (.app "VMlResult" [e]) = some (.val (.ml r)) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "VMlResult" vs) = some (.val (.ml r))
+  rw [evalList.eq_def]
+  simp [h]
+  rw [evalList.eq_def]
+  rfl
+
+theorem evalBoolIs_constValValid_constr_false {m : Model} {e : Expr}
+    {tag : Int} {fields : List Val}
+    (h : eval m e = some (SVal.val (Val.constr tag fields))) :
+    evalBoolIs m (.app "const_val_valid" [e]) false = true := by
+  unfold evalBoolIs evalBool?
+  rw [eval.eq_def]
+  simp [evalList.eq_def, evalApp_constValValid_constr_false, h]
+
+theorem eval_VPair_of {m : Model} {a b : Expr} {av bv : Val}
+    (ha : eval m a = some (SVal.val av))
+    (hb : eval m b = some (SVal.val bv)) :
+    eval m (.app "VPair" [a, b]) = some (.val (.pair av bv)) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [a, b]
+      evalApp "VPair" vs) = some (.val (.pair av bv))
+  rw [evalList.eq_def]
+  simp [ha]
+  rw [evalList.eq_def]
+  simp [hb]
+  rw [evalList.eq_def]
+  rfl
+
+theorem eval_VCons_of {m : Model} {h t : Expr} {hv : Val} {tv : List Val}
+    (hh : eval m h = some (SVal.val hv))
+    (ht : eval m t = some (SVal.valList tv)) :
+    eval m (.app "VCons" [h, t]) = some (.valList (hv :: tv)) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [h, t]
+      evalApp "VCons" vs) = some (.valList (hv :: tv))
+  rw [evalList.eq_def]
+  simp [hh]
+  rw [evalList.eq_def]
+  simp [ht]
+  rw [evalList.eq_def]
+  rfl
+
+theorem eval_DCons_of {m : Model} {h t : Expr} {hd : Data} {td : List Data}
+    (hh : eval m h = some (SVal.data hd))
+    (ht : eval m t = some (SVal.dataList td)) :
+    eval m (.app "DCons" [h, t]) = some (.dataList (hd :: td)) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [h, t]
+      evalApp "DCons" vs) = some (.dataList (hd :: td))
+  rw [evalList.eq_def]
+  simp [hh]
+  rw [evalList.eq_def]
+  simp [ht]
+  rw [evalList.eq_def]
+  rfl
+
+theorem eval_DConstr_of {m : Model} {tag fields : Expr} {i : Int}
+    {xs : List Data}
+    (htag : eval m tag = some (SVal.int i))
+    (hfields : eval m fields = some (SVal.dataList xs)) :
+    eval m (.app "DConstr" [tag, fields]) = some (.data (.Constr i xs)) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [tag, fields]
+      evalApp "DConstr" vs) = some (.data (.Constr i xs))
+  rw [evalList.eq_def]
+  simp [htag]
+  rw [evalList.eq_def]
+  simp [hfields]
+  rw [evalList.eq_def]
+  rfl
+
+theorem eval_DMap_of {m : Model} {ps : Expr} {xs : List (Data × Data)}
+    (hps : eval m ps = some (SVal.dataPairList xs)) :
+    eval m (.app "DMap" [ps]) = some (.data (.Map xs)) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [ps]
+      evalApp "DMap" vs) = some (.data (.Map xs))
+  rw [evalList.eq_def]
+  simp [hps]
+  rw [evalList.eq_def]
+  rfl
+
+theorem eval_DList_of {m : Model} {e : Expr} {xs : List Data}
+    (he : eval m e = some (SVal.dataList xs)) :
+    eval m (.app "DList" [e]) = some (.data (.List xs)) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "DList" vs) = some (.data (.List xs))
+  rw [evalList.eq_def]
+  simp [he]
+  rw [evalList.eq_def]
+  rfl
+
+theorem eval_DI_of {m : Model} {e : Expr} {i : Int}
+    (he : eval m e = some (SVal.int i)) :
+    eval m (.app "DI" [e]) = some (.data (.I i)) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "DI" vs) = some (.data (.I i))
+  rw [evalList.eq_def]
+  simp [he]
+  rw [evalList.eq_def]
+  rfl
+
+theorem eval_DB_of {m : Model} {e : Expr} {bs : ByteArray}
+    (he : eval m e = some (SVal.bytes bs)) :
+    eval m (.app "DB" [e]) = some (.data (.B bs)) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "DB" vs) = some (.data (.B bs))
+  rw [evalList.eq_def]
+  simp [he]
+  rw [evalList.eq_def]
+  rfl
+
+theorem eval_dataConstrTag_of {m : Model} {e : Expr} {tag : Int}
+    {fields : List Data}
+    (he : eval m e = some (SVal.data (.Constr tag fields))) :
+    eval m (.app "dataConstrTag" [e]) = some (.int tag) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "dataConstrTag" vs) = some (.int tag)
+  rw [evalList.eq_def]
+  simp [he]
+  rw [evalList.eq_def]
+  rfl
+
+theorem eval_dataConstrFields_of {m : Model} {e : Expr} {tag : Int}
+    {fields : List Data}
+    (he : eval m e = some (SVal.data (.Constr tag fields))) :
+    eval m (.app "dataConstrFields" [e]) = some (.dataList fields) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "dataConstrFields" vs) = some (.dataList fields)
+  rw [evalList.eq_def]
+  simp [he]
+  rw [evalList.eq_def]
+  rfl
+
+theorem eval_dataMapEntries_of {m : Model} {e : Expr} {ps : List (Data × Data)}
+    (he : eval m e = some (SVal.data (.Map ps))) :
+    eval m (.app "dataMapEntries" [e]) = some (.dataPairList ps) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "dataMapEntries" vs) = some (.dataPairList ps)
+  rw [evalList.eq_def]
+  simp [he]
+  rw [evalList.eq_def]
+  rfl
+
+theorem eval_dataListItems_of {m : Model} {e : Expr} {xs : List Data}
+    (he : eval m e = some (SVal.data (.List xs))) :
+    eval m (.app "dataListItems" [e]) = some (.dataList xs) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "dataListItems" vs) = some (.dataList xs)
+  rw [evalList.eq_def]
+  simp [he]
+  rw [evalList.eq_def]
+  rfl
+
+theorem eval_dataInt_of {m : Model} {e : Expr} {i : Int}
+    (he : eval m e = some (SVal.data (.I i))) :
+    eval m (.app "dataInt" [e]) = some (.int i) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "dataInt" vs) = some (.int i)
+  rw [evalList.eq_def]
+  simp [he]
+  rw [evalList.eq_def]
+  rfl
+
+theorem eval_dataBytes_of {m : Model} {e : Expr} {bs : ByteArray}
+    (he : eval m e = some (SVal.data (.B bs))) :
+    eval m (.app "dataBytes" [e]) = some (.bytes bs) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "dataBytes" vs) = some (.bytes bs)
+  rw [evalList.eq_def]
+  simp [he]
+  rw [evalList.eq_def]
+  rfl
+
+theorem evalBoolIs_isVUnit_true_of_val_unit {m : Model} {e : Expr}
+    (he : eval m e = some (.val .unit)) :
+    evalBoolIs m (.app "(_ is VUnit)" [e]) true = true := by
+  exact (evalBoolIs_true_eq m (.app "(_ is VUnit)" [e])).mpr (by
+    rw [eval.eq_def]
+    change
+      (do
+        let vs ← evalList m [e]
+        evalApp "(_ is VUnit)" vs) = some (.bool true)
+    rw [evalList.eq_def]
+    simp [he]
+    rw [evalList.eq_def]
+    rfl)
 
 theorem evalBoolIs_isVNil_true_of_valList_nil {m : Model} {e : Expr}
     (he : eval m e = some (SVal.valList [])) :

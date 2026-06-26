@@ -1,4 +1,6 @@
 import Moist.CEK.Value
+import Moist.Plutus.ByteString
+import Moist.Plutus.Integer
 import Moist.Plutus.Types
 
 namespace Moist.CEK
@@ -136,46 +138,36 @@ truncates toward zero. We implement `haskellDiv` and `haskellMod`
 to match Plutus semantics for `divideInteger` and `modInteger`.
 -/
 
+@[irreducible] def builtinIntegerTDiv (a b : Int) : Int :=
+  Moist.Plutus.uplcIntegerTDiv a b
+
+@[irreducible] def builtinIntegerTMod (a b : Int) : Int :=
+  Moist.Plutus.uplcIntegerTMod a b
+
+@[irreducible] def builtinIntegerDiv (a b : Int) : Int :=
+  Moist.Plutus.uplcIntegerDiv a b
+
+@[irreducible] def builtinIntegerMod (a b : Int) : Int :=
+  Moist.Plutus.uplcIntegerMod a b
+
 /-- Haskell `div`: rounds toward negative infinity.
 Uses `Int.tdiv` (truncation toward zero) as a base. -/
 private def haskellDiv (a b : Int) : Int :=
-  let q := a.tdiv b
-  let r := a.tmod b
-  if r == 0 || (a >= 0) == (b >= 0) then q else q - 1
+  builtinIntegerDiv a b
 
 /-- Haskell `mod`: result has sign of divisor. -/
 private def haskellMod (a b : Int) : Int :=
-  a - b * haskellDiv a b
+  builtinIntegerMod a b
 
 /-! ### ByteString Helpers -/
 
 /-- Lexicographic less-than for ByteArrays. -/
 private def bsLt (a b : ByteArray) : Bool :=
-  let len := min a.size b.size
-  go 0 len a b
-where
-  go (i len : Nat) (a b : ByteArray) : Bool :=
-    if i >= len then a.size < b.size
-    else
-      let ai := a.get! i
-      let bi := b.get! i
-      if ai < bi then true
-      else if ai > bi then false
-      else go (i + 1) len a b
+  Moist.Plutus.bytesLt a b
 
 /-- Lexicographic less-than-or-equal for ByteArrays. -/
 private def bsLe (a b : ByteArray) : Bool :=
-  let len := min a.size b.size
-  go 0 len a b
-where
-  go (i len : Nat) (a b : ByteArray) : Bool :=
-    if i >= len then a.size <= b.size
-    else
-      let ai := a.get! i
-      let bi := b.get! i
-      if ai < bi then true
-      else if ai > bi then false
-      else go (i + 1) len a b
+  Moist.Plutus.bytesLe a b
 
 /-! ### Bitwise ByteString Helpers -/
 
@@ -415,7 +407,7 @@ Stage 2: `evalBuiltinPassThrough` — handles builtins that return a `CekValue` 
 
 /-- Pure builtin computation on constants. Every argument is a `Const`.
 Returns `none` on type error or runtime failure (e.g. division by zero). -/
-def evalBuiltinConst (b : BuiltinFun) (args : List Const) : Option Const :=
+def evalBuiltinConstCore (b : BuiltinFun) (args : List Const) : Option Const :=
   match b, args with
   -- Integer arithmetic
   | .AddInteger, [.Integer b, .Integer a] => some (.Integer (a + b))
@@ -424,9 +416,9 @@ def evalBuiltinConst (b : BuiltinFun) (args : List Const) : Option Const :=
   | .DivideInteger, [.Integer b, .Integer a] =>
     if b == 0 then none else some (.Integer (haskellDiv a b))
   | .QuotientInteger, [.Integer b, .Integer a] =>
-    if b == 0 then none else some (.Integer (a.tdiv b))
+    if b == 0 then none else some (.Integer (builtinIntegerTDiv a b))
   | .RemainderInteger, [.Integer b, .Integer a] =>
-    if b == 0 then none else some (.Integer (a.tmod b))
+    if b == 0 then none else some (.Integer (builtinIntegerTMod a b))
   | .ModInteger, [.Integer b, .Integer a] =>
     if b == 0 then none else some (.Integer (haskellMod a b))
 
@@ -445,19 +437,15 @@ def evalBuiltinConst (b : BuiltinFun) (args : List Const) : Option Const :=
   | .LessThanEqualsByteString, [.ByteString bs2, .ByteString bs1] =>
     some (.Bool (bsLe bs1 bs2))
   | .SliceByteString, [.ByteString bs, .Integer len, .Integer start] =>
-    let startN := if start < 0 then 0 else start.toNat
-    let lenN := if len < 0 then 0 else len.toNat
-    let endN := min (startN + lenN) bs.size
-    let startN := min startN bs.size
-    some (.ByteString (bs.extract startN endN))
+    some (.ByteString (Moist.Plutus.bytesExtractValue bs start len))
   | .LengthOfByteString, [.ByteString bs] =>
     some (.Integer (Int.ofNat bs.size))
   | .IndexByteString, [.Integer idx, .ByteString bs] =>
     if idx < 0 || idx >= Int.ofNat bs.size then none
-    else some (.Integer (Int.ofNat (bs.get! idx.toNat).toNat))
+    else some (.Integer (Moist.Plutus.bytesNthValue bs idx))
   | .ConsByteString, [.ByteString bs, .Integer n] =>
     if n < 0 || n > 255 then none
-    else some (.ByteString (ByteArray.mk #[n.toNat.toUInt8] ++ bs))
+    else some (.ByteString (Moist.Plutus.bytesSingletonValue n ++ bs))
 
   -- String operations
   | .AppendString, [.String s2, .String s1] => some (.String (s1 ++ s2))
@@ -586,6 +574,68 @@ def evalBuiltinConst (b : BuiltinFun) (args : List Const) : Option Const :=
   -- Fallthrough
   | _, _ => none
 
+def evalBuiltinConst (b : BuiltinFun) (args : List Const) : Option Const :=
+  match b, args with
+  | .DivideInteger, [.Integer b, .Integer a] =>
+    if b == 0 then none else some (.Integer (haskellDiv a b))
+  | .QuotientInteger, [.Integer b, .Integer a] =>
+    if b == 0 then none else some (.Integer (builtinIntegerTDiv a b))
+  | .RemainderInteger, [.Integer b, .Integer a] =>
+    if b == 0 then none else some (.Integer (builtinIntegerTMod a b))
+  | .ModInteger, [.Integer b, .Integer a] =>
+    if b == 0 then none else some (.Integer (haskellMod a b))
+  | .ConsByteString, [.ByteString bs, .Integer n] =>
+    if n < 0 || n > 255 then none
+    else some (.ByteString (Moist.Plutus.bytesSingletonValue n ++ bs))
+  | .IndexByteString, [.Integer idx, .ByteString bs] =>
+    if idx < 0 || idx >= Int.ofNat bs.size then none
+    else some (.Integer (Moist.Plutus.bytesNthValue bs idx))
+  | _, _ => evalBuiltinConstCore b args
+
+theorem evalBuiltinConst_DivideInteger_of {a b : Int}
+    (h : (b == 0) = false) :
+    evalBuiltinConst BuiltinFun.DivideInteger
+      [Const.Integer b, Const.Integer a] =
+        some (Const.Integer (builtinIntegerDiv a b)) := by
+  have hneq : b ≠ 0 := by
+    intro hb
+    subst b
+    simp at h
+  simp [evalBuiltinConst, hneq, haskellDiv, builtinIntegerDiv]
+
+theorem evalBuiltinConst_QuotientInteger_of {a b : Int}
+    (h : (b == 0) = false) :
+    evalBuiltinConst BuiltinFun.QuotientInteger
+      [Const.Integer b, Const.Integer a] =
+        some (Const.Integer (builtinIntegerTDiv a b)) := by
+  have hneq : b ≠ 0 := by
+    intro hb
+    subst b
+    simp at h
+  simp [evalBuiltinConst, hneq, builtinIntegerTDiv]
+
+theorem evalBuiltinConst_RemainderInteger_of {a b : Int}
+    (h : (b == 0) = false) :
+    evalBuiltinConst BuiltinFun.RemainderInteger
+      [Const.Integer b, Const.Integer a] =
+        some (Const.Integer (builtinIntegerTMod a b)) := by
+  have hneq : b ≠ 0 := by
+    intro hb
+    subst b
+    simp at h
+  simp [evalBuiltinConst, hneq, builtinIntegerTMod]
+
+theorem evalBuiltinConst_ModInteger_of {a b : Int}
+    (h : (b == 0) = false) :
+    evalBuiltinConst BuiltinFun.ModInteger
+      [Const.Integer b, Const.Integer a] =
+        some (Const.Integer (builtinIntegerMod a b)) := by
+  have hneq : b ≠ 0 := by
+    intro hb
+    subst b
+    simp at h
+  simp [evalBuiltinConst, hneq, haskellMod, builtinIntegerMod]
+
 /-- Pass-through builtins: return a `CekValue` argument unchanged based on a
 `VCon` condition. Only 5 builtins (+MkCons ConstList) need this treatment. -/
 def evalBuiltinPassThrough (b : BuiltinFun) (args : List CekValue) : Option CekValue :=
@@ -661,5 +711,120 @@ theorem evalBuiltinPassThrough_none_of_not_passthrough (b : BuiltinFun) (args : 
           b ≠ .ChooseList ∧ b ≠ .MkCons) :
     evalBuiltinPassThrough b args = none := by
   cases b <;> simp_all [evalBuiltinPassThrough]
+
+theorem evalBuiltin_FstPair_pair (a b : Const) :
+    evalBuiltin BuiltinFun.FstPair [.VCon (.Pair (a, b))] = some (.VCon a) := by
+  rfl
+
+theorem evalBuiltin_FstPair_pairData (a b : Data) :
+    evalBuiltin BuiltinFun.FstPair [.VCon (.PairData (a, b))] =
+      some (.VCon (.Data a)) := by
+  rfl
+
+theorem evalBuiltin_SndPair_pair (a b : Const) :
+    evalBuiltin BuiltinFun.SndPair [.VCon (.Pair (a, b))] = some (.VCon b) := by
+  rfl
+
+theorem evalBuiltin_SndPair_pairData (a b : Data) :
+    evalBuiltin BuiltinFun.SndPair [.VCon (.PairData (a, b))] =
+      some (.VCon (.Data b)) := by
+  rfl
+
+theorem evalBuiltin_NullList_dataList (xs : List Data) :
+    evalBuiltin BuiltinFun.NullList [.VCon (.ConstDataList xs)] =
+      some (.VCon (.Bool xs.isEmpty)) := by
+  cases xs <;> rfl
+
+theorem evalBuiltin_NullList_constList (xs : List Const) :
+    evalBuiltin BuiltinFun.NullList [.VCon (.ConstList xs)] =
+      some (.VCon (.Bool xs.isEmpty)) := by
+  cases xs <;> rfl
+
+theorem evalBuiltin_HeadList_dataList (x : Data) (xs : List Data) :
+    evalBuiltin BuiltinFun.HeadList [.VCon (.ConstDataList (x :: xs))] =
+      some (.VCon (.Data x)) := by
+  rfl
+
+theorem evalBuiltin_HeadList_constList (x : Const) (xs : List Const) :
+    evalBuiltin BuiltinFun.HeadList [.VCon (.ConstList (x :: xs))] =
+      some (.VCon x) := by
+  rfl
+
+theorem evalBuiltin_TailList_dataList (x : Data) (xs : List Data) :
+    evalBuiltin BuiltinFun.TailList [.VCon (.ConstDataList (x :: xs))] =
+      some (.VCon (.ConstDataList xs)) := by
+  rfl
+
+theorem evalBuiltin_TailList_constList (x : Const) (xs : List Const) :
+    evalBuiltin BuiltinFun.TailList [.VCon (.ConstList (x :: xs))] =
+      some (.VCon (.ConstList xs)) := by
+  rfl
+
+theorem evalBuiltin_MkCons_dataList (x : Data) (xs : List Data) :
+    evalBuiltin BuiltinFun.MkCons [.VCon (.ConstDataList xs), .VCon (.Data x)] =
+      some (.VCon (.ConstDataList (x :: xs))) := by
+  rfl
+
+theorem evalBuiltin_MkCons_constList (x : Const) (xs : List Const) :
+    evalBuiltin BuiltinFun.MkCons [.VCon (.ConstList xs), .VCon x] =
+      some (.VCon (.ConstList (x :: xs))) := by
+  rfl
+
+theorem evalBuiltin_ChooseList_dataList_nil (nilCase consCase : CekValue) :
+    evalBuiltin BuiltinFun.ChooseList
+      [consCase, nilCase, .VCon (.ConstDataList [])] = some nilCase := by
+  rfl
+
+theorem evalBuiltin_ChooseList_dataList_cons
+    (x : Data) (xs : List Data) (nilCase consCase : CekValue) :
+    evalBuiltin BuiltinFun.ChooseList
+      [consCase, nilCase, .VCon (.ConstDataList (x :: xs))] = some consCase := by
+  rfl
+
+theorem evalBuiltin_ChooseList_constList_nil (nilCase consCase : CekValue) :
+    evalBuiltin BuiltinFun.ChooseList
+      [consCase, nilCase, .VCon (.ConstList [])] = some nilCase := by
+  rfl
+
+theorem evalBuiltin_ChooseList_constList_cons
+    (x : Const) (xs : List Const) (nilCase consCase : CekValue) :
+    evalBuiltin BuiltinFun.ChooseList
+      [consCase, nilCase, .VCon (.ConstList (x :: xs))] = some consCase := by
+  rfl
+
+theorem evalBuiltin_ChooseData_constr
+    (tag : Int) (fields : List Data) (bCase iCase listCase mapCase constrCase : CekValue) :
+    evalBuiltin BuiltinFun.ChooseData
+      [bCase, iCase, listCase, mapCase, constrCase,
+       .VCon (.Data (.Constr tag fields))] = some constrCase := by
+  rfl
+
+theorem evalBuiltin_ChooseData_map
+    (ps : List (Data × Data)) (bCase iCase listCase mapCase constrCase : CekValue) :
+    evalBuiltin BuiltinFun.ChooseData
+      [bCase, iCase, listCase, mapCase, constrCase,
+       .VCon (.Data (.Map ps))] = some mapCase := by
+  rfl
+
+theorem evalBuiltin_ChooseData_list
+    (xs : List Data) (bCase iCase listCase mapCase constrCase : CekValue) :
+    evalBuiltin BuiltinFun.ChooseData
+      [bCase, iCase, listCase, mapCase, constrCase,
+       .VCon (.Data (.List xs))] = some listCase := by
+  rfl
+
+theorem evalBuiltin_ChooseData_i
+    (i : Int) (bCase iCase listCase mapCase constrCase : CekValue) :
+    evalBuiltin BuiltinFun.ChooseData
+      [bCase, iCase, listCase, mapCase, constrCase,
+       .VCon (.Data (.I i))] = some iCase := by
+  rfl
+
+theorem evalBuiltin_ChooseData_b
+    (bs : ByteString) (bCase iCase listCase mapCase constrCase : CekValue) :
+    evalBuiltin BuiltinFun.ChooseData
+      [bCase, iCase, listCase, mapCase, constrCase,
+       .VCon (.Data (.B bs))] = some bCase := by
+  rfl
 
 end Moist.CEK
