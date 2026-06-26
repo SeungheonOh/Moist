@@ -4907,6 +4907,12 @@ theorem evalBuiltinSym_BData_eq (bs : SymVal) :
   rfl
 
 set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_SerializeData_eq (d : SymVal) :
+    evalBuiltinSym .SerializeData [d] =
+      checkedConst ((asData d).map fun d => .app "uplc_serializeData" [d]) .bytes := by
+  rfl
+
+set_option maxHeartbeats 0 in
 theorem evalBuiltinSym_EqualsData_eq (b a : SymVal) :
     evalBuiltinSym .EqualsData [b, a] =
       checkedBool (Proj.map2 SExpr.eq (asData a) (asData b)) := by
@@ -9559,6 +9565,60 @@ theorem evalBuiltin_UnBData_none_of_length_ne_one {args : List CekValue}
       have hnone := evalBuiltinConst_UnBData_none_of_length_ne_one hcs
       simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst, hnone]
 
+set_option maxHeartbeats 0 in
+theorem evalBuiltinConst_SerializeData_none_of_length_ne_one {cs : List Const}
+    (h : cs.length ≠ 1) :
+    Moist.CEK.evalBuiltinConst .SerializeData cs = none := by
+  cases cs with
+  | nil => rfl
+  | cons c rest =>
+      cases rest with
+      | nil => exact False.elim (h rfl)
+      | cons c2 rest2 =>
+          cases c <;> rfl
+
+theorem evalBuiltin_SerializeData_none_of_length_ne_one {args : List CekValue}
+    (h : args.length ≠ 1) :
+    Moist.CEK.evalBuiltin .SerializeData args = none := by
+  cases hconst : Moist.CEK.extractConsts args with
+  | none =>
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst]
+  | some cs =>
+      have hlen := extractConsts_length hconst
+      have hcs : cs.length ≠ 1 := by
+        intro hcs1
+        apply h
+        omega
+      have hnone := evalBuiltinConst_SerializeData_none_of_length_ne_one hcs
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst, hnone]
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltin_SerializeData_none_of_single_not_data {cv : CekValue}
+    (h : ∀ d, cv ≠ .VCon (.Data d)) :
+    Moist.CEK.evalBuiltin .SerializeData [cv] = none := by
+  cases cv with
+  | VCon c =>
+      cases c with
+      | Integer i => rfl
+      | ByteString bs => rfl
+      | String s => rfl
+      | Unit => rfl
+      | Bool b => rfl
+      | Pair p => rfl
+      | PairData p => rfl
+      | ConstList xs => rfl
+      | Data d => exact False.elim (h d rfl)
+      | ConstDataList xs => rfl
+      | ConstPairDataList xs => rfl
+      | ConstArray xs => rfl
+      | Bls12_381_G1_element => rfl
+      | Bls12_381_G2_element => rfl
+      | Bls12_381_MlResult => rfl
+  | VLam body ρ => rfl
+  | VDelay body ρ => rfl
+  | VConstr tag fields => rfl
+  | VBuiltin b args expected => rfl
+
 theorem evalBuiltin_UnConstrData_none_of_single_not_constr {cv : CekValue}
     (h : ∀ tag fields, cv ≠ .VCon (.Data (.Constr tag fields))) :
     Moist.CEK.evalBuiltin .UnConstrData [cv] = none := by
@@ -14079,7 +14139,49 @@ theorem evalBuiltinSym_active_error_MkNilPairData :
               rw [hlen]
               simp
             omega)
-axiom evalBuiltinSym_active_error_SerializeData : BuiltinErrorSound .SerializeData
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_error_SerializeData :
+    BuiltinErrorSound .SerializeData := by
+  intro m args cargs out hargs hmem hactive
+  cases args with
+  | nil =>
+      have hlen := symValListToCekList_length hargs
+      exact evalBuiltin_SerializeData_none_of_length_ne_one (by
+        intro h1
+        have hzero : cargs.length = 0 := by simpa using hlen
+        omega)
+  | cons dSym rest =>
+      cases rest with
+      | nil =>
+          rw [evalBuiltinSym_SerializeData_eq dSym] at hmem
+          change out ∈
+            [Outcome.ok (asData dSym).guard
+              (SymVal.const (SymConst.bytes
+                (.app "uplc_serializeData" [(asData dSym).val]))),
+             Outcome.error (SExpr.not (asData dSym).guard)] at hmem
+          simp only [List.mem_cons, List.not_mem_nil] at hmem
+          obtain ⟨cd, hd, rfl⟩ := symValListToCekList_singleton hargs
+          rcases hmem with hok | herr
+          · subst out
+            simp [outcomeErrorActive] at hactive
+          · rcases herr with herr | hfalse
+            · subst out
+              by_cases hshape : ∃ d, cd = .VCon (.Data d)
+              · rcases hshape with ⟨d, rfl⟩
+                have hg := asData_guard_of_cek (m := m) (v := dSym) (d := d) hd
+                exact False.elim (pcHolds_not_contra hg hactive)
+              · exact evalBuiltin_SerializeData_none_of_single_not_data (by
+                  intro d h
+                  exact hshape ⟨d, h⟩)
+            · cases hfalse
+      | cons extra rest2 =>
+          have hlen := symValListToCekList_length hargs
+          exact evalBuiltin_SerializeData_none_of_length_ne_one (by
+            intro h1
+            have htwo : 2 ≤ cargs.length := by
+              rw [hlen]
+              simp
+            omega)
 axiom evalBuiltinSym_active_error_VerifyEcdsaSecp256k1Signature : BuiltinErrorSound .VerifyEcdsaSecp256k1Signature
 axiom evalBuiltinSym_active_error_VerifySchnorrSecp256k1Signature : BuiltinErrorSound .VerifySchnorrSecp256k1Signature
 axiom evalBuiltinSym_active_error_Bls12_381_G1_add : BuiltinErrorSound .Bls12_381_G1_add
