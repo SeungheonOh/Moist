@@ -989,6 +989,32 @@ theorem pcHolds_all2_intro {m : SmtSem.Model} {a b : SExpr}
   simpa [pcHolds, SExpr.all, Moist.SMT.Expr.all] using
     (Moist.SMT.Semantics.evalBoolIs_and_true m a b).mpr ⟨ha, hb⟩
 
+theorem pcHolds_and_intro {m : SmtSem.Model} {a b : SExpr}
+    (ha : pcHolds m a = true) (hb : pcHolds m b = true) :
+    pcHolds m (SExpr.and a b) = true := by
+  simpa [pcHolds, SExpr.and, Moist.SMT.Expr.and] using
+    (Moist.SMT.Semantics.evalBoolIs_and_true m a b).mpr ⟨ha, hb⟩
+
+theorem pcHolds_ge_int_intro {m : SmtSem.Model} {a b : SExpr} {x y : Int}
+    (ha : SmtSem.eval m a = some (.int x))
+    (hb : SmtSem.eval m b = some (.int y))
+    (hxy : y ≤ x) :
+    pcHolds m (SExpr.ge a b) = true := by
+  have hgeEval := Moist.SMT.Semantics.eval_ge_of (m := m) (a := a) (b := b)
+    (x := x) (y := y) ha hb
+  exact (Moist.SMT.Semantics.evalBoolIs_true_eq m (SExpr.ge a b)).mpr
+    (by simpa [hxy] using hgeEval)
+
+theorem pcHolds_lt_int_intro {m : SmtSem.Model} {a b : SExpr} {x y : Int}
+    (ha : SmtSem.eval m a = some (.int x))
+    (hb : SmtSem.eval m b = some (.int y))
+    (hxy : x < y) :
+    pcHolds m (SExpr.lt a b) = true := by
+  have hltEval := Moist.SMT.Semantics.eval_lt_of (m := m) (a := a) (b := b)
+    (x := x) (y := y) ha hb
+  exact (Moist.SMT.Semantics.evalBoolIs_true_eq m (SExpr.lt a b)).mpr
+    (by simpa [hxy] using hltEval)
+
 theorem pcHolds_all3 {m : SmtSem.Model} {a b c : SExpr}
     (h : pcHolds m (SExpr.all [a, b, c]) = true) :
     pcHolds m a = true ∧ pcHolds m b = true ∧ pcHolds m c = true := by
@@ -2034,6 +2060,24 @@ theorem checked2_path_ok {α} {m : SmtSem.Model} {p : Proj α}
     | timeout innerPc =>
         simp [Outcome.guard] at hguard
   · simp at herr
+
+theorem checked2_active_error {α} {m : SmtSem.Model} {p : Proj α}
+    {mk : α → List Outcome} {out : Outcome}
+    (hmem : out ∈ checked2 p mk)
+    (herr : outcomeErrorActive m out = true) :
+    (∃ inner,
+      inner ∈ mk p.val ∧ pcHolds m p.guard = true ∧
+        outcomeErrorActive m inner = true) ∨
+    pcHolds m (SExpr.not p.guard) = true := by
+  unfold checked2 at hmem
+  rcases List.mem_append.mp hmem with hmap | htail
+  · rcases List.mem_map.mp hmap with ⟨inner, hinner, hguard⟩
+    cases hguard
+    have hg := outcomeErrorActive_guard herr
+    exact Or.inl ⟨inner, hinner, hg.1, hg.2⟩
+  · simp only [List.mem_singleton] at htail
+    cases htail
+    exact Or.inr (by simpa [outcomeErrorActive] using herr)
 
 theorem branchOutcomes_active_ok {m : SmtSem.Model}
     {branches : List (SExpr × List Outcome)} {extraErrors : List SExpr}
@@ -6826,6 +6870,74 @@ theorem evalBuiltin_DropList_none_of_pair_not_supported {a b : CekValue}
   | VDelay body ρ => rfl
   | VConstr tag fields => rfl
   | VBuiltin fn args expected => rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinConst_IndexArray_none_of_length_ne_two {cs : List Const}
+    (h : cs.length ≠ 2) :
+    Moist.CEK.evalBuiltinConst .IndexArray cs = none := by
+  cases cs with
+  | nil => rfl
+  | cons c rest =>
+      cases rest with
+      | nil => cases c <;> rfl
+      | cons c2 rest2 =>
+          cases rest2 with
+          | nil => exact False.elim (h rfl)
+          | cons c3 rest3 =>
+              cases c <;> cases c2 <;> rfl
+
+theorem evalBuiltin_IndexArray_none_of_length_ne_two {args : List CekValue}
+    (h : args.length ≠ 2) :
+    Moist.CEK.evalBuiltin .IndexArray args = none := by
+  cases hconst : Moist.CEK.extractConsts args with
+  | none =>
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst]
+  | some cs =>
+      have hlen := extractConsts_length hconst
+      have hcs : cs.length ≠ 2 := by
+        intro hcs2
+        apply h
+        omega
+      have hnone := evalBuiltinConst_IndexArray_none_of_length_ne_two hcs
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst, hnone]
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltin_IndexArray_none_of_pair_not_supported {a b : CekValue}
+    (hshape : ∀ i cs, ¬ (a = .VCon (.Integer i) ∧ b = .VCon (.ConstArray cs))) :
+    Moist.CEK.evalBuiltin .IndexArray [a, b] = none := by
+  cases a with
+  | VCon ca =>
+      cases b with
+      | VCon cb =>
+          cases ca <;> cases cb <;> try rfl
+          exact False.elim (hshape _ _ ⟨rfl, rfl⟩)
+      | VLam body ρ => cases ca <;> rfl
+      | VDelay body ρ => cases ca <;> rfl
+      | VConstr tag fields => cases ca <;> rfl
+      | VBuiltin fn args expected => cases ca <;> rfl
+  | VLam body ρ => rfl
+  | VDelay body ρ => rfl
+  | VConstr tag fields => rfl
+  | VBuiltin fn args expected => rfl
+
+theorem evalBuiltin_IndexArray_none_of_negative {cs : List Const} {i : Int}
+    (hneg : i < 0) :
+    Moist.CEK.evalBuiltin .IndexArray [.VCon (.Integer i), .VCon (.ConstArray cs)] = none := by
+  change
+    (match (if i < 0 then none else cs[i.toNat]?) with
+    | some c => some (CekValue.VCon c)
+    | none => none) = none
+  simp [hneg]
+
+theorem evalBuiltin_IndexArray_none_of_nonnegative_get_none {cs : List Const} {i : Int}
+    (hge : 0 ≤ i) (hget : cs[i.toNat]? = none) :
+    Moist.CEK.evalBuiltin .IndexArray [.VCon (.Integer i), .VCon (.ConstArray cs)] = none := by
+  have hnlt : ¬ i < 0 := (Int.not_lt).mpr hge
+  change
+    (match (if i < 0 then none else cs[i.toNat]?) with
+    | some c => some (CekValue.VCon c)
+    | none => none) = none
+  simp [hnlt, hget]
 axiom evalBuiltinSym_active_ok_InsertCoin : BuiltinOkSound .InsertCoin
 axiom evalBuiltinSym_active_ok_LookupCoin : BuiltinOkSound .LookupCoin
 axiom evalBuiltinSym_active_ok_ScaleValue : BuiltinOkSound .ScaleValue
@@ -7005,7 +7117,127 @@ theorem evalBuiltinSym_active_error_DropList : BuiltinErrorSound .DropList := by
                   rw [hlen]
                   simp
                 omega)
-axiom evalBuiltinSym_active_error_IndexArray : BuiltinErrorSound .IndexArray
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_error_IndexArray : BuiltinErrorSound .IndexArray := by
+  intro m args cargs out hargs hmem hactive
+  cases args with
+  | nil =>
+      have hlen := symValListToCekList_length hargs
+      exact evalBuiltin_IndexArray_none_of_length_ne_two (by
+        intro h2
+        have hzero : cargs.length = 0 := by simpa using hlen
+        omega)
+  | cons idx rest =>
+      cases rest with
+      | nil =>
+          have hlen := symValListToCekList_length hargs
+          exact evalBuiltin_IndexArray_none_of_length_ne_two (by
+            intro h2
+            have hone : cargs.length = 1 := by simpa using hlen
+            omega)
+      | cons arr rest2 =>
+          cases rest2 with
+          | nil =>
+              change out ∈
+                checked2
+                  (Proj.map2 (fun arr idx => (arr, idx)) (asArray arr) (asInt idx))
+                  (fun (arr, idx) =>
+                    let g := SExpr.and (SExpr.ge idx (.int 0))
+                      (SExpr.lt idx (.app "vlist_length" [arr]))
+                    [Outcome.ok g (.dyn (.app "vlist_index" [idx, arr])),
+                     Outcome.error (SExpr.not g)]) at hmem
+              obtain ⟨cidx, carr, hidxArg, harrArg, rfl⟩ :=
+                symValListToCekList_pair hargs
+              have hpath := checked2_active_error hmem hactive
+              rcases hpath with hinner | hproj
+              · rcases hinner with ⟨inner, hinner, hpArgs, hinnerActive⟩
+                change inner ∈
+                  (let g := SExpr.and (SExpr.ge (asInt idx).val (.int 0))
+                    (SExpr.lt (asInt idx).val
+                      (.app "vlist_length" [(asArray arr).val]))
+                   [Outcome.ok g (.dyn (.app "vlist_index" [(asInt idx).val,
+                     (asArray arr).val])),
+                    Outcome.error (SExpr.not g)]) at hinner
+                simp only [List.mem_cons, List.not_mem_nil] at hinner
+                rcases hinner with hok | herr
+                · subst inner
+                  simp [outcomeErrorActive] at hinnerActive
+                · rcases herr with herr | hfalse
+                  · subst inner
+                    have hnotRange :
+                        pcHolds m
+                          (SExpr.not
+                            (SExpr.and (SExpr.ge (asInt idx).val (.int 0))
+                              (SExpr.lt (asInt idx).val
+                                (.app "vlist_length" [(asArray arr).val])))) = true := by
+                      simpa [outcomeErrorActive] using hinnerActive
+                    change pcHolds m
+                      (SExpr.and (asArray arr).guard (asInt idx).guard) = true at hpArgs
+                    have hp :=
+                      (Moist.SMT.Semantics.evalBoolIs_and_true m
+                        (asArray arr).guard (asInt idx).guard).mp hpArgs
+                    obtain ⟨i, rfl, hiEval⟩ := asInt_sound hidxArg hp.2
+                    obtain ⟨vals, cs, rfl, harrEval, hconsts⟩ :=
+                      asArray_sound harrArg hp.1
+                    by_cases hneg : i < 0
+                    · exact evalBuiltin_IndexArray_none_of_negative (cs := cs) hneg
+                    · have hge : 0 ≤ i := (Int.not_lt).mp hneg
+                      by_cases hsome : ∃ c, cs[i.toNat]? = some c
+                      · rcases hsome with ⟨c, hgetCs⟩
+                        have hidxNatLtCs : i.toNat < cs.length := by
+                          rcases (List.getElem?_eq_some_iff.mp hgetCs) with ⟨h, _hval⟩
+                          exact h
+                        have hlenNat : vals.length = cs.length :=
+                          semValListToConstList_length hconsts
+                        have hidxNatLtVals : i.toNat < vals.length := by
+                          rwa [hlenNat]
+                        have hlt : i < Int.ofNat vals.length :=
+                          (Int.toNat_lt hge).mp hidxNatLtVals
+                        have hlenEval := Moist.SMT.Semantics.eval_vlist_length_of
+                          (m := m) (e := (asArray arr).val) harrEval
+                        have hgePc : pcHolds m
+                            (SExpr.ge (asInt idx).val (.int 0)) = true :=
+                          pcHolds_ge_int_intro hiEval
+                            (by simp [Moist.SMT.Semantics.eval]) hge
+                        have hltPc : pcHolds m
+                            (SExpr.lt (asInt idx).val
+                              (.app "vlist_length" [(asArray arr).val])) = true :=
+                          pcHolds_lt_int_intro hiEval hlenEval hlt
+                        have hrange : pcHolds m
+                            (SExpr.and (SExpr.ge (asInt idx).val (.int 0))
+                              (SExpr.lt (asInt idx).val
+                                (.app "vlist_length" [(asArray arr).val]))) = true :=
+                          pcHolds_and_intro hgePc hltPc
+                        exact False.elim (pcHolds_not_contra hrange hnotRange)
+                      · have hgetNone : cs[i.toNat]? = none := by
+                          cases hget : cs[i.toNat]? with
+                          | none => rfl
+                          | some c => exact False.elim (hsome ⟨c, hget⟩)
+                        exact evalBuiltin_IndexArray_none_of_nonnegative_get_none
+                          (cs := cs) hge hgetNone
+                  · cases hfalse
+              · by_cases hshape :
+                  ∃ i cs, cidx = .VCon (.Integer i) ∧ carr = .VCon (.ConstArray cs)
+                · rcases hshape with ⟨i, cs, rfl, rfl⟩
+                  have hgArr := asArray_guard_of_cek (m := m) (v := arr) (cs := cs) harrArg
+                  have hgIdx := asInt_guard_of_cek (m := m) (v := idx) (i := i) hidxArg
+                  have hprojGuard : pcHolds m
+                      (SExpr.and (asArray arr).guard (asInt idx).guard) = true :=
+                    pcHolds_and_intro hgArr hgIdx
+                  exact False.elim (pcHolds_not_contra hprojGuard hproj)
+                · exact evalBuiltin_IndexArray_none_of_pair_not_supported
+                    (a := cidx) (b := carr)
+                    (by
+                      intro i cs h
+                      exact hshape ⟨i, cs, h⟩)
+          | cons extra rest3 =>
+              have hlen := symValListToCekList_length hargs
+              exact evalBuiltin_IndexArray_none_of_length_ne_two (by
+                intro h2
+                have hthree : 3 ≤ cargs.length := by
+                  rw [hlen]
+                  simp
+                omega)
 set_option maxHeartbeats 0 in
 theorem evalBuiltinSym_active_error_LengthOfArray :
     BuiltinErrorSound .LengthOfArray := by
