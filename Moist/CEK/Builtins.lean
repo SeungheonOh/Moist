@@ -570,6 +570,12 @@ def evalBuiltinConstCore (b : BuiltinFun) (args : List Const) : Option Const :=
   | .DropList, [.ConstDataList l, .Integer n] =>
     if n < 0 then some (.ConstDataList l)
     else some (.ConstDataList (l.drop n.toNat))
+  | .IndexArray, [.Integer idx, .ConstArray xs] =>
+    if idx < 0 then none else xs[idx.toNat]?
+  | .LengthOfArray, [.ConstArray xs] =>
+    some (.Integer (Int.ofNat xs.length))
+  | .ListToArray, [.ConstList xs] =>
+    some (.ConstArray xs)
 
   -- Fallthrough
   | _, _ => none
@@ -768,6 +774,51 @@ theorem evalBuiltin_MkCons_dataList (x : Data) (xs : List Data) :
 theorem evalBuiltin_MkCons_constList (x : Const) (xs : List Const) :
     evalBuiltin BuiltinFun.MkCons [.VCon (.ConstList xs), .VCon x] =
       some (.VCon (.ConstList (x :: xs))) := by
+  rfl
+
+theorem evalBuiltin_DropList_constList (xs : List Const) (n : Int) :
+    evalBuiltin BuiltinFun.DropList [.VCon (.ConstList xs), .VCon (.Integer n)] =
+      some (.VCon (if n < 0 then .ConstList xs else .ConstList (xs.drop n.toNat))) := by
+  change
+    (match (if n < 0 then some (Const.ConstList xs)
+      else some (Const.ConstList (xs.drop n.toNat))) with
+    | some c => some (CekValue.VCon c)
+    | none => none) =
+      some (CekValue.VCon
+        (if n < 0 then Const.ConstList xs else Const.ConstList (xs.drop n.toNat)))
+  by_cases h : n < 0 <;> simp [h]
+
+theorem evalBuiltin_DropList_dataList (xs : List Data) (n : Int) :
+    evalBuiltin BuiltinFun.DropList [.VCon (.ConstDataList xs), .VCon (.Integer n)] =
+      some (.VCon (if n < 0 then .ConstDataList xs else .ConstDataList (xs.drop n.toNat))) := by
+  change
+    (match (if n < 0 then some (Const.ConstDataList xs)
+      else some (Const.ConstDataList (xs.drop n.toNat))) with
+    | some c => some (CekValue.VCon c)
+    | none => none) =
+      some (CekValue.VCon
+        (if n < 0 then Const.ConstDataList xs else Const.ConstDataList (xs.drop n.toNat)))
+  by_cases h : n < 0 <;> simp [h]
+
+theorem evalBuiltin_IndexArray (xs : List Const) (idx : Int) (hge : 0 ≤ idx)
+    {c : Const} (hget : xs[idx.toNat]? = some c) :
+    evalBuiltin BuiltinFun.IndexArray [.VCon (.Integer idx), .VCon (.ConstArray xs)] =
+      some (.VCon c) := by
+  have hnlt : ¬ idx < 0 := (Int.not_lt).mpr hge
+  change
+    (match (if idx < 0 then none else xs[idx.toNat]?) with
+    | some c => some (CekValue.VCon c)
+    | none => none) = some (CekValue.VCon c)
+  simp [hnlt, hget]
+
+theorem evalBuiltin_LengthOfArray (xs : List Const) :
+    evalBuiltin BuiltinFun.LengthOfArray [.VCon (.ConstArray xs)] =
+      some (.VCon (.Integer (Int.ofNat xs.length))) := by
+  rfl
+
+theorem evalBuiltin_ListToArray (xs : List Const) :
+    evalBuiltin BuiltinFun.ListToArray [.VCon (.ConstList xs)] =
+      some (.VCon (.ConstArray xs)) := by
   rfl
 
 theorem evalBuiltin_ChooseList_dataList_nil (nilCase consCase : CekValue) :

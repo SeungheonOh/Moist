@@ -2504,6 +2504,58 @@ theorem eval_vtail_of {m : Model} {e : Expr} {h : Val} {t : List Val}
   rw [evalList.eq_def]
   exact evalApp_vtail h t
 
+theorem eval_vlist_length_of {m : Model} {e : Expr} {xs : List Val}
+    (he : eval m e = some (SVal.valList xs)) :
+    eval m (.app "vlist_length" [e]) = some (SVal.int (Int.ofNat xs.length)) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "vlist_length" vs) = some (.int (Int.ofNat xs.length))
+  rw [evalList.eq_def]
+  simp [he]
+  rw [evalList.eq_def]
+  rfl
+
+theorem eval_vlist_drop_of {m : Model} {n xs : Expr} {i : Int} {vs : List Val}
+    (hn : eval m n = some (SVal.int i))
+    (hxs : eval m xs = some (SVal.valList vs)) :
+    eval m (.app "vlist_drop" [n, xs]) =
+      some (SVal.valList (if i < 0 then vs else vs.drop i.toNat)) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [n, xs]
+      evalApp "vlist_drop" vs) =
+        some (.valList (if i < 0 then vs else vs.drop i.toNat))
+  rw [evalList.eq_def]
+  simp [hn]
+  rw [evalList.eq_def]
+  simp [hxs]
+  rw [evalList.eq_def]
+  rfl
+
+theorem eval_vlist_index_of {m : Model} {idx xs : Expr} {i : Int}
+    {vs : List Val} {v : Val}
+    (hidx : eval m idx = some (SVal.int i))
+    (hxs : eval m xs = some (SVal.valList vs))
+    (hge : 0 ≤ i)
+    (hget : vs[i.toNat]? = some v) :
+    eval m (.app "vlist_index" [idx, xs]) = some (SVal.val v) := by
+  have hnlt : ¬ i < 0 := (Int.not_lt).mpr hge
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [idx, xs]
+      evalApp "vlist_index" vs) = some (.val v)
+  rw [evalList.eq_def]
+  simp [hidx]
+  rw [evalList.eq_def]
+  simp [hxs]
+  rw [evalList.eq_def]
+  change (if i < 0 then none else SVal.val <$> vs[i.toNat]?) = some (SVal.val v)
+  simp [hnlt, hget]
+
 theorem eval_dhead_of {m : Model} {e : Expr} {h : Data} {t : List Data}
     (he : eval m e = some (SVal.dataList (h :: t))) :
     eval m (.app "dhead" [e]) = some (SVal.data h) := by
@@ -2529,6 +2581,24 @@ theorem eval_dtail_of {m : Model} {e : Expr} {h : Data} {t : List Data}
   simp [he]
   rw [evalList.eq_def]
   exact evalApp_dtail h t
+
+theorem eval_dlist_drop_of {m : Model} {n xs : Expr} {i : Int} {vs : List Data}
+    (hn : eval m n = some (SVal.int i))
+    (hxs : eval m xs = some (SVal.dataList vs)) :
+    eval m (.app "dlist_drop" [n, xs]) =
+      some (SVal.dataList (if i < 0 then vs else vs.drop i.toNat)) := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [n, xs]
+      evalApp "dlist_drop" vs) =
+        some (.dataList (if i < 0 then vs else vs.drop i.toNat))
+  rw [evalList.eq_def]
+  simp [hn]
+  rw [evalList.eq_def]
+  simp [hxs]
+  rw [evalList.eq_def]
+  rfl
 
 theorem eval_DNil (m : Model) :
     eval m (.app "DNil" []) = some (.dataList []) := by

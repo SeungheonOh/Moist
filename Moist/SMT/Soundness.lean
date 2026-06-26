@@ -1169,6 +1169,76 @@ theorem semValListToConstList_constListToVals : ∀ xs,
       simp [Moist.SMT.Semantics.constListToVals, semValListToConstList?,
         semValToConst_constToVal c, ih]
 
+theorem semValListToConstList_drop :
+    ∀ {vals : List Moist.SMT.Semantics.Val} {cs : List Const} {n : Nat},
+      semValListToConstList? vals = some cs →
+      semValListToConstList? (vals.drop n) = some (cs.drop n) := by
+  intro vals
+  induction vals with
+  | nil =>
+      intro cs n h
+      simp [semValListToConstList?] at h
+      subst cs
+      cases n <;> rfl
+  | cons v vs ih =>
+      intro cs n h
+      cases hc : semValToConst? v <;> simp [semValListToConstList?, hc] at h
+      rename_i c
+      cases hcs : semValListToConstList? vs <;> simp [hcs] at h
+      rename_i csTail
+      subst cs
+      cases n with
+      | zero =>
+          simp [semValListToConstList?, hc, hcs]
+      | succ n =>
+          simpa using ih (cs := csTail) (n := n) hcs
+
+theorem semValListToConstList_length :
+    ∀ {vals : List Moist.SMT.Semantics.Val} {cs : List Const},
+      semValListToConstList? vals = some cs →
+      vals.length = cs.length := by
+  intro vals
+  induction vals with
+  | nil =>
+      intro cs h
+      simp [semValListToConstList?] at h
+      subst cs
+      rfl
+  | cons v vs ih =>
+      intro cs h
+      cases hc : semValToConst? v <;> simp [semValListToConstList?, hc] at h
+      cases hcs : semValListToConstList? vs <;> simp [hcs] at h
+      subst cs
+      simp [ih hcs]
+
+theorem semValListToConstList_get? :
+    ∀ {vals : List Moist.SMT.Semantics.Val} {cs : List Const}
+      {i : Nat} {v : Moist.SMT.Semantics.Val},
+      semValListToConstList? vals = some cs →
+      vals[i]? = some v →
+      ∃ c, cs[i]? = some c ∧ semValToConst? v = some c := by
+  intro vals
+  induction vals with
+  | nil =>
+      intro cs i v h hget
+      simp at hget
+  | cons x xs ih =>
+      intro cs i v h hget
+      cases hx : semValToConst? x <;> simp [semValListToConstList?, hx] at h
+      rename_i cx
+      cases hxs : semValListToConstList? xs <;> simp [hxs] at h
+      rename_i cxs
+      subst cs
+      cases i with
+      | zero =>
+          simp at hget
+          subst v
+          exact ⟨cx, by simp, hx⟩
+      | succ i =>
+          simp at hget
+          obtain ⟨c, hgetCs, hc⟩ := ih (cs := cxs) (i := i) hxs hget
+          exact ⟨c, by simpa using hgetCs, hc⟩
+
 theorem constLiteral_sound (m : SmtSem.Model) : ∀ c,
     symValToCek? m (constLiteral c) = some (.VCon c) := by
   intro c
@@ -2092,6 +2162,45 @@ theorem asConstList_sound {m : SmtSem.Model} {v : SymVal} {cv : CekValue}
       simp [asConstList, valueProj, Proj.fail, pcHolds] at hg
   | builtin b args ea =>
       simp [asConstList, valueProj, Proj.fail, pcHolds] at hg
+
+theorem asArray_sound {m : SmtSem.Model} {v : SymVal} {cv : CekValue}
+    (hv : symValToCek? m v = some cv)
+    (hg : pcHolds m (asArray v).guard = true) :
+    ∃ vals cs, cv = .VCon (.ConstArray cs) ∧
+      SmtSem.eval m (asArray v).val = some (.valList vals) ∧
+      semValListToConstList? vals = some cs := by
+  cases v with
+  | const c =>
+      cases c <;> simp [asArray, valueProj, Proj.pure, Proj.fail, pcHolds,
+        symValToCek?, symConstToCek?] at hv hg ⊢
+      case array e =>
+        cases he : SmtSem.eval m e <;> simp [he] at hv
+        rename_i sv
+        cases sv <;> simp [he] at hv
+        case valList vals =>
+          cases hcs : semValListToConstList? vals <;> simp [hcs] at hv
+          rename_i cs
+          subst cv
+          exact ⟨vals, cs, rfl, by simpa [he], hcs⟩
+  | dyn e =>
+      simp [asArray, valueProj, pcHolds, symValToCek?] at hv hg ⊢
+      obtain ⟨vals, he⟩ := Moist.SMT.Semantics.evalBoolIs_isVArray_true hg
+      have hun := Moist.SMT.Semantics.eval_unVArray_of (m := m) (e := e) he
+      simp [he, semValToCek?, semValToConst?] at hv
+      cases hcs : semValListToConstList? vals <;> simp [hcs] at hv
+      rename_i cs
+      subst cv
+      exact ⟨vals, cs, rfl, hun, hcs⟩
+  | pair a b =>
+      simp [asArray, valueProj, Proj.fail, pcHolds] at hg
+  | constr tag fields =>
+      simp [asArray, valueProj, Proj.fail, pcHolds] at hg
+  | lam body ρ =>
+      simp [asArray, valueProj, Proj.fail, pcHolds] at hg
+  | delay body ρ =>
+      simp [asArray, valueProj, Proj.fail, pcHolds] at hg
+  | builtin b args ea =>
+      simp [asArray, valueProj, Proj.fail, pcHolds] at hg
 
 set_option maxHeartbeats 0 in
 theorem asConstVal_sound {m : SmtSem.Model} {v : SymVal} {cv : CekValue}
@@ -5654,10 +5763,244 @@ axiom evalBuiltinSym_active_ok_CountSetBits : BuiltinOkSound .CountSetBits
 axiom evalBuiltinSym_active_ok_FindFirstSetBit : BuiltinOkSound .FindFirstSetBit
 axiom evalBuiltinSym_active_ok_Ripemd_160 : BuiltinOkSound .Ripemd_160
 axiom evalBuiltinSym_active_ok_ExpModInteger : BuiltinOkSound .ExpModInteger
-axiom evalBuiltinSym_active_ok_DropList : BuiltinOkSound .DropList
-axiom evalBuiltinSym_active_ok_IndexArray : BuiltinOkSound .IndexArray
-axiom evalBuiltinSym_active_ok_LengthOfArray : BuiltinOkSound .LengthOfArray
-axiom evalBuiltinSym_active_ok_ListToArray : BuiltinOkSound .ListToArray
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_ok_DropList : BuiltinOkSound .DropList := by
+  intro m args cargs pc v hargs _hnoArgs hmem hpc
+  cases args with
+  | nil =>
+      change Outcome.ok pc v ∈ err at hmem
+      simp [err] at hmem
+  | cons xs rest =>
+      cases rest with
+      | nil =>
+          change Outcome.ok pc v ∈ err at hmem
+          simp [err] at hmem
+      | cons n rest2 =>
+          cases rest2 with
+          | nil =>
+              change Outcome.ok pc v ∈
+                (let vl := Proj.map2 (fun n xs => .app "vlist_drop" [n, xs])
+                    (asInt n) (asConstList xs)
+                 let dl := Proj.map2 (fun n xs => .app "dlist_drop" [n, xs])
+                    (asInt n) (asDataList xs)
+                 [Outcome.ok vl.guard (.const (.constList vl.val)),
+                  Outcome.ok dl.guard (.const (.dataList dl.val)),
+                  Outcome.error (SExpr.not (SExpr.or vl.guard dl.guard))]) at hmem
+              simp only [List.mem_cons, List.not_mem_nil] at hmem
+              obtain ⟨cxs, cn, hxs, hn, rfl⟩ := symValListToCekList_pair hargs
+              rcases hmem with hv | hd | herr
+              · injection hv with hpcEq hvEq
+                subst pc
+                subst v
+                change pcHolds m
+                  (SExpr.and (asInt n).guard (asConstList xs).guard) = true at hpc
+                have hp :=
+                  (Moist.SMT.Semantics.evalBoolIs_and_true m
+                    (asInt n).guard (asConstList xs).guard).mp hpc
+                obtain ⟨i, rfl, hiEval⟩ := asInt_sound hn hp.1
+                obtain ⟨vals, cs, rfl, hxsEval, hconsts⟩ :=
+                  asConstList_sound hxs hp.2
+                have hdropEval :=
+                  Moist.SMT.Semantics.eval_vlist_drop_of (m := m)
+                    (n := (asInt n).val) (xs := (asConstList xs).val)
+                    hiEval hxsEval
+                have hdropBase :
+                    semValListToConstList? (vals.drop i.toNat) =
+                      some (cs.drop i.toNat) :=
+                  semValListToConstList_drop (vals := vals) (cs := cs)
+                    (n := i.toNat) hconsts
+                have hdropConsts :
+                    semValListToConstList?
+                        (if i < 0 then vals else vals.drop i.toNat) =
+                      some (if i < 0 then cs else cs.drop i.toNat) := by
+                  by_cases hneg : i < 0
+                  · simp [hneg, hconsts]
+                  · simpa [hneg] using hdropBase
+                refine ⟨.VCon (if i < 0 then .ConstList cs else .ConstList (cs.drop i.toNat)),
+                  ?_, by simp [symValNoOpaqueForSoundness], ?_⟩
+                · by_cases hneg : i < 0
+                  · simp [symValToCek?, symConstToCek?, Proj.map2,
+                      hdropEval, hneg, hconsts]
+                  · simp [symValToCek?, symConstToCek?, Proj.map2,
+                      hdropEval, hneg, hdropBase]
+                · exact Moist.CEK.evalBuiltin_DropList_constList cs i
+              · injection hd with hpcEq hvEq
+                subst pc
+                subst v
+                change pcHolds m
+                  (SExpr.and (asInt n).guard (asDataList xs).guard) = true at hpc
+                have hp :=
+                  (Moist.SMT.Semantics.evalBoolIs_and_true m
+                    (asInt n).guard (asDataList xs).guard).mp hpc
+                obtain ⟨i, rfl, hiEval⟩ := asInt_sound hn hp.1
+                obtain ⟨ds, rfl, hxsEval⟩ := asDataList_sound hxs hp.2
+                have hdropEval :=
+                  Moist.SMT.Semantics.eval_dlist_drop_of (m := m)
+                    (n := (asInt n).val) (xs := (asDataList xs).val)
+                    hiEval hxsEval
+                refine ⟨.VCon (if i < 0 then .ConstDataList ds else .ConstDataList (ds.drop i.toNat)),
+                  ?_, by simp [symValNoOpaqueForSoundness], ?_⟩
+                · by_cases hneg : i < 0 <;>
+                    simp [symValToCek?, symConstToCek?, Proj.map2, hdropEval, hneg]
+                · exact Moist.CEK.evalBuiltin_DropList_dataList ds i
+              · rcases herr with herr | hfalse
+                · cases herr
+                · cases hfalse
+          | cons _ _ =>
+              change Outcome.ok pc v ∈ err at hmem
+              simp [err] at hmem
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_ok_IndexArray : BuiltinOkSound .IndexArray := by
+  intro m args cargs pc v hargs _hnoArgs hmem hpc
+  cases args with
+  | nil =>
+      change Outcome.ok pc v ∈ err at hmem
+      simp [err] at hmem
+  | cons idx rest =>
+      cases rest with
+      | nil =>
+          change Outcome.ok pc v ∈ err at hmem
+          simp [err] at hmem
+      | cons arr rest2 =>
+          cases rest2 with
+          | nil =>
+              change Outcome.ok pc v ∈
+                checked2
+                  (Proj.map2 (fun arr idx => (arr, idx)) (asArray arr) (asInt idx))
+                  (fun (arr, idx) =>
+                    let g := SExpr.and (SExpr.ge idx (.int 0))
+                      (SExpr.lt idx (.app "vlist_length" [arr]))
+                    [Outcome.ok g (.dyn (.app "vlist_index" [idx, arr])),
+                     Outcome.error (SExpr.not g)]) at hmem
+              have hpath := checked2_path_ok hmem hpc
+              rcases hpath with ⟨innerPc, hinner, _hpcEq, hpArgs, hpRange⟩
+              simp only [List.mem_cons, List.not_mem_nil] at hinner
+              rcases hinner with hok | herr
+              · injection hok with hinnerPcEq hvEq
+                subst innerPc
+                subst v
+                obtain ⟨cidx, carr, hidxArg, harrArg, rfl⟩ :=
+                  symValListToCekList_pair hargs
+                change pcHolds m
+                  (SExpr.and (asArray arr).guard (asInt idx).guard) = true at hpArgs
+                have hp :=
+                  (Moist.SMT.Semantics.evalBoolIs_and_true m
+                    (asArray arr).guard (asInt idx).guard).mp hpArgs
+                obtain ⟨i, rfl, hiEval⟩ := asInt_sound hidxArg hp.2
+                obtain ⟨vals, cs, rfl, harrEval, hconsts⟩ :=
+                  asArray_sound harrArg hp.1
+                have hpRangeSplit :=
+                  (Moist.SMT.Semantics.evalBoolIs_and_true m
+                    (SExpr.ge (asInt idx).val (.int 0))
+                    (SExpr.lt (asInt idx).val
+                      (.app "vlist_length" [(asArray arr).val]))).mp hpRange
+                have hge : 0 ≤ i :=
+                  pcHolds_ge_int hiEval (by simp [Moist.SMT.Semantics.eval])
+                    hpRangeSplit.1
+                have hlenEval := Moist.SMT.Semantics.eval_vlist_length_of
+                  (m := m) (e := (asArray arr).val) harrEval
+                have hlt : i < Int.ofNat vals.length :=
+                  pcHolds_lt_int hiEval hlenEval hpRangeSplit.2
+                have hidxNatLt : i.toNat < vals.length :=
+                  (Int.toNat_lt hge).mpr hlt
+                have hgetVals :
+                    vals[i.toNat]? = some vals[i.toNat] :=
+                  List.getElem?_eq_getElem hidxNatLt
+                obtain ⟨c, hgetCs, hconst⟩ :=
+                  semValListToConstList_get? (vals := vals) (cs := cs)
+                    (i := i.toNat) (v := vals[i.toNat])
+                    hconsts hgetVals
+                have hindexEval :=
+                  Moist.SMT.Semantics.eval_vlist_index_of (m := m)
+                    (idx := (asInt idx).val) (xs := (asArray arr).val)
+                    hiEval harrEval hge hgetVals
+                have hcek := semValToCek_of_const hconst
+                refine ⟨.VCon c, ?_,
+                  by simp [symValNoOpaqueForSoundness], ?_⟩
+                · simp [symValToCek?, Proj.map2, hindexEval, hcek]
+                · exact Moist.CEK.evalBuiltin_IndexArray cs i hge hgetCs
+              · rcases herr with herr | hfalse
+                · cases herr
+                · cases hfalse
+          | cons _ _ =>
+              change Outcome.ok pc v ∈ err at hmem
+              simp [err] at hmem
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_ok_LengthOfArray : BuiltinOkSound .LengthOfArray := by
+  intro m args cargs pc v hargs _hnoArgs hmem hpc
+  cases args with
+  | nil =>
+      change Outcome.ok pc v ∈ err at hmem
+      simp [err] at hmem
+  | cons arr rest =>
+      cases rest with
+      | nil =>
+          change Outcome.ok pc v ∈
+            [Outcome.ok (asArray arr).guard
+              (SymVal.const (SymConst.integer
+                (.app "vlist_length" [(asArray arr).val]))),
+             Outcome.error (SExpr.not (asArray arr).guard)] at hmem
+          simp only [List.mem_cons, List.not_mem_nil] at hmem
+          obtain ⟨carr, harr, rfl⟩ := symValListToCekList_singleton hargs
+          rcases hmem with hok | herr
+          · injection hok with hpcEq hvEq
+            subst pc
+            subst v
+            obtain ⟨vals, cs, rfl, harrEval, hconsts⟩ :=
+              asArray_sound harr hpc
+            have hlenEval := Moist.SMT.Semantics.eval_vlist_length_of
+              (m := m) (e := (asArray arr).val) harrEval
+            have hlenNat : vals.length = cs.length :=
+              semValListToConstList_length hconsts
+            have hlenEvalCs :
+                SmtSem.eval m (.app "vlist_length" [(asArray arr).val]) =
+                  some (.int (Int.ofNat cs.length)) := by
+              simpa [hlenNat] using hlenEval
+            refine ⟨.VCon (.Integer (Int.ofNat cs.length)), ?_,
+              by simp [symValNoOpaqueForSoundness], ?_⟩
+            · simp [symValToCek?, symConstToCek?, hlenEvalCs]
+            · exact Moist.CEK.evalBuiltin_LengthOfArray cs
+          · rcases herr with herr | hfalse
+            · cases herr
+            · cases hfalse
+      | cons _ _ =>
+          change Outcome.ok pc v ∈ err at hmem
+          simp [err] at hmem
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_ok_ListToArray : BuiltinOkSound .ListToArray := by
+  intro m args cargs pc v hargs _hnoArgs hmem hpc
+  cases args with
+  | nil =>
+      change Outcome.ok pc v ∈ err at hmem
+      simp [err] at hmem
+  | cons xs rest =>
+      cases rest with
+      | nil =>
+          change Outcome.ok pc v ∈
+            [Outcome.ok (asConstList xs).guard
+              (SymVal.const (SymConst.array (asConstList xs).val)),
+             Outcome.error (SExpr.not (asConstList xs).guard)] at hmem
+          simp only [List.mem_cons, List.not_mem_nil] at hmem
+          obtain ⟨cxs, hxs, rfl⟩ := symValListToCekList_singleton hargs
+          rcases hmem with hok | herr
+          · injection hok with hpcEq hvEq
+            subst pc
+            subst v
+            obtain ⟨vals, cs, rfl, hxsEval, hconsts⟩ :=
+              asConstList_sound hxs hpc
+            refine ⟨.VCon (.ConstArray cs), ?_,
+              by simp [symValNoOpaqueForSoundness], ?_⟩
+            · simp [symValToCek?, symConstToCek?, hxsEval, hconsts]
+            · exact Moist.CEK.evalBuiltin_ListToArray cs
+          · rcases herr with herr | hfalse
+            · cases herr
+            · cases hfalse
+      | cons _ _ =>
+          change Outcome.ok pc v ∈ err at hmem
+          simp [err] at hmem
 axiom evalBuiltinSym_active_ok_InsertCoin : BuiltinOkSound .InsertCoin
 axiom evalBuiltinSym_active_ok_LookupCoin : BuiltinOkSound .LookupCoin
 axiom evalBuiltinSym_active_ok_ScaleValue : BuiltinOkSound .ScaleValue
