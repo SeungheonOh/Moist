@@ -4913,6 +4913,24 @@ theorem evalBuiltinSym_SerializeData_eq (d : SymVal) :
   rfl
 
 set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_ComplementByteString_eq (bs : SymVal) :
+    evalBuiltinSym .ComplementByteString [bs] =
+      checkedConst ((asBytes bs).map fun b => .app "uplc_complementByteString" [b]) .bytes := by
+  rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_CountSetBits_eq (bs : SymVal) :
+    evalBuiltinSym .CountSetBits [bs] =
+      checkedConst ((asBytes bs).map fun b => .app "uplc_countSetBits" [b]) .integer := by
+  rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_FindFirstSetBit_eq (bs : SymVal) :
+    evalBuiltinSym .FindFirstSetBit [bs] =
+      checkedConst ((asBytes bs).map fun b => .app "uplc_findFirstSetBit" [b]) .integer := by
+  rfl
+
+set_option maxHeartbeats 0 in
 theorem evalBuiltinSym_EqualsData_eq (b a : SymVal) :
     evalBuiltinSym .EqualsData [b, a] =
       checkedBool (Proj.map2 SExpr.eq (asData a) (asData b)) := by
@@ -9619,6 +9637,168 @@ theorem evalBuiltin_SerializeData_none_of_single_not_data {cv : CekValue}
   | VConstr tag fields => rfl
   | VBuiltin b args expected => rfl
 
+set_option maxHeartbeats 0 in
+theorem evalBuiltinConst_ComplementByteString_none_of_length_ne_one {cs : List Const}
+    (h : cs.length ≠ 1) :
+    Moist.CEK.evalBuiltinConst .ComplementByteString cs = none := by
+  cases cs with
+  | nil => rfl
+  | cons c rest =>
+      cases rest with
+      | nil => exact False.elim (h rfl)
+      | cons c2 rest2 =>
+          cases c <;> rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinConst_CountSetBits_none_of_length_ne_one {cs : List Const}
+    (h : cs.length ≠ 1) :
+    Moist.CEK.evalBuiltinConst .CountSetBits cs = none := by
+  cases cs with
+  | nil => rfl
+  | cons c rest =>
+      cases rest with
+      | nil => exact False.elim (h rfl)
+      | cons c2 rest2 =>
+          cases c <;> rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinConst_FindFirstSetBit_none_of_length_ne_one {cs : List Const}
+    (h : cs.length ≠ 1) :
+    Moist.CEK.evalBuiltinConst .FindFirstSetBit cs = none := by
+  cases cs with
+  | nil => rfl
+  | cons c rest =>
+      cases rest with
+      | nil => exact False.elim (h rfl)
+      | cons c2 rest2 =>
+          cases c <;> rfl
+
+theorem evalBuiltin_ComplementByteString_none_of_length_ne_one {args : List CekValue}
+    (h : args.length ≠ 1) :
+    Moist.CEK.evalBuiltin .ComplementByteString args = none := by
+  cases hconst : Moist.CEK.extractConsts args with
+  | none =>
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst]
+  | some cs =>
+      have hlen := extractConsts_length hconst
+      have hcs : cs.length ≠ 1 := by
+        intro hcs1
+        apply h
+        omega
+      have hnone := evalBuiltinConst_ComplementByteString_none_of_length_ne_one hcs
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst, hnone]
+
+theorem evalBuiltin_CountSetBits_none_of_length_ne_one {args : List CekValue}
+    (h : args.length ≠ 1) :
+    Moist.CEK.evalBuiltin .CountSetBits args = none := by
+  cases hconst : Moist.CEK.extractConsts args with
+  | none =>
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst]
+  | some cs =>
+      have hlen := extractConsts_length hconst
+      have hcs : cs.length ≠ 1 := by
+        intro hcs1
+        apply h
+        omega
+      have hnone := evalBuiltinConst_CountSetBits_none_of_length_ne_one hcs
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst, hnone]
+
+theorem evalBuiltin_FindFirstSetBit_none_of_length_ne_one {args : List CekValue}
+    (h : args.length ≠ 1) :
+    Moist.CEK.evalBuiltin .FindFirstSetBit args = none := by
+  cases hconst : Moist.CEK.extractConsts args with
+  | none =>
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst]
+  | some cs =>
+      have hlen := extractConsts_length hconst
+      have hcs : cs.length ≠ 1 := by
+        intro hcs1
+        apply h
+        omega
+      have hnone := evalBuiltinConst_FindFirstSetBit_none_of_length_ne_one hcs
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst, hnone]
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltin_ComplementByteString_none_of_single_not_bytes {cv : CekValue}
+    (h : ∀ bs, cv ≠ .VCon (.ByteString bs)) :
+    Moist.CEK.evalBuiltin .ComplementByteString [cv] = none := by
+  cases cv with
+  | VCon c =>
+      cases c with
+      | Integer i => rfl
+      | ByteString bs => exact False.elim (h bs rfl)
+      | String s => rfl
+      | Unit => rfl
+      | Bool b => rfl
+      | Pair p => rfl
+      | PairData p => rfl
+      | ConstList xs => rfl
+      | Data d => rfl
+      | ConstDataList xs => rfl
+      | ConstPairDataList xs => rfl
+      | ConstArray xs => rfl
+      | Bls12_381_G1_element => rfl
+      | Bls12_381_G2_element => rfl
+      | Bls12_381_MlResult => rfl
+  | VLam body ρ => rfl
+  | VDelay body ρ => rfl
+  | VConstr tag fields => rfl
+  | VBuiltin b args expected => rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltin_CountSetBits_none_of_single_not_bytes {cv : CekValue}
+    (h : ∀ bs, cv ≠ .VCon (.ByteString bs)) :
+    Moist.CEK.evalBuiltin .CountSetBits [cv] = none := by
+  cases cv with
+  | VCon c =>
+      cases c with
+      | Integer i => rfl
+      | ByteString bs => exact False.elim (h bs rfl)
+      | String s => rfl
+      | Unit => rfl
+      | Bool b => rfl
+      | Pair p => rfl
+      | PairData p => rfl
+      | ConstList xs => rfl
+      | Data d => rfl
+      | ConstDataList xs => rfl
+      | ConstPairDataList xs => rfl
+      | ConstArray xs => rfl
+      | Bls12_381_G1_element => rfl
+      | Bls12_381_G2_element => rfl
+      | Bls12_381_MlResult => rfl
+  | VLam body ρ => rfl
+  | VDelay body ρ => rfl
+  | VConstr tag fields => rfl
+  | VBuiltin b args expected => rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltin_FindFirstSetBit_none_of_single_not_bytes {cv : CekValue}
+    (h : ∀ bs, cv ≠ .VCon (.ByteString bs)) :
+    Moist.CEK.evalBuiltin .FindFirstSetBit [cv] = none := by
+  cases cv with
+  | VCon c =>
+      cases c with
+      | Integer i => rfl
+      | ByteString bs => exact False.elim (h bs rfl)
+      | String s => rfl
+      | Unit => rfl
+      | Bool b => rfl
+      | Pair p => rfl
+      | PairData p => rfl
+      | ConstList xs => rfl
+      | Data d => rfl
+      | ConstDataList xs => rfl
+      | ConstPairDataList xs => rfl
+      | ConstArray xs => rfl
+      | Bls12_381_G1_element => rfl
+      | Bls12_381_G2_element => rfl
+      | Bls12_381_MlResult => rfl
+  | VLam body ρ => rfl
+  | VDelay body ρ => rfl
+  | VConstr tag fields => rfl
+  | VBuiltin b args expected => rfl
+
 theorem evalBuiltin_UnConstrData_none_of_single_not_constr {cv : CekValue}
     (h : ∀ tag fields, cv ≠ .VCon (.Data (.Constr tag fields))) :
     Moist.CEK.evalBuiltin .UnConstrData [cv] = none := by
@@ -14208,14 +14388,141 @@ axiom evalBuiltinSym_active_error_ByteStringToInteger : BuiltinErrorSound .ByteS
 axiom evalBuiltinSym_active_error_AndByteString : BuiltinErrorSound .AndByteString
 axiom evalBuiltinSym_active_error_OrByteString : BuiltinErrorSound .OrByteString
 axiom evalBuiltinSym_active_error_XorByteString : BuiltinErrorSound .XorByteString
-axiom evalBuiltinSym_active_error_ComplementByteString : BuiltinErrorSound .ComplementByteString
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_error_ComplementByteString :
+    BuiltinErrorSound .ComplementByteString := by
+  intro m args cargs out hargs hmem hactive
+  cases args with
+  | nil =>
+      have hlen := symValListToCekList_length hargs
+      exact evalBuiltin_ComplementByteString_none_of_length_ne_one (by
+        intro h1
+        have hzero : cargs.length = 0 := by simpa using hlen
+        omega)
+  | cons bsSym rest =>
+      cases rest with
+      | nil =>
+          rw [evalBuiltinSym_ComplementByteString_eq bsSym] at hmem
+          change out ∈
+            [Outcome.ok (asBytes bsSym).guard
+              (SymVal.const (SymConst.bytes
+                (.app "uplc_complementByteString" [(asBytes bsSym).val]))),
+             Outcome.error (SExpr.not (asBytes bsSym).guard)] at hmem
+          simp only [List.mem_cons, List.not_mem_nil] at hmem
+          obtain ⟨cbs, hbs, rfl⟩ := symValListToCekList_singleton hargs
+          rcases hmem with hok | herr
+          · subst out
+            simp [outcomeErrorActive] at hactive
+          · rcases herr with herr | hfalse
+            · subst out
+              by_cases hshape : ∃ bs, cbs = .VCon (.ByteString bs)
+              · rcases hshape with ⟨bs, rfl⟩
+                have hg := asBytes_guard_of_cek (m := m) (v := bsSym) (bs := bs) hbs
+                exact False.elim (pcHolds_not_contra hg hactive)
+              · exact evalBuiltin_ComplementByteString_none_of_single_not_bytes (by
+                  intro bs h
+                  exact hshape ⟨bs, h⟩)
+            · cases hfalse
+      | cons extra rest2 =>
+          have hlen := symValListToCekList_length hargs
+          exact evalBuiltin_ComplementByteString_none_of_length_ne_one (by
+            intro h1
+            have htwo : 2 ≤ cargs.length := by
+              rw [hlen]
+              simp
+            omega)
 axiom evalBuiltinSym_active_error_ReadBit : BuiltinErrorSound .ReadBit
 axiom evalBuiltinSym_active_error_WriteBits : BuiltinErrorSound .WriteBits
 axiom evalBuiltinSym_active_error_ReplicateByte : BuiltinErrorSound .ReplicateByte
 axiom evalBuiltinSym_active_error_ShiftByteString : BuiltinErrorSound .ShiftByteString
 axiom evalBuiltinSym_active_error_RotateByteString : BuiltinErrorSound .RotateByteString
-axiom evalBuiltinSym_active_error_CountSetBits : BuiltinErrorSound .CountSetBits
-axiom evalBuiltinSym_active_error_FindFirstSetBit : BuiltinErrorSound .FindFirstSetBit
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_error_CountSetBits :
+    BuiltinErrorSound .CountSetBits := by
+  intro m args cargs out hargs hmem hactive
+  cases args with
+  | nil =>
+      have hlen := symValListToCekList_length hargs
+      exact evalBuiltin_CountSetBits_none_of_length_ne_one (by
+        intro h1
+        have hzero : cargs.length = 0 := by simpa using hlen
+        omega)
+  | cons bsSym rest =>
+      cases rest with
+      | nil =>
+          rw [evalBuiltinSym_CountSetBits_eq bsSym] at hmem
+          change out ∈
+            [Outcome.ok (asBytes bsSym).guard
+              (SymVal.const (SymConst.integer
+                (.app "uplc_countSetBits" [(asBytes bsSym).val]))),
+             Outcome.error (SExpr.not (asBytes bsSym).guard)] at hmem
+          simp only [List.mem_cons, List.not_mem_nil] at hmem
+          obtain ⟨cbs, hbs, rfl⟩ := symValListToCekList_singleton hargs
+          rcases hmem with hok | herr
+          · subst out
+            simp [outcomeErrorActive] at hactive
+          · rcases herr with herr | hfalse
+            · subst out
+              by_cases hshape : ∃ bs, cbs = .VCon (.ByteString bs)
+              · rcases hshape with ⟨bs, rfl⟩
+                have hg := asBytes_guard_of_cek (m := m) (v := bsSym) (bs := bs) hbs
+                exact False.elim (pcHolds_not_contra hg hactive)
+              · exact evalBuiltin_CountSetBits_none_of_single_not_bytes (by
+                  intro bs h
+                  exact hshape ⟨bs, h⟩)
+            · cases hfalse
+      | cons extra rest2 =>
+          have hlen := symValListToCekList_length hargs
+          exact evalBuiltin_CountSetBits_none_of_length_ne_one (by
+            intro h1
+            have htwo : 2 ≤ cargs.length := by
+              rw [hlen]
+              simp
+            omega)
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_error_FindFirstSetBit :
+    BuiltinErrorSound .FindFirstSetBit := by
+  intro m args cargs out hargs hmem hactive
+  cases args with
+  | nil =>
+      have hlen := symValListToCekList_length hargs
+      exact evalBuiltin_FindFirstSetBit_none_of_length_ne_one (by
+        intro h1
+        have hzero : cargs.length = 0 := by simpa using hlen
+        omega)
+  | cons bsSym rest =>
+      cases rest with
+      | nil =>
+          rw [evalBuiltinSym_FindFirstSetBit_eq bsSym] at hmem
+          change out ∈
+            [Outcome.ok (asBytes bsSym).guard
+              (SymVal.const (SymConst.integer
+                (.app "uplc_findFirstSetBit" [(asBytes bsSym).val]))),
+             Outcome.error (SExpr.not (asBytes bsSym).guard)] at hmem
+          simp only [List.mem_cons, List.not_mem_nil] at hmem
+          obtain ⟨cbs, hbs, rfl⟩ := symValListToCekList_singleton hargs
+          rcases hmem with hok | herr
+          · subst out
+            simp [outcomeErrorActive] at hactive
+          · rcases herr with herr | hfalse
+            · subst out
+              by_cases hshape : ∃ bs, cbs = .VCon (.ByteString bs)
+              · rcases hshape with ⟨bs, rfl⟩
+                have hg := asBytes_guard_of_cek (m := m) (v := bsSym) (bs := bs) hbs
+                exact False.elim (pcHolds_not_contra hg hactive)
+              · exact evalBuiltin_FindFirstSetBit_none_of_single_not_bytes (by
+                  intro bs h
+                  exact hshape ⟨bs, h⟩)
+            · cases hfalse
+      | cons extra rest2 =>
+          have hlen := symValListToCekList_length hargs
+          exact evalBuiltin_FindFirstSetBit_none_of_length_ne_one (by
+            intro h1
+            have htwo : 2 ≤ cargs.length := by
+              rw [hlen]
+              simp
+            omega)
 axiom evalBuiltinSym_active_error_Ripemd_160 : BuiltinErrorSound .Ripemd_160
 axiom evalBuiltinSym_active_error_ExpModInteger : BuiltinErrorSound .ExpModInteger
 set_option maxHeartbeats 0 in
