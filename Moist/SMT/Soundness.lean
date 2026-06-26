@@ -1038,6 +1038,16 @@ theorem pcHolds_lt_int_intro {m : SmtSem.Model} {a b : SExpr} {x y : Int}
   exact (Moist.SMT.Semantics.evalBoolIs_true_eq m (SExpr.lt a b)).mpr
     (by simpa [hxy] using hltEval)
 
+theorem pcHolds_le_int_intro {m : SmtSem.Model} {a b : SExpr} {x y : Int}
+    (ha : SmtSem.eval m a = some (.int x))
+    (hb : SmtSem.eval m b = some (.int y))
+    (hxy : x ≤ y) :
+    pcHolds m (SExpr.le a b) = true := by
+  have hleEval := Moist.SMT.Semantics.eval_le_of (m := m) (a := a) (b := b)
+    (x := x) (y := y) ha hb
+  exact (Moist.SMT.Semantics.evalBoolIs_true_eq m (SExpr.le a b)).mpr
+    (by simpa [hxy] using hleEval)
+
 theorem pcHolds_all3 {m : SmtSem.Model} {a b c : SExpr}
     (h : pcHolds m (SExpr.all [a, b, c]) = true) :
     pcHolds m a = true ∧ pcHolds m b = true ∧ pcHolds m c = true := by
@@ -1048,6 +1058,14 @@ theorem pcHolds_all3 {m : SmtSem.Model} {a b c : SExpr}
     (SExpr.and a b) c).mp h'
   have hab := (Moist.SMT.Semantics.evalBoolIs_and_true m a b).mp hc.1
   exact ⟨hab.1, hab.2, hc.2⟩
+
+theorem pcHolds_all3_intro {m : SmtSem.Model} {a b c : SExpr}
+    (ha : pcHolds m a = true) (hb : pcHolds m b = true)
+    (hc : pcHolds m c = true) :
+    pcHolds m (SExpr.all [a, b, c]) = true := by
+  have hab := pcHolds_and_intro (m := m) (a := a) (b := b) ha hb
+  have habc := pcHolds_and_intro (m := m) (a := SExpr.and a b) (b := c) hab hc
+  simpa [SExpr.all, Moist.SMT.Expr.all] using habc
 
 theorem evalBoolIs_or_true_of_left {m : SmtSem.Model} {a b : SExpr}
     (ha : SmtSem.eval m a = some (.bool true))
@@ -8168,6 +8186,191 @@ theorem evalBuiltin_LessThanEqualsByteString_none_of_pair_not_bytes {b a : CekVa
   | VBuiltin fn args expected => rfl
 
 set_option maxHeartbeats 0 in
+theorem evalBuiltinConst_ConsByteString_none_of_length_ne_two {cs : List Const}
+    (h : cs.length ≠ 2) :
+    Moist.CEK.evalBuiltinConst .ConsByteString cs = none := by
+  cases cs with
+  | nil => rfl
+  | cons c rest =>
+      cases rest with
+      | nil => cases c <;> rfl
+      | cons c2 rest2 =>
+          cases rest2 with
+          | nil => exact False.elim (h rfl)
+          | cons c3 rest3 =>
+              cases c <;> cases c2 <;> rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinConst_SliceByteString_none_of_length_ne_three {cs : List Const}
+    (h : cs.length ≠ 3) :
+    Moist.CEK.evalBuiltinConst .SliceByteString cs = none := by
+  cases cs with
+  | nil => rfl
+  | cons c rest =>
+      cases rest with
+      | nil => cases c <;> rfl
+      | cons c2 rest2 =>
+          cases rest2 with
+          | nil => cases c <;> cases c2 <;> rfl
+          | cons c3 rest3 =>
+              cases rest3 with
+              | nil => exact False.elim (h rfl)
+              | cons c4 rest4 =>
+                  cases c <;> cases c2 <;> cases c3 <;> rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinConst_IndexByteString_none_of_length_ne_two {cs : List Const}
+    (h : cs.length ≠ 2) :
+    Moist.CEK.evalBuiltinConst .IndexByteString cs = none := by
+  cases cs with
+  | nil => rfl
+  | cons c rest =>
+      cases rest with
+      | nil => cases c <;> rfl
+      | cons c2 rest2 =>
+          cases rest2 with
+          | nil => exact False.elim (h rfl)
+          | cons c3 rest3 =>
+              cases c <;> cases c2 <;> rfl
+
+theorem evalBuiltin_ConsByteString_none_of_length_ne_two {args : List CekValue}
+    (h : args.length ≠ 2) :
+    Moist.CEK.evalBuiltin .ConsByteString args = none := by
+  cases hconst : Moist.CEK.extractConsts args with
+  | none =>
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst]
+  | some cs =>
+      have hlen := extractConsts_length hconst
+      have hcs : cs.length ≠ 2 := by
+        intro hcs2
+        apply h
+        omega
+      have hnone := evalBuiltinConst_ConsByteString_none_of_length_ne_two hcs
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst, hnone]
+
+theorem evalBuiltin_SliceByteString_none_of_length_ne_three {args : List CekValue}
+    (h : args.length ≠ 3) :
+    Moist.CEK.evalBuiltin .SliceByteString args = none := by
+  cases hconst : Moist.CEK.extractConsts args with
+  | none =>
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst]
+  | some cs =>
+      have hlen := extractConsts_length hconst
+      have hcs : cs.length ≠ 3 := by
+        intro hcs3
+        apply h
+        omega
+      have hnone := evalBuiltinConst_SliceByteString_none_of_length_ne_three hcs
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst, hnone]
+
+theorem evalBuiltin_IndexByteString_none_of_length_ne_two {args : List CekValue}
+    (h : args.length ≠ 2) :
+    Moist.CEK.evalBuiltin .IndexByteString args = none := by
+  cases hconst : Moist.CEK.extractConsts args with
+  | none =>
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst]
+  | some cs =>
+      have hlen := extractConsts_length hconst
+      have hcs : cs.length ≠ 2 := by
+        intro hcs2
+        apply h
+        omega
+      have hnone := evalBuiltinConst_IndexByteString_none_of_length_ne_two hcs
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst, hnone]
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltin_ConsByteString_none_of_pair_not_byte_int {bs n : CekValue}
+    (h : ∀ bytes i, ¬ (bs = .VCon (.ByteString bytes) ∧ n = .VCon (.Integer i))) :
+    Moist.CEK.evalBuiltin .ConsByteString [bs, n] = none := by
+  cases bs with
+  | VCon cbs =>
+      cases n with
+      | VCon cn =>
+          cases cbs <;> cases cn <;> try rfl
+          exact False.elim (h _ _ ⟨rfl, rfl⟩)
+      | VLam body ρ => cases cbs <;> rfl
+      | VDelay body ρ => cases cbs <;> rfl
+      | VConstr tag fields => cases cbs <;> rfl
+      | VBuiltin fn args expected => cases cbs <;> rfl
+  | VLam body ρ => rfl
+  | VDelay body ρ => rfl
+  | VConstr tag fields => rfl
+  | VBuiltin fn args expected => rfl
+
+theorem evalBuiltin_ConsByteString_none_of_byte_out_of_range {bs : ByteArray} {n : Int}
+    (h : n < 0 ∨ 255 < n) :
+    Moist.CEK.evalBuiltin .ConsByteString [.VCon (.ByteString bs), .VCon (.Integer n)] = none := by
+  rcases h with hlt | hgt
+  · simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough,
+      Moist.CEK.extractConsts, Moist.CEK.evalBuiltinConst, hlt]
+  · have hnlt : ¬ n < 0 := by omega
+    simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough,
+      Moist.CEK.extractConsts, Moist.CEK.evalBuiltinConst, hnlt, hgt]
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltin_SliceByteString_none_of_triple_not_byte_int_int
+    {bs len start : CekValue}
+    (h : ∀ bytes l s,
+      ¬ (bs = .VCon (.ByteString bytes) ∧
+        len = .VCon (.Integer l) ∧ start = .VCon (.Integer s))) :
+    Moist.CEK.evalBuiltin .SliceByteString [bs, len, start] = none := by
+  cases bs with
+  | VCon cbs =>
+      cases len with
+      | VCon clen =>
+          cases start with
+          | VCon cstart =>
+              cases cbs <;> cases clen <;> cases cstart <;> try rfl
+              exact False.elim (h _ _ _ ⟨rfl, rfl, rfl⟩)
+          | VLam body ρ => cases cbs <;> cases clen <;> rfl
+          | VDelay body ρ => cases cbs <;> cases clen <;> rfl
+          | VConstr tag fields => cases cbs <;> cases clen <;> rfl
+          | VBuiltin fn args expected => cases cbs <;> cases clen <;> rfl
+      | VLam body ρ => cases cbs <;> rfl
+      | VDelay body ρ => cases cbs <;> rfl
+      | VConstr tag fields => cases cbs <;> rfl
+      | VBuiltin fn args expected => cases cbs <;> rfl
+  | VLam body ρ => rfl
+  | VDelay body ρ => rfl
+  | VConstr tag fields => rfl
+  | VBuiltin fn args expected => rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltin_IndexByteString_none_of_pair_not_int_byte {idx bs : CekValue}
+    (h : ∀ i bytes, ¬ (idx = .VCon (.Integer i) ∧ bs = .VCon (.ByteString bytes))) :
+    Moist.CEK.evalBuiltin .IndexByteString [idx, bs] = none := by
+  cases idx with
+  | VCon cidx =>
+      cases bs with
+      | VCon cbs =>
+          cases cidx <;> cases cbs <;> try rfl
+          exact False.elim (h _ _ ⟨rfl, rfl⟩)
+      | VLam body ρ => cases cidx <;> rfl
+      | VDelay body ρ => cases cidx <;> rfl
+      | VConstr tag fields => cases cidx <;> rfl
+      | VBuiltin fn args expected => cases cidx <;> rfl
+  | VLam body ρ => rfl
+  | VDelay body ρ => rfl
+  | VConstr tag fields => rfl
+  | VBuiltin fn args expected => rfl
+
+theorem evalBuiltin_IndexByteString_none_of_negative {bs : ByteArray} {idx : Int}
+    (hidx : idx < 0) :
+    Moist.CEK.evalBuiltin .IndexByteString [.VCon (.Integer idx), .VCon (.ByteString bs)] = none := by
+  simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough,
+    Moist.CEK.extractConsts, Moist.CEK.evalBuiltinConst, hidx]
+
+theorem evalBuiltin_IndexByteString_none_of_nonnegative_out_of_range
+    {bs : ByteArray} {idx : Int}
+    (hidx : 0 ≤ idx) (hout : Int.ofNat bs.size ≤ idx) :
+    Moist.CEK.evalBuiltin .IndexByteString [.VCon (.Integer idx), .VCon (.ByteString bs)] = none := by
+  have hnlt : ¬ idx < 0 := by omega
+  have hout' : (↑(ByteArray.size bs) : Int) ≤ idx := by simpa using hout
+  simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough,
+    Moist.CEK.extractConsts, Moist.CEK.evalBuiltinConst, hnlt]
+  rw [if_pos hout']
+
+set_option maxHeartbeats 0 in
 theorem evalBuiltinConst_LengthOfArray_none_of_length_ne_one {cs : List Const}
     (h : cs.length ≠ 1) :
     Moist.CEK.evalBuiltinConst .LengthOfArray cs = none := by
@@ -9916,8 +10119,185 @@ theorem evalBuiltinSym_active_error_AppendByteString :
                   rw [hlen]
                   simp
                 omega)
-axiom evalBuiltinSym_active_error_ConsByteString : BuiltinErrorSound .ConsByteString
-axiom evalBuiltinSym_active_error_SliceByteString : BuiltinErrorSound .SliceByteString
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_error_ConsByteString :
+    BuiltinErrorSound .ConsByteString := by
+  intro m args cargs out hargs hmem hactive
+  cases args with
+  | nil =>
+      have hlen := symValListToCekList_length hargs
+      exact evalBuiltin_ConsByteString_none_of_length_ne_two (by
+        intro h2
+        have hzero : cargs.length = 0 := by simpa using hlen
+        omega)
+  | cons bsSym rest =>
+      cases rest with
+      | nil =>
+          have hlen := symValListToCekList_length hargs
+          exact evalBuiltin_ConsByteString_none_of_length_ne_two (by
+            intro h2
+            have hone : cargs.length = 1 := by simpa using hlen
+            omega)
+      | cons nSym rest2 =>
+          cases rest2 with
+          | nil =>
+              rw [evalBuiltinSym_ConsByteString_eq bsSym nSym] at hmem
+              obtain ⟨cbs, cn, hbsArg, hnArg, rfl⟩ :=
+                symValListToCekList_pair hargs
+              have hpath := checked2_active_error hmem hactive
+              rcases hpath with hinner | hproj
+              · rcases hinner with ⟨inner, hinner, hpArgs, hinnerActive⟩
+                change inner ∈
+                  (let inByte := SExpr.and (SExpr.ge (asInt nSym).val (.int 0))
+                    (SExpr.le (asInt nSym).val (.int 255))
+                   [Outcome.ok inByte
+                      (SymVal.const (SymConst.bytes
+                        (SExpr.seqAppend (SExpr.seqUnit (asInt nSym).val)
+                          (asBytes bsSym).val))),
+                    Outcome.error (SExpr.not inByte)]) at hinner
+                simp only [List.mem_cons, List.not_mem_nil] at hinner
+                rcases hinner with hok | herr
+                · subst inner
+                  simp [outcomeErrorActive] at hinnerActive
+                · rcases herr with herr | hfalse
+                  · subst inner
+                    have hnotRange :
+                        pcHolds m
+                          (SExpr.not
+                            (SExpr.and (SExpr.ge (asInt nSym).val (.int 0))
+                              (SExpr.le (asInt nSym).val (.int 255)))) = true := by
+                      simpa [outcomeErrorActive] using hinnerActive
+                    change pcHolds m
+                      (SExpr.and (asInt nSym).guard (asBytes bsSym).guard) = true at hpArgs
+                    have hp :=
+                      (Moist.SMT.Semantics.evalBoolIs_and_true m
+                        (asInt nSym).guard (asBytes bsSym).guard).mp hpArgs
+                    obtain ⟨n, rfl, hnEval⟩ := asInt_sound hnArg hp.1
+                    obtain ⟨bs, rfl, hbsEval⟩ := asBytes_sound hbsArg hp.2
+                    by_cases hbad : n < 0 ∨ 255 < n
+                    · exact evalBuiltin_ConsByteString_none_of_byte_out_of_range hbad
+                    · have hbad' := not_or.mp hbad
+                      have hge : 0 ≤ n := (Int.not_lt).mp hbad'.1
+                      have hle : n ≤ 255 := (Int.not_lt).mp hbad'.2
+                      have hgePc : pcHolds m
+                          (SExpr.ge (asInt nSym).val (.int 0)) = true :=
+                        pcHolds_ge_int_intro hnEval
+                          (by simp [Moist.SMT.Semantics.eval]) hge
+                      have hlePc : pcHolds m
+                          (SExpr.le (asInt nSym).val (.int 255)) = true :=
+                        pcHolds_le_int_intro hnEval
+                          (by simp [Moist.SMT.Semantics.eval]) hle
+                      have hrange : pcHolds m
+                          (SExpr.and (SExpr.ge (asInt nSym).val (.int 0))
+                            (SExpr.le (asInt nSym).val (.int 255))) = true :=
+                        pcHolds_and_intro hgePc hlePc
+                      exact False.elim (pcHolds_not_contra hrange hnotRange)
+                  · cases hfalse
+              · by_cases hshape :
+                  ∃ bs n, cbs = .VCon (.ByteString bs) ∧ cn = .VCon (.Integer n)
+                · rcases hshape with ⟨bs, n, rfl, rfl⟩
+                  have hgBs := asBytes_guard_of_cek (m := m)
+                    (v := bsSym) (bs := bs) hbsArg
+                  have hgN := asInt_guard_of_cek (m := m)
+                    (v := nSym) (i := n) hnArg
+                  have hprojGuard : pcHolds m
+                      (SExpr.and (asInt nSym).guard (asBytes bsSym).guard) = true :=
+                    pcHolds_and_intro hgN hgBs
+                  exact False.elim (pcHolds_not_contra hprojGuard hproj)
+                · exact evalBuiltin_ConsByteString_none_of_pair_not_byte_int
+                    (bs := cbs) (n := cn) (by
+                      intro bytes i h
+                      exact hshape ⟨bytes, i, h⟩)
+          | cons extra rest3 =>
+              have hlen := symValListToCekList_length hargs
+              exact evalBuiltin_ConsByteString_none_of_length_ne_two (by
+                intro h2
+                have hthree : 3 ≤ cargs.length := by
+                  rw [hlen]
+                  simp
+                omega)
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_error_SliceByteString :
+    BuiltinErrorSound .SliceByteString := by
+  intro m args cargs out hargs hmem hactive
+  cases args with
+  | nil =>
+      have hlen := symValListToCekList_length hargs
+      exact evalBuiltin_SliceByteString_none_of_length_ne_three (by
+        intro h3
+        have hzero : cargs.length = 0 := by simpa using hlen
+        omega)
+  | cons bsSym rest =>
+      cases rest with
+      | nil =>
+          have hlen := symValListToCekList_length hargs
+          exact evalBuiltin_SliceByteString_none_of_length_ne_three (by
+            intro h3
+            have hone : cargs.length = 1 := by simpa using hlen
+            omega)
+      | cons lenSym rest2 =>
+          cases rest2 with
+          | nil =>
+              have hlen := symValListToCekList_length hargs
+              exact evalBuiltin_SliceByteString_none_of_length_ne_three (by
+                intro h3
+                have htwo : cargs.length = 2 := by simpa using hlen
+                omega)
+          | cons startSym rest3 =>
+              cases rest3 with
+              | nil =>
+                  rw [evalBuiltinSym_SliceByteString_eq bsSym lenSym startSym] at hmem
+                  change out ∈
+                    [Outcome.ok
+                      (SExpr.all [(asInt startSym).guard, (asInt lenSym).guard,
+                        (asBytes bsSym).guard])
+                      (SymVal.const (SymConst.bytes
+                        (SExpr.seqExtract (asBytes bsSym).val
+                          (SExpr.ite (SExpr.lt (asInt startSym).val (.int 0))
+                            (.int 0) (asInt startSym).val)
+                          (SExpr.ite (SExpr.lt (asInt lenSym).val (.int 0))
+                            (.int 0) (asInt lenSym).val)))),
+                     Outcome.error (SExpr.not
+                      (SExpr.all [(asInt startSym).guard, (asInt lenSym).guard,
+                        (asBytes bsSym).guard]))] at hmem
+                  simp only [List.mem_cons, List.not_mem_nil] at hmem
+                  obtain ⟨cbs, clen, cstart, hbsArg, hlenArg, hstartArg, rfl⟩ :=
+                    symValListToCekList_triple hargs
+                  rcases hmem with hok | herr
+                  · subst out
+                    simp [outcomeErrorActive] at hactive
+                  · rcases herr with herr | hfalse
+                    · subst out
+                      by_cases hshape :
+                          ∃ bs len start,
+                            cbs = .VCon (.ByteString bs) ∧
+                            clen = .VCon (.Integer len) ∧
+                            cstart = .VCon (.Integer start)
+                      · rcases hshape with ⟨bs, len, start, rfl, rfl, rfl⟩
+                        have hgStart := asInt_guard_of_cek (m := m)
+                          (v := startSym) (i := start) hstartArg
+                        have hgLen := asInt_guard_of_cek (m := m)
+                          (v := lenSym) (i := len) hlenArg
+                        have hgBs := asBytes_guard_of_cek (m := m)
+                          (v := bsSym) (bs := bs) hbsArg
+                        have hguard : pcHolds m
+                            (SExpr.all [(asInt startSym).guard,
+                              (asInt lenSym).guard, (asBytes bsSym).guard]) = true :=
+                          pcHolds_all3_intro hgStart hgLen hgBs
+                        exact False.elim (pcHolds_not_contra hguard hactive)
+                      · exact evalBuiltin_SliceByteString_none_of_triple_not_byte_int_int
+                          (bs := cbs) (len := clen) (start := cstart) (by
+                            intro bytes len start h
+                            exact hshape ⟨bytes, len, start, h⟩)
+                    · cases hfalse
+              | cons extra rest4 =>
+                  have hlen := symValListToCekList_length hargs
+                  exact evalBuiltin_SliceByteString_none_of_length_ne_three (by
+                    intro h3
+                    have hfour : 4 ≤ cargs.length := by
+                      rw [hlen]
+                      simp
+                    omega)
 set_option maxHeartbeats 0 in
 theorem evalBuiltinSym_active_error_LengthOfByteString :
     BuiltinErrorSound .LengthOfByteString := by
@@ -9960,7 +10340,111 @@ theorem evalBuiltinSym_active_error_LengthOfByteString :
               rw [hlen]
               simp
             omega)
-axiom evalBuiltinSym_active_error_IndexByteString : BuiltinErrorSound .IndexByteString
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_error_IndexByteString :
+    BuiltinErrorSound .IndexByteString := by
+  intro m args cargs out hargs hmem hactive
+  cases args with
+  | nil =>
+      have hlen := symValListToCekList_length hargs
+      exact evalBuiltin_IndexByteString_none_of_length_ne_two (by
+        intro h2
+        have hzero : cargs.length = 0 := by simpa using hlen
+        omega)
+  | cons idxSym rest =>
+      cases rest with
+      | nil =>
+          have hlen := symValListToCekList_length hargs
+          exact evalBuiltin_IndexByteString_none_of_length_ne_two (by
+            intro h2
+            have hone : cargs.length = 1 := by simpa using hlen
+            omega)
+      | cons bsSym rest2 =>
+          cases rest2 with
+          | nil =>
+              rw [evalBuiltinSym_IndexByteString_eq idxSym bsSym] at hmem
+              obtain ⟨cidx, cbs, hidxArg, hbsArg, rfl⟩ :=
+                symValListToCekList_pair hargs
+              have hpath := checked2_active_error hmem hactive
+              rcases hpath with hinner | hproj
+              · rcases hinner with ⟨inner, hinner, hpArgs, hinnerActive⟩
+                change inner ∈
+                  (let inRange := SExpr.and (SExpr.ge (asInt idxSym).val (.int 0))
+                    (SExpr.lt (asInt idxSym).val (SExpr.seqLen (asBytes bsSym).val))
+                   [Outcome.ok inRange
+                      (SymVal.const (SymConst.integer
+                        (SExpr.seqNth (asBytes bsSym).val (asInt idxSym).val))),
+                    Outcome.error (SExpr.not inRange)]) at hinner
+                simp only [List.mem_cons, List.not_mem_nil] at hinner
+                rcases hinner with hok | herr
+                · subst inner
+                  simp [outcomeErrorActive] at hinnerActive
+                · rcases herr with herr | hfalse
+                  · subst inner
+                    have hnotRange :
+                        pcHolds m
+                          (SExpr.not
+                            (SExpr.and (SExpr.ge (asInt idxSym).val (.int 0))
+                              (SExpr.lt (asInt idxSym).val
+                                (SExpr.seqLen (asBytes bsSym).val)))) = true := by
+                      simpa [outcomeErrorActive] using hinnerActive
+                    change pcHolds m
+                      (SExpr.and (asBytes bsSym).guard (asInt idxSym).guard) = true at hpArgs
+                    have hp :=
+                      (Moist.SMT.Semantics.evalBoolIs_and_true m
+                        (asBytes bsSym).guard (asInt idxSym).guard).mp hpArgs
+                    obtain ⟨idx, rfl, hidxEval⟩ := asInt_sound hidxArg hp.2
+                    obtain ⟨bs, rfl, hbsEval⟩ := asBytes_sound hbsArg hp.1
+                    by_cases hneg : idx < 0
+                    · exact evalBuiltin_IndexByteString_none_of_negative hneg
+                    · have hge : 0 ≤ idx := (Int.not_lt).mp hneg
+                      by_cases hout : Int.ofNat bs.size ≤ idx
+                      · exact evalBuiltin_IndexByteString_none_of_nonnegative_out_of_range
+                          hge hout
+                      · have hlt : idx < Int.ofNat bs.size := Int.not_le.mp hout
+                        have hlenEval := Moist.SMT.Semantics.eval_seqLen_of
+                          (m := m) (a := (asBytes bsSym).val) hbsEval
+                        change SmtSem.eval m (SExpr.seqLen (asBytes bsSym).val) =
+                          some (Moist.SMT.Semantics.SVal.int (Int.ofNat bs.size)) at hlenEval
+                        have hgePc : pcHolds m
+                            (SExpr.ge (asInt idxSym).val (.int 0)) = true :=
+                          pcHolds_ge_int_intro hidxEval
+                            (by simp [Moist.SMT.Semantics.eval]) hge
+                        have hltPc : pcHolds m
+                            (SExpr.lt (asInt idxSym).val
+                              (SExpr.seqLen (asBytes bsSym).val)) = true :=
+                          pcHolds_lt_int_intro hidxEval hlenEval hlt
+                        have hrange : pcHolds m
+                            (SExpr.and (SExpr.ge (asInt idxSym).val (.int 0))
+                              (SExpr.lt (asInt idxSym).val
+                                (SExpr.seqLen (asBytes bsSym).val))) = true :=
+                          pcHolds_and_intro hgePc hltPc
+                        exact False.elim (pcHolds_not_contra hrange hnotRange)
+                  · cases hfalse
+              · by_cases hshape :
+                  ∃ idx bs, cidx = .VCon (.Integer idx) ∧
+                    cbs = .VCon (.ByteString bs)
+                · rcases hshape with ⟨idx, bs, rfl, rfl⟩
+                  have hgBs := asBytes_guard_of_cek (m := m)
+                    (v := bsSym) (bs := bs) hbsArg
+                  have hgIdx := asInt_guard_of_cek (m := m)
+                    (v := idxSym) (i := idx) hidxArg
+                  have hprojGuard : pcHolds m
+                      (SExpr.and (asBytes bsSym).guard (asInt idxSym).guard) = true :=
+                    pcHolds_and_intro hgBs hgIdx
+                  exact False.elim (pcHolds_not_contra hprojGuard hproj)
+                · exact evalBuiltin_IndexByteString_none_of_pair_not_int_byte
+                    (idx := cidx) (bs := cbs) (by
+                      intro idx bs h
+                      exact hshape ⟨idx, bs, h⟩)
+          | cons extra rest3 =>
+              have hlen := symValListToCekList_length hargs
+              exact evalBuiltin_IndexByteString_none_of_length_ne_two (by
+                intro h2
+                have hthree : 3 ≤ cargs.length := by
+                  rw [hlen]
+                  simp
+                omega)
 set_option maxHeartbeats 0 in
 theorem evalBuiltinSym_active_error_EqualsByteString :
     BuiltinErrorSound .EqualsByteString := by
