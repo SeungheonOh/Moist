@@ -1418,6 +1418,24 @@ theorem evalBoolIs_isVBool_true {m : Model} {e : Expr}
       | ml r =>
           simp [he, isVBoolSVal] at h
 
+theorem evalBoolIs_isVBool_of {m : Model} {e : Expr} {b : Bool}
+    (h : eval m e = some (.val (.bool b))) :
+    evalBoolIs m (.app "(_ is VBool)" [e]) true = true := by
+  unfold evalBoolIs evalBool?
+  rw [eval.eq_def]
+  change
+    (match
+      (match
+        (do
+          let v ← eval m e
+          SVal.bool <$> isVBoolSVal v) with
+        | some (.bool b) => some b
+        | _ => none) with
+    | some b' => b' == true
+    | none => false) = true
+  rw [h]
+  simp [isVBoolSVal]
+
 theorem evalBoolIs_isVUnit_true {m : Model} {e : Expr}
     (h : evalBoolIs m (.app "(_ is VUnit)" [e]) true = true) :
     eval m e = some (.val .unit) := by
