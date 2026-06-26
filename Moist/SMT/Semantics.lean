@@ -1487,6 +1487,32 @@ theorem evalBoolIs_isVList_of {m : Model} {e : Expr} {xs : List Val}
   rw [evalList.eq_def]
   rfl
 
+theorem evalBoolIs_isVInt_of {m : Model} {e : Expr} {i : Int}
+    (he : eval m e = some (.val (.int i))) :
+    evalBoolIs m (.app "(_ is VInt)" [e]) true = true := by
+  rw [evalBoolIs_true_eq]
+  rw [eval.eq_def]
+  change
+    (do
+      let v ← eval m e
+      SVal.bool <$> isVIntSVal v) = some (.bool true)
+  rw [he]
+  rfl
+
+theorem evalBoolIs_isVDataList_of {m : Model} {e : Expr} {xs : List Data}
+    (he : eval m e = some (.val (.dataList xs))) :
+    evalBoolIs m (.app "(_ is VDataList)" [e]) true = true := by
+  rw [evalBoolIs_true_eq]
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "(_ is VDataList)" vs) = some (.bool true)
+  rw [evalList.eq_def]
+  simp [he]
+  rw [evalList.eq_def]
+  rfl
+
 theorem evalBoolIs_isVDataList_true {m : Model} {e : Expr}
     (h : evalBoolIs m (.app "(_ is VDataList)" [e]) true = true) :
     ∃ xs, eval m e = some (.val (.dataList xs)) := by
