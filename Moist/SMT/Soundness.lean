@@ -903,6 +903,29 @@ theorem pcHolds_ne_int_zero {m : SmtSem.Model} {e : SExpr} {x : Int}
   rw [heqEval] at hbool
   simpa using hbool
 
+theorem pcHolds_not_ne_int_zero {m : SmtSem.Model} {e : SExpr} {x : Int}
+    (he : SmtSem.eval m e = some (.int x))
+    (hpc : pcHolds m (SExpr.not (SExpr.ne e (.int 0))) = true) :
+    x = 0 := by
+  have hfalse :
+      SmtSem.evalBoolIs m (SExpr.ne e (.int 0)) false = true :=
+    (Moist.SMT.Semantics.evalBoolIs_not_true m (SExpr.ne e (.int 0))).mp
+      (by simpa [pcHolds] using hpc)
+  have hneEval : SmtSem.eval m (SExpr.ne e (.int 0)) = some (.bool false) :=
+    (evalBoolIs_false_eq (m := m) (e := SExpr.ne e (.int 0))).mp hfalse
+  have heqEval := Moist.SMT.Semantics.eval_eq_int_of (m := m)
+    (a := e) (b := .int 0) (x := x) (y := 0) he
+    (by simp [Moist.SMT.Semantics.eval])
+  have hnotEval := eval_not_of_bool (m := m) (e := Expr.eq e (.int 0))
+    (b := (x == 0)) heqEval
+  change SmtSem.eval m (Expr.not (Expr.eq e (.int 0))) =
+    some (.bool (!(x == 0))) at hnotEval
+  change SmtSem.eval m (Expr.not (Expr.eq e (.int 0))) =
+    some (.bool false) at hneEval
+  rw [hnotEval] at hneEval
+  simp at hneEval
+  exact hneEval
+
 theorem pcHolds_nonneg {m : SmtSem.Model} {e : SExpr} {x : Int}
     (he : SmtSem.eval m e = some (.int x))
     (hpc : pcHolds m (nonnegGuard e) = true) :
@@ -7729,6 +7752,226 @@ theorem evalBuiltin_LessThanEqualsInteger_none_of_pair_not_ints {b a : CekValue}
   | VBuiltin fn args expected => rfl
 
 set_option maxHeartbeats 0 in
+theorem evalBuiltinConst_DivideInteger_none_of_length_ne_two {cs : List Const}
+    (h : cs.length ≠ 2) :
+    Moist.CEK.evalBuiltinConst .DivideInteger cs = none := by
+  cases cs with
+  | nil => rfl
+  | cons c rest =>
+      cases rest with
+      | nil => cases c <;> rfl
+      | cons c2 rest2 =>
+          cases rest2 with
+          | nil => exact False.elim (h rfl)
+          | cons c3 rest3 =>
+              cases c <;> cases c2 <;> rfl
+
+theorem evalBuiltin_DivideInteger_none_of_length_ne_two {args : List CekValue}
+    (h : args.length ≠ 2) :
+    Moist.CEK.evalBuiltin .DivideInteger args = none := by
+  cases hconst : Moist.CEK.extractConsts args with
+  | none =>
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst]
+  | some cs =>
+      have hlen := extractConsts_length hconst
+      have hcs : cs.length ≠ 2 := by
+        intro hcs2
+        apply h
+        omega
+      have hnone := evalBuiltinConst_DivideInteger_none_of_length_ne_two hcs
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst, hnone]
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltin_DivideInteger_none_of_pair_not_ints {b a : CekValue}
+    (h : ∀ ib ia, ¬ (b = .VCon (.Integer ib) ∧ a = .VCon (.Integer ia))) :
+    Moist.CEK.evalBuiltin .DivideInteger [b, a] = none := by
+  cases b with
+  | VCon cb =>
+      cases a with
+      | VCon ca =>
+          cases cb <;> cases ca <;> try rfl
+          exact False.elim (h _ _ ⟨rfl, rfl⟩)
+      | VLam body ρ => cases cb <;> rfl
+      | VDelay body ρ => cases cb <;> rfl
+      | VConstr tag fields => cases cb <;> rfl
+      | VBuiltin fn args expected => cases cb <;> rfl
+  | VLam body ρ => rfl
+  | VDelay body ρ => rfl
+  | VConstr tag fields => rfl
+  | VBuiltin fn args expected => rfl
+
+theorem evalBuiltin_DivideInteger_none_of_divisor_zero {a b : Int}
+    (hb : b = 0) :
+    Moist.CEK.evalBuiltin .DivideInteger [.VCon (.Integer b), .VCon (.Integer a)] = none := by
+  subst b
+  rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinConst_QuotientInteger_none_of_length_ne_two {cs : List Const}
+    (h : cs.length ≠ 2) :
+    Moist.CEK.evalBuiltinConst .QuotientInteger cs = none := by
+  cases cs with
+  | nil => rfl
+  | cons c rest =>
+      cases rest with
+      | nil => cases c <;> rfl
+      | cons c2 rest2 =>
+          cases rest2 with
+          | nil => exact False.elim (h rfl)
+          | cons c3 rest3 =>
+              cases c <;> cases c2 <;> rfl
+
+theorem evalBuiltin_QuotientInteger_none_of_length_ne_two {args : List CekValue}
+    (h : args.length ≠ 2) :
+    Moist.CEK.evalBuiltin .QuotientInteger args = none := by
+  cases hconst : Moist.CEK.extractConsts args with
+  | none =>
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst]
+  | some cs =>
+      have hlen := extractConsts_length hconst
+      have hcs : cs.length ≠ 2 := by
+        intro hcs2
+        apply h
+        omega
+      have hnone := evalBuiltinConst_QuotientInteger_none_of_length_ne_two hcs
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst, hnone]
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltin_QuotientInteger_none_of_pair_not_ints {b a : CekValue}
+    (h : ∀ ib ia, ¬ (b = .VCon (.Integer ib) ∧ a = .VCon (.Integer ia))) :
+    Moist.CEK.evalBuiltin .QuotientInteger [b, a] = none := by
+  cases b with
+  | VCon cb =>
+      cases a with
+      | VCon ca =>
+          cases cb <;> cases ca <;> try rfl
+          exact False.elim (h _ _ ⟨rfl, rfl⟩)
+      | VLam body ρ => cases cb <;> rfl
+      | VDelay body ρ => cases cb <;> rfl
+      | VConstr tag fields => cases cb <;> rfl
+      | VBuiltin fn args expected => cases cb <;> rfl
+  | VLam body ρ => rfl
+  | VDelay body ρ => rfl
+  | VConstr tag fields => rfl
+  | VBuiltin fn args expected => rfl
+
+theorem evalBuiltin_QuotientInteger_none_of_divisor_zero {a b : Int}
+    (hb : b = 0) :
+    Moist.CEK.evalBuiltin .QuotientInteger [.VCon (.Integer b), .VCon (.Integer a)] = none := by
+  subst b
+  rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinConst_RemainderInteger_none_of_length_ne_two {cs : List Const}
+    (h : cs.length ≠ 2) :
+    Moist.CEK.evalBuiltinConst .RemainderInteger cs = none := by
+  cases cs with
+  | nil => rfl
+  | cons c rest =>
+      cases rest with
+      | nil => cases c <;> rfl
+      | cons c2 rest2 =>
+          cases rest2 with
+          | nil => exact False.elim (h rfl)
+          | cons c3 rest3 =>
+              cases c <;> cases c2 <;> rfl
+
+theorem evalBuiltin_RemainderInteger_none_of_length_ne_two {args : List CekValue}
+    (h : args.length ≠ 2) :
+    Moist.CEK.evalBuiltin .RemainderInteger args = none := by
+  cases hconst : Moist.CEK.extractConsts args with
+  | none =>
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst]
+  | some cs =>
+      have hlen := extractConsts_length hconst
+      have hcs : cs.length ≠ 2 := by
+        intro hcs2
+        apply h
+        omega
+      have hnone := evalBuiltinConst_RemainderInteger_none_of_length_ne_two hcs
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst, hnone]
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltin_RemainderInteger_none_of_pair_not_ints {b a : CekValue}
+    (h : ∀ ib ia, ¬ (b = .VCon (.Integer ib) ∧ a = .VCon (.Integer ia))) :
+    Moist.CEK.evalBuiltin .RemainderInteger [b, a] = none := by
+  cases b with
+  | VCon cb =>
+      cases a with
+      | VCon ca =>
+          cases cb <;> cases ca <;> try rfl
+          exact False.elim (h _ _ ⟨rfl, rfl⟩)
+      | VLam body ρ => cases cb <;> rfl
+      | VDelay body ρ => cases cb <;> rfl
+      | VConstr tag fields => cases cb <;> rfl
+      | VBuiltin fn args expected => cases cb <;> rfl
+  | VLam body ρ => rfl
+  | VDelay body ρ => rfl
+  | VConstr tag fields => rfl
+  | VBuiltin fn args expected => rfl
+
+theorem evalBuiltin_RemainderInteger_none_of_divisor_zero {a b : Int}
+    (hb : b = 0) :
+    Moist.CEK.evalBuiltin .RemainderInteger [.VCon (.Integer b), .VCon (.Integer a)] = none := by
+  subst b
+  rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinConst_ModInteger_none_of_length_ne_two {cs : List Const}
+    (h : cs.length ≠ 2) :
+    Moist.CEK.evalBuiltinConst .ModInteger cs = none := by
+  cases cs with
+  | nil => rfl
+  | cons c rest =>
+      cases rest with
+      | nil => cases c <;> rfl
+      | cons c2 rest2 =>
+          cases rest2 with
+          | nil => exact False.elim (h rfl)
+          | cons c3 rest3 =>
+              cases c <;> cases c2 <;> rfl
+
+theorem evalBuiltin_ModInteger_none_of_length_ne_two {args : List CekValue}
+    (h : args.length ≠ 2) :
+    Moist.CEK.evalBuiltin .ModInteger args = none := by
+  cases hconst : Moist.CEK.extractConsts args with
+  | none =>
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst]
+  | some cs =>
+      have hlen := extractConsts_length hconst
+      have hcs : cs.length ≠ 2 := by
+        intro hcs2
+        apply h
+        omega
+      have hnone := evalBuiltinConst_ModInteger_none_of_length_ne_two hcs
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst, hnone]
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltin_ModInteger_none_of_pair_not_ints {b a : CekValue}
+    (h : ∀ ib ia, ¬ (b = .VCon (.Integer ib) ∧ a = .VCon (.Integer ia))) :
+    Moist.CEK.evalBuiltin .ModInteger [b, a] = none := by
+  cases b with
+  | VCon cb =>
+      cases a with
+      | VCon ca =>
+          cases cb <;> cases ca <;> try rfl
+          exact False.elim (h _ _ ⟨rfl, rfl⟩)
+      | VLam body ρ => cases cb <;> rfl
+      | VDelay body ρ => cases cb <;> rfl
+      | VConstr tag fields => cases cb <;> rfl
+      | VBuiltin fn args expected => cases cb <;> rfl
+  | VLam body ρ => rfl
+  | VDelay body ρ => rfl
+  | VConstr tag fields => rfl
+  | VBuiltin fn args expected => rfl
+
+theorem evalBuiltin_ModInteger_none_of_divisor_zero {a b : Int}
+    (hb : b = 0) :
+    Moist.CEK.evalBuiltin .ModInteger [.VCon (.Integer b), .VCon (.Integer a)] = none := by
+  subst b
+  rfl
+
+set_option maxHeartbeats 0 in
 theorem evalBuiltinConst_LengthOfArray_none_of_length_ne_one {cs : List Const}
     (h : cs.length ≠ 1) :
     Moist.CEK.evalBuiltinConst .LengthOfArray cs = none := by
@@ -8956,10 +9199,276 @@ theorem evalBuiltinSym_active_error_MultiplyInteger :
                   rw [hlen]
                   simp
                 omega)
-axiom evalBuiltinSym_active_error_DivideInteger : BuiltinErrorSound .DivideInteger
-axiom evalBuiltinSym_active_error_QuotientInteger : BuiltinErrorSound .QuotientInteger
-axiom evalBuiltinSym_active_error_RemainderInteger : BuiltinErrorSound .RemainderInteger
-axiom evalBuiltinSym_active_error_ModInteger : BuiltinErrorSound .ModInteger
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_error_DivideInteger :
+    BuiltinErrorSound .DivideInteger := by
+  intro m args cargs out hargs hmem hactive
+  cases args with
+  | nil =>
+      have hlen := symValListToCekList_length hargs
+      exact evalBuiltin_DivideInteger_none_of_length_ne_two (by
+        intro h2
+        have hzero : cargs.length = 0 := by simpa using hlen
+        omega)
+  | cons bSym rest =>
+      cases rest with
+      | nil =>
+          have hlen := symValListToCekList_length hargs
+          exact evalBuiltin_DivideInteger_none_of_length_ne_two (by
+            intro h2
+            have hone : cargs.length = 1 := by simpa using hlen
+            omega)
+      | cons aSym rest2 =>
+          cases rest2 with
+          | nil =>
+              rw [evalBuiltinSym_DivideInteger_eq bSym aSym] at hmem
+              obtain ⟨cb, ca, hb, ha, rfl⟩ := symValListToCekList_pair hargs
+              rcases checked2_active_error hmem hactive with hinner | hproj
+              · rcases hinner with ⟨inner, hinnerMem, hpArgs, hinnerActive⟩
+                simp only [List.mem_cons, List.not_mem_nil] at hinnerMem
+                rcases hinnerMem with hok | herr
+                · subst inner
+                  simp [outcomeErrorActive] at hinnerActive
+                · rcases herr with herr | hfalse
+                  · subst inner
+                    have hp :=
+                      (Moist.SMT.Semantics.evalBoolIs_and_true m
+                        (asInt aSym).guard (asInt bSym).guard).mp hpArgs
+                    obtain ⟨ia, rfl, hea⟩ := asInt_sound ha hp.1
+                    obtain ⟨ib, rfl, heb⟩ := asInt_sound hb hp.2
+                    have hz : ib = 0 :=
+                      pcHolds_not_ne_int_zero heb
+                        (by simpa [outcomeErrorActive, divisionGuard] using hinnerActive)
+                    exact evalBuiltin_DivideInteger_none_of_divisor_zero (a := ia) (b := ib) hz
+                  · cases hfalse
+              · by_cases hshape :
+                    ∃ ib ia, cb = .VCon (.Integer ib) ∧ ca = .VCon (.Integer ia)
+                · rcases hshape with ⟨ib, ia, rfl, rfl⟩
+                  have hga := asInt_guard_of_cek (m := m) (v := aSym) (i := ia) ha
+                  have hgb := asInt_guard_of_cek (m := m) (v := bSym) (i := ib) hb
+                  have hg :
+                      pcHolds m
+                        (SExpr.and (asInt aSym).guard (asInt bSym).guard) = true := by
+                    simpa [pcHolds] using
+                      ((Moist.SMT.Semantics.evalBoolIs_and_true m
+                        (asInt aSym).guard (asInt bSym).guard).mpr
+                          ⟨by simpa [pcHolds] using hga,
+                           by simpa [pcHolds] using hgb⟩)
+                  exact False.elim (pcHolds_not_contra hg hproj)
+                · exact evalBuiltin_DivideInteger_none_of_pair_not_ints (by
+                    intro ib ia h
+                    exact hshape ⟨ib, ia, h.1, h.2⟩)
+          | cons extra rest3 =>
+              have hlen := symValListToCekList_length hargs
+              exact evalBuiltin_DivideInteger_none_of_length_ne_two (by
+                intro h2
+                have hthree : 3 ≤ cargs.length := by
+                  rw [hlen]
+                  simp
+                omega)
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_error_QuotientInteger :
+    BuiltinErrorSound .QuotientInteger := by
+  intro m args cargs out hargs hmem hactive
+  cases args with
+  | nil =>
+      have hlen := symValListToCekList_length hargs
+      exact evalBuiltin_QuotientInteger_none_of_length_ne_two (by
+        intro h2
+        have hzero : cargs.length = 0 := by simpa using hlen
+        omega)
+  | cons bSym rest =>
+      cases rest with
+      | nil =>
+          have hlen := symValListToCekList_length hargs
+          exact evalBuiltin_QuotientInteger_none_of_length_ne_two (by
+            intro h2
+            have hone : cargs.length = 1 := by simpa using hlen
+            omega)
+      | cons aSym rest2 =>
+          cases rest2 with
+          | nil =>
+              rw [evalBuiltinSym_QuotientInteger_eq bSym aSym] at hmem
+              obtain ⟨cb, ca, hb, ha, rfl⟩ := symValListToCekList_pair hargs
+              rcases checked2_active_error hmem hactive with hinner | hproj
+              · rcases hinner with ⟨inner, hinnerMem, hpArgs, hinnerActive⟩
+                simp only [List.mem_cons, List.not_mem_nil] at hinnerMem
+                rcases hinnerMem with hok | herr
+                · subst inner
+                  simp [outcomeErrorActive] at hinnerActive
+                · rcases herr with herr | hfalse
+                  · subst inner
+                    have hp :=
+                      (Moist.SMT.Semantics.evalBoolIs_and_true m
+                        (asInt aSym).guard (asInt bSym).guard).mp hpArgs
+                    obtain ⟨ia, rfl, hea⟩ := asInt_sound ha hp.1
+                    obtain ⟨ib, rfl, heb⟩ := asInt_sound hb hp.2
+                    have hz : ib = 0 :=
+                      pcHolds_not_ne_int_zero heb
+                        (by simpa [outcomeErrorActive, divisionGuard] using hinnerActive)
+                    exact evalBuiltin_QuotientInteger_none_of_divisor_zero (a := ia) (b := ib) hz
+                  · cases hfalse
+              · by_cases hshape :
+                    ∃ ib ia, cb = .VCon (.Integer ib) ∧ ca = .VCon (.Integer ia)
+                · rcases hshape with ⟨ib, ia, rfl, rfl⟩
+                  have hga := asInt_guard_of_cek (m := m) (v := aSym) (i := ia) ha
+                  have hgb := asInt_guard_of_cek (m := m) (v := bSym) (i := ib) hb
+                  have hg :
+                      pcHolds m
+                        (SExpr.and (asInt aSym).guard (asInt bSym).guard) = true := by
+                    simpa [pcHolds] using
+                      ((Moist.SMT.Semantics.evalBoolIs_and_true m
+                        (asInt aSym).guard (asInt bSym).guard).mpr
+                          ⟨by simpa [pcHolds] using hga,
+                           by simpa [pcHolds] using hgb⟩)
+                  exact False.elim (pcHolds_not_contra hg hproj)
+                · exact evalBuiltin_QuotientInteger_none_of_pair_not_ints (by
+                    intro ib ia h
+                    exact hshape ⟨ib, ia, h.1, h.2⟩)
+          | cons extra rest3 =>
+              have hlen := symValListToCekList_length hargs
+              exact evalBuiltin_QuotientInteger_none_of_length_ne_two (by
+                intro h2
+                have hthree : 3 ≤ cargs.length := by
+                  rw [hlen]
+                  simp
+                omega)
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_error_RemainderInteger :
+    BuiltinErrorSound .RemainderInteger := by
+  intro m args cargs out hargs hmem hactive
+  cases args with
+  | nil =>
+      have hlen := symValListToCekList_length hargs
+      exact evalBuiltin_RemainderInteger_none_of_length_ne_two (by
+        intro h2
+        have hzero : cargs.length = 0 := by simpa using hlen
+        omega)
+  | cons bSym rest =>
+      cases rest with
+      | nil =>
+          have hlen := symValListToCekList_length hargs
+          exact evalBuiltin_RemainderInteger_none_of_length_ne_two (by
+            intro h2
+            have hone : cargs.length = 1 := by simpa using hlen
+            omega)
+      | cons aSym rest2 =>
+          cases rest2 with
+          | nil =>
+              rw [evalBuiltinSym_RemainderInteger_eq bSym aSym] at hmem
+              obtain ⟨cb, ca, hb, ha, rfl⟩ := symValListToCekList_pair hargs
+              rcases checked2_active_error hmem hactive with hinner | hproj
+              · rcases hinner with ⟨inner, hinnerMem, hpArgs, hinnerActive⟩
+                simp only [List.mem_cons, List.not_mem_nil] at hinnerMem
+                rcases hinnerMem with hok | herr
+                · subst inner
+                  simp [outcomeErrorActive] at hinnerActive
+                · rcases herr with herr | hfalse
+                  · subst inner
+                    have hp :=
+                      (Moist.SMT.Semantics.evalBoolIs_and_true m
+                        (asInt aSym).guard (asInt bSym).guard).mp hpArgs
+                    obtain ⟨ia, rfl, hea⟩ := asInt_sound ha hp.1
+                    obtain ⟨ib, rfl, heb⟩ := asInt_sound hb hp.2
+                    have hz : ib = 0 :=
+                      pcHolds_not_ne_int_zero heb
+                        (by simpa [outcomeErrorActive, divisionGuard] using hinnerActive)
+                    exact evalBuiltin_RemainderInteger_none_of_divisor_zero (a := ia) (b := ib) hz
+                  · cases hfalse
+              · by_cases hshape :
+                    ∃ ib ia, cb = .VCon (.Integer ib) ∧ ca = .VCon (.Integer ia)
+                · rcases hshape with ⟨ib, ia, rfl, rfl⟩
+                  have hga := asInt_guard_of_cek (m := m) (v := aSym) (i := ia) ha
+                  have hgb := asInt_guard_of_cek (m := m) (v := bSym) (i := ib) hb
+                  have hg :
+                      pcHolds m
+                        (SExpr.and (asInt aSym).guard (asInt bSym).guard) = true := by
+                    simpa [pcHolds] using
+                      ((Moist.SMT.Semantics.evalBoolIs_and_true m
+                        (asInt aSym).guard (asInt bSym).guard).mpr
+                          ⟨by simpa [pcHolds] using hga,
+                           by simpa [pcHolds] using hgb⟩)
+                  exact False.elim (pcHolds_not_contra hg hproj)
+                · exact evalBuiltin_RemainderInteger_none_of_pair_not_ints (by
+                    intro ib ia h
+                    exact hshape ⟨ib, ia, h.1, h.2⟩)
+          | cons extra rest3 =>
+              have hlen := symValListToCekList_length hargs
+              exact evalBuiltin_RemainderInteger_none_of_length_ne_two (by
+                intro h2
+                have hthree : 3 ≤ cargs.length := by
+                  rw [hlen]
+                  simp
+                omega)
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_error_ModInteger :
+    BuiltinErrorSound .ModInteger := by
+  intro m args cargs out hargs hmem hactive
+  cases args with
+  | nil =>
+      have hlen := symValListToCekList_length hargs
+      exact evalBuiltin_ModInteger_none_of_length_ne_two (by
+        intro h2
+        have hzero : cargs.length = 0 := by simpa using hlen
+        omega)
+  | cons bSym rest =>
+      cases rest with
+      | nil =>
+          have hlen := symValListToCekList_length hargs
+          exact evalBuiltin_ModInteger_none_of_length_ne_two (by
+            intro h2
+            have hone : cargs.length = 1 := by simpa using hlen
+            omega)
+      | cons aSym rest2 =>
+          cases rest2 with
+          | nil =>
+              rw [evalBuiltinSym_ModInteger_eq bSym aSym] at hmem
+              obtain ⟨cb, ca, hb, ha, rfl⟩ := symValListToCekList_pair hargs
+              rcases checked2_active_error hmem hactive with hinner | hproj
+              · rcases hinner with ⟨inner, hinnerMem, hpArgs, hinnerActive⟩
+                simp only [List.mem_cons, List.not_mem_nil] at hinnerMem
+                rcases hinnerMem with hok | herr
+                · subst inner
+                  simp [outcomeErrorActive] at hinnerActive
+                · rcases herr with herr | hfalse
+                  · subst inner
+                    have hp :=
+                      (Moist.SMT.Semantics.evalBoolIs_and_true m
+                        (asInt aSym).guard (asInt bSym).guard).mp hpArgs
+                    obtain ⟨ia, rfl, hea⟩ := asInt_sound ha hp.1
+                    obtain ⟨ib, rfl, heb⟩ := asInt_sound hb hp.2
+                    have hz : ib = 0 :=
+                      pcHolds_not_ne_int_zero heb
+                        (by simpa [outcomeErrorActive, divisionGuard] using hinnerActive)
+                    exact evalBuiltin_ModInteger_none_of_divisor_zero (a := ia) (b := ib) hz
+                  · cases hfalse
+              · by_cases hshape :
+                    ∃ ib ia, cb = .VCon (.Integer ib) ∧ ca = .VCon (.Integer ia)
+                · rcases hshape with ⟨ib, ia, rfl, rfl⟩
+                  have hga := asInt_guard_of_cek (m := m) (v := aSym) (i := ia) ha
+                  have hgb := asInt_guard_of_cek (m := m) (v := bSym) (i := ib) hb
+                  have hg :
+                      pcHolds m
+                        (SExpr.and (asInt aSym).guard (asInt bSym).guard) = true := by
+                    simpa [pcHolds] using
+                      ((Moist.SMT.Semantics.evalBoolIs_and_true m
+                        (asInt aSym).guard (asInt bSym).guard).mpr
+                          ⟨by simpa [pcHolds] using hga,
+                           by simpa [pcHolds] using hgb⟩)
+                  exact False.elim (pcHolds_not_contra hg hproj)
+                · exact evalBuiltin_ModInteger_none_of_pair_not_ints (by
+                    intro ib ia h
+                    exact hshape ⟨ib, ia, h.1, h.2⟩)
+          | cons extra rest3 =>
+              have hlen := symValListToCekList_length hargs
+              exact evalBuiltin_ModInteger_none_of_length_ne_two (by
+                intro h2
+                have hthree : 3 ≤ cargs.length := by
+                  rw [hlen]
+                  simp
+                omega)
 set_option maxHeartbeats 0 in
 theorem evalBuiltinSym_active_error_EqualsInteger :
     BuiltinErrorSound .EqualsInteger := by
