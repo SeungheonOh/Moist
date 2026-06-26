@@ -2451,6 +2451,81 @@ theorem evalBoolIs_isDB_true {m : Model} {e : Expr}
   | g2 g => simp [isCtor] at hc
   | ml r => simp [isCtor] at hc
 
+theorem evalBoolIs_isDConstr_true_of_data {m : Model} {e : Expr}
+    {tag : Int} {fields : List Data}
+    (he : eval m e = some (SVal.data (.Constr tag fields))) :
+    evalBoolIs m (.app "(_ is DConstr)" [e]) true = true := by
+  exact (evalBoolIs_true_eq m (.app "(_ is DConstr)" [e])).mpr (by
+    rw [eval.eq_def]
+    change
+      (do
+        let vs ← evalList m [e]
+        evalApp "(_ is DConstr)" vs) = some (.bool true)
+    rw [evalList.eq_def]
+    simp [he]
+    rw [evalList.eq_def]
+    rfl)
+
+theorem evalBoolIs_isDMap_true_of_data {m : Model} {e : Expr}
+    {ps : List (Data × Data)}
+    (he : eval m e = some (SVal.data (.Map ps))) :
+    evalBoolIs m (.app "(_ is DMap)" [e]) true = true := by
+  exact (evalBoolIs_true_eq m (.app "(_ is DMap)" [e])).mpr (by
+    rw [eval.eq_def]
+    change
+      (do
+        let vs ← evalList m [e]
+        evalApp "(_ is DMap)" vs) = some (.bool true)
+    rw [evalList.eq_def]
+    simp [he]
+    rw [evalList.eq_def]
+    rfl)
+
+theorem evalBoolIs_isDList_true_of_data {m : Model} {e : Expr}
+    {xs : List Data}
+    (he : eval m e = some (SVal.data (.List xs))) :
+    evalBoolIs m (.app "(_ is DList)" [e]) true = true := by
+  exact (evalBoolIs_true_eq m (.app "(_ is DList)" [e])).mpr (by
+    rw [eval.eq_def]
+    change
+      (do
+        let vs ← evalList m [e]
+        evalApp "(_ is DList)" vs) = some (.bool true)
+    rw [evalList.eq_def]
+    simp [he]
+    rw [evalList.eq_def]
+    rfl)
+
+theorem evalBoolIs_isDI_true_of_data {m : Model} {e : Expr}
+    {i : Int}
+    (he : eval m e = some (SVal.data (.I i))) :
+    evalBoolIs m (.app "(_ is DI)" [e]) true = true := by
+  exact (evalBoolIs_true_eq m (.app "(_ is DI)" [e])).mpr (by
+    rw [eval.eq_def]
+    change
+      (do
+        let vs ← evalList m [e]
+        evalApp "(_ is DI)" vs) = some (.bool true)
+    rw [evalList.eq_def]
+    simp [he]
+    rw [evalList.eq_def]
+    rfl)
+
+theorem evalBoolIs_isDB_true_of_data {m : Model} {e : Expr}
+    {bs : ByteArray}
+    (he : eval m e = some (SVal.data (.B bs))) :
+    evalBoolIs m (.app "(_ is DB)" [e]) true = true := by
+  exact (evalBoolIs_true_eq m (.app "(_ is DB)" [e])).mpr (by
+    rw [eval.eq_def]
+    change
+      (do
+        let vs ← evalList m [e]
+        evalApp "(_ is DB)" vs) = some (.bool true)
+    rw [evalList.eq_def]
+    simp [he]
+    rw [evalList.eq_def]
+    rfl)
+
 theorem eval_unVString_of {m : Model} {e : Expr} {s : String}
     (h : eval m e = some (SVal.val (Val.string s))) :
     eval m (.app "unVString" [e]) = some (SVal.string s) := by

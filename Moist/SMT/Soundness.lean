@@ -1067,6 +1067,36 @@ theorem pcHolds_all3_intro {m : SmtSem.Model} {a b c : SExpr}
   have habc := pcHolds_and_intro (m := m) (a := SExpr.and a b) (b := c) hab hc
   simpa [SExpr.all, Moist.SMT.Expr.all] using habc
 
+theorem pcHolds_isDConstr_intro {m : SmtSem.Model} {e : SExpr}
+    {tag : Int} {fields : List Plutus.Data}
+    (he : SmtSem.eval m e = some (.data (.Constr tag fields))) :
+    pcHolds m (SExpr.isCtor "DConstr" e) = true := by
+  exact Moist.SMT.Semantics.evalBoolIs_isDConstr_true_of_data he
+
+theorem pcHolds_isDMap_intro {m : SmtSem.Model} {e : SExpr}
+    {ps : List (Plutus.Data × Plutus.Data)}
+    (he : SmtSem.eval m e = some (.data (.Map ps))) :
+    pcHolds m (SExpr.isCtor "DMap" e) = true := by
+  exact Moist.SMT.Semantics.evalBoolIs_isDMap_true_of_data he
+
+theorem pcHolds_isDList_intro {m : SmtSem.Model} {e : SExpr}
+    {xs : List Plutus.Data}
+    (he : SmtSem.eval m e = some (.data (.List xs))) :
+    pcHolds m (SExpr.isCtor "DList" e) = true := by
+  exact Moist.SMT.Semantics.evalBoolIs_isDList_true_of_data he
+
+theorem pcHolds_isDI_intro {m : SmtSem.Model} {e : SExpr}
+    {i : Int}
+    (he : SmtSem.eval m e = some (.data (.I i))) :
+    pcHolds m (SExpr.isCtor "DI" e) = true := by
+  exact Moist.SMT.Semantics.evalBoolIs_isDI_true_of_data he
+
+theorem pcHolds_isDB_intro {m : SmtSem.Model} {e : SExpr}
+    {bs : ByteArray}
+    (he : SmtSem.eval m e = some (.data (.B bs))) :
+    pcHolds m (SExpr.isCtor "DB" e) = true := by
+  exact Moist.SMT.Semantics.evalBoolIs_isDB_true_of_data he
+
 theorem evalBoolIs_or_true_of_left {m : SmtSem.Model} {a b : SExpr}
     (ha : SmtSem.eval m a = some (.bool true))
     (hb : ∃ bb, SmtSem.eval m b = some (.bool bb)) :
@@ -8848,6 +8878,306 @@ theorem evalBuiltin_ListData_none_of_single_not_data_list {cv : CekValue}
   | VBuiltin b args expected => rfl
 
 set_option maxHeartbeats 0 in
+theorem evalBuiltinConst_UnConstrData_none_of_length_ne_one {cs : List Const}
+    (h : cs.length ≠ 1) :
+    Moist.CEK.evalBuiltinConst .UnConstrData cs = none := by
+  cases cs with
+  | nil => rfl
+  | cons c rest =>
+      cases rest with
+      | nil => exact False.elim (h rfl)
+      | cons c2 rest =>
+          cases c <;> try rfl
+          case Data d => cases d <;> cases c2 <;> rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinConst_UnMapData_none_of_length_ne_one {cs : List Const}
+    (h : cs.length ≠ 1) :
+    Moist.CEK.evalBuiltinConst .UnMapData cs = none := by
+  cases cs with
+  | nil => rfl
+  | cons c rest =>
+      cases rest with
+      | nil => exact False.elim (h rfl)
+      | cons c2 rest =>
+          cases c <;> try rfl
+          case Data d => cases d <;> cases c2 <;> rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinConst_UnListData_none_of_length_ne_one {cs : List Const}
+    (h : cs.length ≠ 1) :
+    Moist.CEK.evalBuiltinConst .UnListData cs = none := by
+  cases cs with
+  | nil => rfl
+  | cons c rest =>
+      cases rest with
+      | nil => exact False.elim (h rfl)
+      | cons c2 rest =>
+          cases c <;> try rfl
+          case Data d => cases d <;> cases c2 <;> rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinConst_UnIData_none_of_length_ne_one {cs : List Const}
+    (h : cs.length ≠ 1) :
+    Moist.CEK.evalBuiltinConst .UnIData cs = none := by
+  cases cs with
+  | nil => rfl
+  | cons c rest =>
+      cases rest with
+      | nil => exact False.elim (h rfl)
+      | cons c2 rest =>
+          cases c <;> try rfl
+          case Data d => cases d <;> cases c2 <;> rfl
+
+set_option maxHeartbeats 0 in
+theorem evalBuiltinConst_UnBData_none_of_length_ne_one {cs : List Const}
+    (h : cs.length ≠ 1) :
+    Moist.CEK.evalBuiltinConst .UnBData cs = none := by
+  cases cs with
+  | nil => rfl
+  | cons c rest =>
+      cases rest with
+      | nil => exact False.elim (h rfl)
+      | cons c2 rest =>
+          cases c <;> try rfl
+          case Data d => cases d <;> cases c2 <;> rfl
+
+theorem evalBuiltin_UnConstrData_none_of_length_ne_one {args : List CekValue}
+    (h : args.length ≠ 1) :
+    Moist.CEK.evalBuiltin .UnConstrData args = none := by
+  cases hconst : Moist.CEK.extractConsts args with
+  | none =>
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst]
+  | some cs =>
+      have hlen := extractConsts_length hconst
+      have hcs : cs.length ≠ 1 := by
+        intro hcs1
+        apply h
+        omega
+      have hnone := evalBuiltinConst_UnConstrData_none_of_length_ne_one hcs
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst, hnone]
+
+theorem evalBuiltin_UnMapData_none_of_length_ne_one {args : List CekValue}
+    (h : args.length ≠ 1) :
+    Moist.CEK.evalBuiltin .UnMapData args = none := by
+  cases hconst : Moist.CEK.extractConsts args with
+  | none =>
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst]
+  | some cs =>
+      have hlen := extractConsts_length hconst
+      have hcs : cs.length ≠ 1 := by
+        intro hcs1
+        apply h
+        omega
+      have hnone := evalBuiltinConst_UnMapData_none_of_length_ne_one hcs
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst, hnone]
+
+theorem evalBuiltin_UnListData_none_of_length_ne_one {args : List CekValue}
+    (h : args.length ≠ 1) :
+    Moist.CEK.evalBuiltin .UnListData args = none := by
+  cases hconst : Moist.CEK.extractConsts args with
+  | none =>
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst]
+  | some cs =>
+      have hlen := extractConsts_length hconst
+      have hcs : cs.length ≠ 1 := by
+        intro hcs1
+        apply h
+        omega
+      have hnone := evalBuiltinConst_UnListData_none_of_length_ne_one hcs
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst, hnone]
+
+theorem evalBuiltin_UnIData_none_of_length_ne_one {args : List CekValue}
+    (h : args.length ≠ 1) :
+    Moist.CEK.evalBuiltin .UnIData args = none := by
+  cases hconst : Moist.CEK.extractConsts args with
+  | none =>
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst]
+  | some cs =>
+      have hlen := extractConsts_length hconst
+      have hcs : cs.length ≠ 1 := by
+        intro hcs1
+        apply h
+        omega
+      have hnone := evalBuiltinConst_UnIData_none_of_length_ne_one hcs
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst, hnone]
+
+theorem evalBuiltin_UnBData_none_of_length_ne_one {args : List CekValue}
+    (h : args.length ≠ 1) :
+    Moist.CEK.evalBuiltin .UnBData args = none := by
+  cases hconst : Moist.CEK.extractConsts args with
+  | none =>
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst]
+  | some cs =>
+      have hlen := extractConsts_length hconst
+      have hcs : cs.length ≠ 1 := by
+        intro hcs1
+        apply h
+        omega
+      have hnone := evalBuiltinConst_UnBData_none_of_length_ne_one hcs
+      simp [Moist.CEK.evalBuiltin, Moist.CEK.evalBuiltinPassThrough, hconst, hnone]
+
+theorem evalBuiltin_UnConstrData_none_of_single_not_constr {cv : CekValue}
+    (h : ∀ tag fields, cv ≠ .VCon (.Data (.Constr tag fields))) :
+    Moist.CEK.evalBuiltin .UnConstrData [cv] = none := by
+  cases cv with
+  | VCon c =>
+      cases c with
+      | Data d =>
+          cases d with
+          | Constr tag fields => exact False.elim (h tag fields rfl)
+          | Map ps => rfl
+          | List xs => rfl
+          | I i => rfl
+          | B bs => rfl
+      | Integer i => rfl
+      | ByteString bs => rfl
+      | String s => rfl
+      | Unit => rfl
+      | Bool b => rfl
+      | Pair p => rfl
+      | PairData p => rfl
+      | ConstList xs => rfl
+      | ConstDataList xs => rfl
+      | ConstPairDataList xs => rfl
+      | ConstArray xs => rfl
+      | Bls12_381_G1_element => rfl
+      | Bls12_381_G2_element => rfl
+      | Bls12_381_MlResult => rfl
+  | VLam body ρ => rfl
+  | VDelay body ρ => rfl
+  | VConstr tag fields => rfl
+  | VBuiltin b args expected => rfl
+
+theorem evalBuiltin_UnMapData_none_of_single_not_map {cv : CekValue}
+    (h : ∀ ps, cv ≠ .VCon (.Data (.Map ps))) :
+    Moist.CEK.evalBuiltin .UnMapData [cv] = none := by
+  cases cv with
+  | VCon c =>
+      cases c with
+      | Data d =>
+          cases d with
+          | Constr tag fields => rfl
+          | Map ps => exact False.elim (h ps rfl)
+          | List xs => rfl
+          | I i => rfl
+          | B bs => rfl
+      | Integer i => rfl
+      | ByteString bs => rfl
+      | String s => rfl
+      | Unit => rfl
+      | Bool b => rfl
+      | Pair p => rfl
+      | PairData p => rfl
+      | ConstList xs => rfl
+      | ConstDataList xs => rfl
+      | ConstPairDataList xs => rfl
+      | ConstArray xs => rfl
+      | Bls12_381_G1_element => rfl
+      | Bls12_381_G2_element => rfl
+      | Bls12_381_MlResult => rfl
+  | VLam body ρ => rfl
+  | VDelay body ρ => rfl
+  | VConstr tag fields => rfl
+  | VBuiltin b args expected => rfl
+
+theorem evalBuiltin_UnListData_none_of_single_not_list {cv : CekValue}
+    (h : ∀ xs, cv ≠ .VCon (.Data (.List xs))) :
+    Moist.CEK.evalBuiltin .UnListData [cv] = none := by
+  cases cv with
+  | VCon c =>
+      cases c with
+      | Data d =>
+          cases d with
+          | Constr tag fields => rfl
+          | Map ps => rfl
+          | List xs => exact False.elim (h xs rfl)
+          | I i => rfl
+          | B bs => rfl
+      | Integer i => rfl
+      | ByteString bs => rfl
+      | String s => rfl
+      | Unit => rfl
+      | Bool b => rfl
+      | Pair p => rfl
+      | PairData p => rfl
+      | ConstList xs => rfl
+      | ConstDataList xs => rfl
+      | ConstPairDataList xs => rfl
+      | ConstArray xs => rfl
+      | Bls12_381_G1_element => rfl
+      | Bls12_381_G2_element => rfl
+      | Bls12_381_MlResult => rfl
+  | VLam body ρ => rfl
+  | VDelay body ρ => rfl
+  | VConstr tag fields => rfl
+  | VBuiltin b args expected => rfl
+
+theorem evalBuiltin_UnIData_none_of_single_not_i {cv : CekValue}
+    (h : ∀ i, cv ≠ .VCon (.Data (.I i))) :
+    Moist.CEK.evalBuiltin .UnIData [cv] = none := by
+  cases cv with
+  | VCon c =>
+      cases c with
+      | Data d =>
+          cases d with
+          | Constr tag fields => rfl
+          | Map ps => rfl
+          | List xs => rfl
+          | I i => exact False.elim (h i rfl)
+          | B bs => rfl
+      | Integer i => rfl
+      | ByteString bs => rfl
+      | String s => rfl
+      | Unit => rfl
+      | Bool b => rfl
+      | Pair p => rfl
+      | PairData p => rfl
+      | ConstList xs => rfl
+      | ConstDataList xs => rfl
+      | ConstPairDataList xs => rfl
+      | ConstArray xs => rfl
+      | Bls12_381_G1_element => rfl
+      | Bls12_381_G2_element => rfl
+      | Bls12_381_MlResult => rfl
+  | VLam body ρ => rfl
+  | VDelay body ρ => rfl
+  | VConstr tag fields => rfl
+  | VBuiltin b args expected => rfl
+
+theorem evalBuiltin_UnBData_none_of_single_not_b {cv : CekValue}
+    (h : ∀ bs, cv ≠ .VCon (.Data (.B bs))) :
+    Moist.CEK.evalBuiltin .UnBData [cv] = none := by
+  cases cv with
+  | VCon c =>
+      cases c with
+      | Data d =>
+          cases d with
+          | Constr tag fields => rfl
+          | Map ps => rfl
+          | List xs => rfl
+          | I i => rfl
+          | B bs => exact False.elim (h bs rfl)
+      | Integer i => rfl
+      | ByteString bs => rfl
+      | String s => rfl
+      | Unit => rfl
+      | Bool b => rfl
+      | Pair p => rfl
+      | PairData p => rfl
+      | ConstList xs => rfl
+      | ConstDataList xs => rfl
+      | ConstPairDataList xs => rfl
+      | ConstArray xs => rfl
+      | Bls12_381_G1_element => rfl
+      | Bls12_381_G2_element => rfl
+      | Bls12_381_MlResult => rfl
+  | VLam body ρ => rfl
+  | VDelay body ρ => rfl
+  | VConstr tag fields => rfl
+  | VBuiltin b args expected => rfl
+
+set_option maxHeartbeats 0 in
 theorem evalBuiltinConst_AppendString_none_of_length_ne_two {cs : List Const}
     (h : cs.length ≠ 2) :
     Moist.CEK.evalBuiltinConst .AppendString cs = none := by
@@ -11244,11 +11574,309 @@ theorem evalBuiltinSym_active_error_BData :
               rw [hlen]
               simp
             omega)
-axiom evalBuiltinSym_active_error_UnConstrData : BuiltinErrorSound .UnConstrData
-axiom evalBuiltinSym_active_error_UnMapData : BuiltinErrorSound .UnMapData
-axiom evalBuiltinSym_active_error_UnListData : BuiltinErrorSound .UnListData
-axiom evalBuiltinSym_active_error_UnIData : BuiltinErrorSound .UnIData
-axiom evalBuiltinSym_active_error_UnBData : BuiltinErrorSound .UnBData
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_error_UnConstrData :
+    BuiltinErrorSound .UnConstrData := by
+  intro m args cargs out hargs hmem hactive
+  cases args with
+  | nil =>
+      have hlen := symValListToCekList_length hargs
+      exact evalBuiltin_UnConstrData_none_of_length_ne_one (by
+        intro h1
+        have hzero : cargs.length = 0 := by simpa using hlen
+        omega)
+  | cons dVal rest =>
+      cases rest with
+      | nil =>
+          rw [evalBuiltinSym_UnConstrData_eq dVal] at hmem
+          obtain ⟨cd, hd, rfl⟩ := symValListToCekList_singleton hargs
+          have hpath := checked2_active_error hmem hactive
+          rcases hpath with hinner | hproj
+          · rcases hinner with ⟨inner, hinner, hpData, hinnerActive⟩
+            change inner ∈
+              (let is := SExpr.isCtor "DConstr" (asData dVal).val
+               [Outcome.ok is
+                  (SymVal.const (SymConst.pairData
+                    (.app "DI" [.app "dataConstrTag" [(asData dVal).val]])
+                    (.app "DList" [.app "dataConstrFields" [(asData dVal).val]]))),
+                Outcome.error (SExpr.not is)]) at hinner
+            simp only [List.mem_cons, List.not_mem_nil] at hinner
+            rcases hinner with hok | herr
+            · subst inner
+              simp [outcomeErrorActive] at hinnerActive
+            · rcases herr with herr | hfalse
+              · subst inner
+                by_cases hshape :
+                    ∃ tag fields, cd = .VCon (.Data (.Constr tag fields))
+                · rcases hshape with ⟨tag, fields, rfl⟩
+                  obtain ⟨d, hdCd, hdEval⟩ := asData_sound hd hpData
+                  injection hdCd with hdEq
+                  injection hdEq with hdDataEq
+                  subst d
+                  have his := pcHolds_isDConstr_intro (m := m)
+                    (e := (asData dVal).val) (tag := tag) (fields := fields) hdEval
+                  exact False.elim (pcHolds_not_contra his hinnerActive)
+                · exact evalBuiltin_UnConstrData_none_of_single_not_constr (cv := cd) (by
+                    intro tag fields h
+                    exact hshape ⟨tag, fields, h⟩)
+              · cases hfalse
+          · by_cases hshape :
+              ∃ tag fields, cd = .VCon (.Data (.Constr tag fields))
+            · rcases hshape with ⟨tag, fields, rfl⟩
+              have hg := asData_guard_of_cek (m := m) (v := dVal)
+                (d := .Constr tag fields) hd
+              exact False.elim (pcHolds_not_contra hg hproj)
+            · exact evalBuiltin_UnConstrData_none_of_single_not_constr (cv := cd) (by
+                intro tag fields h
+                exact hshape ⟨tag, fields, h⟩)
+      | cons extra rest2 =>
+          have hlen := symValListToCekList_length hargs
+          exact evalBuiltin_UnConstrData_none_of_length_ne_one (by
+            intro h1
+            have htwo : 2 ≤ cargs.length := by
+              rw [hlen]
+              simp
+            omega)
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_error_UnMapData :
+    BuiltinErrorSound .UnMapData := by
+  intro m args cargs out hargs hmem hactive
+  cases args with
+  | nil =>
+      have hlen := symValListToCekList_length hargs
+      exact evalBuiltin_UnMapData_none_of_length_ne_one (by
+        intro h1
+        have hzero : cargs.length = 0 := by simpa using hlen
+        omega)
+  | cons dVal rest =>
+      cases rest with
+      | nil =>
+          rw [evalBuiltinSym_UnMapData_eq dVal] at hmem
+          obtain ⟨cd, hd, rfl⟩ := symValListToCekList_singleton hargs
+          have hpath := checked2_active_error hmem hactive
+          rcases hpath with hinner | hproj
+          · rcases hinner with ⟨inner, hinner, hpData, hinnerActive⟩
+            change inner ∈
+              (let is := SExpr.isCtor "DMap" (asData dVal).val
+               [Outcome.ok is
+                  (SymVal.const (SymConst.pairDataList
+                    (.app "dataMapEntries" [(asData dVal).val]))),
+                Outcome.error (SExpr.not is)]) at hinner
+            simp only [List.mem_cons, List.not_mem_nil] at hinner
+            rcases hinner with hok | herr
+            · subst inner
+              simp [outcomeErrorActive] at hinnerActive
+            · rcases herr with herr | hfalse
+              · subst inner
+                by_cases hshape : ∃ ps, cd = .VCon (.Data (.Map ps))
+                · rcases hshape with ⟨ps, rfl⟩
+                  obtain ⟨d, hdCd, hdEval⟩ := asData_sound hd hpData
+                  injection hdCd with hdEq
+                  injection hdEq with hdDataEq
+                  subst d
+                  have his := pcHolds_isDMap_intro (m := m)
+                    (e := (asData dVal).val) (ps := ps) hdEval
+                  exact False.elim (pcHolds_not_contra his hinnerActive)
+                · exact evalBuiltin_UnMapData_none_of_single_not_map (cv := cd) (by
+                    intro ps h
+                    exact hshape ⟨ps, h⟩)
+              · cases hfalse
+          · by_cases hshape : ∃ ps, cd = .VCon (.Data (.Map ps))
+            · rcases hshape with ⟨ps, rfl⟩
+              have hg := asData_guard_of_cek (m := m) (v := dVal)
+                (d := .Map ps) hd
+              exact False.elim (pcHolds_not_contra hg hproj)
+            · exact evalBuiltin_UnMapData_none_of_single_not_map (cv := cd) (by
+                intro ps h
+                exact hshape ⟨ps, h⟩)
+      | cons extra rest2 =>
+          have hlen := symValListToCekList_length hargs
+          exact evalBuiltin_UnMapData_none_of_length_ne_one (by
+            intro h1
+            have htwo : 2 ≤ cargs.length := by
+              rw [hlen]
+              simp
+            omega)
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_error_UnListData :
+    BuiltinErrorSound .UnListData := by
+  intro m args cargs out hargs hmem hactive
+  cases args with
+  | nil =>
+      have hlen := symValListToCekList_length hargs
+      exact evalBuiltin_UnListData_none_of_length_ne_one (by
+        intro h1
+        have hzero : cargs.length = 0 := by simpa using hlen
+        omega)
+  | cons dVal rest =>
+      cases rest with
+      | nil =>
+          rw [evalBuiltinSym_UnListData_eq dVal] at hmem
+          obtain ⟨cd, hd, rfl⟩ := symValListToCekList_singleton hargs
+          have hpath := checked2_active_error hmem hactive
+          rcases hpath with hinner | hproj
+          · rcases hinner with ⟨inner, hinner, hpData, hinnerActive⟩
+            change inner ∈
+              (let is := SExpr.isCtor "DList" (asData dVal).val
+               [Outcome.ok is
+                  (SymVal.const (SymConst.dataList
+                    (.app "dataListItems" [(asData dVal).val]))),
+                Outcome.error (SExpr.not is)]) at hinner
+            simp only [List.mem_cons, List.not_mem_nil] at hinner
+            rcases hinner with hok | herr
+            · subst inner
+              simp [outcomeErrorActive] at hinnerActive
+            · rcases herr with herr | hfalse
+              · subst inner
+                by_cases hshape : ∃ xs, cd = .VCon (.Data (.List xs))
+                · rcases hshape with ⟨xs, rfl⟩
+                  obtain ⟨d, hdCd, hdEval⟩ := asData_sound hd hpData
+                  injection hdCd with hdEq
+                  injection hdEq with hdDataEq
+                  subst d
+                  have his := pcHolds_isDList_intro (m := m)
+                    (e := (asData dVal).val) (xs := xs) hdEval
+                  exact False.elim (pcHolds_not_contra his hinnerActive)
+                · exact evalBuiltin_UnListData_none_of_single_not_list (cv := cd) (by
+                    intro xs h
+                    exact hshape ⟨xs, h⟩)
+              · cases hfalse
+          · by_cases hshape : ∃ xs, cd = .VCon (.Data (.List xs))
+            · rcases hshape with ⟨xs, rfl⟩
+              have hg := asData_guard_of_cek (m := m) (v := dVal)
+                (d := .List xs) hd
+              exact False.elim (pcHolds_not_contra hg hproj)
+            · exact evalBuiltin_UnListData_none_of_single_not_list (cv := cd) (by
+                intro xs h
+                exact hshape ⟨xs, h⟩)
+      | cons extra rest2 =>
+          have hlen := symValListToCekList_length hargs
+          exact evalBuiltin_UnListData_none_of_length_ne_one (by
+            intro h1
+            have htwo : 2 ≤ cargs.length := by
+              rw [hlen]
+              simp
+            omega)
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_error_UnIData :
+    BuiltinErrorSound .UnIData := by
+  intro m args cargs out hargs hmem hactive
+  cases args with
+  | nil =>
+      have hlen := symValListToCekList_length hargs
+      exact evalBuiltin_UnIData_none_of_length_ne_one (by
+        intro h1
+        have hzero : cargs.length = 0 := by simpa using hlen
+        omega)
+  | cons dVal rest =>
+      cases rest with
+      | nil =>
+          rw [evalBuiltinSym_UnIData_eq dVal] at hmem
+          obtain ⟨cd, hd, rfl⟩ := symValListToCekList_singleton hargs
+          have hpath := checked2_active_error hmem hactive
+          rcases hpath with hinner | hproj
+          · rcases hinner with ⟨inner, hinner, hpData, hinnerActive⟩
+            change inner ∈
+              (let is := SExpr.isCtor "DI" (asData dVal).val
+               [Outcome.ok is
+                  (SymVal.const (SymConst.integer
+                    (.app "dataInt" [(asData dVal).val]))),
+                Outcome.error (SExpr.not is)]) at hinner
+            simp only [List.mem_cons, List.not_mem_nil] at hinner
+            rcases hinner with hok | herr
+            · subst inner
+              simp [outcomeErrorActive] at hinnerActive
+            · rcases herr with herr | hfalse
+              · subst inner
+                by_cases hshape : ∃ i, cd = .VCon (.Data (.I i))
+                · rcases hshape with ⟨i, rfl⟩
+                  obtain ⟨d, hdCd, hdEval⟩ := asData_sound hd hpData
+                  injection hdCd with hdEq
+                  injection hdEq with hdDataEq
+                  subst d
+                  have his := pcHolds_isDI_intro (m := m)
+                    (e := (asData dVal).val) (i := i) hdEval
+                  exact False.elim (pcHolds_not_contra his hinnerActive)
+                · exact evalBuiltin_UnIData_none_of_single_not_i (cv := cd) (by
+                    intro i h
+                    exact hshape ⟨i, h⟩)
+              · cases hfalse
+          · by_cases hshape : ∃ i, cd = .VCon (.Data (.I i))
+            · rcases hshape with ⟨i, rfl⟩
+              have hg := asData_guard_of_cek (m := m) (v := dVal)
+                (d := .I i) hd
+              exact False.elim (pcHolds_not_contra hg hproj)
+            · exact evalBuiltin_UnIData_none_of_single_not_i (cv := cd) (by
+                intro i h
+                exact hshape ⟨i, h⟩)
+      | cons extra rest2 =>
+          have hlen := symValListToCekList_length hargs
+          exact evalBuiltin_UnIData_none_of_length_ne_one (by
+            intro h1
+            have htwo : 2 ≤ cargs.length := by
+              rw [hlen]
+              simp
+            omega)
+set_option maxHeartbeats 0 in
+theorem evalBuiltinSym_active_error_UnBData :
+    BuiltinErrorSound .UnBData := by
+  intro m args cargs out hargs hmem hactive
+  cases args with
+  | nil =>
+      have hlen := symValListToCekList_length hargs
+      exact evalBuiltin_UnBData_none_of_length_ne_one (by
+        intro h1
+        have hzero : cargs.length = 0 := by simpa using hlen
+        omega)
+  | cons dVal rest =>
+      cases rest with
+      | nil =>
+          rw [evalBuiltinSym_UnBData_eq dVal] at hmem
+          obtain ⟨cd, hd, rfl⟩ := symValListToCekList_singleton hargs
+          have hpath := checked2_active_error hmem hactive
+          rcases hpath with hinner | hproj
+          · rcases hinner with ⟨inner, hinner, hpData, hinnerActive⟩
+            change inner ∈
+              (let is := SExpr.isCtor "DB" (asData dVal).val
+               [Outcome.ok is
+                  (SymVal.const (SymConst.bytes
+                    (.app "dataBytes" [(asData dVal).val]))),
+                Outcome.error (SExpr.not is)]) at hinner
+            simp only [List.mem_cons, List.not_mem_nil] at hinner
+            rcases hinner with hok | herr
+            · subst inner
+              simp [outcomeErrorActive] at hinnerActive
+            · rcases herr with herr | hfalse
+              · subst inner
+                by_cases hshape : ∃ bs, cd = .VCon (.Data (.B bs))
+                · rcases hshape with ⟨bs, rfl⟩
+                  obtain ⟨d, hdCd, hdEval⟩ := asData_sound hd hpData
+                  injection hdCd with hdEq
+                  injection hdEq with hdDataEq
+                  subst d
+                  have his := pcHolds_isDB_intro (m := m)
+                    (e := (asData dVal).val) (bs := bs) hdEval
+                  exact False.elim (pcHolds_not_contra his hinnerActive)
+                · exact evalBuiltin_UnBData_none_of_single_not_b (cv := cd) (by
+                    intro bs h
+                    exact hshape ⟨bs, h⟩)
+              · cases hfalse
+          · by_cases hshape : ∃ bs, cd = .VCon (.Data (.B bs))
+            · rcases hshape with ⟨bs, rfl⟩
+              have hg := asData_guard_of_cek (m := m) (v := dVal)
+                (d := .B bs) hd
+              exact False.elim (pcHolds_not_contra hg hproj)
+            · exact evalBuiltin_UnBData_none_of_single_not_b (cv := cd) (by
+                intro bs h
+                exact hshape ⟨bs, h⟩)
+      | cons extra rest2 =>
+          have hlen := symValListToCekList_length hargs
+          exact evalBuiltin_UnBData_none_of_length_ne_one (by
+            intro h1
+            have htwo : 2 ≤ cargs.length := by
+              rw [hlen]
+              simp
+            omega)
 set_option maxHeartbeats 0 in
 theorem evalBuiltinSym_active_error_EqualsData :
     BuiltinErrorSound .EqualsData := by
