@@ -1453,12 +1453,89 @@ theorem semValToCek_integer {v : SmtSem.Val} {i : Int}
     rcases h with ⟨_hge, hfieldsBind⟩
     cases hfields : semValListToCekList? fields <;> simp [hfields] at hfieldsBind
 
+theorem semValToCek_bytes {v : SmtSem.Val} {bs : ByteArray}
+    (h : semValToCek? v = some (.VCon (.ByteString bs))) :
+    v = .bytes bs := by
+  rw [semValToCek?.eq_def] at h
+  cases v <;> simp [semValToConst?] at h
+  case bytes bs' =>
+    subst bs
+    rfl
+  case list vals =>
+    cases hcs : semValListToConstList? vals <;> simp [hcs] at h
+  case pair a b =>
+    cases ha : semValToConst? a <;> simp [ha] at h
+    cases hb : semValToConst? b <;> simp [hb] at h
+  case array vals =>
+    cases hcs : semValListToConstList? vals <;> simp [hcs] at h
+  case constr tag fields =>
+    rcases h with ⟨_hge, hfieldsBind⟩
+    cases hfields : semValListToCekList? fields <;> simp [hfields] at hfieldsBind
+
+theorem semValToCek_string {v : SmtSem.Val} {s : String}
+    (h : semValToCek? v = some (.VCon (.String s))) :
+    v = .string s := by
+  rw [semValToCek?.eq_def] at h
+  cases v <;> simp [semValToConst?] at h
+  case string s' =>
+    subst s
+    rfl
+  case list vals =>
+    cases hcs : semValListToConstList? vals <;> simp [hcs] at h
+  case pair a b =>
+    cases ha : semValToConst? a <;> simp [ha] at h
+    cases hb : semValToConst? b <;> simp [hb] at h
+  case array vals =>
+    cases hcs : semValListToConstList? vals <;> simp [hcs] at h
+  case constr tag fields =>
+    rcases h with ⟨_hge, hfieldsBind⟩
+    cases hfields : semValListToCekList? fields <;> simp [hfields] at hfieldsBind
+
+theorem semValToCek_data {v : SmtSem.Val} {d : Plutus.Data}
+    (h : semValToCek? v = some (.VCon (.Data d))) :
+    v = .data d := by
+  rw [semValToCek?.eq_def] at h
+  cases v <;> simp [semValToConst?] at h
+  case data d' =>
+    subst d
+    rfl
+  case list vals =>
+    cases hcs : semValListToConstList? vals <;> simp [hcs] at h
+  case pair a b =>
+    cases ha : semValToConst? a <;> simp [ha] at h
+    cases hb : semValToConst? b <;> simp [hb] at h
+  case array vals =>
+    cases hcs : semValListToConstList? vals <;> simp [hcs] at h
+  case constr tag fields =>
+    rcases h with ⟨_hge, hfieldsBind⟩
+    cases hfields : semValListToCekList? fields <;> simp [hfields] at hfieldsBind
+
 theorem semValToCek_dataList {v : SmtSem.Val} {xs : List Plutus.Data}
     (h : semValToCek? v = some (.VCon (.ConstDataList xs))) :
     v = .dataList xs := by
   rw [semValToCek?.eq_def] at h
   cases v <;> simp [semValToConst?] at h
   case dataList ys =>
+    subst xs
+    rfl
+  case list vals =>
+    cases hcs : semValListToConstList? vals <;> simp [hcs] at h
+  case pair a b =>
+    cases ha : semValToConst? a <;> simp [ha] at h
+    cases hb : semValToConst? b <;> simp [hb] at h
+  case array vals =>
+    cases hcs : semValListToConstList? vals <;> simp [hcs] at h
+  case constr tag fields =>
+    rcases h with ⟨_hge, hfieldsBind⟩
+    cases hfields : semValListToCekList? fields <;> simp [hfields] at hfieldsBind
+
+theorem semValToCek_pairDataList {v : SmtSem.Val}
+    {xs : List (Plutus.Data × Plutus.Data)}
+    (h : semValToCek? v = some (.VCon (.ConstPairDataList xs))) :
+    v = .pairDataList xs := by
+  rw [semValToCek?.eq_def] at h
+  cases v <;> simp [semValToConst?] at h
+  case pairDataList ys =>
     subst xs
     rfl
   case list vals =>
@@ -1590,6 +1667,249 @@ theorem symConstToCek_integer {m : SmtSem.Model} {c : SymConst} {i : Int}
       rename_i sv
       cases sv <;> simp [he] at h
 
+theorem symConstToCek_bytes {m : SmtSem.Model} {c : SymConst} {bs : ByteArray}
+    (h : symConstToCek? m c = some (.VCon (.ByteString bs))) :
+    ∃ e, c = .bytes e ∧ SmtSem.eval m e = some (.bytes bs) := by
+  cases c with
+  | integer e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+  | bytes e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+      case bytes bs' =>
+        subst bs
+        exact ⟨e, rfl, he⟩
+  | string e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+  | bool e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+  | unit =>
+      simp [symConstToCek?] at h
+  | data e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+  | constList e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+      case valList vals =>
+        cases hcs : semValListToConstList? vals <;> simp [hcs] at h
+  | dataList e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+  | pairDataList e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+  | pairData a b =>
+      simp [symConstToCek?] at h
+      cases ha : SmtSem.eval m a <;> simp [ha] at h
+      rename_i sva
+      cases hb : SmtSem.eval m b <;> simp [ha, hb] at h
+      rename_i svb
+      cases sva <;> cases svb <;> simp [ha, hb] at h
+  | array e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+      case valList vals =>
+        cases hcs : semValListToConstList? vals <;> simp [hcs] at h
+  | g1 e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+  | g2 e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+  | ml e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+
+theorem symConstToCek_string {m : SmtSem.Model} {c : SymConst} {s : String}
+    (h : symConstToCek? m c = some (.VCon (.String s))) :
+    ∃ e, c = .string e ∧ SmtSem.eval m e = some (.string s) := by
+  cases c with
+  | integer e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+  | bytes e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+  | string e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+      case string s' =>
+        subst s
+        exact ⟨e, rfl, he⟩
+  | bool e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+  | unit =>
+      simp [symConstToCek?] at h
+  | data e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+  | constList e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+      case valList vals =>
+        cases hcs : semValListToConstList? vals <;> simp [hcs] at h
+  | dataList e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+  | pairDataList e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+  | pairData a b =>
+      simp [symConstToCek?] at h
+      cases ha : SmtSem.eval m a <;> simp [ha] at h
+      rename_i sva
+      cases hb : SmtSem.eval m b <;> simp [ha, hb] at h
+      rename_i svb
+      cases sva <;> cases svb <;> simp [ha, hb] at h
+  | array e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+      case valList vals =>
+        cases hcs : semValListToConstList? vals <;> simp [hcs] at h
+  | g1 e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+  | g2 e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+  | ml e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+
+theorem symConstToCek_data {m : SmtSem.Model} {c : SymConst} {d : Plutus.Data}
+    (h : symConstToCek? m c = some (.VCon (.Data d))) :
+    ∃ e, c = .data e ∧ SmtSem.eval m e = some (.data d) := by
+  cases c with
+  | integer e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+  | bytes e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+  | string e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+  | bool e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+  | unit =>
+      simp [symConstToCek?] at h
+  | data e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+      case data d' =>
+        subst d
+        exact ⟨e, rfl, he⟩
+  | constList e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+      case valList vals =>
+        cases hcs : semValListToConstList? vals <;> simp [hcs] at h
+  | dataList e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+  | pairDataList e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+  | pairData a b =>
+      simp [symConstToCek?] at h
+      cases ha : SmtSem.eval m a <;> simp [ha] at h
+      rename_i sva
+      cases hb : SmtSem.eval m b <;> simp [ha, hb] at h
+      rename_i svb
+      cases sva <;> cases svb <;> simp [ha, hb] at h
+  | array e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+      case valList vals =>
+        cases hcs : semValListToConstList? vals <;> simp [hcs] at h
+  | g1 e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+  | g2 e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+  | ml e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+
 theorem symConstToCek_dataList {m : SmtSem.Model} {c : SymConst} {xs : List Plutus.Data}
     (h : symConstToCek? m c = some (.VCon (.ConstDataList xs))) :
     ∃ e, c = .dataList e ∧ SmtSem.eval m e = some (.dataList xs) := by
@@ -1641,6 +1961,88 @@ theorem symConstToCek_dataList {m : SmtSem.Model} {c : SymConst} {xs : List Plut
       cases he : SmtSem.eval m e <;> simp [he] at h
       rename_i sv
       cases sv <;> simp [he] at h
+  | pairData a b =>
+      simp [symConstToCek?] at h
+      cases ha : SmtSem.eval m a <;> simp [ha] at h
+      rename_i sva
+      cases hb : SmtSem.eval m b <;> simp [ha, hb] at h
+      rename_i svb
+      cases sva <;> cases svb <;> simp [ha, hb] at h
+  | array e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+      case valList vals =>
+        cases hcs : semValListToConstList? vals <;> simp [hcs] at h
+  | g1 e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+  | g2 e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+  | ml e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+
+theorem symConstToCek_pairDataList {m : SmtSem.Model} {c : SymConst}
+    {xs : List (Plutus.Data × Plutus.Data)}
+    (h : symConstToCek? m c = some (.VCon (.ConstPairDataList xs))) :
+    ∃ e, c = .pairDataList e ∧ SmtSem.eval m e = some (.dataPairList xs) := by
+  cases c with
+  | integer e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+  | bytes e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+  | string e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+  | bool e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+  | unit =>
+      simp [symConstToCek?] at h
+  | data e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+  | constList e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+      case valList vals =>
+        cases hcs : semValListToConstList? vals <;> simp [hcs] at h
+  | dataList e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+  | pairDataList e =>
+      simp [symConstToCek?] at h
+      cases he : SmtSem.eval m e <;> simp [he] at h
+      rename_i sv
+      cases sv <;> simp [he] at h
+      case dataPairList ys =>
+        subst xs
+        exact ⟨e, rfl, he⟩
   | pairData a b =>
       simp [symConstToCek?] at h
       cases ha : SmtSem.eval m a <;> simp [ha] at h
@@ -2439,6 +2841,50 @@ theorem asBytes_sound {m : SmtSem.Model} {v : SymVal} {cv : CekValue}
   | builtin b args ea =>
       simp [asBytes, valueProj, Proj.fail, pcHolds] at hg
 
+theorem asBytes_guard_of_cek {m : SmtSem.Model} {v : SymVal} {bs : ByteArray}
+    (hv : symValToCek? m v = some (.VCon (.ByteString bs))) :
+    pcHolds m (asBytes v).guard = true := by
+  cases v with
+  | const c =>
+      obtain ⟨e, hc, _he⟩ :=
+        symConstToCek_bytes (by simpa [symValToCek?] using hv)
+      subst c
+      simp [asBytes, Proj.pure, pcHolds]
+  | dyn e =>
+      simp [asBytes, valueProj, pcHolds, symValToCek?] at hv ⊢
+      cases he : SmtSem.eval m e <;> simp [he] at hv
+      rename_i sv
+      cases sv <;> simp at hv
+      case val val =>
+        have hval := semValToCek_bytes hv
+        subst val
+        exact Moist.SMT.Semantics.evalBoolIs_isVBytes_of he
+  | pair a b =>
+      simp [symValToCek?] at hv
+      cases ha : symValToCek? m a <;> simp [ha] at hv
+      rename_i cva
+      cases hb : symValToCek? m b <;> simp [hb] at hv
+      rename_i cvb
+      cases cva <;> cases cvb <;> simp at hv
+  | constr tag fields =>
+      simp [symValToCek?] at hv
+      cases htag : SmtSem.eval m tag <;> simp [htag] at hv
+      rename_i sv
+      cases sv <;> simp [htag] at hv
+      rename_i i
+      by_cases hneg : i < 0
+      · exact False.elim ((Int.not_le).mpr hneg hv.1)
+      · cases hfields : symValListToCekList? m fields <;> simp [hfields] at hv
+  | lam body ρ =>
+      simp [symValToCek?] at hv
+      cases henv : symEnvToCek? m ρ <;> simp [henv] at hv
+  | delay body ρ =>
+      simp [symValToCek?] at hv
+      cases henv : symEnvToCek? m ρ <;> simp [henv] at hv
+  | builtin b args ea =>
+      simp [symValToCek?] at hv
+      cases hargs : symValListToCekList? m args <;> simp [hargs] at hv
+
 theorem asString_sound {m : SmtSem.Model} {v : SymVal} {cv : CekValue}
     (hv : symValToCek? m v = some cv)
     (hg : pcHolds m (asString v).guard = true) :
@@ -2475,6 +2921,50 @@ theorem asString_sound {m : SmtSem.Model} {v : SymVal} {cv : CekValue}
   | builtin b args ea =>
       simp [asString, valueProj, Proj.fail, pcHolds] at hg
 
+theorem asString_guard_of_cek {m : SmtSem.Model} {v : SymVal} {s : String}
+    (hv : symValToCek? m v = some (.VCon (.String s))) :
+    pcHolds m (asString v).guard = true := by
+  cases v with
+  | const c =>
+      obtain ⟨e, hc, _he⟩ :=
+        symConstToCek_string (by simpa [symValToCek?] using hv)
+      subst c
+      simp [asString, Proj.pure, pcHolds]
+  | dyn e =>
+      simp [asString, valueProj, pcHolds, symValToCek?] at hv ⊢
+      cases he : SmtSem.eval m e <;> simp [he] at hv
+      rename_i sv
+      cases sv <;> simp at hv
+      case val val =>
+        have hval := semValToCek_string hv
+        subst val
+        exact Moist.SMT.Semantics.evalBoolIs_isVString_of he
+  | pair a b =>
+      simp [symValToCek?] at hv
+      cases ha : symValToCek? m a <;> simp [ha] at hv
+      rename_i cva
+      cases hb : symValToCek? m b <;> simp [hb] at hv
+      rename_i cvb
+      cases cva <;> cases cvb <;> simp at hv
+  | constr tag fields =>
+      simp [symValToCek?] at hv
+      cases htag : SmtSem.eval m tag <;> simp [htag] at hv
+      rename_i sv
+      cases sv <;> simp [htag] at hv
+      rename_i i
+      by_cases hneg : i < 0
+      · exact False.elim ((Int.not_le).mpr hneg hv.1)
+      · cases hfields : symValListToCekList? m fields <;> simp [hfields] at hv
+  | lam body ρ =>
+      simp [symValToCek?] at hv
+      cases henv : symEnvToCek? m ρ <;> simp [henv] at hv
+  | delay body ρ =>
+      simp [symValToCek?] at hv
+      cases henv : symEnvToCek? m ρ <;> simp [henv] at hv
+  | builtin b args ea =>
+      simp [symValToCek?] at hv
+      cases hargs : symValListToCekList? m args <;> simp [hargs] at hv
+
 theorem asData_sound {m : SmtSem.Model} {v : SymVal} {cv : CekValue}
     (hv : symValToCek? m v = some cv)
     (hg : pcHolds m (asData v).guard = true) :
@@ -2510,6 +3000,50 @@ theorem asData_sound {m : SmtSem.Model} {v : SymVal} {cv : CekValue}
       simp [asData, valueProj, Proj.fail, pcHolds] at hg
   | builtin b args ea =>
       simp [asData, valueProj, Proj.fail, pcHolds] at hg
+
+theorem asData_guard_of_cek {m : SmtSem.Model} {v : SymVal} {d : Plutus.Data}
+    (hv : symValToCek? m v = some (.VCon (.Data d))) :
+    pcHolds m (asData v).guard = true := by
+  cases v with
+  | const c =>
+      obtain ⟨e, hc, _he⟩ :=
+        symConstToCek_data (by simpa [symValToCek?] using hv)
+      subst c
+      simp [asData, Proj.pure, pcHolds]
+  | dyn e =>
+      simp [asData, valueProj, pcHolds, symValToCek?] at hv ⊢
+      cases he : SmtSem.eval m e <;> simp [he] at hv
+      rename_i sv
+      cases sv <;> simp at hv
+      case val val =>
+        have hval := semValToCek_data hv
+        subst val
+        exact Moist.SMT.Semantics.evalBoolIs_isVData_of he
+  | pair a b =>
+      simp [symValToCek?] at hv
+      cases ha : symValToCek? m a <;> simp [ha] at hv
+      rename_i cva
+      cases hb : symValToCek? m b <;> simp [hb] at hv
+      rename_i cvb
+      cases cva <;> cases cvb <;> simp at hv
+  | constr tag fields =>
+      simp [symValToCek?] at hv
+      cases htag : SmtSem.eval m tag <;> simp [htag] at hv
+      rename_i sv
+      cases sv <;> simp [htag] at hv
+      rename_i i
+      by_cases hneg : i < 0
+      · exact False.elim ((Int.not_le).mpr hneg hv.1)
+      · cases hfields : symValListToCekList? m fields <;> simp [hfields] at hv
+  | lam body ρ =>
+      simp [symValToCek?] at hv
+      cases henv : symEnvToCek? m ρ <;> simp [henv] at hv
+  | delay body ρ =>
+      simp [symValToCek?] at hv
+      cases henv : symEnvToCek? m ρ <;> simp [henv] at hv
+  | builtin b args ea =>
+      simp [symValToCek?] at hv
+      cases hargs : symValListToCekList? m args <;> simp [hargs] at hv
 
 theorem asDataList_sound {m : SmtSem.Model} {v : SymVal} {cv : CekValue}
     (hv : symValToCek? m v = some cv)
@@ -2626,6 +3160,51 @@ theorem asPairDataList_sound {m : SmtSem.Model} {v : SymVal} {cv : CekValue}
       simp [asPairDataList, valueProj, Proj.fail, pcHolds] at hg
   | builtin b args ea =>
       simp [asPairDataList, valueProj, Proj.fail, pcHolds] at hg
+
+theorem asPairDataList_guard_of_cek {m : SmtSem.Model} {v : SymVal}
+    {xs : List (Plutus.Data × Plutus.Data)}
+    (hv : symValToCek? m v = some (.VCon (.ConstPairDataList xs))) :
+    pcHolds m (asPairDataList v).guard = true := by
+  cases v with
+  | const c =>
+      obtain ⟨e, hc, _he⟩ :=
+        symConstToCek_pairDataList (by simpa [symValToCek?] using hv)
+      subst c
+      simp [asPairDataList, Proj.pure, pcHolds]
+  | dyn e =>
+      simp [asPairDataList, valueProj, pcHolds, symValToCek?] at hv ⊢
+      cases he : SmtSem.eval m e <;> simp [he] at hv
+      rename_i sv
+      cases sv <;> simp at hv
+      case val val =>
+        have hval := semValToCek_pairDataList hv
+        subst val
+        exact Moist.SMT.Semantics.evalBoolIs_isVPairDataList_of he
+  | pair a b =>
+      simp [symValToCek?] at hv
+      cases ha : symValToCek? m a <;> simp [ha] at hv
+      rename_i cva
+      cases hb : symValToCek? m b <;> simp [hb] at hv
+      rename_i cvb
+      cases cva <;> cases cvb <;> simp at hv
+  | constr tag fields =>
+      simp [symValToCek?] at hv
+      cases htag : SmtSem.eval m tag <;> simp [htag] at hv
+      rename_i sv
+      cases sv <;> simp [htag] at hv
+      rename_i i
+      by_cases hneg : i < 0
+      · exact False.elim ((Int.not_le).mpr hneg hv.1)
+      · cases hfields : symValListToCekList? m fields <;> simp [hfields] at hv
+  | lam body ρ =>
+      simp [symValToCek?] at hv
+      cases henv : symEnvToCek? m ρ <;> simp [henv] at hv
+  | delay body ρ =>
+      simp [symValToCek?] at hv
+      cases henv : symEnvToCek? m ρ <;> simp [henv] at hv
+  | builtin b args ea =>
+      simp [symValToCek?] at hv
+      cases hargs : symValListToCekList? m args <;> simp [hargs] at hv
 
 theorem asPairData_sound {m : SmtSem.Model} {v : SymVal} {cv : CekValue}
     (hv : symValToCek? m v = some cv)

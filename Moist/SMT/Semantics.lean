@@ -1499,6 +1499,48 @@ theorem evalBoolIs_isVInt_of {m : Model} {e : Expr} {i : Int}
   rw [he]
   rfl
 
+theorem evalBoolIs_isVBytes_of {m : Model} {e : Expr} {bs : ByteArray}
+    (he : eval m e = some (.val (.bytes bs))) :
+    evalBoolIs m (.app "(_ is VBytes)" [e]) true = true := by
+  rw [evalBoolIs_true_eq]
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "(_ is VBytes)" vs) = some (.bool true)
+  rw [evalList.eq_def]
+  simp [he]
+  rw [evalList.eq_def]
+  rfl
+
+theorem evalBoolIs_isVString_of {m : Model} {e : Expr} {s : String}
+    (he : eval m e = some (.val (.string s))) :
+    evalBoolIs m (.app "(_ is VString)" [e]) true = true := by
+  rw [evalBoolIs_true_eq]
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "(_ is VString)" vs) = some (.bool true)
+  rw [evalList.eq_def]
+  simp [he]
+  rw [evalList.eq_def]
+  rfl
+
+theorem evalBoolIs_isVData_of {m : Model} {e : Expr} {d : Data}
+    (he : eval m e = some (.val (.data d))) :
+    evalBoolIs m (.app "(_ is VData)" [e]) true = true := by
+  rw [evalBoolIs_true_eq]
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "(_ is VData)" vs) = some (.bool true)
+  rw [evalList.eq_def]
+  simp [he]
+  rw [evalList.eq_def]
+  rfl
+
 theorem evalBoolIs_isVDataList_of {m : Model} {e : Expr} {xs : List Data}
     (he : eval m e = some (.val (.dataList xs))) :
     evalBoolIs m (.app "(_ is VDataList)" [e]) true = true := by
@@ -1508,6 +1550,21 @@ theorem evalBoolIs_isVDataList_of {m : Model} {e : Expr} {xs : List Data}
     (do
       let vs ← evalList m [e]
       evalApp "(_ is VDataList)" vs) = some (.bool true)
+  rw [evalList.eq_def]
+  simp [he]
+  rw [evalList.eq_def]
+  rfl
+
+theorem evalBoolIs_isVPairDataList_of {m : Model} {e : Expr}
+    {xs : List (Data × Data)}
+    (he : eval m e = some (.val (.pairDataList xs))) :
+    evalBoolIs m (.app "(_ is VPairDataList)" [e]) true = true := by
+  rw [evalBoolIs_true_eq]
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "(_ is VPairDataList)" vs) = some (.bool true)
   rw [evalList.eq_def]
   simp [he]
   rw [evalList.eq_def]
