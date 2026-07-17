@@ -107,18 +107,18 @@ private def sampleOutcomes : List Outcome :=
   , .timeout (.sym "t2")
   ]
 
-#guard (compactOutcomes sampleOutcomes).length == 4
-#guard successCount (compactOutcomes sampleOutcomes) == 2
+#guard (compactOutcomes sampleOutcomes).length == 6
+#guard successCount (compactOutcomes sampleOutcomes) == 4
 #guard errorCount (compactOutcomes sampleOutcomes) == 1
 #guard timeoutCount (compactOutcomes sampleOutcomes) == 1
 
--- End-to-end regression beyond the former six-element practical limit.  All
--- successful orderings are packed into one value; only the linearly many
+-- End-to-end regression beyond the former six-element practical limit.  Each
+-- successful representation is packed once; only the linearly many
 -- outer call-site errors and the single exhausted symbolic-recursion path
 -- remain as separate outcome kinds.
 #guard
   let outs := insertionSortOutcomes 7
-  outs.length == 10 && successCount outs == 1 &&
+  outs.length == 11 && successCount outs == 2 &&
     errorCount outs == 8 && timeoutCount outs == 1
 
 -- These are the public kernel-checked CEK endpoints exercised by generated

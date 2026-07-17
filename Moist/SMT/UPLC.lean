@@ -319,38 +319,58 @@ Lazy UPLC conditionals select delays and are forced immediately by compiled
 programs.  Without compaction, every force materializes one outcome for every
 symbolic branch and later continuations duplicate once for each of them.
 
-First-order values all have the common SMT sort `Val`.  We can therefore pack
-several successful outcomes into one value using nested `ite`s, guarded by the
-disjunction of their path conditions.  Non-encodable (higher-order) values are
-left untouched.  Error and timeout paths carry no value and are coalesced by
-disjoining their path conditions.
+Successful values of the same first-order representation are packed with
+nested `ite`s, guarded by the disjunction of their path conditions.  Native
+list sorts remain native instead of being round-tripped through the generic
+`Val` datatype.  Non-encodable (higher-order) values are left untouched.
+Error and timeout paths carry no value and are coalesced by disjunction.
 -/
 
 abbrev EncodedOk := SExpr × SExpr
 
-/-- Values compacted at force joins.  Both builtin-list representations can
-arise while a symbolic list's element type is being checked, so packing only
-one of them would retain a redundant branch at every `MkCons`.  Already-packed
-dynamic values can be repacked at subsequent joins; every other value remains
-an ordinary outcome. -/
-def compactEncodeVal? : SymVal → Option SExpr
-  | .const (.constList xs) => some (.app "VList" [xs])
-  | .const (.dataList xs) => some (.app "VDataList" [xs])
-  | .dyn e => some e
+/-- The three first-order representations that can be compacted at a force
+join.  Keeping their SMT sorts separate is operationally important: a list
+that is packed through the generic `Val` datatype must otherwise be tested and
+projected again at every subsequent list builtin. -/
+inductive CompactKind where
+  | constList
+  | dataList
+  | dyn
+deriving Repr, BEq
+
+namespace CompactKind
+
+def encode? : CompactKind → SymVal → Option SExpr
+  | .constList, .const (.constList xs) => some xs
+  | .dataList, .const (.dataList xs) => some xs
+  | .dyn, .dyn e => some e
+  | _, _ => none
+
+def decode : CompactKind → SExpr → SymVal
+  | .constList, e => .const (.constList e)
+  | .dataList, e => .const (.dataList e)
+  | .dyn, e => .dyn e
+
+end CompactKind
+
+def compactKind? : SymVal → Option CompactKind
+  | .const (.constList _) => some .constList
+  | .const (.dataList _) => some .dataList
+  | .dyn _ => some .dyn
   | _ => none
 
-def encodedOks : List Outcome → List EncodedOk
+def encodedOks (kind : CompactKind) : List Outcome → List EncodedOk
   | [] => []
   | .ok pc v :: outs =>
-      match compactEncodeVal? v with
-      | some e => (pc, e) :: encodedOks outs
-      | none => encodedOks outs
-  | _ :: outs => encodedOks outs
+      match kind.encode? v with
+      | some e => (pc, e) :: encodedOks kind outs
+      | none => encodedOks kind outs
+  | _ :: outs => encodedOks kind outs
 
 def nonEncodedOks : List Outcome → List Outcome
   | [] => []
   | out@(.ok _ v) :: outs =>
-      match compactEncodeVal? v with
+      match compactKind? v with
       | some _ => nonEncodedOks outs
       | none => out :: nonEncodedOks outs
   | _ :: outs => nonEncodedOks outs
@@ -379,10 +399,16 @@ def mergeEncodedOks : List EncodedOk → Option EncodedOk
           -- `ite` is decoded.
           some (.app "or" [pc, restPc], SExpr.ite pc value restValue)
 
-def mergedOkOutcome (outs : List Outcome) : List Outcome :=
-  match mergeEncodedOks (encodedOks outs) with
+def mergedOkOutcome (kind : CompactKind) (outs : List Outcome) : List Outcome :=
+  match mergeEncodedOks (encodedOks kind outs) with
   | none => []
-  | some (pc, value) => [.ok pc (.dyn value)]
+  | some (pc, value) => [.ok pc (kind.decode value)]
+
+def compactedOkOutcomes (outs : List Outcome) : List Outcome :=
+  mergedOkOutcome .constList outs ++
+    mergedOkOutcome .dataList outs ++
+    mergedOkOutcome .dyn outs ++
+    nonEncodedOks outs
 
 def mergedErrorOutcome (outs : List Outcome) : List Outcome :=
   match errorPcs outs with
@@ -397,7 +423,7 @@ def mergedTimeoutOutcome (outs : List Outcome) : List Outcome :=
 /-- Collapse redundant first-order branches while retaining every higher-order
 branch.  This is applied at `Force`, the join point for compiled lazy `if`s. -/
 def compactOutcomes (outs : List Outcome) : List Outcome :=
-  mergedOkOutcome outs ++ nonEncodedOks outs ++
+  compactedOkOutcomes outs ++
     mergedErrorOutcome outs ++ mergedTimeoutOutcome outs
 
 structure Proj (α : Type) where
