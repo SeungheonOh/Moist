@@ -1347,10 +1347,6 @@ theorem evalBuiltinSym_active_ok_LessThanEqualsByteString :
           | cons _ _ =>
               change Outcome.ok pc v ∈ err at hmem
               simp [err] at hmem
-axiom evalBuiltinSym_active_ok_Sha2_256 : BuiltinOkSound .Sha2_256
-axiom evalBuiltinSym_active_ok_Sha3_256 : BuiltinOkSound .Sha3_256
-axiom evalBuiltinSym_active_ok_Blake2b_256 : BuiltinOkSound .Blake2b_256
-axiom evalBuiltinSym_active_ok_VerifyEd25519Signature : BuiltinOkSound .VerifyEd25519Signature
 set_option maxHeartbeats 0 in
 theorem evalBuiltinSym_active_ok_AppendString : BuiltinOkSound .AppendString := by
   intro m args cargs pc v hargs _hnoArgs hmem hpc
@@ -3154,28 +3150,6 @@ theorem evalBuiltinSym_active_ok_MkNilPairData : BuiltinOkSound .MkNilPairData :
           | cons _ _ =>
               change Outcome.ok pc v ∈ err at hmem
               simp [err] at hmem
-axiom evalBuiltinSym_active_ok_SerializeData : BuiltinOkSound .SerializeData
-axiom evalBuiltinSym_active_ok_VerifyEcdsaSecp256k1Signature : BuiltinOkSound .VerifyEcdsaSecp256k1Signature
-axiom evalBuiltinSym_active_ok_VerifySchnorrSecp256k1Signature : BuiltinOkSound .VerifySchnorrSecp256k1Signature
-axiom evalBuiltinSym_active_ok_Bls12_381_G1_add : BuiltinOkSound .Bls12_381_G1_add
-axiom evalBuiltinSym_active_ok_Bls12_381_G1_neg : BuiltinOkSound .Bls12_381_G1_neg
-axiom evalBuiltinSym_active_ok_Bls12_381_G1_scalarMul : BuiltinOkSound .Bls12_381_G1_scalarMul
-axiom evalBuiltinSym_active_ok_Bls12_381_G1_equal : BuiltinOkSound .Bls12_381_G1_equal
-axiom evalBuiltinSym_active_ok_Bls12_381_G1_hashToGroup : BuiltinOkSound .Bls12_381_G1_hashToGroup
-axiom evalBuiltinSym_active_ok_Bls12_381_G1_compress : BuiltinOkSound .Bls12_381_G1_compress
-axiom evalBuiltinSym_active_ok_Bls12_381_G1_uncompress : BuiltinOkSound .Bls12_381_G1_uncompress
-axiom evalBuiltinSym_active_ok_Bls12_381_G2_add : BuiltinOkSound .Bls12_381_G2_add
-axiom evalBuiltinSym_active_ok_Bls12_381_G2_neg : BuiltinOkSound .Bls12_381_G2_neg
-axiom evalBuiltinSym_active_ok_Bls12_381_G2_scalarMul : BuiltinOkSound .Bls12_381_G2_scalarMul
-axiom evalBuiltinSym_active_ok_Bls12_381_G2_equal : BuiltinOkSound .Bls12_381_G2_equal
-axiom evalBuiltinSym_active_ok_Bls12_381_G2_hashToGroup : BuiltinOkSound .Bls12_381_G2_hashToGroup
-axiom evalBuiltinSym_active_ok_Bls12_381_G2_compress : BuiltinOkSound .Bls12_381_G2_compress
-axiom evalBuiltinSym_active_ok_Bls12_381_G2_uncompress : BuiltinOkSound .Bls12_381_G2_uncompress
-axiom evalBuiltinSym_active_ok_Bls12_381_millerLoop : BuiltinOkSound .Bls12_381_millerLoop
-axiom evalBuiltinSym_active_ok_Bls12_381_mulMlResult : BuiltinOkSound .Bls12_381_mulMlResult
-axiom evalBuiltinSym_active_ok_Bls12_381_finalVerify : BuiltinOkSound .Bls12_381_finalVerify
-axiom evalBuiltinSym_active_ok_Keccak_256 : BuiltinOkSound .Keccak_256
-axiom evalBuiltinSym_active_ok_Blake2b_224 : BuiltinOkSound .Blake2b_224
 axiom evalBuiltinSym_active_ok_IntegerToByteString : BuiltinOkSound .IntegerToByteString
 axiom evalBuiltinSym_active_ok_ByteStringToInteger : BuiltinOkSound .ByteStringToInteger
 axiom evalBuiltinSym_active_ok_AndByteString : BuiltinOkSound .AndByteString
@@ -3189,7 +3163,6 @@ axiom evalBuiltinSym_active_ok_ShiftByteString : BuiltinOkSound .ShiftByteString
 axiom evalBuiltinSym_active_ok_RotateByteString : BuiltinOkSound .RotateByteString
 axiom evalBuiltinSym_active_ok_CountSetBits : BuiltinOkSound .CountSetBits
 axiom evalBuiltinSym_active_ok_FindFirstSetBit : BuiltinOkSound .FindFirstSetBit
-axiom evalBuiltinSym_active_ok_Ripemd_160 : BuiltinOkSound .Ripemd_160
 axiom evalBuiltinSym_active_ok_ExpModInteger : BuiltinOkSound .ExpModInteger
 set_option maxHeartbeats 0 in
 theorem evalBuiltinSym_active_ok_DropList : BuiltinOkSound .DropList := by

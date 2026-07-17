@@ -2569,14 +2569,4 @@ theorem evalBuiltin_IndexArray_none_of_nonnegative_get_none {cs : List Const} {i
     | some c => some (CekValue.VCon c)
     | none => none) = none
   simp [hnlt, hget]
-axiom evalBuiltinSym_active_ok_InsertCoin : BuiltinOkSound .InsertCoin
-axiom evalBuiltinSym_active_ok_LookupCoin : BuiltinOkSound .LookupCoin
-axiom evalBuiltinSym_active_ok_ScaleValue : BuiltinOkSound .ScaleValue
-axiom evalBuiltinSym_active_ok_UnionValue : BuiltinOkSound .UnionValue
-axiom evalBuiltinSym_active_ok_ValueContains : BuiltinOkSound .ValueContains
-axiom evalBuiltinSym_active_ok_ValueData : BuiltinOkSound .ValueData
-axiom evalBuiltinSym_active_ok_UnValueData : BuiltinOkSound .UnValueData
-axiom evalBuiltinSym_active_ok_Bls12_381_G1_multiScalarMul : BuiltinOkSound .Bls12_381_G1_multiScalarMul
-axiom evalBuiltinSym_active_ok_Bls12_381_G2_multiScalarMul : BuiltinOkSound .Bls12_381_G2_multiScalarMul
-
 end Moist.SMT.UPLC.Soundness

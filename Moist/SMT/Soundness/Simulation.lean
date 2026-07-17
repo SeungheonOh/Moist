@@ -7,14 +7,11 @@ open Moist.Plutus.Term
 open Moist.Verified.BigStep
 open Moist.CEK (ArgKind ExpectedArgs expectedArgs CekEnv CekValue)
 
-/-! The total dispatchers above document the status of every builtin, including
-opaque ones whose soundness is still postulated elsewhere in this reference
-development.  The CEK theorem is intentionally restricted to
-`builtinAllowedForSoundness`; dispatching through the total functions would
-nevertheless retain those postulates as declaration dependencies.  These two
-restricted dispatchers make that logical restriction effective in the proof
-term itself: every accepted branch selects a proved theorem, and all remaining
-branches are discharged from the false `builtinAllowedForSoundness` premise. -/
+/-! The CEK simulation only dispatches builtins accepted by
+`builtinAllowedForSoundness`.  Unsupported branches have no soundness theorem;
+the false admissibility premise eliminates them before a theorem is selected.
+Consequently, the simulation proof cannot acquire a dependency on unsupported
+builtin semantics. -/
 
 theorem allowedBuiltin_not_opaque {b : BuiltinFun}
     (hallowed : builtinAllowedForSoundness b = true)
