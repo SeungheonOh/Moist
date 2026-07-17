@@ -69,27 +69,31 @@ theorem isFalse_eq_true {e : Expr} : Expr.isFalse e = true ↔ e = .bool false :
 
 private theorem evalBool?_and_true_left (m : Model) (b : Expr) :
     evalBool? m b = evalBool? m (.app "and" [.bool true, b]) := by
-  cases h : eval m b <;> simp [evalBool?, eval, h]
-  rename_i v
-  cases v <;> simp [evalBool?, eval, h]
+  rw [evalBool?_app_and_strong]
+  cases h : evalBool? m b with
+  | none => simp [strongAnd, evalBool?, eval, h]
+  | some b => cases b <;> simp [strongAnd, evalBool?, eval, h]
 
 private theorem evalBool?_and_true_right (m : Model) (a : Expr) :
     evalBool? m a = evalBool? m (.app "and" [a, .bool true]) := by
-  cases h : eval m a <;> simp [evalBool?, eval, h]
-  rename_i v
-  cases v <;> simp [evalBool?, eval, h]
+  rw [evalBool?_app_and_strong]
+  cases h : evalBool? m a with
+  | none => simp [strongAnd, evalBool?, eval, h]
+  | some a => cases a <;> simp [strongAnd, evalBool?, eval, h]
 
 private theorem evalBool?_or_false_left (m : Model) (b : Expr) :
     evalBool? m b = evalBool? m (.app "or" [.bool false, b]) := by
-  cases h : eval m b <;> simp [evalBool?, eval, h]
-  rename_i v
-  cases v <;> simp [evalBool?, eval, h]
+  rw [evalBool?_app_or_strong]
+  cases h : evalBool? m b with
+  | none => simp [strongOr, evalBool?, eval, h]
+  | some b => cases b <;> simp [strongOr, evalBool?, eval, h]
 
 private theorem evalBool?_or_false_right (m : Model) (a : Expr) :
     evalBool? m a = evalBool? m (.app "or" [a, .bool false]) := by
-  cases h : eval m a <;> simp [evalBool?, eval, h]
-  rename_i v
-  cases v <;> simp [evalBool?, eval, h]
+  rw [evalBool?_app_or_strong]
+  cases h : evalBool? m a with
+  | none => simp [strongOr, evalBool?, eval, h]
+  | some a => cases a <;> simp [strongOr, evalBool?, eval, h]
 
 private theorem evalBool?_not_eq (m : Model) (a : Expr) :
     evalBool? m (.app "not" [a]) = (!·) <$> evalBool? m a := by
@@ -98,30 +102,14 @@ private theorem evalBool?_not_eq (m : Model) (a : Expr) :
   cases v <;> simp [evalBool?, eval, h]
 
 private theorem evalBool?_and_eq (m : Model) (a b : Expr) :
-    evalBool? m (.app "and" [a, b]) = (do
-      let ba ← evalBool? m a
-      let bb ← evalBool? m b
-      pure (ba && bb)) := by
-  cases ha : eval m a <;> simp [evalBool?, eval, ha]
-  rename_i va
-  cases va <;> simp [evalBool?, eval, ha]
-  case bool ba =>
-    cases hb : eval m b <;> simp [evalBool?, eval, hb]
-    rename_i vb
-    cases vb <;> simp [evalBool?, eval, hb]
+    evalBool? m (.app "and" [a, b]) =
+      strongAnd (evalBool? m a) (evalBool? m b) := by
+  exact evalBool?_app_and_strong m a b
 
 private theorem evalBool?_or_eq (m : Model) (a b : Expr) :
-    evalBool? m (.app "or" [a, b]) = (do
-      let ba ← evalBool? m a
-      let bb ← evalBool? m b
-      pure (ba || bb)) := by
-  cases ha : eval m a <;> simp [evalBool?, eval, ha]
-  rename_i va
-  cases va <;> simp [evalBool?, eval, ha]
-  case bool ba =>
-    cases hb : eval m b <;> simp [evalBool?, eval, hb]
-    rename_i vb
-    cases vb <;> simp [evalBool?, eval, hb]
+    evalBool? m (.app "or" [a, b]) =
+      strongOr (evalBool? m a) (evalBool? m b) := by
+  exact evalBool?_app_or_strong m a b
 
 private theorem evalBool?_ite_eq (m : Model) (c t e : Expr) :
     evalBool? m (.ite c t e) = (do
@@ -289,4 +277,3 @@ theorem evalBoolIs_simplifyBool (m : Model) (e : Expr) (b : Bool) :
 end Semantics
 
 end Moist.SMT
-

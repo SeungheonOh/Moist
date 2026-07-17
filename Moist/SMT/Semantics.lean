@@ -97,6 +97,33 @@ private def haskellDiv (a b : Int) : Int :=
 private def haskellMod (a b : Int) : Int :=
   Moist.Plutus.uplcIntegerMod a b
 
+/-- Boolean projection used by the total SMT truth interpretation below. -/
+private def sbool : Option SVal → Option Bool
+  | some (.bool b) => some b
+  | _ => none
+
+/-- Strong three-valued conjunction used for compiler-generated guarded
+formulas.  It masks an inactive undefined selector once a generated guard is
+false.  This is not claimed as a complete semantics for arbitrary ill-typed
+or unguarded SMT expressions. -/
+def strongAnd : Option Bool → Option Bool → Option Bool
+  | some false, _ | _, some false => some false
+  | some true, some true => some true
+  | _, _ => none
+
+/-- Strong three-valued disjunction for compiler-generated guarded formulas,
+dual to `strongAnd`. -/
+def strongOr : Option Bool → Option Bool → Option Bool
+  | some true, _ | _, some true => some true
+  | some false, some false => some false
+  | _, _ => none
+
+private def smtAndResult (a b : Option SVal) : Option SVal :=
+  SVal.bool <$> strongAnd (sbool a) (sbool b)
+
+private def smtOrResult (a b : Option SVal) : Option SVal :=
+  SVal.bool <$> strongOr (sbool a) (sbool b)
+
 mutual
   private def constValValid : Val → Bool
     | .int _ | .bytes _ | .string _ | .bool _ | .unit | .data _
@@ -340,10 +367,10 @@ private def evalApp (f : String) (vs : List SVal) : Option SVal :=
       | ">=", [.int a, .int b] => some (.bool (a >= b))
       | "seq.unit", [.int n] => SVal.bytes <$> bytesSingleton n
       | "seq.++", [.bytes a, .bytes b] => some (.bytes (a ++ b))
+      | "seq.++", [.string a, .string b] => some (.string (a ++ b))
       | "seq.len", [.bytes a] => some (.int (Int.ofNat a.size))
       | "seq.nth", [.bytes a, .int i] => SVal.int <$> bytesNth a i
       | "seq.extract", [.bytes a, .int start, .int len] => some (.bytes (bytesExtract a start len))
-      | "str.++", [.string a, .string b] => some (.string (a ++ b))
       | "uplc_encodeUtf8", [.string s] => some (.bytes s.toUTF8)
       | "valid_utf8", [.bytes bs] => some (.bool (String.validateUTF8 bs))
       | "uplc_decodeUtf8", [.bytes bs] =>
@@ -357,6 +384,7 @@ private def evalApp (f : String) (vs : List SVal) : Option SVal :=
       | "bytes_lt", [.bytes a, .bytes b] => some (.bool (bsLt a b))
       | "bytes_le", [.bytes a, .bytes b] => some (.bool (bsLe a b))
       | "bytes_valid", [.bytes _] => some (.bool true)
+      | "ustring_valid", [.string _] => some (.bool true)
       | "data_valid", [.data _] => some (.bool true)
       | "dlist_valid", [.dataList _] => some (.bool true)
       | "dplist_valid", [.dataPairList _] => some (.bool true)
@@ -578,7 +606,7 @@ private theorem evalApp_bytesLe (a b : ByteArray) :
   rfl
 
 private theorem evalApp_strAppend (a b : String) :
-    evalApp "str.++" [SVal.string a, SVal.string b] = some (SVal.string (a ++ b)) := by
+    evalApp "seq.++" [SVal.string a, SVal.string b] = some (SVal.string (a ++ b)) := by
   rfl
 
 private theorem evalApp_uplcEncodeUtf8 (s : String) :
@@ -1022,14 +1050,16 @@ mutual
         match ← eval m a with
         | .bool ba => some (.bool (!ba))
         | _ => none
-    | .app "and" [a, b] => do
-        match ← eval m a, ← eval m b with
-        | .bool ba, .bool bb => some (.bool (ba && bb))
-        | _, _ => none
-    | .app "or" [a, b] => do
-        match ← eval m a, ← eval m b with
-        | .bool ba, .bool bb => some (.bool (ba || bb))
-        | _, _ => none
+    | .app "and" [a, b] =>
+        -- SMT terms are total.  A selector outside its constructor or an
+        -- out-of-range `seq.nth` therefore still has a (solver-chosen) value.
+        -- Our executable decoder intentionally leaves such values undefined;
+        -- use the strong Boolean interpretation so a false compiler-generated
+        -- guard masks that undefined subterm regardless of operand order.
+        smtAndResult (eval m a) (eval m b)
+    | .app "or" [a, b] =>
+        -- Dually, a true alternative masks an undefined inactive branch.
+        smtOrResult (eval m a) (eval m b)
     | .app "seq.unit" [e] => do
         match ← eval m e with
         | .int n => SVal.bytes <$> bytesSingleton n
@@ -1102,10 +1132,119 @@ mutual
       omega
 end
 
+private theorem sbool_eq_true_iff (v : Option SVal) :
+    sbool v = some true ↔ v = some (.bool true) := by
+  cases v with
+  | none => simp [sbool]
+  | some v =>
+      cases v <;> simp [sbool]
+
+private theorem sbool_eq_false_iff (v : Option SVal) :
+    sbool v = some false ↔ v = some (.bool false) := by
+  cases v with
+  | none => simp [sbool]
+  | some v =>
+      cases v <;> simp [sbool]
+
+private theorem strongAnd_eq_true_iff (a b : Option Bool) :
+    strongAnd a b = some true ↔ a = some true ∧ b = some true := by
+  cases a with
+  | none =>
+      cases b with
+      | none => simp [strongAnd]
+      | some b => cases b <;> simp [strongAnd]
+  | some a =>
+      cases b with
+      | none => cases a <;> simp [strongAnd]
+      | some b => cases a <;> cases b <;> simp [strongAnd]
+
+private theorem strongOr_eq_true_iff (a b : Option Bool) :
+    strongOr a b = some true ↔ a = some true ∨ b = some true := by
+  cases a with
+  | none =>
+      cases b with
+      | none => simp [strongOr]
+      | some b => cases b <;> simp [strongOr]
+  | some a =>
+      cases b with
+      | none => cases a <;> simp [strongOr]
+      | some b => cases a <;> cases b <;> simp [strongOr]
+
+private theorem strongOr_eq_false_iff (a b : Option Bool) :
+    strongOr a b = some false ↔ a = some false ∧ b = some false := by
+  cases a with
+  | none =>
+      cases b with
+      | none => simp [strongOr]
+      | some b => cases b <;> simp [strongOr]
+  | some a =>
+      cases b with
+      | none => cases a <;> simp [strongOr]
+      | some b => cases a <;> cases b <;> simp [strongOr]
+
+@[simp] private theorem smtAndResult_eq_true_iff (a b : Option SVal) :
+    smtAndResult a b = some (.bool true) ↔
+      a = some (.bool true) ∧ b = some (.bool true) := by
+  simp [smtAndResult, strongAnd_eq_true_iff, sbool_eq_true_iff]
+
+@[simp] private theorem smtOrResult_eq_true_iff (a b : Option SVal) :
+    smtOrResult a b = some (.bool true) ↔
+      a = some (.bool true) ∨ b = some (.bool true) := by
+  simp [smtOrResult, strongOr_eq_true_iff, sbool_eq_true_iff]
+
+@[simp] private theorem smtOrResult_eq_false_iff (a b : Option SVal) :
+    smtOrResult a b = some (.bool false) ↔
+      a = some (.bool false) ∧ b = some (.bool false) := by
+  simp [smtOrResult, strongOr_eq_false_iff, sbool_eq_false_iff]
+
+@[simp] private theorem smtAndResult_bools (a b : Bool) :
+    smtAndResult (some (.bool a)) (some (.bool b)) =
+      some (.bool (a && b)) := by
+  cases a <;> cases b <;> rfl
+
+@[simp] private theorem smtOrResult_bools (a b : Bool) :
+    smtOrResult (some (.bool a)) (some (.bool b)) =
+      some (.bool (a || b)) := by
+  cases a <;> cases b <;> rfl
+
 def evalBool? (m : Model) (e : Expr) : Option Bool :=
   match eval m e with
   | some (.bool b) => some b
   | _ => none
+
+private theorem evalBool?_eq_sbool (m : Model) (e : Expr) :
+    evalBool? m e = sbool (eval m e) := by
+  unfold evalBool? sbool
+  cases eval m e with
+  | none => rfl
+  | some v => cases v <;> rfl
+
+private theorem sbool_smtAndResult (a b : Option SVal) :
+    sbool (smtAndResult a b) = strongAnd (sbool a) (sbool b) := by
+  unfold smtAndResult
+  cases strongAnd (sbool a) (sbool b) <;> rfl
+
+private theorem sbool_smtOrResult (a b : Option SVal) :
+    sbool (smtOrResult a b) = strongOr (sbool a) (sbool b) := by
+  unfold smtOrResult
+  cases strongOr (sbool a) (sbool b) <;> rfl
+
+/-- Internal truth observation of conjunction.  The CEK simulation uses this
+only for compiler-generated guarded formulas; it is not a general Z3
+selector-equivalence theorem. -/
+theorem evalBool?_app_and_strong (m : Model) (a b : Expr) :
+    evalBool? m (.app "and" [a, b]) =
+      strongAnd (evalBool? m a) (evalBool? m b) := by
+  rw [evalBool?_eq_sbool, evalBool?_eq_sbool, evalBool?_eq_sbool]
+  simpa only [eval] using sbool_smtAndResult (eval m a) (eval m b)
+
+/-- Truth observation of SMT disjunction, dual to
+`evalBool?_app_and_strong`. -/
+theorem evalBool?_app_or_strong (m : Model) (a b : Expr) :
+    evalBool? m (.app "or" [a, b]) =
+      strongOr (evalBool? m a) (evalBool? m b) := by
+  rw [evalBool?_eq_sbool, evalBool?_eq_sbool, evalBool?_eq_sbool]
+  simpa only [eval] using sbool_smtOrResult (eval m a) (eval m b)
 
 def holds (m : Model) (e : Expr) : Prop :=
   evalBool? m e = some true
@@ -1149,87 +1288,15 @@ set_option linter.unusedSimpArgs false in
 private theorem evalBoolIs_app_and_true (m : Model) (a b : Expr) :
     evalBoolIs m (.app "and" [a, b]) true = true ↔
       evalBoolIs m a true = true ∧ evalBoolIs m b true = true := by
-  unfold evalBoolIs evalBool?
-  simp [eval]
-  cases ha : eval m a with
-  | none =>
-      simp [ha]
-  | some av =>
-      cases av with
-      | bool ba =>
-          simp [ha]
-          cases hb : eval m b with
-          | none =>
-              simp [hb]
-          | some bv =>
-              cases bv with
-              | bool bb =>
-                  cases ba <;> cases bb <;> simp [hb]
-              | int i => simp [hb]
-              | string s => simp [hb]
-              | bytes bs => simp [hb]
-              | data d => simp [hb]
-              | dataList xs => simp [hb]
-              | dataPairList xs => simp [hb]
-              | val v => simp [hb]
-              | valList xs => simp [hb]
-              | g1 g => simp [hb]
-              | g2 g => simp [hb]
-              | ml r => simp [hb]
-      | int i => simp [ha]
-      | string s => simp [ha]
-      | bytes bs => simp [ha]
-      | data d => simp [ha]
-      | dataList xs => simp [ha]
-      | dataPairList xs => simp [ha]
-      | val v => simp [ha]
-      | valList xs => simp [ha]
-      | g1 g => simp [ha]
-      | g2 g => simp [ha]
-      | ml r => simp [ha]
+  simp only [evalBoolIs_true_eq, eval, smtAndResult_eq_true_iff]
 
 set_option linter.unusedSimpArgs false in
 private theorem evalBoolIs_app_or_true (m : Model) (a b : Expr) :
     evalBoolIs m (.app "or" [a, b]) true = true →
       evalBoolIs m a true = true ∨ evalBoolIs m b true = true := by
-  unfold evalBoolIs evalBool?
-  simp [eval]
-  cases ha : eval m a with
-  | none =>
-      simp [ha]
-  | some av =>
-      cases av with
-      | bool ba =>
-          simp [ha]
-          cases hb : eval m b with
-          | none =>
-              simp [hb]
-          | some bv =>
-              cases bv with
-              | bool bb =>
-                  cases ba <;> cases bb <;> simp [hb]
-              | int i => simp [hb]
-              | string s => simp [hb]
-              | bytes bs => simp [hb]
-              | data d => simp [hb]
-              | dataList xs => simp [hb]
-              | dataPairList xs => simp [hb]
-              | val v => simp [hb]
-              | valList xs => simp [hb]
-              | g1 g => simp [hb]
-              | g2 g => simp [hb]
-              | ml r => simp [hb]
-      | int i => simp [ha]
-      | string s => simp [ha]
-      | bytes bs => simp [ha]
-      | data d => simp [ha]
-      | dataList xs => simp [ha]
-      | dataPairList xs => simp [ha]
-      | val v => simp [ha]
-      | valList xs => simp [ha]
-      | g1 g => simp [ha]
-      | g2 g => simp [ha]
-      | ml r => simp [ha]
+  simp only [evalBoolIs_true_eq, eval, smtOrResult_eq_true_iff]
+  intro h
+  exact h
 
 set_option linter.unusedSimpArgs false in
 private theorem evalBoolIs_app_not_true (m : Model) (a : Expr) :
@@ -2311,12 +2378,12 @@ theorem eval_seqExtract_of {m : Model} {bs start len : Expr}
 theorem eval_strAppend_of {m : Model} {a b : Expr} {x y : String}
     (ha : eval m a = some (SVal.string x))
     (hb : eval m b = some (SVal.string y)) :
-    eval m (.app "str.++" [a, b]) = some (SVal.string (x ++ y)) := by
+    eval m (.app "seq.++" [a, b]) = some (SVal.string (x ++ y)) := by
   rw [eval.eq_def]
   change
     (do
       let vs ← evalList m [a, b]
-      evalApp "str.++" vs) = some (SVal.string (x ++ y))
+      evalApp "seq.++" vs) = some (SVal.string (x ++ y))
   rw [evalList.eq_def]
   simp [ha]
   rw [evalList.eq_def]

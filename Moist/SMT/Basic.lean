@@ -34,7 +34,7 @@ namespace SSort
 def render : SSort → String
   | .bool => "Bool"
   | .int => "Int"
-  | .string => "String"
+  | .string => "UString"
   | .bytes => "Bytes"
   | .data => "Data"
   | .dataList => "DataList"
@@ -114,13 +114,6 @@ def any : List Expr → Expr
   | [x] => x
   | x :: xs => xs.foldl or x
 
-private def escapeString (s : String) : String :=
-  let rec loop : List Char → List Char
-    | [] => []
-    | '"' :: cs => '"' :: '"' :: loop cs
-    | c :: cs => c :: loop cs
-  String.mk (loop s.data)
-
 private def renderByte (b : UInt8) : String :=
   "(seq.unit " ++ toString b.toNat ++ ")"
 
@@ -128,6 +121,18 @@ private def renderBytes (bs : ByteArray) : String :=
   bs.data.foldl
     (fun acc b => "(seq.++ " ++ acc ++ " " ++ renderByte b ++ ")")
     "(as seq.empty Bytes)"
+
+/--
+Render strings as sequences of Unicode scalar values instead of SMT-LIB's
+built-in `String` sort.  Z3's native string sort is intentionally restricted
+to a smaller code-point range than Lean/UPLC strings, so using it would make
+the compiler silently incomplete for otherwise valid constants.  `Char`
+guarantees that every emitted element is a Unicode scalar value.
+-/
+private def renderString (s : String) : String :=
+  s.data.foldl
+    (fun acc c => "(seq.++ " ++ acc ++ " (seq.unit " ++ toString c.toNat ++ "))")
+    "(as seq.empty UString)"
 
 private def renderInt (i : Int) : String :=
   if i < 0 then "(- " ++ toString i.natAbs ++ ")" else toString i
@@ -151,7 +156,7 @@ mutual
   private def renderConstVal : Const → String
     | .Integer i => "(VInt " ++ renderInt i ++ ")"
     | .ByteString bs => "(VBytes " ++ renderBytes bs ++ ")"
-    | .String s => "(VString \"" ++ escapeString s ++ "\")"
+    | .String s => "(VString " ++ renderString s ++ ")"
     | .Unit => "VUnit"
     | .Bool b => "(VBool " ++ (if b then "true)" else "false)")
     | .ConstList xs => "(VList " ++ renderConstValList xs ++ ")"
@@ -181,7 +186,7 @@ def render : Expr → String
   | .constListLit xs => renderConstValList xs
   | .bool true => "true"
   | .bool false => "false"
-  | .str s => "\"" ++ escapeString s ++ "\""
+  | .str s => renderString s
   | .app f [] => f
   | .app f args => "(" ++ f ++ " " ++ renderArgs args ++ ")"
   | .ite c t e => "(ite " ++ render c ++ " " ++ render t ++ " " ++ render e ++ ")"

@@ -36,7 +36,7 @@ def seqAppend (a b : SExpr) : SExpr := .app "seq.++" [a, b]
 def seqLen (a : SExpr) : SExpr := .app "seq.len" [a]
 def seqNth (a i : SExpr) : SExpr := .app "seq.nth" [a, i]
 def seqExtract (a start len : SExpr) : SExpr := .app "seq.extract" [a, start, len]
-def strAppend (a b : SExpr) : SExpr := .app "str.++" [a, b]
+def strAppend (a b : SExpr) : SExpr := .app "seq.++" [a, b]
 
 end SExpr
 
@@ -50,9 +50,13 @@ the final query is emitted.
 
 def prelude : List Moist.SMT.Command :=
   [ .raw "(define-sort Bytes () (Seq Int))"
+  , .raw "(define-sort UString () (Seq Int))"
   , .raw "(declare-sort G1 0)"
   , .raw "(declare-sort G2 0)"
   , .raw "(declare-sort MlResult 0)"
+  , .declareConst "g1_default" .g1
+  , .declareConst "g2_default" .g2
+  , .declareConst "ml_default" .ml
   , .raw <|
       "(declare-datatypes ((Data 0) (DataList 0) (DataPairList 0) (Val 0) (ValList 0))\n" ++
       "  (((DConstr (dataConstrTag Int) (dataConstrFields DataList))\n" ++
@@ -64,7 +68,7 @@ def prelude : List Moist.SMT.Command :=
       "   ((DPNil) (DPCons (dpKey Data) (dpValue Data) (dpTail DataPairList)))\n" ++
       "   ((VInt (unVInt Int))\n" ++
       "    (VBytes (unVBytes Bytes))\n" ++
-      "    (VString (unVString String))\n" ++
+      "    (VString (unVString UString))\n" ++
       "    (VBool (unVBool Bool))\n" ++
       "    (VUnit)\n" ++
       "    (VList (unVList ValList))\n" ++
@@ -83,6 +87,9 @@ def prelude : List Moist.SMT.Command :=
   , .raw "(define-fun abs_int ((a Int)) Int (ite (< a 0) (- 0 a) a))"
   , .raw "(define-fun-rec bytes_valid_at ((bs Bytes) (i Int)) Bool (ite (>= i (seq.len bs)) true (and (>= (seq.nth bs i) 0) (<= (seq.nth bs i) 255) (bytes_valid_at bs (+ i 1)))))"
   , .raw "(define-fun bytes_valid ((bs Bytes)) Bool (bytes_valid_at bs 0))"
+  , .raw "(define-fun unicode_scalar ((cp Int)) Bool (and (<= 0 cp) (<= cp 1114111) (or (< cp 55296) (> cp 57343))))"
+  , .raw "(define-fun-rec ustring_valid_at ((s UString) (i Int)) Bool (ite (>= i (seq.len s)) true (and (unicode_scalar (seq.nth s i)) (ustring_valid_at s (+ i 1)))))"
+  , .raw "(define-fun ustring_valid ((s UString)) Bool (ustring_valid_at s 0))"
   , .raw <|
       "(define-funs-rec\n" ++
       "  ((data_valid ((d Data)) Bool)\n" ++
@@ -101,7 +108,7 @@ def prelude : List Moist.SMT.Command :=
       "   (or ((_ is DPNil) xs) (and ((_ is DPCons) xs) (data_valid (dpKey xs)) (data_valid (dpValue xs)) (dplist_valid (dpTail xs))))\n" ++
       "   (or ((_ is VInt) v)\n" ++
       "       (and ((_ is VBytes) v) (bytes_valid (unVBytes v)))\n" ++
-      "       ((_ is VString) v)\n" ++
+      "       (and ((_ is VString) v) (ustring_valid (unVString v)))\n" ++
       "       ((_ is VBool) v)\n" ++
       "       ((_ is VUnit) v)\n" ++
       "       (and ((_ is VList) v) (const_vlist_valid (unVList v)))\n" ++
@@ -118,7 +125,7 @@ def prelude : List Moist.SMT.Command :=
       "   (or ((_ is VNil) xs) (and ((_ is VCons) xs) (val_valid (vhead xs)) (vlist_valid (vtail xs))))\n" ++
       "   (or ((_ is VInt) v)\n" ++
       "       (and ((_ is VBytes) v) (bytes_valid (unVBytes v)))\n" ++
-      "       ((_ is VString) v)\n" ++
+      "       (and ((_ is VString) v) (ustring_valid (unVString v)))\n" ++
       "       ((_ is VBool) v)\n" ++
       "       ((_ is VUnit) v)\n" ++
       "       (and ((_ is VList) v) (const_vlist_valid (unVList v)))\n" ++
@@ -144,9 +151,68 @@ def prelude : List Moist.SMT.Command :=
   , .raw "(define-fun-rec vlist_drop ((n Int) (xs ValList)) ValList (ite (or (<= n 0) ((_ is VNil) xs)) xs (vlist_drop (- n 1) (vtail xs))))"
   , .raw "(define-fun-rec dlist_drop ((n Int) (xs DataList)) DataList (ite (or (<= n 0) ((_ is DNil) xs)) xs (dlist_drop (- n 1) (dtail xs))))"
   , .raw "(define-fun-rec vlist_index ((n Int) (xs ValList)) Val (ite (<= n 0) (vhead xs) (vlist_index (- n 1) (vtail xs))))"
-  , .declareFun "valid_utf8" [.bytes] .bool
-  , .declareFun "uplc_decodeUtf8" [.bytes] .string
-  , .declareFun "uplc_encodeUtf8" [.string] .bytes
+  , .raw "(define-fun utf8_cont ((b Int)) Bool (and (<= 128 b) (<= b 191)))"
+  , .raw <|
+      "(define-fun-rec valid_utf8_at ((bs Bytes) (i Int)) Bool\n" ++
+      "  (ite (>= i (seq.len bs)) true\n" ++
+      "    (let ((b0 (seq.nth bs i)) (n (seq.len bs)))\n" ++
+      "      (or\n" ++
+      "        (and (<= 0 b0) (<= b0 127) (valid_utf8_at bs (+ i 1)))\n" ++
+      "        (and (<= 194 b0) (<= b0 223) (< (+ i 1) n)\n" ++
+      "             (utf8_cont (seq.nth bs (+ i 1))) (valid_utf8_at bs (+ i 2)))\n" ++
+      "        (and (= b0 224) (< (+ i 2) n)\n" ++
+      "             (<= 160 (seq.nth bs (+ i 1))) (<= (seq.nth bs (+ i 1)) 191)\n" ++
+      "             (utf8_cont (seq.nth bs (+ i 2))) (valid_utf8_at bs (+ i 3)))\n" ++
+      "        (and (or (and (<= 225 b0) (<= b0 236)) (and (<= 238 b0) (<= b0 239)))\n" ++
+      "             (< (+ i 2) n) (utf8_cont (seq.nth bs (+ i 1)))\n" ++
+      "             (utf8_cont (seq.nth bs (+ i 2))) (valid_utf8_at bs (+ i 3)))\n" ++
+      "        (and (= b0 237) (< (+ i 2) n)\n" ++
+      "             (<= 128 (seq.nth bs (+ i 1))) (<= (seq.nth bs (+ i 1)) 159)\n" ++
+      "             (utf8_cont (seq.nth bs (+ i 2))) (valid_utf8_at bs (+ i 3)))\n" ++
+      "        (and (= b0 240) (< (+ i 3) n)\n" ++
+      "             (<= 144 (seq.nth bs (+ i 1))) (<= (seq.nth bs (+ i 1)) 191)\n" ++
+      "             (utf8_cont (seq.nth bs (+ i 2))) (utf8_cont (seq.nth bs (+ i 3)))\n" ++
+      "             (valid_utf8_at bs (+ i 4)))\n" ++
+      "        (and (<= 241 b0) (<= b0 243) (< (+ i 3) n)\n" ++
+      "             (utf8_cont (seq.nth bs (+ i 1))) (utf8_cont (seq.nth bs (+ i 2)))\n" ++
+      "             (utf8_cont (seq.nth bs (+ i 3))) (valid_utf8_at bs (+ i 4)))\n" ++
+      "        (and (= b0 244) (< (+ i 3) n)\n" ++
+      "             (<= 128 (seq.nth bs (+ i 1))) (<= (seq.nth bs (+ i 1)) 143)\n" ++
+      "             (utf8_cont (seq.nth bs (+ i 2))) (utf8_cont (seq.nth bs (+ i 3)))\n" ++
+      "             (valid_utf8_at bs (+ i 4)))))))"
+  , .raw "(define-fun valid_utf8 ((bs Bytes)) Bool (valid_utf8_at bs 0))"
+  , .raw <|
+      "(define-fun utf8_encode_scalar ((cp Int)) Bytes\n" ++
+      "  (ite (<= cp 127) (seq.unit cp)\n" ++
+      "    (ite (<= cp 2047)\n" ++
+      "      (seq.++ (seq.unit (+ 192 (div cp 64))) (seq.unit (+ 128 (mod cp 64))))\n" ++
+      "      (ite (<= cp 65535)\n" ++
+      "        (seq.++ (seq.unit (+ 224 (div cp 4096)))\n" ++
+      "          (seq.++ (seq.unit (+ 128 (mod (div cp 64) 64))) (seq.unit (+ 128 (mod cp 64)))))\n" ++
+      "        (seq.++ (seq.unit (+ 240 (div cp 262144)))\n" ++
+      "          (seq.++ (seq.unit (+ 128 (mod (div cp 4096) 64)))\n" ++
+      "            (seq.++ (seq.unit (+ 128 (mod (div cp 64) 64))) (seq.unit (+ 128 (mod cp 64))))))))))"
+  , .raw <|
+      "(define-fun-rec uplc_encodeUtf8_at ((s UString) (i Int)) Bytes\n" ++
+      "  (ite (>= i (seq.len s)) (as seq.empty Bytes)\n" ++
+      "    (seq.++ (utf8_encode_scalar (seq.nth s i)) (uplc_encodeUtf8_at s (+ i 1)))))"
+  , .raw "(define-fun uplc_encodeUtf8 ((s UString)) Bytes (uplc_encodeUtf8_at s 0))"
+  , .raw <|
+      "(define-fun utf8_decode_scalar ((bs Bytes) (i Int)) Int\n" ++
+      "  (let ((b0 (seq.nth bs i)))\n" ++
+      "    (ite (<= b0 127) b0\n" ++
+      "      (ite (<= b0 223) (+ (* (- b0 192) 64) (- (seq.nth bs (+ i 1)) 128))\n" ++
+      "        (ite (<= b0 239)\n" ++
+      "          (+ (* (- b0 224) 4096) (* (- (seq.nth bs (+ i 1)) 128) 64) (- (seq.nth bs (+ i 2)) 128))\n" ++
+      "          (+ (* (- b0 240) 262144) (* (- (seq.nth bs (+ i 1)) 128) 4096)\n" ++
+      "             (* (- (seq.nth bs (+ i 2)) 128) 64) (- (seq.nth bs (+ i 3)) 128)))))))"
+  , .raw "(define-fun utf8_width ((b0 Int)) Int (ite (<= b0 127) 1 (ite (<= b0 223) 2 (ite (<= b0 239) 3 4))))"
+  , .raw <|
+      "(define-fun-rec uplc_decodeUtf8_at ((bs Bytes) (i Int)) UString\n" ++
+      "  (ite (>= i (seq.len bs)) (as seq.empty UString)\n" ++
+      "    (seq.++ (seq.unit (utf8_decode_scalar bs i))\n" ++
+      "      (uplc_decodeUtf8_at bs (+ i (utf8_width (seq.nth bs i)))))))"
+  , .raw "(define-fun uplc_decodeUtf8 ((bs Bytes)) UString (uplc_decodeUtf8_at bs 0))"
   , .declareFun "uplc_serializeData" [.data] .bytes
   , .declareFun "uplc_sha2_256" [.bytes] .bytes
   , .declareFun "uplc_sha3_256" [.bytes] .bytes
@@ -504,11 +570,11 @@ def mergeEncodedOks : List EncodedOk → Option EncodedOk
       match mergeEncodedOks oks with
       | none => some (pc, value)
       | some (restPc, restValue) =>
-          -- Keep this disjunction explicit.  Besides avoiding an accidental
-          -- loss of sharing, this ensures that an active merged path has
-          -- evaluated every selector as a Boolean before the corresponding
-          -- `ite` is decoded.
-          some (.app "or" [pc, restPc], SExpr.ite pc value restValue)
+          -- Keep the merged path and value on the same lazy discriminator.
+          -- This avoids observing underspecified values in inactive selector
+          -- branches in the executable SMT semantics.
+          some (SExpr.ite pc SExpr.trueE restPc,
+            SExpr.ite pc value restValue)
 
 structure EncodedConstListOk where
   pc : SExpr
@@ -539,7 +605,7 @@ def mergeEncodedConstListOks :
       | none => some ok
       | some rest =>
           some {
-            pc := .app "or" [ok.pc, rest.pc]
+            pc := SExpr.ite ok.pc SExpr.trueE rest.pc
             value := .ite ok.pc ok.value rest.value
             hint := .ite ok.pc ok.hint rest.hint
           }
@@ -1342,40 +1408,90 @@ mutual
     | _, _ => err
 end
 
+private def symDeclRequired? (name : String) (sort : Moist.SMT.SSort)
+    (value : SymVal) : Option (List SExpr) :=
+  match sort, value with
+  | .int, .const (.integer (.sym n)) =>
+      if n == name then some [] else none
+  | .bool, .const (.bool (.sym n)) =>
+      if n == name then some [] else none
+  | .bytes, .const (.bytes (.sym n)) =>
+      if n == name then some [.app "bytes_valid" [.sym n]] else none
+  | .string, .const (.string (.sym n)) =>
+      if n == name then some [.app "ustring_valid" [.sym n]] else none
+  | .data, .const (.data (.sym n)) =>
+      if n == name then some [.app "data_valid" [.sym n]] else none
+  | .val, .dyn (.sym n) =>
+      if n == name then some [.app "val_valid" [.sym n]] else none
+  | .int, .constr (.sym n) _ =>
+      if n == name then some [SExpr.ge (.sym n) (.int 0)] else none
+  | _, _ => none
+
+/-- A symbolic declaration has a sort/value shape produced by one of the
+public smart constructors and contains every validity assumption needed to
+decode a Z3 value into CEK. -/
+def SymDeclWellFormed (name : String) (sort : Moist.SMT.SSort)
+    (value : SymVal) (assumptions : List SExpr) : Prop :=
+  ∃ required, symDeclRequired? name sort value = some required ∧
+    ∀ e, e ∈ required → e ∈ assumptions
+
 structure SymDecl where
   name : String
   sort : Moist.SMT.SSort
   value : SymVal
   assumptions : List SExpr := []
+  wellFormed : SymDeclWellFormed name sort value assumptions
 deriving Repr
+
+namespace SymDecl
+
+/-- Add user constraints without changing the certified declaration
+sort/value shape or removing mandatory decoding assumptions. -/
+def withAssumptions (d : SymDecl) (extra : List SExpr) : SymDecl :=
+  { name := d.name
+    sort := d.sort
+    value := d.value
+    assumptions := d.assumptions ++ extra
+    wellFormed := by
+      rcases d.wellFormed with ⟨required, hrequired, hmem⟩
+      exact ⟨required, hrequired, fun e he => List.mem_append_left _ (hmem e he)⟩ }
+
+end SymDecl
 
 def symInt (name : String) : SymDecl :=
   let n := Moist.SMT.sanitize name
-  ⟨n, .int, .const (.integer (.sym n)), []⟩
+  ⟨n, .int, .const (.integer (.sym n)), [], by
+    exact ⟨[], by simp [symDeclRequired?], by simp⟩⟩
 
 def symBool (name : String) : SymDecl :=
   let n := Moist.SMT.sanitize name
-  ⟨n, .bool, .const (.bool (.sym n)), []⟩
+  ⟨n, .bool, .const (.bool (.sym n)), [], by
+    exact ⟨[], by simp [symDeclRequired?], by simp⟩⟩
 
 def symBytes (name : String) : SymDecl :=
   let n := Moist.SMT.sanitize name
-  ⟨n, .bytes, .const (.bytes (.sym n)), [.app "bytes_valid" [.sym n]]⟩
+  ⟨n, .bytes, .const (.bytes (.sym n)), [.app "bytes_valid" [.sym n]], by
+    exact ⟨[.app "bytes_valid" [.sym n]], by simp [symDeclRequired?], by simp⟩⟩
 
 def symString (name : String) : SymDecl :=
   let n := Moist.SMT.sanitize name
-  ⟨n, .string, .const (.string (.sym n)), []⟩
+  ⟨n, .string, .const (.string (.sym n)), [.app "ustring_valid" [.sym n]], by
+    exact ⟨[.app "ustring_valid" [.sym n]], by simp [symDeclRequired?], by simp⟩⟩
 
 def symData (name : String) : SymDecl :=
   let n := Moist.SMT.sanitize name
-  ⟨n, .data, .const (.data (.sym n)), [.app "data_valid" [.sym n]]⟩
+  ⟨n, .data, .const (.data (.sym n)), [.app "data_valid" [.sym n]], by
+    exact ⟨[.app "data_valid" [.sym n]], by simp [symDeclRequired?], by simp⟩⟩
 
 def symVal (name : String) : SymDecl :=
   let n := Moist.SMT.sanitize name
-  ⟨n, .val, .dyn (.sym n), [.app "val_valid" [.sym n]]⟩
+  ⟨n, .val, .dyn (.sym n), [.app "val_valid" [.sym n]], by
+    exact ⟨[.app "val_valid" [.sym n]], by simp [symDeclRequired?], by simp⟩⟩
 
 def symConstr (name : String) (fields : List SymVal := []) : SymDecl :=
   let n := Moist.SMT.sanitize name
-  ⟨n, .int, .constr (.sym n) fields, [SExpr.ge (.sym n) (.int 0)]⟩
+  ⟨n, .int, .constr (.sym n) fields, [SExpr.ge (.sym n) (.int 0)], by
+    exact ⟨[SExpr.ge (.sym n) (.int 0)], by simp [symDeclRequired?], by simp⟩⟩
 
 def envOf (decls : List SymDecl) : List SymVal :=
   decls.map SymDecl.value
@@ -1453,11 +1569,10 @@ private theorem assertions_assumptionCommands (decls : List SymDecl) :
         decl.assumptions ++ decls.flatMap SymDecl.assumptions
       rw [List.filterMap_append, assertions_assertCommands, ih]
 
-/-- The Z3 strategy command adds, removes, and rewrites no compiler
-assertions.  In particular, switching from plain `check-sat` to
-`check-sat-using` cannot weaken an SMT-to-CEK endpoint: every model returned
-by the optimized script satisfies exactly the declaration assumptions and
-query assertions below. -/
+/-- Purely syntactic accounting for typed assertion commands.  This theorem
+does not claim that Z3 returned a model, that the model satisfies the
+assertions, or that raw prelude commands have any particular semantics; those
+facts belong to `Soundness.CertifiedZ3Model`. -/
 theorem scriptWith_assertions (decls : List SymDecl) (assertions : List SExpr) :
     (scriptWith decls assertions).assertions =
       decls.flatMap SymDecl.assumptions ++ assertions := by

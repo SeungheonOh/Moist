@@ -262,27 +262,27 @@ theorem mergeEncodedOks_active (kind : CompactKind) {m : SmtSem.Model}
           rcases merged with ⟨tailPc, tailValue⟩
           simp [mergeEncodedOks, hm] at hmerge
           rcases hmerge with ⟨rfl, rfl⟩
+          have hpcEval :
+              Moist.SMT.Semantics.eval m
+                  (SExpr.ite headPc SExpr.trueE tailPc) =
+                some (.bool true) := by
+            exact (Moist.SMT.Semantics.evalBoolIs_true_eq m _).mp hpc
+          change Moist.SMT.Semantics.eval m
+              (.ite headPc SExpr.trueE tailPc) = some (.bool true) at hpcEval
           cases hc : Moist.SMT.Semantics.eval m headPc with
           | none =>
-              simp [pcHolds, Moist.SMT.Semantics.evalBoolIs,
-                Moist.SMT.Semantics.evalBool?, Moist.SMT.Semantics.eval, hc] at hpc
+              rw [Moist.SMT.Semantics.eval_ite_exact, hc] at hpcEval
+              contradiction
           | some sv =>
               cases sv with
               | bool b =>
                   cases b with
                   | false =>
                       have htail : pcHolds m tailPc = true := by
-                        cases ht : Moist.SMT.Semantics.eval m tailPc with
-                        | none =>
-                            simp [pcHolds, Moist.SMT.Semantics.evalBoolIs,
-                              Moist.SMT.Semantics.evalBool?, Moist.SMT.Semantics.eval,
-                              hc, ht] at hpc
-                        | some tailSv =>
-                            cases tailSv <;>
-                              simp [pcHolds, Moist.SMT.Semantics.evalBoolIs,
-                                Moist.SMT.Semantics.evalBool?, Moist.SMT.Semantics.eval,
-                                hc, ht] at hpc ⊢
-                            exact hpc
+                        rw [Moist.SMT.Semantics.eval_ite_exact, hc] at hpcEval
+                        exact
+                          (Moist.SMT.Semantics.evalBoolIs_true_eq m tailPc).mpr
+                            hpcEval
                       obtain ⟨p, e, hmem, hp, he⟩ := ih hm htail
                       refine ⟨p, e, by simp [hmem], hp, ?_⟩
                       rw [symValToCek_decode_ite_of kind hc]
@@ -296,8 +296,8 @@ theorem mergeEncodedOks_active (kind : CompactKind) {m : SmtSem.Model}
                       simp
               | int i | string i | bytes i | data i | dataList i
               | dataPairList i | val i | valList i | g1 i | g2 i | ml i =>
-                  simp [pcHolds, Moist.SMT.Semantics.evalBoolIs,
-                    Moist.SMT.Semantics.evalBool?, Moist.SMT.Semantics.eval, hc] at hpc
+                  rw [Moist.SMT.Semantics.eval_ite_exact, hc] at hpcEval
+                  contradiction
 
 private theorem genericMergedOkOutcome_active {kind : CompactKind} {m : SmtSem.Model}
     {outs : List Outcome} {pc : SExpr} {v : SymVal}
