@@ -328,11 +328,15 @@ Error and timeout paths carry no value and are coalesced by disjunction.
 
 abbrev EncodedOk := SExpr × SExpr
 
-/-- The three first-order representations that can be compacted at a force
-join.  Keeping their SMT sorts separate is operationally important: a list
+/-- The first-order representations that can be compacted at a force join.
+Keeping their SMT sorts separate is operationally important: a list
 that is packed through the generic `Val` datatype must otherwise be tested and
-projected again at every subsequent list builtin. -/
+projected again at every subsequent list builtin.  The same native-sort rule
+lets recursive predicates and folds join Boolean and integer branches without
+rebuilding an exponentially large `List Outcome`. -/
 inductive CompactKind where
+  | integer
+  | bool
   | constList
   | dataList
   | dyn
@@ -341,12 +345,16 @@ deriving Repr, BEq
 namespace CompactKind
 
 def encode? : CompactKind → SymVal → Option SExpr
+  | .integer, .const (.integer i) => some i
+  | .bool, .const (.bool b) => some b
   | .constList, .const (.constList xs) => some xs
   | .dataList, .const (.dataList xs) => some xs
   | .dyn, .dyn e => some e
   | _, _ => none
 
 def decode : CompactKind → SExpr → SymVal
+  | .integer, e => .const (.integer e)
+  | .bool, e => .const (.bool e)
   | .constList, e => .const (.constList e)
   | .dataList, e => .const (.dataList e)
   | .dyn, e => .dyn e
@@ -354,6 +362,8 @@ def decode : CompactKind → SExpr → SymVal
 end CompactKind
 
 def compactKind? : SymVal → Option CompactKind
+  | .const (.integer _) => some .integer
+  | .const (.bool _) => some .bool
   | .const (.constList _) => some .constList
   | .const (.dataList _) => some .dataList
   | .dyn _ => some .dyn
@@ -405,7 +415,9 @@ def mergedOkOutcome (kind : CompactKind) (outs : List Outcome) : List Outcome :=
   | some (pc, value) => [.ok pc (kind.decode value)]
 
 def compactedOkOutcomes (outs : List Outcome) : List Outcome :=
-  mergedOkOutcome .constList outs ++
+  mergedOkOutcome .integer outs ++
+    mergedOkOutcome .bool outs ++
+    mergedOkOutcome .constList outs ++
     mergedOkOutcome .dataList outs ++
     mergedOkOutcome .dyn outs ++
     nonEncodedOks outs

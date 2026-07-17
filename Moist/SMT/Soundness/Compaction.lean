@@ -4,9 +4,9 @@ import Moist.SMT.Soundness.Foundations
 # Soundness of symbolic outcome compaction
 
 This module proves that every active compacted success, error, or timeout
-comes from an active pre-compaction outcome.  Successful list values retain
-their original SMT sort, avoiding repeated generic-datatype projections while
-preserving exactly the same decoded CEK value.
+comes from an active pre-compaction outcome.  Successful integers, Booleans,
+and list values retain their original SMT sort, avoiding repeated generic-
+datatype projections while preserving exactly the same decoded CEK value.
 -/
 
 namespace Moist.SMT.UPLC.Soundness
@@ -14,6 +14,20 @@ namespace Moist.SMT.UPLC.Soundness
 theorem compactDecode_encode {kind : CompactKind} {v : SymVal} {e : SExpr}
     (h : kind.encode? v = some e) : kind.decode e = v := by
   cases kind with
+  | integer =>
+      cases v with
+      | const c =>
+          cases c <;> simp [CompactKind.encode?, CompactKind.decode] at h ⊢
+          exact h.symm
+      | dyn d | pair _ _ | constr _ _ | lam _ _ | delay _ _ | builtin _ _ _ =>
+          simp [CompactKind.encode?] at h
+  | bool =>
+      cases v with
+      | const c =>
+          cases c <;> simp [CompactKind.encode?, CompactKind.decode] at h ⊢
+          exact h.symm
+      | dyn d | pair _ _ | constr _ _ | lam _ _ | delay _ _ | builtin _ _ _ =>
+          simp [CompactKind.encode?] at h
   | constList =>
       cases v with
       | const c =>
@@ -219,8 +233,12 @@ theorem compactedOkOutcomes_active_ok {m : SmtSem.Model} {outs : List Outcome}
   rw [compactedOkOutcomes] at hmem
   rcases List.mem_append.mp hmem with hprefix | hnon
   · rcases List.mem_append.mp hprefix with hprefix | hdyn
-    · rcases List.mem_append.mp hprefix with hconst | hdata
-      · exact mergedOkOutcome_active hconst hpc
+    · rcases List.mem_append.mp hprefix with hprefix | hdata
+      · rcases List.mem_append.mp hprefix with hprefix | hconst
+        · rcases List.mem_append.mp hprefix with hint | hbool
+          · exact mergedOkOutcome_active hint hpc
+          · exact mergedOkOutcome_active hbool hpc
+        · exact mergedOkOutcome_active hconst hpc
       · exact mergedOkOutcome_active hdata hpc
     · exact mergedOkOutcome_active hdyn hpc
   · exact ⟨pc, v, nonEncodedOks_mem hnon, hpc, rfl, rfl⟩
