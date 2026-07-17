@@ -112,13 +112,13 @@ theorem certifiedZ3_scriptForIntEq_sound
   rw [scriptForIntEq_assertions]
   exact List.mem_append_right _ (by simp)
 
-/-- A certified model of the production error script composes with the public
-fuel-independent CEK error endpoint. -/
+/-- A certified model of the production error script reaches the actual CEK
+runtime-error state in finitely many transitions. -/
 theorem certifiedZ3_scriptForError_sound
     {fuel : Nat} {decls : List SymDecl} {t : Term}
     (z3 : CertifiedZ3Model decls (scriptForError fuel decls t))
     (hno : termNoOpaqueBuiltinsForSoundness t) :
-    CekDoesNotHalt z3.cekEnv t := by
+    CekHaltsError z3.cekEnv t := by
   apply evalSym_errorCond_sound (fuel := fuel) (ρ := envOf decls)
     z3.env_decodes z3.env_noOpaque hno
   apply z3.assertionsTrue
