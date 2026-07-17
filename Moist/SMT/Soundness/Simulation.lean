@@ -390,9 +390,15 @@ mutual
               by simp [bigEval, hbigF, hbigA, happVal]⟩
         | Force body =>
             have hnoBody := termNoOpaque_force hno
+            have hcompact : Outcome.ok pc v ∈ compactOutcomes
+                (bindOut (evalSym n ρ body) fun vt => forceSym n vt) := by
+              simpa [evalSym] using hmem
+            obtain ⟨sourcePc, sourceValue, hsourceMem, hsourcePc,
+                hvalueEq, hnoEq⟩ :=
+              compactOutcomes_active_ok hcompact hpc
             have hbind := bindOut_path_ok (m := m)
               (xs := evalSym n ρ body) (k := fun vt => forceSym n vt)
-              (hmem := by simpa [evalSym] using hmem) hpc
+              (hmem := hsourceMem) hsourcePc
             rcases hbind with
               ⟨pcT, vt, pcForce, hmemT, hmemForce, hpcEq, hpcT, hpcForce⟩
             have ht := evalSym_path_ok_noOpaque (m := m) (fuel := n)
@@ -402,7 +408,13 @@ mutual
             have hf := forceSym_path_ok (m := m) (fuel := n)
               (vt := vt) (cvt := cvt) hvt hnot hmemForce hpcForce
             rcases hf with ⟨cv, hv, hnov, hforceVal⟩
-            exact ⟨cv, hv, hnov,
+            have hv' : symValToCek? m v = some cv := by
+              rw [hvalueEq]
+              exact hv
+            have hnov' : symValNoOpaqueForSoundness v = true := by
+              rw [hnoEq]
+              exact hnov
+            exact ⟨cv, hv', hnov',
               by simp [bigEval, hbigT, hforceVal]⟩
         | Constr tag fields =>
             have hnoFields := termNoOpaque_constr_fields hno
@@ -2136,27 +2148,39 @@ mutual
                   simp [bigEval, hbigF', hbigA', happNone]
           | Force body =>
               have hnoBody := termNoOpaque_force hno
-              have hbind := bindOut_active_error (m := m)
-                (xs := evalSym n ρ body) (k := fun vt => forceSym n vt)
-                (hmem := by simpa [evalSym] using hmem) herr
-              rcases hbind with hbodyErr | hforceErr
-              · rcases hbodyErr with ⟨pcT, hmemT, hpcT⟩
-                have htNone := evalSym_active_error_noOpaque_le (m := m)
-                  (fuel := n) (fuel' := n') (ρ := ρ) (env := env) (t := body)
-                  henv hρno hnoBody hmemT
-                  (by simpa [outcomeErrorActive] using hpcT) hle'
-                simp [bigEval, htNone]
-              · rcases hforceErr with
-                  ⟨pcT, vt, inner, hmemT, hpcT, hmemForce, herrForce⟩
-                have ht := evalSym_path_ok_noOpaque (m := m) (fuel := n)
-                  (ρ := ρ) (env := env) (t := body)
-                  henv hρno hnoBody hmemT hpcT
-                rcases ht with ⟨cvt, hvt, hnot, hbigT⟩
-                have hbigT' := bigEval_mono_le hle' hbigT
-                have hforceNone := forceSym_active_error_noOpaque_le (m := m)
-                  (fuel := n) (fuel' := n') (vt := vt) (cvt := cvt)
-                  hvt hnot hmemForce herrForce hle'
-                simp [bigEval, hbigT', hforceNone]
+              cases out with
+              | ok pc v => simp [outcomeErrorActive] at herr
+              | timeout pc => simp [outcomeErrorActive] at herr
+              | error pc =>
+                have hpc : pcHolds m pc = true := by
+                  simpa [outcomeErrorActive] using herr
+                have hcompact : Outcome.error pc ∈ compactOutcomes
+                    (bindOut (evalSym n ρ body) fun vt => forceSym n vt) := by
+                  simpa [evalSym] using hmem
+                obtain ⟨sourcePc, hsourceMem, hsourcePc⟩ :=
+                  compactOutcomes_active_error hcompact hpc
+                have hbind := bindOut_active_error (m := m)
+                  (xs := evalSym n ρ body) (k := fun vt => forceSym n vt)
+                  (hmem := hsourceMem)
+                  (by simpa [outcomeErrorActive] using hsourcePc)
+                rcases hbind with hbodyErr | hforceErr
+                · rcases hbodyErr with ⟨pcT, hmemT, hpcT⟩
+                  have htNone := evalSym_active_error_noOpaque_le (m := m)
+                    (fuel := n) (fuel' := n') (ρ := ρ) (env := env) (t := body)
+                    henv hρno hnoBody hmemT
+                    (by simpa [outcomeErrorActive] using hpcT) hle'
+                  simp [bigEval, htNone]
+                · rcases hforceErr with
+                    ⟨pcT, vt, inner, hmemT, hpcT, hmemForce, herrForce⟩
+                  have ht := evalSym_path_ok_noOpaque (m := m) (fuel := n)
+                    (ρ := ρ) (env := env) (t := body)
+                    henv hρno hnoBody hmemT hpcT
+                  rcases ht with ⟨cvt, hvt, hnot, hbigT⟩
+                  have hbigT' := bigEval_mono_le hle' hbigT
+                  have hforceNone := forceSym_active_error_noOpaque_le (m := m)
+                    (fuel := n) (fuel' := n') (vt := vt) (cvt := cvt)
+                    hvt hnot hmemForce herrForce hle'
+                  simp [bigEval, hbigT', hforceNone]
           | Constr tag fields =>
               have hnoFields := termNoOpaque_constr_fields hno
               have hbind := bindOut_active_error (m := m)

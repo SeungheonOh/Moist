@@ -43,6 +43,18 @@ info: 'Moist.SMT.UPLC.Soundness.bindOk_mem' depends on axioms: [propext, Quot.so
 #print axioms Moist.SMT.UPLC.Soundness.bindOk_mem
 
 /--
+info: 'Moist.SMT.UPLC.Soundness.compactOutcomes_active_ok' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.compactOutcomes_active_ok
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.compactOutcomes_active_error' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.compactOutcomes_active_error
+
+/--
 info: 'Moist.Verified.BigStep.bigEval_iff_halt_env' depends on axioms: [propext, Classical.choice, Quot.sound]
 -/
 #guard_msgs in

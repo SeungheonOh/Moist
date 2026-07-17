@@ -1,4 +1,4 @@
-import Moist.SMT.Soundness.Foundations
+import Moist.SMT.Soundness.Compaction
 
 namespace Moist.SMT.UPLC.Soundness
 

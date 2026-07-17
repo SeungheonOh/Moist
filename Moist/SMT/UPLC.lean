@@ -313,6 +313,93 @@ where
     | .g2 g => some (.app "VG2" [g])
     | .ml r => some (.app "VMlResult" [r])
 
+/-! ## Outcome compaction
+
+Lazy UPLC conditionals select delays and are forced immediately by compiled
+programs.  Without compaction, every force materializes one outcome for every
+symbolic branch and later continuations duplicate once for each of them.
+
+First-order values all have the common SMT sort `Val`.  We can therefore pack
+several successful outcomes into one value using nested `ite`s, guarded by the
+disjunction of their path conditions.  Non-encodable (higher-order) values are
+left untouched.  Error and timeout paths carry no value and are coalesced by
+disjoining their path conditions.
+-/
+
+abbrev EncodedOk := SExpr × SExpr
+
+/-- Values compacted at force joins.  Both builtin-list representations can
+arise while a symbolic list's element type is being checked, so packing only
+one of them would retain a redundant branch at every `MkCons`.  Already-packed
+dynamic values can be repacked at subsequent joins; every other value remains
+an ordinary outcome. -/
+def compactEncodeVal? : SymVal → Option SExpr
+  | .const (.constList xs) => some (.app "VList" [xs])
+  | .const (.dataList xs) => some (.app "VDataList" [xs])
+  | .dyn e => some e
+  | _ => none
+
+def encodedOks : List Outcome → List EncodedOk
+  | [] => []
+  | .ok pc v :: outs =>
+      match compactEncodeVal? v with
+      | some e => (pc, e) :: encodedOks outs
+      | none => encodedOks outs
+  | _ :: outs => encodedOks outs
+
+def nonEncodedOks : List Outcome → List Outcome
+  | [] => []
+  | out@(.ok _ v) :: outs =>
+      match compactEncodeVal? v with
+      | some _ => nonEncodedOks outs
+      | none => out :: nonEncodedOks outs
+  | _ :: outs => nonEncodedOks outs
+
+def errorPcs : List Outcome → List SExpr
+  | [] => []
+  | .error pc :: outs => pc :: errorPcs outs
+  | _ :: outs => errorPcs outs
+
+def timeoutPcs : List Outcome → List SExpr
+  | [] => []
+  | .timeout pc :: outs => pc :: timeoutPcs outs
+  | _ :: outs => timeoutPcs outs
+
+/-- Merge encoded successful outcomes.  The merged path says that at least one
+source path is active; the nested `ite` picks the first active source value. -/
+def mergeEncodedOks : List EncodedOk → Option EncodedOk
+  | [] => none
+  | (pc, value) :: oks =>
+      match mergeEncodedOks oks with
+      | none => some (pc, value)
+      | some (restPc, restValue) =>
+          -- Keep this disjunction explicit.  Besides avoiding an accidental
+          -- loss of sharing, this ensures that an active merged path has
+          -- evaluated every selector as a Boolean before the corresponding
+          -- `ite` is decoded.
+          some (.app "or" [pc, restPc], SExpr.ite pc value restValue)
+
+def mergedOkOutcome (outs : List Outcome) : List Outcome :=
+  match mergeEncodedOks (encodedOks outs) with
+  | none => []
+  | some (pc, value) => [.ok pc (.dyn value)]
+
+def mergedErrorOutcome (outs : List Outcome) : List Outcome :=
+  match errorPcs outs with
+  | [] => []
+  | pcs => [.error (SExpr.any pcs)]
+
+def mergedTimeoutOutcome (outs : List Outcome) : List Outcome :=
+  match timeoutPcs outs with
+  | [] => []
+  | pcs => [.timeout (SExpr.any pcs)]
+
+/-- Collapse redundant first-order branches while retaining every higher-order
+branch.  This is applied at `Force`, the join point for compiled lazy `if`s. -/
+def compactOutcomes (outs : List Outcome) : List Outcome :=
+  mergedOkOutcome outs ++ nonEncodedOks outs ++
+    mergedErrorOutcome outs ++ mergedTimeoutOutcome outs
+
 structure Proj (α : Type) where
   guard : SExpr
   val : α
@@ -498,8 +585,8 @@ mutual
         bindOut (evalSym n ρ a) fun va =>
         applySym n vf va
     | n + 1, ρ, .Force t =>
-        bindOut (evalSym n ρ t) fun vt =>
-        forceSym n vt
+        compactOutcomes <| bindOut (evalSym n ρ t) fun vt =>
+          forceSym n vt
     | n + 1, ρ, .Constr tag fields =>
         bindOut (evalListSym n ρ fields) fun vals =>
           match vals with

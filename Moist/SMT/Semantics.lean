@@ -3255,6 +3255,45 @@ theorem eval_VList_of {m : Model} {e : Expr} {xs : List Val}
   rw [evalList.eq_def]
   rfl
 
+/-- Exact semantics of the `Val` wrapper for builtin constant lists.  This is
+the inversion form used by verified symbolic-outcome compaction. -/
+theorem eval_VList_exact (m : Model) (e : Expr) :
+    eval m (.app "VList" [e]) =
+      match eval m e with
+      | some (.valList xs) => some (.val (.list xs))
+      | _ => none := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "VList" vs) = _
+  rw [evalList.eq_def]
+  cases he : eval m e
+  · simp [he]
+  · rename_i sv
+    simp [he]
+    rw [evalList.eq_def]
+    cases sv <;> rfl
+
+/-- Exact condition dispatch for SMT `ite`, exposed for verified value packing. -/
+theorem eval_ite_exact (m : Model) (c t e : Expr) :
+    eval m (.ite c t e) =
+      match eval m c with
+      | some (.bool true) => eval m t
+      | some (.bool false) => eval m e
+      | _ => none := by
+  rw [eval.eq_def]
+  change (do
+    match ← eval m c with
+    | .bool true => eval m t
+    | .bool false => eval m e
+    | _ => none) = _
+  cases hc : eval m c <;> simp [hc]
+  rename_i sv
+  cases sv <;> try rfl
+  rename_i b
+  cases b <;> rfl
+
 theorem eval_VDataList_of {m : Model} {e : Expr} {xs : List Data}
     (h : eval m e = some (SVal.dataList xs)) :
     eval m (.app "VDataList" [e]) = some (.val (.dataList xs)) := by
@@ -3267,6 +3306,25 @@ theorem eval_VDataList_of {m : Model} {e : Expr} {xs : List Data}
   simp [h]
   rw [evalList.eq_def]
   rfl
+
+/-- Exact semantics of the `Val` wrapper for builtin data lists. -/
+theorem eval_VDataList_exact (m : Model) (e : Expr) :
+    eval m (.app "VDataList" [e]) =
+      match eval m e with
+      | some (.dataList xs) => some (.val (.dataList xs))
+      | _ => none := by
+  rw [eval.eq_def]
+  change
+    (do
+      let vs ← evalList m [e]
+      evalApp "VDataList" vs) = _
+  rw [evalList.eq_def]
+  cases he : eval m e
+  · simp [he]
+  · rename_i sv
+    simp [he]
+    rw [evalList.eq_def]
+    cases sv <;> rfl
 
 theorem eval_VPairDataList_of {m : Model} {e : Expr}
     {xs : List (Data × Data)}
