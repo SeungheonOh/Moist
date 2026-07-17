@@ -148,5 +148,5 @@
 (declare-fun uplc_g1_multiScalarMul (ValList ValList) G1)
 (declare-fun uplc_g2_multiScalarMul (ValList ValList) G2)
 (assert (let ((|moist.dag.0| (not ((_ is VNil) VNil)))) (or |moist.dag.0| (not |moist.dag.0|))))
-(check-sat)
+(check-sat-using (then simplify ctx-solver-simplify smt))
 (get-model)

@@ -7,6 +7,12 @@ kernel reports intentionally permit only Lean's standard logical foundations.
 -/
 
 /--
+info: 'Moist.SMT.UPLC.scriptWith_assertions' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.scriptWith_assertions
+
+/--
 info: 'Moist.SMT.Semantics.evalBool?_simplifyBool' depends on axioms: [propext, Quot.sound]
 -/
 #guard_msgs in

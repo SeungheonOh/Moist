@@ -149,5 +149,5 @@
 (declare-fun uplc_g2_multiScalarMul (ValList ValList) G2)
 (declare-const $u$120 Int)
 (assert (= 10 (+ 5 $u$120)))
-(check-sat)
+(check-sat-using (then simplify ctx-solver-simplify smt))
 (get-model)

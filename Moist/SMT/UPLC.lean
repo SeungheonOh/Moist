@@ -1218,10 +1218,60 @@ def timeoutCond (outs : List Outcome) : SExpr :=
     | .timeout pc => some pc
     | _ => none
 
+/-- Z3's context-aware simplifier is particularly effective on the nested
+datatype decisions produced by symbolic list programs.  This changes only
+the solver strategy: the asserted expression and the returned model retain
+their ordinary SMT meaning. -/
+def z3QueryTactic : String :=
+  "(then simplify ctx-solver-simplify smt)"
+
 def scriptWith (decls : List SymDecl) (assertions : List SExpr) : Moist.SMT.Script :=
   ⟨prelude ++ declCommands decls ++ assumptionCommands decls ++
     assertions.map Moist.SMT.Command.assert ++
-      [.checkSat, .getModel]⟩
+      [.checkSatUsing z3QueryTactic, .getModel]⟩
+
+private theorem assertions_prelude :
+    prelude.filterMap Moist.SMT.Command.assertion? = [] := by
+  rfl
+
+private theorem assertions_declCommands (decls : List SymDecl) :
+    (declCommands decls).filterMap Moist.SMT.Command.assertion? = [] := by
+  induction decls with
+  | nil => rfl
+  | cons _ decls _ => simp [declCommands, Moist.SMT.Command.assertion?]
+
+private theorem assertions_assertCommands (assertions : List SExpr) :
+    (assertions.map Moist.SMT.Command.assert).filterMap
+      Moist.SMT.Command.assertion? = assertions := by
+  induction assertions with
+  | nil => rfl
+  | cons _ assertions ih =>
+      simp [Moist.SMT.Command.assertion?, ih]
+
+private theorem assertions_assumptionCommands (decls : List SymDecl) :
+    (assumptionCommands decls).filterMap Moist.SMT.Command.assertion? =
+      decls.flatMap SymDecl.assumptions := by
+  induction decls with
+  | nil => rfl
+  | cons decl decls ih =>
+      change
+        (decl.assumptions.map Moist.SMT.Command.assert ++
+          assumptionCommands decls).filterMap Moist.SMT.Command.assertion? =
+        decl.assumptions ++ decls.flatMap SymDecl.assumptions
+      rw [List.filterMap_append, assertions_assertCommands, ih]
+
+/-- The Z3 strategy command adds, removes, and rewrites no compiler
+assertions.  In particular, switching from plain `check-sat` to
+`check-sat-using` cannot weaken an SMT-to-CEK endpoint: every model returned
+by the optimized script satisfies exactly the declaration assumptions and
+query assertions below. -/
+theorem scriptWith_assertions (decls : List SymDecl) (assertions : List SExpr) :
+    (scriptWith decls assertions).assertions =
+      decls.flatMap SymDecl.assumptions ++ assertions := by
+  simp only [scriptWith, Moist.SMT.Script.assertions, List.filterMap_append]
+  rw [assertions_prelude, assertions_declCommands,
+    assertions_assumptionCommands, assertions_assertCommands]
+  simp [Moist.SMT.Command.assertion?]
 
 /-- Opt-in final normalization for callers supplying arbitrary hand-written
 assertions.  Compiler-generated queries already use the verified smart
@@ -1243,5 +1293,24 @@ def scriptForIntEq (fuel : Nat) (decls : List SymDecl) (t : Term) (rhs : SExpr) 
 def scriptForError (fuel : Nat) (decls : List SymDecl) (t : Term) : Moist.SMT.Script :=
   let outs := evalSym fuel (envOf decls) t
   scriptWith decls [errorCond outs]
+
+theorem scriptForBoolTrue_assertions (fuel : Nat) (decls : List SymDecl) (t : Term) :
+    (scriptForBoolTrue fuel decls t).assertions =
+      decls.flatMap SymDecl.assumptions ++
+        [okBoolTrueCond (evalSym fuel (envOf decls) t)] := by
+  simp [scriptForBoolTrue, scriptWith_assertions]
+
+theorem scriptForIntEq_assertions (fuel : Nat) (decls : List SymDecl)
+    (t : Term) (rhs : SExpr) :
+    (scriptForIntEq fuel decls t rhs).assertions =
+      decls.flatMap SymDecl.assumptions ++
+        [okIntEqCond (evalSym fuel (envOf decls) t) rhs] := by
+  simp [scriptForIntEq, scriptWith_assertions]
+
+theorem scriptForError_assertions (fuel : Nat) (decls : List SymDecl) (t : Term) :
+    (scriptForError fuel decls t).assertions =
+      decls.flatMap SymDecl.assumptions ++
+        [errorCond (evalSym fuel (envOf decls) t)] := by
+  simp [scriptForError, scriptWith_assertions]
 
 end Moist.SMT.UPLC

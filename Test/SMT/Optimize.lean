@@ -55,6 +55,17 @@ example : scriptForIntEq 100 [xInt] recursiveSumTerm (.int 55) =
 example : scriptWithSimplified [xInt] [rawRecursiveSum55] =
     scriptWith [xInt] [rawRecursiveSum55.simplifyBool] := rfl
 
+#guard Command.render (.checkSatUsing z3QueryTactic) ==
+  "(check-sat-using (then simplify ctx-solver-simplify smt))"
+
+-- Solver preprocessing is deliberately outside the assertion list.  The
+-- kernel checks that the optimized script still submits exactly the symbolic
+-- environment assumptions followed by the compiler-generated query.
+example (decls : List SymDecl) (assertions : List Expr) :
+    (scriptWith decls assertions).assertions =
+      decls.flatMap SymDecl.assumptions ++ assertions :=
+  scriptWith_assertions decls assertions
+
 -- Regression benchmark for the path-exploding recursive query.  Construction-
 -- time smart constructors already reach this compact form; the exact query
 -- normalizer is therefore idempotent on this workload.
@@ -76,5 +87,8 @@ example (m : Semantics.Model) :
 #check Moist.SMT.UPLC.Soundness.evalSym_errorCond_sound
 #check Moist.SMT.UPLC.Soundness.evalSym_okBoolTrueCond_sound
 #check Moist.SMT.UPLC.Soundness.evalSym_okIntEqCond_sound
+#check scriptForBoolTrue_assertions
+#check scriptForIntEq_assertions
+#check scriptForError_assertions
 
 end Test.SMT.Optimize

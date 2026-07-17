@@ -206,6 +206,7 @@ inductive Command where
   | defineFun : String → List (String × SSort) → SSort → Expr → Command
   | assert : Expr → Command
   | checkSat : Command
+  | checkSatUsing : String → Command
   | getModel : Command
   | getValue : List Expr → Command
 deriving Repr
@@ -227,8 +228,14 @@ def render : Command → String
         ret.render ++ " " ++ body.render ++ ")"
   | .assert e => "(assert " ++ e.render ++ ")"
   | .checkSat => "(check-sat)"
+  | .checkSatUsing tactic => "(check-sat-using " ++ tactic ++ ")"
   | .getModel => "(get-model)"
   | .getValue es => "(get-value (" ++ String.intercalate " " (es.map Expr.render) ++ "))"
+
+/-- Extract the formula contributed by an assertion command. -/
+def assertion? : Command → Option Expr
+  | .assert e => some e
+  | _ => none
 
 end Command
 
@@ -237,6 +244,11 @@ structure Script where
 deriving Repr
 
 namespace Script
+
+/-- The logical assertions in a script, independent of solver-control and
+model-query commands. -/
+def assertions (s : Script) : List Expr :=
+  s.commands.filterMap Command.assertion?
 
 def render (s : Script) : String :=
   String.intercalate "\n" (s.commands.map Command.render) ++ "\n"
