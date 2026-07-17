@@ -381,6 +381,372 @@ private def bindModel (name : String) (value : Moist.SMT.Semantics.SVal) :
 private def emptyModel : Moist.SMT.Semantics.Model :=
   Moist.SMT.Semantics.Model.empty
 
+private def constrainedIntCase (builtin : BuiltinFun) (name : String)
+    (value : Int) (build : Term → Term) (expected : Expected) : Case :=
+  let base := symInt (name ++ "-integer")
+  let declaration := base.withAssumptions
+    [SExpr.eq (.sym base.name) (.int value)]
+  { name
+    primaryBuiltin := some builtin
+    declarations := [declaration]
+    model := bindModel declaration.name (.int value) emptyModel
+    term := build (.Var 1)
+    expected }
+
+private def constrainedBoolCase (builtin : BuiltinFun) (name : String)
+    (value : Bool) (build : Term → Term) (expected : Expected) : Case :=
+  let base := symBool (name ++ "-boolean")
+  let declaration := base.withAssumptions
+    [SExpr.eq (.sym base.name) (.bool value)]
+  { name
+    primaryBuiltin := some builtin
+    declarations := [declaration]
+    model := bindModel declaration.name (.bool value) emptyModel
+    term := build (.Var 1)
+    expected }
+
+private def constrainedBytesCase (builtin : BuiltinFun) (name : String)
+    (value : Array UInt8) (build : Term → Term) (expected : Expected) : Case :=
+  let bytesValue := ByteArray.mk value
+  let base := symBytes (name ++ "-bytes")
+  let declaration := base.withAssumptions
+    [SExpr.eq (.sym base.name) (.bytes bytesValue)]
+  { name
+    primaryBuiltin := some builtin
+    declarations := [declaration]
+    model := bindModel declaration.name (.bytes bytesValue) emptyModel
+    term := build (.Var 1)
+    expected }
+
+private def constrainedStringCase (builtin : BuiltinFun) (name value : String)
+    (build : Term → Term) (expected : Expected) : Case :=
+  let base := symString (name ++ "-string")
+  let declaration := base.withAssumptions
+    [SExpr.eq (.sym base.name) (.str value)]
+  { name
+    primaryBuiltin := some builtin
+    declarations := [declaration]
+    model := bindModel declaration.name (.string value) emptyModel
+    term := build (.Var 1)
+    expected }
+
+private def constrainedDataCase (builtin : BuiltinFun) (name : String)
+    (value : Data) (build : Term → Term) (expected : Expected) : Case :=
+  let base := symData (name ++ "-data")
+  let declaration := base.withAssumptions
+    [SExpr.eq (.sym base.name) (.dataLit value)]
+  { name
+    primaryBuiltin := some builtin
+    declarations := [declaration]
+    model := bindModel declaration.name (.data value) emptyModel
+    term := build (.Var 1)
+    expected }
+
+private def constrainedValCase (builtin : BuiltinFun) (name : String)
+    (expression : SExpr) (value : Moist.SMT.Semantics.Val)
+    (build : Term → Term) (expected : Expected) : Case :=
+  let base := symVal (name ++ "-value")
+  let declaration := base.withAssumptions
+    [SExpr.eq (.sym base.name) expression]
+  { name
+    primaryBuiltin := some builtin
+    declarations := [declaration]
+    model := bindModel declaration.name (.val value) emptyModel
+    term := build (.Var 1)
+    expected }
+
+private def vIntExpr (value : Int) : SExpr := .app "VInt" [.int value]
+private def vUnitExpr : SExpr := .app "VUnit" []
+private def vPairIntExpr (first second : Int) : SExpr :=
+  .app "VPair" [vIntExpr first, vIntExpr second]
+private def vListIntegerExpr (values : List Int) : SExpr :=
+  .app "VList" [.constListLit (values.map Const.Integer)]
+private def vDataListExpr (values : List Data) : SExpr :=
+  .app "VDataList" [.dataListLit values]
+private def vPairDataListExpr (values : List (Data × Data)) : SExpr :=
+  .app "VPairDataList" [.dataPairListLit values]
+private def vArrayIntegerExpr (values : List Int) : SExpr :=
+  .app "VArray" [.constListLit (values.map Const.Integer)]
+
+/-!
+Every proved basic builtin is exercised below with a declaration-backed input.
+The declaration is constrained to a concrete model value, but the compiler
+still receives a genuine symbolic expression (`.Var 1`), so this tests the
+symbolic path rather than merely another constant-folding path.
+-/
+def symbolicBuiltinCases : List Case :=
+  [ constrainedIntCase .AddInteger "symbolic-add-integer" 2
+      (fun x => call .AddInteger 0 [x, int 3]) (.integer 5)
+  , constrainedIntCase .SubtractInteger "symbolic-subtract-integer" 2
+      (fun x => call .SubtractInteger 0 [x, int 7]) (.integer (-5))
+  , constrainedIntCase .MultiplyInteger "symbolic-multiply-integer" (-3)
+      (fun x => call .MultiplyInteger 0 [x, int 7]) (.integer (-21))
+  , constrainedIntCase .DivideInteger "symbolic-divide-integer" (-5)
+      (fun x => call .DivideInteger 0 [x, int 2]) (.integer (-3))
+  , constrainedIntCase .QuotientInteger "symbolic-quotient-integer" (-5)
+      (fun x => call .QuotientInteger 0 [x, int 2]) (.integer (-2))
+  , constrainedIntCase .RemainderInteger "symbolic-remainder-integer" (-5)
+      (fun x => call .RemainderInteger 0 [x, int 2]) (.integer (-1))
+  , constrainedIntCase .ModInteger "symbolic-mod-integer" (-5)
+      (fun x => call .ModInteger 0 [x, int 2]) (.integer 1)
+  , constrainedIntCase .EqualsInteger "symbolic-equals-integer" 4
+      (fun x => call .EqualsInteger 0 [x, int 4]) (.boolean true)
+  , constrainedIntCase .LessThanInteger "symbolic-less-than-integer" (-1)
+      (fun x => call .LessThanInteger 0 [x, int 0]) (.boolean true)
+  , constrainedIntCase .LessThanEqualsInteger
+      "symbolic-less-than-equals-integer" 3
+      (fun x => call .LessThanEqualsInteger 0 [x, int 3]) (.boolean true)
+
+  , constrainedBytesCase .AppendByteString "symbolic-append-byte-string" #[1, 2]
+      (fun x => call .LengthOfByteString 0
+        [call .AppendByteString 0 [x, bytes #[3, 4]]]) (.integer 4)
+  , constrainedIntCase .ConsByteString "symbolic-cons-byte-string" 255
+      (fun x => call .IndexByteString 0
+        [call .ConsByteString 0 [x, bytes #[1, 2]], int 0]) (.integer 255)
+  , constrainedIntCase .SliceByteString "symbolic-slice-byte-string" (-2)
+      (fun x => call .LengthOfByteString 0
+        [call .SliceByteString 0 [x, int 9, bytes #[1, 2, 3]]]) (.integer 3)
+  , constrainedBytesCase .LengthOfByteString
+      "symbolic-length-of-byte-string" #[1, 2, 3]
+      (fun x => call .LengthOfByteString 0 [x]) (.integer 3)
+  , constrainedBytesCase .IndexByteString "symbolic-index-byte-string" #[9, 8]
+      (fun x => call .IndexByteString 0 [x, int 1]) (.integer 8)
+  , constrainedBytesCase .EqualsByteString
+      "symbolic-equals-byte-string" #[1, 2]
+      (fun x => call .EqualsByteString 0 [x, bytes #[1, 2]]) (.boolean true)
+  , constrainedBytesCase .LessThanByteString
+      "symbolic-less-than-byte-string" #[1]
+      (fun x => call .LessThanByteString 0 [x, bytes #[1, 0]]) (.boolean true)
+  , constrainedBytesCase .LessThanEqualsByteString
+      "symbolic-less-than-equals-byte-string" #[1, 255]
+      (fun x => call .LessThanEqualsByteString 0 [x, bytes #[1, 255]])
+      (.boolean true)
+
+  , constrainedStringCase .AppendString "symbolic-append-string" "a"
+      (fun x => call .EqualsString 0
+        [call .AppendString 0 [x, string "€"], string "a€"]) (.boolean true)
+  , constrainedStringCase .EqualsString "symbolic-equals-string" "same"
+      (fun x => call .EqualsString 0 [x, string "same"]) (.boolean true)
+  , constrainedStringCase .EncodeUtf8 "symbolic-encode-utf8" "€"
+      (fun x => call .EqualsByteString 0
+        [call .EncodeUtf8 0 [x], bytes euroBytes]) (.boolean true)
+  , constrainedBytesCase .DecodeUtf8 "symbolic-decode-utf8" euroBytes
+      (fun x => call .EqualsString 0
+        [call .DecodeUtf8 0 [x], string "€"]) (.boolean true)
+
+  , constrainedBoolCase .IfThenElse "symbolic-if-then-else" true
+      (fun x => call .IfThenElse 1 [x, int 11, int 22]) (.integer 11)
+  , constrainedValCase .ChooseUnit "symbolic-choose-unit" vUnitExpr .unit
+      (fun x => call .ChooseUnit 1 [x, int 9]) (.integer 9)
+  , constrainedIntCase .Trace "symbolic-trace" 8
+      (fun x => call .Trace 1 [string "message", x]) (.integer 8)
+  , constrainedValCase .FstPair "symbolic-fst-pair" (vPairIntExpr 4 5)
+      (.pair (.int 4) (.int 5))
+      (fun x => call .FstPair 2 [x]) (.integer 4)
+  , constrainedValCase .SndPair "symbolic-snd-pair" (vPairIntExpr 4 5)
+      (.pair (.int 4) (.int 5))
+      (fun x => call .SndPair 2 [x]) (.integer 5)
+  , constrainedValCase .ChooseList "symbolic-choose-list"
+      (vListIntegerExpr []) (.list [])
+      (fun x => call .ChooseList 2 [x, int 10, int 20]) (.integer 10)
+  , constrainedIntCase .MkCons "symbolic-mk-cons" 7
+      (fun x => call .HeadList 1
+        [call .MkCons 1 [x, listInteger [8]]]) (.integer 7)
+  , constrainedValCase .HeadList "symbolic-head-list"
+      (vListIntegerExpr [9, 8]) (.list [.int 9, .int 8])
+      (fun x => call .HeadList 1 [x]) (.integer 9)
+  , constrainedValCase .TailList "symbolic-tail-list"
+      (vListIntegerExpr [9, 8]) (.list [.int 9, .int 8])
+      (fun x => call .HeadList 1 [call .TailList 1 [x]]) (.integer 8)
+  , constrainedValCase .NullList "symbolic-null-list"
+      (vListIntegerExpr []) (.list [])
+      (fun x => call .NullList 1 [x]) (.boolean true)
+
+  , constrainedDataCase .ChooseData "symbolic-choose-data" (.I 3)
+      (fun x => call .ChooseData 1 [x, int 0, int 1, int 2, int 3, int 4])
+      (.integer 3)
+  , constrainedIntCase .ConstrData "symbolic-constr-data" 7
+      (fun x => call .EqualsData 0
+        [call .ConstrData 0 [x, listData [.I 2]], data (.Constr 7 [.I 2])])
+      (.boolean true)
+  , constrainedValCase .MapData "symbolic-map-data"
+      (vPairDataListExpr [(.I 1, .B (ByteArray.mk #[2, 3]))])
+      (.pairDataList [(.I 1, .B (ByteArray.mk #[2, 3]))])
+      (fun x => call .EqualsData 0 [call .MapData 0 [x], data mapValue])
+      (.boolean true)
+  , constrainedValCase .ListData "symbolic-list-data"
+      (vDataListExpr [.I 1, .I 2]) (.dataList [.I 1, .I 2])
+      (fun x => call .EqualsData 0
+        [call .ListData 0 [x], data (.List [.I 1, .I 2])]) (.boolean true)
+  , constrainedIntCase .IData "symbolic-i-data" (-12)
+      (fun x => call .EqualsData 0 [call .IData 0 [x], data (.I (-12))])
+      (.boolean true)
+  , constrainedBytesCase .BData "symbolic-b-data" #[1, 2]
+      (fun x => call .EqualsData 0
+        [call .BData 0 [x], data (.B (ByteArray.mk #[1, 2]))]) (.boolean true)
+  , constrainedDataCase .UnConstrData "symbolic-un-constr-data"
+      (.Constr 7 [.I 2])
+      (fun x => call .UnIData 0 [call .FstPair 2 [call .UnConstrData 0 [x]]])
+      (.integer 7)
+  , constrainedDataCase .UnMapData "symbolic-un-map-data" mapValue
+      (fun x => call .EqualsData 0 [call .MapData 0 [call .UnMapData 0 [x]],
+        data mapValue]) (.boolean true)
+  , constrainedDataCase .UnListData "symbolic-un-list-data" (.List [])
+      (fun x => call .NullList 1 [call .UnListData 0 [x]]) (.boolean true)
+  , constrainedDataCase .UnIData "symbolic-un-i-data" (.I (-12))
+      (fun x => call .UnIData 0 [x]) (.integer (-12))
+  , constrainedDataCase .UnBData "symbolic-un-b-data"
+      (.B (ByteArray.mk #[1, 2]))
+      (fun x => call .LengthOfByteString 0 [call .UnBData 0 [x]]) (.integer 2)
+  , constrainedDataCase .EqualsData "symbolic-equals-data" (.Constr 7 [.I 2])
+      (fun x => call .EqualsData 0 [x, data (.Constr 7 [.I 2])]) (.boolean true)
+  , constrainedDataCase .MkPairData "symbolic-mk-pair-data" (.I 1)
+      (fun x => call .UnIData 0
+        [call .FstPair 2 [call .MkPairData 0 [x, data (.I 2)]]]) (.integer 1)
+  , constrainedValCase .MkNilData "symbolic-mk-nil-data" vUnitExpr .unit
+      (fun x => call .NullList 1 [call .MkNilData 0 [x]]) (.boolean true)
+  , constrainedValCase .MkNilPairData "symbolic-mk-nil-pair-data"
+      vUnitExpr .unit
+      (fun x => call .EqualsData 0
+        [call .MapData 0 [call .MkNilPairData 0 [x]], data (.Map [])])
+      (.boolean true)
+
+  , constrainedIntCase .DropList "symbolic-drop-list" 1
+      (fun x => call .HeadList 1
+        [call .DropList 1 [x, listInteger [6, 7]]]) (.integer 7)
+  , constrainedValCase .IndexArray "symbolic-index-array"
+      (vArrayIntegerExpr [4, 5, 6]) (.array [.int 4, .int 5, .int 6])
+      (fun x => call .IndexArray 1 [x, int 2]) (.integer 6)
+  , constrainedValCase .LengthOfArray "symbolic-length-of-array"
+      (vArrayIntegerExpr [4, 5, 6]) (.array [.int 4, .int 5, .int 6])
+      (fun x => call .LengthOfArray 1 [x]) (.integer 3)
+  , constrainedValCase .ListToArray "symbolic-list-to-array"
+      (vListIntegerExpr [1, 2, 3, 4]) (.list [.int 1, .int 2, .int 3, .int 4])
+      (fun x => call .LengthOfArray 1 [call .ListToArray 1 [x]]) (.integer 4)
+  ]
+
+private def wrongUnitCase (builtin : BuiltinFun) (name : String)
+    (build : Term → Term) : Case :=
+  constrainedValCase builtin name vUnitExpr .unit build .error
+
+private def wrongIntegerCase (builtin : BuiltinFun) (name : String)
+    (build : Term → Term) : Case :=
+  constrainedValCase builtin name (vIntExpr 0) (.int 0) build .error
+
+/-! Every basic builtin also gets a declaration-backed dynamic type failure.
+This drives the compiler's error condition through CEK, the executable SMT
+semantics, and Z3 instead of checking only successful branches. -/
+def symbolicBuiltinErrorCases : List Case :=
+  [ wrongUnitCase .AddInteger "symbolic-error-add-integer"
+      (fun x => call .AddInteger 0 [x, int 1])
+  , wrongUnitCase .SubtractInteger "symbolic-error-subtract-integer"
+      (fun x => call .SubtractInteger 0 [x, int 1])
+  , wrongUnitCase .MultiplyInteger "symbolic-error-multiply-integer"
+      (fun x => call .MultiplyInteger 0 [x, int 1])
+  , wrongUnitCase .DivideInteger "symbolic-error-divide-integer"
+      (fun x => call .DivideInteger 0 [x, int 1])
+  , wrongUnitCase .QuotientInteger "symbolic-error-quotient-integer"
+      (fun x => call .QuotientInteger 0 [x, int 1])
+  , wrongUnitCase .RemainderInteger "symbolic-error-remainder-integer"
+      (fun x => call .RemainderInteger 0 [x, int 1])
+  , wrongUnitCase .ModInteger "symbolic-error-mod-integer"
+      (fun x => call .ModInteger 0 [x, int 1])
+  , wrongUnitCase .EqualsInteger "symbolic-error-equals-integer"
+      (fun x => call .EqualsInteger 0 [x, int 1])
+  , wrongUnitCase .LessThanInteger "symbolic-error-less-than-integer"
+      (fun x => call .LessThanInteger 0 [x, int 1])
+  , wrongUnitCase .LessThanEqualsInteger "symbolic-error-less-than-equals-integer"
+      (fun x => call .LessThanEqualsInteger 0 [x, int 1])
+
+  , wrongUnitCase .AppendByteString "symbolic-error-append-byte-string"
+      (fun x => call .AppendByteString 0 [x, bytes #[]])
+  , wrongUnitCase .ConsByteString "symbolic-error-cons-byte-string"
+      (fun x => call .ConsByteString 0 [x, bytes #[]])
+  , wrongUnitCase .SliceByteString "symbolic-error-slice-byte-string"
+      (fun x => call .SliceByteString 0 [x, int 1, bytes #[]])
+  , wrongUnitCase .LengthOfByteString "symbolic-error-length-of-byte-string"
+      (fun x => call .LengthOfByteString 0 [x])
+  , wrongUnitCase .IndexByteString "symbolic-error-index-byte-string"
+      (fun x => call .IndexByteString 0 [x, int 0])
+  , wrongUnitCase .EqualsByteString "symbolic-error-equals-byte-string"
+      (fun x => call .EqualsByteString 0 [x, bytes #[]])
+  , wrongUnitCase .LessThanByteString "symbolic-error-less-than-byte-string"
+      (fun x => call .LessThanByteString 0 [x, bytes #[]])
+  , wrongUnitCase .LessThanEqualsByteString
+      "symbolic-error-less-than-equals-byte-string"
+      (fun x => call .LessThanEqualsByteString 0 [x, bytes #[]])
+
+  , wrongUnitCase .AppendString "symbolic-error-append-string"
+      (fun x => call .AppendString 0 [x, string ""])
+  , wrongUnitCase .EqualsString "symbolic-error-equals-string"
+      (fun x => call .EqualsString 0 [x, string ""])
+  , wrongUnitCase .EncodeUtf8 "symbolic-error-encode-utf8"
+      (fun x => call .EncodeUtf8 0 [x])
+  , wrongUnitCase .DecodeUtf8 "symbolic-error-decode-utf8"
+      (fun x => call .DecodeUtf8 0 [x])
+
+  , wrongUnitCase .IfThenElse "symbolic-error-if-then-else"
+      (fun x => call .IfThenElse 1 [x, int 1, int 2])
+  , wrongIntegerCase .ChooseUnit "symbolic-error-choose-unit"
+      (fun x => call .ChooseUnit 1 [x, int 1])
+  , wrongUnitCase .Trace "symbolic-error-trace"
+      (fun x => call .Trace 1 [x, int 1])
+  , wrongUnitCase .FstPair "symbolic-error-fst-pair"
+      (fun x => call .FstPair 2 [x])
+  , wrongUnitCase .SndPair "symbolic-error-snd-pair"
+      (fun x => call .SndPair 2 [x])
+  , wrongUnitCase .ChooseList "symbolic-error-choose-list"
+      (fun x => call .ChooseList 2 [x, int 1, int 2])
+  , wrongUnitCase .MkCons "symbolic-error-mk-cons"
+      (fun x => call .MkCons 1 [int 1, x])
+  , wrongUnitCase .HeadList "symbolic-error-head-list"
+      (fun x => call .HeadList 1 [x])
+  , wrongUnitCase .TailList "symbolic-error-tail-list"
+      (fun x => call .TailList 1 [x])
+  , wrongUnitCase .NullList "symbolic-error-null-list"
+      (fun x => call .NullList 1 [x])
+
+  , wrongUnitCase .ChooseData "symbolic-error-choose-data"
+      (fun x => call .ChooseData 1 [x, int 0, int 1, int 2, int 3, int 4])
+  , wrongUnitCase .ConstrData "symbolic-error-constr-data"
+      (fun x => call .ConstrData 0 [x, listData []])
+  , wrongUnitCase .MapData "symbolic-error-map-data"
+      (fun x => call .MapData 0 [x])
+  , wrongUnitCase .ListData "symbolic-error-list-data"
+      (fun x => call .ListData 0 [x])
+  , wrongUnitCase .IData "symbolic-error-i-data"
+      (fun x => call .IData 0 [x])
+  , wrongUnitCase .BData "symbolic-error-b-data"
+      (fun x => call .BData 0 [x])
+  , wrongUnitCase .UnConstrData "symbolic-error-un-constr-data"
+      (fun x => call .UnConstrData 0 [x])
+  , wrongUnitCase .UnMapData "symbolic-error-un-map-data"
+      (fun x => call .UnMapData 0 [x])
+  , wrongUnitCase .UnListData "symbolic-error-un-list-data"
+      (fun x => call .UnListData 0 [x])
+  , wrongUnitCase .UnIData "symbolic-error-un-i-data"
+      (fun x => call .UnIData 0 [x])
+  , wrongUnitCase .UnBData "symbolic-error-un-b-data"
+      (fun x => call .UnBData 0 [x])
+  , wrongUnitCase .EqualsData "symbolic-error-equals-data"
+      (fun x => call .EqualsData 0 [x, data (.I 0)])
+  , wrongUnitCase .MkPairData "symbolic-error-mk-pair-data"
+      (fun x => call .MkPairData 0 [x, data (.I 0)])
+  , wrongIntegerCase .MkNilData "symbolic-error-mk-nil-data"
+      (fun x => call .MkNilData 0 [x])
+  , wrongIntegerCase .MkNilPairData "symbolic-error-mk-nil-pair-data"
+      (fun x => call .MkNilPairData 0 [x])
+
+  , wrongUnitCase .DropList "symbolic-error-drop-list"
+      (fun x => call .DropList 1 [x, listInteger []])
+  , wrongUnitCase .IndexArray "symbolic-error-index-array"
+      (fun x => call .IndexArray 1 [x, int 0])
+  , wrongUnitCase .LengthOfArray "symbolic-error-length-of-array"
+      (fun x => call .LengthOfArray 1 [x])
+  , wrongUnitCase .ListToArray "symbolic-error-list-to-array"
+      (fun x => call .ListToArray 1 [x])
+  ]
+
 /-- Symbolic cases exercise every first-order declaration sort, generic `Val`
 selectors, constructors, and a constructor field that references another
 declaration. -/
@@ -444,7 +810,9 @@ def symbolicCases : List Case :=
       expected := .integer 8 }
   ]
 
-def allCases : List Case := primaryCases ++ edgeCases ++ symbolicCases
+def allCases : List Case :=
+  primaryCases ++ edgeCases ++ symbolicCases ++
+    symbolicBuiltinCases ++ symbolicBuiltinErrorCases
 
 private def runCek : Nat → Moist.CEK.State → Moist.CEK.CekResult
   | _, .halt value => .success value
@@ -462,6 +830,19 @@ private def assumptionsHold (test : Case) : Bool :=
   (test.declarations.flatMap SymDecl.assumptions).all fun assumption =>
     Moist.SMT.Semantics.evalBoolIs test.model assumption true
 
+/-- Unlike negating `okBoolTrueCond`, this requires an active, successfully
+typed Boolean result whose value is false.  Error, timeout, and non-Boolean
+outcomes cannot satisfy it. -/
+private def okBoolFalseCond (outcomes : List Outcome) : SExpr :=
+  SExpr.any <| outcomes.filterMap fun
+    | .ok pc value =>
+        let boolean := asBool value
+        some (SExpr.all [pc, boolean.guard, SExpr.not boolean.val])
+    | _ => none
+
+private def okBoolEqCond (outcomes : List Outcome) (expected : Bool) : SExpr :=
+  if expected then okBoolTrueCond outcomes else okBoolFalseCond outcomes
+
 private def compiledSemanticsMatch (fuel : Nat) (test : Case) : Bool :=
   let outcomes := evalSym fuel (envOf test.declarations) test.term
   let evaluatesTrue (expression : SExpr) : Bool :=
@@ -473,11 +854,13 @@ private def compiledSemanticsMatch (fuel : Nat) (test : Case) : Bool :=
         !evaluatesTrue (okIntEqCond outcomes (.int (expected + 1))) &&
         !evaluatesTrue (errorCond outcomes) && notTimeout
   | .boolean expected =>
-      (evaluatesTrue (okBoolTrueCond outcomes) == expected) &&
+      evaluatesTrue (okBoolEqCond outcomes expected) &&
+        !evaluatesTrue (okBoolEqCond outcomes (!expected)) &&
         !evaluatesTrue (errorCond outcomes) && notTimeout
   | .error =>
       evaluatesTrue (errorCond outcomes) &&
         !evaluatesTrue (okBoolTrueCond outcomes) &&
+        !evaluatesTrue (okBoolFalseCond outcomes) &&
         !evaluatesTrue (okIntEqCond outcomes (.int 0)) && notTimeout
 
 private def firstOutputLine (output : String) : String :=
@@ -486,10 +869,22 @@ private def firstOutputLine (output : String) : String :=
 private def z3Status (testName queryName : String) (script : Script) : IO String := do
   let path : System.FilePath :=
     s!"/tmp/moist-basic-differential-{testName}-{queryName}.smt2"
-  IO.FS.writeFile path script.render
+  -- Production scripts request a model because satisfiable queries need one
+  -- for the certified boundary.  Negative differential queries are expected
+  -- to be unsatisfiable, so omit only that final request and reject every
+  -- actual solver error instead of accepting Z3's "model is not available".
+  let solverCommands ←
+    match script.commands.reverse with
+    | .getModel :: reversed => pure reversed.reverse
+    | _ => throw (IO.userError
+        s!"{testName}/{queryName}: production script no longer ends in get-model")
+  let solverScript : Script := ⟨solverCommands⟩
+  IO.FS.writeFile path solverScript.render
   let result ← IO.Process.output { cmd := "z3", args := #[path.toString] }
   let status := firstOutputLine result.stdout
-  unless status == "sat" || status == "unsat" do
+  unless result.exitCode == 0 && result.stderr.isEmpty &&
+      (result.stdout.splitOn "(error").length == 1 &&
+      (status == "sat" || status == "unsat") do
     throw <| IO.userError
       (s!"{testName}/{queryName}: expected sat or unsat, got:\n" ++
         result.stdout ++ result.stderr)
@@ -498,6 +893,14 @@ private def z3Status (testName queryName : String) (script : Script) : IO String
 private def boolScript (fuel : Nat) (test : Case) : IO Script :=
   match BoolTrueQuery.compile? fuel test.declarations test.term with
   | some query => pure query.script
+  | none => throw <| IO.userError s!"{test.name}: Boolean query rejected"
+
+private def boolValueScript (fuel : Nat) (test : Case)
+    (expected : Bool) : IO Script :=
+  match BoolTrueQuery.compile? fuel test.declarations test.term with
+  | some _ =>
+      let outcomes := evalSym fuel (envOf test.declarations) test.term
+      pure <| scriptWith test.declarations [okBoolEqCond outcomes expected]
   | none => throw <| IO.userError s!"{test.name}: Boolean query rejected"
 
 private def intScript (fuel : Nat) (test : Case) (expected : Int) : IO Script :=
@@ -515,6 +918,78 @@ private def requireStatus (testName queryName expected actual : String) : IO Uni
     throw <| IO.userError
       s!"{testName}/{queryName}: expected {expected}, got {actual}"
 
+mutual
+  private def expressionMentions (name : String) : SExpr → Bool
+    | .sym candidate => candidate == name
+    | .app _ arguments => expressionsMention name arguments
+    | .ite condition thenValue elseValue =>
+        expressionMentions name condition ||
+          expressionMentions name thenValue || expressionMentions name elseValue
+    | .int _ | .bytes _ | .dataLit _ | .dataListLit _ |
+        .dataPairListLit _ | .constListLit _ | .bool _ | .str _ => false
+
+  private def expressionsMention (name : String) : List SExpr → Bool
+    | [] => false
+    | expression :: expressions =>
+        expressionMentions name expression || expressionsMention name expressions
+end
+
+mutual
+  private def symConstMentions (name : String) : SymConst → Bool
+    | .integer value | .bytes value | .string value | .bool value |
+        .data value | .dataList value | .pairDataList value | .array value |
+        .g1 value | .g2 value | .ml value => expressionMentions name value
+    | .constList value _ => expressionMentions name value
+    | .pairData first second =>
+        expressionMentions name first || expressionMentions name second
+    | .unit => false
+
+  private def symValMentions (name : String) : SymVal → Bool
+    | .const value => symConstMentions name value
+    | .dyn value => expressionMentions name value
+    | .pair first second =>
+        symValMentions name first || symValMentions name second
+    | .constr tag fields =>
+        expressionMentions name tag || symValsMention name fields
+    | .lam _ environment | .delay _ environment =>
+        symValsMention name environment
+    | .builtin _ arguments _ => symValsMention name arguments
+
+  private def symValsMention (name : String) : List SymVal → Bool
+    | [] => false
+    | value :: values =>
+        symValMentions name value || symValsMention name values
+end
+
+private def outcomeMentions (name : String) : Outcome → Bool
+  | .ok pc value => expressionMentions name pc || symValMentions name value
+  | .error pc | .timeout pc => expressionMentions name pc
+
+private def compiledCaseMentionsItsInput (fuel : Nat) (test : Case) : Bool :=
+  match test.declarations with
+  | [declaration] =>
+      (evalSym fuel (envOf test.declarations) test.term).any
+        (outcomeMentions declaration.name)
+  | _ => false
+
+private def isExactGroundOutcome (expected : Expected) : List Outcome → Bool
+  | [.ok (.bool true) (.const (.integer (.int actual)))] =>
+      match expected with | .integer value => actual == value | _ => false
+  | [.ok (.bool true) (.const (.bool (.bool actual)))] =>
+      match expected with | .boolean value => actual == value | _ => false
+  | [.error (.bool true)] =>
+      match expected with | .error => true | _ => false
+  | _ => false
+
+/-- Post-fast-path regression hook.  The generic saturated-ground evaluator
+should make every closed primary case a single literal success or literal
+error, with no residual SMT application.  This definition intentionally is
+not called by `main` on the pre-fast-path baseline; the advanced-builtin
+integration enables it once that implementation lands. -/
+def saturatedGroundCasesAreExactLiterals (fuel : Nat := 120) : Bool :=
+  primaryCases.all fun test =>
+    isExactGroundOutcome test.expected (evalSym fuel [] test.term)
+
 private def checkZ3 (fuel : Nat) (test : Case) : IO Unit := do
   match test.expected with
   | .integer expected =>
@@ -525,8 +1000,12 @@ private def checkZ3 (fuel : Nat) (test : Case) : IO Unit := do
       let error ← z3Status test.name "error" (← errorScript fuel test)
       requireStatus test.name "error" "unsat" error
   | .boolean expected =>
-      let value ← z3Status test.name "bool-true" (← boolScript fuel test)
-      requireStatus test.name "bool-true" (if expected then "sat" else "unsat") value
+      let exact ← z3Status test.name "bool-exact"
+        (← boolValueScript fuel test expected)
+      requireStatus test.name "bool-exact" "sat" exact
+      let wrong ← z3Status test.name "bool-wrong"
+        (← boolValueScript fuel test (!expected))
+      requireStatus test.name "bool-wrong" "unsat" wrong
       let error ← z3Status test.name "error" (← errorScript fuel test)
       requireStatus test.name "error" "unsat" error
       let integer ← z3Status test.name "integer" (← intScript fuel test 0)
@@ -536,6 +1015,9 @@ private def checkZ3 (fuel : Nat) (test : Case) : IO Unit := do
       requireStatus test.name "error" "sat" error
       let boolean ← z3Status test.name "boolean" (← boolScript fuel test)
       requireStatus test.name "boolean" "unsat" boolean
+      let booleanFalse ← z3Status test.name "boolean-false"
+        (← boolValueScript fuel test false)
+      requireStatus test.name "boolean-false" "unsat" booleanFalse
       let integer ← z3Status test.name "integer" (← intScript fuel test 0)
       requireStatus test.name "integer" "unsat" integer
 
@@ -546,6 +1028,20 @@ private def checkCoverage : IO Unit := do
       s!"basic builtin coverage changed: expected {basicBuiltins.length}, got {actual.length}"
   unless basicBuiltins.all builtinAllowedForSoundness do
     throw <| IO.userError "a basic differential builtin is no longer in the proved fragment"
+  let symbolic := symbolicBuiltinCases.filterMap Case.primaryBuiltin
+  unless symbolic == basicBuiltins do
+    throw <| IO.userError
+      s!"symbolic-success coverage changed: expected {basicBuiltins.length}, got {symbolic.length}"
+  let symbolicErrors := symbolicBuiltinErrorCases.filterMap Case.primaryBuiltin
+  unless symbolicErrors == basicBuiltins do
+    throw <| IO.userError
+      s!"symbolic-error coverage changed: expected {basicBuiltins.length}, got {symbolicErrors.length}"
+  unless basicBuiltins.eraseDups.length == basicBuiltins.length do
+    throw <| IO.userError "basic builtin coverage contains a duplicate"
+  for test in symbolicBuiltinCases ++ symbolicBuiltinErrorCases do
+    unless compiledCaseMentionsItsInput 120 test do
+      throw <| IO.userError
+        s!"{test.name}: compiler erased the supposedly symbolic declaration"
 
 private def checkCase (symbolicFuel cekFuel : Nat) (test : Case) : IO Unit := do
   unless assumptionsHold test do
@@ -565,7 +1061,9 @@ unsafe def main : IO Unit := do
     checkCase 120 10000 test
   IO.println <|
     s!"basic SMT/CEK differential passed: {primaryCases.length} builtins, " ++
-      s!"{edgeCases.length} failures/edges, {symbolicCases.length} symbolic cases"
+      s!"{symbolicBuiltinCases.length} symbolic successes, " ++
+      s!"{symbolicBuiltinErrorCases.length} symbolic errors, " ++
+      s!"{edgeCases.length} failures/edges, {symbolicCases.length} declaration-shape cases"
 
 end Test.SMT.BasicBuiltinDifferential
 
