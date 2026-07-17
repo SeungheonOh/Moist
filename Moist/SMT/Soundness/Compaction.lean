@@ -1,4 +1,4 @@
-import Moist.SMT.Soundness.Foundations
+import Moist.SMT.Soundness.ListCertificates
 
 /-!
 # Soundness of symbolic outcome compaction
@@ -103,14 +103,13 @@ theorem compactDecode_encode_noOpaque {kind : CompactKind} {v : SymVal}
           simp [CompactKind.encode?] at h
 
 theorem mergedDecode_toCek (m : SmtSem.Model) (kind : CompactKind)
-    (outs : List Outcome) (e : SExpr) :
-    symValToCek? m (mergedDecode kind outs e) =
+    (e : SExpr) :
+    symValToCek? m (mergedDecode kind e) =
       symValToCek? m (kind.decode e) := by
   cases kind <;> rfl
 
-theorem mergedDecode_noOpaque (kind : CompactKind) (outs : List Outcome)
-    (e : SExpr) :
-    symValNoOpaqueForSoundness (mergedDecode kind outs e) =
+theorem mergedDecode_noOpaque (kind : CompactKind) (e : SExpr) :
+    symValNoOpaqueForSoundness (mergedDecode kind e) =
       symValNoOpaqueForSoundness (kind.decode e) := by
   cases kind <;> rfl
 
@@ -163,6 +162,42 @@ theorem encodedOks_mem {kind : CompactKind} {outs : List Outcome}
           simp [encodedOks] at h
           obtain ⟨v', hv', he'⟩ := ih h
           exact ⟨v', by simp [hv'], he'⟩
+
+theorem encodedConstListOks_erase (outs : List Outcome) :
+    (encodedConstListOks outs).map EncodedConstListOk.erase =
+      encodedOks .constList outs := by
+  induction outs with
+  | nil => rfl
+  | cons out outs ih =>
+      cases out with
+      | error pc | timeout pc => simpa [encodedConstListOks, encodedOks] using ih
+      | ok pc value =>
+          cases value with
+          | const c =>
+              cases c <;> simp [encodedConstListOks, encodedOks,
+                CompactKind.encode?, EncodedConstListOk.erase, ih]
+          | dyn e | pair _ _ | constr _ _ | lam _ _ | delay _ _ | builtin _ _ _ =>
+              simp [encodedConstListOks, encodedOks, CompactKind.encode?, ih]
+
+theorem mergeEncodedConstListOks_erase (oks : List EncodedConstListOk) :
+    (mergeEncodedConstListOks oks).map EncodedConstListOk.erase =
+      mergeEncodedOks (oks.map EncodedConstListOk.erase) := by
+  induction oks with
+  | nil => rfl
+  | cons ok oks ih =>
+      cases hm : mergeEncodedConstListOks oks with
+      | none =>
+          have hmErase : mergeEncodedOks (oks.map EncodedConstListOk.erase) = none := by
+            simpa [hm] using ih.symm
+          simp [mergeEncodedConstListOks, hm, mergeEncodedOks, hmErase,
+            EncodedConstListOk.erase]
+      | some rest =>
+          have hmErase :
+              mergeEncodedOks (oks.map EncodedConstListOk.erase) =
+                some rest.erase := by
+            simpa [hm] using ih.symm
+          simp [mergeEncodedConstListOks, hm, mergeEncodedOks, hmErase,
+            EncodedConstListOk.erase]
 
 theorem nonEncodedOks_mem {outs : List Outcome} {out : Outcome}
     (h : out ∈ nonEncodedOks outs) : out ∈ outs := by
@@ -264,9 +299,13 @@ theorem mergeEncodedOks_active (kind : CompactKind) {m : SmtSem.Model}
                   simp [pcHolds, Moist.SMT.Semantics.evalBoolIs,
                     Moist.SMT.Semantics.evalBool?, Moist.SMT.Semantics.eval, hc] at hpc
 
-theorem mergedOkOutcome_active {kind : CompactKind} {m : SmtSem.Model}
+private theorem genericMergedOkOutcome_active {kind : CompactKind} {m : SmtSem.Model}
     {outs : List Outcome} {pc : SExpr} {v : SymVal}
-    (hmem : Outcome.ok pc v ∈ mergedOkOutcome kind outs)
+    (hmem : Outcome.ok pc v ∈
+      (match mergeEncodedOks (encodedOks kind outs) with
+      | none => []
+      | some (mergedPc, mergedValue) =>
+          [Outcome.ok mergedPc (mergedDecode kind mergedValue)]))
     (hpc : pcHolds m pc = true) :
     ∃ sourcePc sourceValue,
       Outcome.ok sourcePc sourceValue ∈ outs ∧
@@ -274,7 +313,6 @@ theorem mergedOkOutcome_active {kind : CompactKind} {m : SmtSem.Model}
       symValToCek? m v = symValToCek? m sourceValue ∧
       symValNoOpaqueForSoundness v =
         symValNoOpaqueForSoundness sourceValue := by
-  unfold mergedOkOutcome at hmem
   cases hm : mergeEncodedOks (encodedOks kind outs) with
   | none => simp [hm] at hmem
   | some merged =>
@@ -287,10 +325,54 @@ theorem mergedOkOutcome_active {kind : CompactKind} {m : SmtSem.Model}
       have hdecode := compactDecode_encode_toCek (m := m) hencode
       have hdecodeNo := compactDecode_encode_noOpaque hencode
       refine ⟨sourcePc, sourceValue, hsourceMem, hsourcePc, ?_, ?_⟩
-      · exact (mergedDecode_toCek m kind outs mergedValue).trans
+      · exact (mergedDecode_toCek m kind mergedValue).trans
           (hsourceEq.trans hdecode)
-      · exact (mergedDecode_noOpaque kind outs mergedValue).trans
+      · exact (mergedDecode_noOpaque kind mergedValue).trans
           ((compactDecode_noOpaque_irrel kind mergedValue sourceExpr).trans hdecodeNo)
+
+theorem mergedOkOutcome_active {kind : CompactKind} {m : SmtSem.Model}
+    {outs : List Outcome} {pc : SExpr} {v : SymVal}
+    (hmem : Outcome.ok pc v ∈ mergedOkOutcome kind outs)
+    (hpc : pcHolds m pc = true) :
+    ∃ sourcePc sourceValue,
+      Outcome.ok sourcePc sourceValue ∈ outs ∧
+      pcHolds m sourcePc = true ∧
+      symValToCek? m v = symValToCek? m sourceValue ∧
+      symValNoOpaqueForSoundness v =
+        symValNoOpaqueForSoundness sourceValue := by
+  cases kind with
+  | bool =>
+      apply genericMergedOkOutcome_active (kind := .bool)
+        (by simpa [mergedOkOutcome] using hmem) hpc
+  | integer =>
+      apply genericMergedOkOutcome_active (kind := .integer)
+        (by simpa [mergedOkOutcome] using hmem) hpc
+  | dataList =>
+      apply genericMergedOkOutcome_active (kind := .dataList)
+        (by simpa [mergedOkOutcome] using hmem) hpc
+  | dyn =>
+      apply genericMergedOkOutcome_active (kind := .dyn)
+        (by simpa [mergedOkOutcome] using hmem) hpc
+  | constList =>
+      unfold mergedOkOutcome at hmem
+      cases hm : mergeEncodedConstListOks (encodedConstListOks outs) with
+      | none => simp [hm] at hmem
+      | some merged =>
+          simp [hm] at hmem
+          rcases hmem with ⟨rfl, rfl⟩
+          have hMapped := congrArg (Option.map EncodedConstListOk.erase) hm
+          rw [mergeEncodedConstListOks_erase] at hMapped
+          simp only [Option.map_some] at hMapped
+          rw [encodedConstListOks_erase] at hMapped
+          obtain ⟨sourcePc, sourceExpr, hentry, hsourcePc, hsourceEq⟩ :=
+            mergeEncodedOks_active .constList hMapped hpc
+          obtain ⟨sourceValue, hsourceMem, hencode⟩ := encodedOks_mem hentry
+          have hdecode := compactDecode_encode_toCek (m := m) hencode
+          have hdecodeNo := compactDecode_encode_noOpaque hencode
+          refine ⟨sourcePc, sourceValue, hsourceMem, hsourcePc, ?_, ?_⟩
+          · exact hsourceEq.trans hdecode
+          · exact (compactDecode_noOpaque_irrel .constList
+              merged.value sourceExpr).trans hdecodeNo
 
 theorem compactedOkOutcomes_active_ok {m : SmtSem.Model} {outs : List Outcome}
     {pc : SExpr} {v : SymVal}
@@ -328,14 +410,16 @@ theorem ok_not_mem_mergedTimeoutOutcome {outs : List Outcome} {pc : SExpr}
 theorem error_not_mem_mergedOkOutcome {kind : CompactKind}
     {outs : List Outcome} {pc : SExpr} :
     Outcome.error pc ∉ mergedOkOutcome kind outs := by
-  unfold mergedOkOutcome
-  split <;> simp
+  intro hmem
+  cases kind <;> simp only [mergedOkOutcome] at hmem
+  all_goals split at hmem <;> simp_all
 
 theorem timeout_not_mem_mergedOkOutcome {kind : CompactKind}
     {outs : List Outcome} {pc : SExpr} :
     Outcome.timeout pc ∉ mergedOkOutcome kind outs := by
-  unfold mergedOkOutcome
-  split <;> simp
+  intro hmem
+  cases kind <;> simp only [mergedOkOutcome] at hmem
+  all_goals split at hmem <;> simp_all
 
 theorem error_not_mem_nonEncodedOks {outs : List Outcome} {pc : SExpr} :
     Outcome.error pc ∉ nonEncodedOks outs := by

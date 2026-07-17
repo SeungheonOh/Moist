@@ -67,6 +67,20 @@ info: 'Moist.SMT.UPLC.Soundness.compactOutcomes_active_timeout' depends on axiom
 #print axioms Moist.SMT.UPLC.Soundness.compactOutcomes_active_timeout
 
 /--
+info: 'Moist.SMT.UPLC.Soundness.exactConstListLength_eval_length' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.exactConstListLength_eval_length
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.constListBranches_complete_for_toCek' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.constListBranches_complete_for_toCek
+
+/--
 info: 'Moist.Verified.BigStep.bigEval_iff_halt_env' depends on axioms: [propext, Classical.choice, Quot.sound]
 -/
 #guard_msgs in

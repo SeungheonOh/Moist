@@ -2602,8 +2602,7 @@ theorem evalBuiltinSym_active_error_MkCons : BuiltinErrorSound .MkCons := by
                  let dataOk := SExpr.and dl.guard hd.guard
                  let constOk := SExpr.and vl.guard hv.guard
                  [Outcome.ok dataOk (.const (.dataList (.app "DCons" [hd.val, dl.val]))),
-                  Outcome.ok constOk (.const (.constList (.app "VCons" [hv.val, vl.val])
-                    ((knownConstListLength tail).map Nat.succ))),
+                  Outcome.ok constOk (consConstListValue hv.val tail),
                   Outcome.error (SExpr.not (SExpr.or dataOk constOk))]) at hmem
               simp only [List.mem_cons, List.not_mem_nil] at hmem
               obtain ⟨ctail, chead, htail, hhead, rfl⟩ :=
@@ -2766,8 +2765,7 @@ theorem evalBuiltinSym_active_error_TailList : BuiltinErrorSound .TailList := by
                 (.const (.dataList (.app "dtail" [dl.val]))),
               Outcome.ok
                 (SExpr.and vl.guard (SExpr.not (SExpr.isCtor "VNil" vl.val)))
-                (.const (.constList (.app "vtail" [vl.val])
-                  (tailLengthHint (knownConstListLength xs)))),
+                (tailConstListValue xs),
               Outcome.error (SExpr.not
                 (SExpr.or
                   (SExpr.and dl.guard (SExpr.not (SExpr.isCtor "DNil" dl.val)))
@@ -3967,7 +3965,7 @@ theorem evalBuiltinSym_active_error_DropList : BuiltinErrorSound .DropList := by
                     (asInt n) (asConstList xs)
                  let dl := Proj.map2 (fun n xs => .app "dlist_drop" [n, xs])
                     (asInt n) (asDataList xs)
-                 [Outcome.ok vl.guard (.const (.constList vl.val none)),
+                 [Outcome.ok vl.guard (.const (.constList vl.val .unknown)),
                   Outcome.ok dl.guard (.const (.dataList dl.val)),
                   Outcome.error (SExpr.not (SExpr.or vl.guard dl.guard))]) at hmem
               simp only [List.mem_cons, List.not_mem_nil] at hmem

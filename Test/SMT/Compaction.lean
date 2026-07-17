@@ -161,7 +161,7 @@ def timeoutCount (outs : List Outcome) : Nat :=
 -- The optimization itself has a small, deterministic unit regression: all
 -- encodable successes and all errors/timeouts are represented once.
 private def sampleOutcomes : List Outcome :=
-  [ .ok (.sym "a") (.const (.constList (.sym "xs") none))
+  [ .ok (.sym "a") (.const (.constList (.sym "xs") .unknown))
   , .ok (.sym "b") (.dyn (.sym "v"))
   , .ok (.sym "data") (.const (.dataList (.sym "ds")))
   , .ok (.sym "i1") (.const (.integer (.sym "x")))
@@ -204,6 +204,20 @@ private def branchNames : List Outcome → List String
 #guard branchNames (constListBranches none nilOutcome consOutcome) == ["nil-pc", "cons-pc"]
 #guard knownConstListLength (constLiteral (.ConstList [])) == some 0
 
+private def certifiedNilOutcomes : List Outcome :=
+  [ .ok (.sym "left")
+      (.const (.constList (.constListLit []) (.literal [])))
+  , .ok (.sym "right")
+      (.const (.constList (.constListLit []) (.literal [])))
+  ]
+
+-- Same-length joins retain a certificate for the newly built `ite`, rather
+-- than copying forgeable metadata from either input.
+#guard
+  match mergedOkOutcome .constList certifiedNilOutcomes with
+  | [.ok _ value] => knownConstListLength value == some 0
+  | _ => false
+
 -- End-to-end regression beyond the former six-element practical limit.  Each
 -- successful representation is packed once; only the linearly many
 -- outer call-site errors and the single exhausted symbolic-recursion path
@@ -219,6 +233,8 @@ private def branchNames : List Outcome → List String
 #check Moist.SMT.UPLC.Soundness.evalSym_okBoolTrueCond_sound
 #check Moist.SMT.UPLC.Soundness.compactOutcomes_active_timeout
 #check Moist.SMT.UPLC.Soundness.constListBranches_sublist
+#check Moist.SMT.UPLC.Soundness.exactConstListLength_eval_length
+#check Moist.SMT.UPLC.Soundness.constListBranches_complete_for_toCek
 
 def benchmarkSize (n : Nat) : IO Unit := do
   let start ← IO.monoMsNow

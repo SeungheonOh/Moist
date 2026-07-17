@@ -202,6 +202,86 @@ def prelude : List Moist.SMT.Command :=
   , .declareFun "uplc_g2_multiScalarMul" [.valList, .valList] .g2
   ]
 
+/-! ## Certified constant-list lengths
+
+`ChooseList` can avoid generating an impossible alternative when a constant
+list's length is statically known.  The cached length is proof-carrying: an
+arbitrary caller can supply an unknown hint, but cannot attach a length to an
+unrelated SMT expression.  Keeping the certificate syntactic also keeps the
+compiler independent of any particular SMT model.
+-/
+
+inductive ExactConstListLength : SExpr → Nat → Prop where
+  | literal (xs : List Const) :
+      ExactConstListLength (.constListLit xs) xs.length
+  | cons (head : SExpr) {tail : SExpr} {n : Nat}
+      (h : ExactConstListLength tail n) :
+      ExactConstListLength (.app "VCons" [head, tail]) (n + 1)
+  | tail {xs : SExpr} {n : Nat}
+      (h : ExactConstListLength xs (n + 1)) :
+      ExactConstListLength (.app "vtail" [xs]) n
+  | ite (condition : SExpr) {thenExpr elseExpr : SExpr} {n : Nat}
+      (hThen : ExactConstListLength thenExpr n)
+      (hElse : ExactConstListLength elseExpr n) :
+      ExactConstListLength (.ite condition thenExpr elseExpr) n
+
+inductive ConstListLengthHint (expr : SExpr) where
+  | unknown
+  | exact (length : Nat) (certificate : ExactConstListLength expr length)
+deriving Repr
+
+instance {expr : SExpr} : BEq (ConstListLengthHint expr) where
+  beq a b :=
+    match a, b with
+    | .unknown, .unknown => true
+    | .exact an _, .exact bn _ => an == bn
+    | _, _ => false
+
+namespace ConstListLengthHint
+
+def certificate? {expr : SExpr} (hint : ConstListLengthHint expr) :
+    Option { n : Nat // ExactConstListLength expr n } :=
+  match hint with
+  | .unknown => none
+  | .exact n certificate => some ⟨n, certificate⟩
+
+def knownLength {expr : SExpr} (hint : ConstListLengthHint expr) : Option Nat :=
+  hint.certificate?.map Subtype.val
+
+def literal (xs : List Const) : ConstListLengthHint (.constListLit xs) :=
+  .exact xs.length (.literal xs)
+
+def cons (head : SExpr) {tail : SExpr} (hint : ConstListLengthHint tail) :
+    ConstListLengthHint (.app "VCons" [head, tail]) :=
+  match hint.certificate? with
+  | none => .unknown
+  | some ⟨n, certificate⟩ =>
+      .exact (n + 1) (.cons head certificate)
+
+def tail {xs : SExpr} (hint : ConstListLengthHint xs) :
+    ConstListLengthHint (.app "vtail" [xs]) :=
+  match hint.certificate? with
+  | none => .unknown
+  | some ⟨0, _⟩ => .unknown
+  | some ⟨n + 1, certificate⟩ =>
+      .exact n (.tail certificate)
+
+def ite (condition : SExpr) {thenExpr elseExpr : SExpr}
+    (thenHint : ConstListLengthHint thenExpr)
+    (elseHint : ConstListLengthHint elseExpr) :
+    ConstListLengthHint (.ite condition thenExpr elseExpr) :=
+  match thenHint.certificate?, elseHint.certificate? with
+  | some ⟨thenLength, thenCertificate⟩,
+      some ⟨elseLength, elseCertificate⟩ =>
+      if h : thenLength = elseLength then
+        .exact thenLength
+          (.ite condition thenCertificate (h ▸ elseCertificate))
+      else
+        .unknown
+  | _, _ => .unknown
+
+end ConstListLengthHint
+
 inductive SymConst where
   | integer : SExpr → SymConst
   | bytes : SExpr → SymConst
@@ -209,10 +289,8 @@ inductive SymConst where
   | bool : SExpr → SymConst
   | unit : SymConst
   | data : SExpr → SymConst
-  /-- A builtin constant list together with a conservative known-length hint.
-  The hint controls branch generation only; every retained branch still carries
-  the ordinary SMT nil/non-nil guard. -/
-  | constList : SExpr → Option Nat → SymConst
+  /-- A builtin constant list together with a certified known-length hint. -/
+  | constList : (expr : SExpr) → ConstListLengthHint expr → SymConst
   | dataList : SExpr → SymConst
   | pairDataList : SExpr → SymConst
   | pairData : SExpr → SExpr → SymConst
@@ -220,7 +298,27 @@ inductive SymConst where
   | g1 : SExpr → SymConst
   | g2 : SExpr → SymConst
   | ml : SExpr → SymConst
-deriving Repr, BEq
+deriving Repr
+
+instance : BEq SymConst where
+  beq a b :=
+    match a, b with
+    | .integer x, .integer y
+    | .bytes x, .bytes y
+    | .string x, .string y
+    | .bool x, .bool y
+    | .data x, .data y
+    | .dataList x, .dataList y
+    | .pairDataList x, .pairDataList y
+    | .array x, .array y
+    | .g1 x, .g1 y
+    | .g2 x, .g2 y
+    | .ml x, .ml y => x == y
+    | .constList x hx, .constList y hy =>
+        x == y && hx.knownLength == hy.knownLength
+    | .unit, .unit => true
+    | .pairData a b, .pairData c d => a == c && b == d
+    | _, _ => false
 
 inductive SymVal where
   | const : SymConst → SymVal
@@ -358,7 +456,7 @@ def encode? : CompactKind → SymVal → Option SExpr
 def decode : CompactKind → SExpr → SymVal
   | .integer, e => .const (.integer e)
   | .bool, e => .const (.bool e)
-  | .constList, e => .const (.constList e none)
+  | .constList, e => .const (.constList e .unknown)
   | .dataList, e => .const (.dataList e)
   | .dyn, e => .dyn e
 
@@ -412,31 +510,58 @@ def mergeEncodedOks : List EncodedOk → Option EncodedOk
           -- `ite` is decoded.
           some (.app "or" [pc, restPc], SExpr.ite pc value restValue)
 
-def constListHints : List Outcome → List (Option Nat)
+structure EncodedConstListOk where
+  pc : SExpr
+  value : SExpr
+  hint : ConstListLengthHint value
+deriving Repr
+
+namespace EncodedConstListOk
+
+def erase (ok : EncodedConstListOk) : EncodedOk := (ok.pc, ok.value)
+
+end EncodedConstListOk
+
+def encodedConstListOks : List Outcome → List EncodedConstListOk
   | [] => []
-  | .ok _ (.const (.constList _ hint)) :: outs => hint :: constListHints outs
-  | _ :: outs => constListHints outs
+  | .ok pc (.const (.constList value hint)) :: outs =>
+      ⟨pc, value, hint⟩ :: encodedConstListOks outs
+  | _ :: outs => encodedConstListOks outs
 
-/-- Retain an exact-length hint across a join only when every joined constant
-list carries the same hint.  Falling back to `none` affects performance only. -/
-def commonConstListLength (outs : List Outcome) : Option Nat :=
-  match constListHints outs with
-  | some n :: rest =>
-      if rest.all (fun hint => hint == some n) then some n else none
-  | _ => none
+/-- Merge constant-list outcomes while joining their proof-carrying length
+certificates.  A certificate survives exactly when both sides have the same
+known length. -/
+def mergeEncodedConstListOks :
+    List EncodedConstListOk → Option EncodedConstListOk
+  | [] => none
+  | ok :: oks =>
+      match mergeEncodedConstListOks oks with
+      | none => some ok
+      | some rest =>
+          some {
+            pc := .app "or" [ok.pc, rest.pc]
+            value := .ite ok.pc ok.value rest.value
+            hint := .ite ok.pc ok.hint rest.hint
+          }
 
-def mergedDecode (kind : CompactKind) (outs : List Outcome) (e : SExpr) : SymVal :=
+def mergedDecode (kind : CompactKind) (e : SExpr) : SymVal :=
   match kind with
   | .bool => .const (.bool e)
   | .integer => .const (.integer e)
-  | .constList => .const (.constList e (commonConstListLength outs))
+  | .constList => .const (.constList e .unknown)
   | .dataList => .const (.dataList e)
   | .dyn => .dyn e
 
 def mergedOkOutcome (kind : CompactKind) (outs : List Outcome) : List Outcome :=
-  match mergeEncodedOks (encodedOks kind outs) with
-  | none => []
-  | some (pc, value) => [.ok pc (mergedDecode kind outs value)]
+  match kind with
+  | .constList =>
+      match mergeEncodedConstListOks (encodedConstListOks outs) with
+      | none => []
+      | some ok => [.ok ok.pc (.const (.constList ok.value ok.hint))]
+  | kind =>
+      match mergeEncodedOks (encodedOks kind outs) with
+      | none => []
+      | some (pc, value) => [.ok pc (mergedDecode kind value)]
 
 def compactedOkOutcomes (outs : List Outcome) : List Outcome :=
   mergedOkOutcome .integer outs ++
@@ -519,12 +644,22 @@ def asConstList : SymVal → Proj SExpr
   | v => valueProj "VList" "unVList" (.app "VNil" []) v
 
 def knownConstListLength : SymVal → Option Nat
-  | .const (.constList _ hint) => hint
+  | .const (.constList _ hint) => hint.knownLength
   | _ => none
 
-def tailLengthHint : Option Nat → Option Nat
-  | some (n + 1) => some n
-  | _ => none
+def consConstListValue (head : SExpr) : SymVal → SymVal
+  | .const (.constList tail hint) =>
+      .const (.constList (.app "VCons" [head, tail]) (.cons head hint))
+  | value =>
+      let tail := (asConstList value).val
+      .const (.constList (.app "VCons" [head, tail]) .unknown)
+
+def tailConstListValue : SymVal → SymVal
+  | .const (.constList xs hint) =>
+      .const (.constList (.app "vtail" [xs]) (.tail hint))
+  | value =>
+      let xs := (asConstList value).val
+      .const (.constList (.app "vtail" [xs]) .unknown)
 
 /-- Select the constant-list alternatives that can be reachable at a known
 length.  This is intentionally only a selector: the outcomes themselves keep
@@ -612,7 +747,7 @@ def constLiteral : Const → SymVal
   | .String s => .const (.string (.str s))
   | .Unit => .const .unit
   | .Bool b => .const (.bool (.bool b))
-  | .ConstList xs => .const (.constList (.constListLit xs) (some xs.length))
+  | .ConstList xs => .const (.constList (.constListLit xs) (.literal xs))
   | .ConstDataList xs => .const (.dataList (dataListLiteral xs))
   | .ConstPairDataList xs => .const (.pairDataList (dataPairListLiteral xs))
   | .Pair (a, b) => .pair (constLiteral a) (constLiteral b)
@@ -641,7 +776,8 @@ def enumerate (xs : List α) : List (Nat × α) :=
   go 0 xs
 
 def fieldFromValList (xs : SExpr) : SymVal := .dyn (.app "vhead" [xs])
-def tailFromValList (xs : SExpr) : SymVal := .const (.constList (.app "vtail" [xs]) none)
+def tailFromValList (xs : SExpr) : SymVal :=
+  .const (.constList (.app "vtail" [xs]) .unknown)
 def fieldFromDataList (xs : SExpr) : SymVal := .const (.data (.app "dhead" [xs]))
 def tailFromDataList (xs : SExpr) : SymVal := .const (.dataList (.app "dtail" [xs]))
 
@@ -1009,8 +1145,7 @@ mutual
         let dataOk := SExpr.and dl.guard hd.guard
         let constOk := SExpr.and vl.guard hv.guard
         [.ok dataOk (.const (.dataList (.app "DCons" [hd.val, dl.val]))),
-         .ok constOk (.const (.constList (.app "VCons" [hv.val, vl.val])
-           ((knownConstListLength tail).map Nat.succ))),
+         .ok constOk (consConstListValue hv.val tail),
          .error (SExpr.not (SExpr.or dataOk constOk))]
     | .HeadList, [xs] =>
         let dl := asDataList xs
@@ -1024,8 +1159,7 @@ mutual
         let vl := asConstList xs
         [.ok (SExpr.and dl.guard (SExpr.not (SExpr.isCtor "DNil" dl.val))) (.const (.dataList (.app "dtail" [dl.val]))),
          .ok (SExpr.and vl.guard (SExpr.not (SExpr.isCtor "VNil" vl.val)))
-           (.const (.constList (.app "vtail" [vl.val])
-             (tailLengthHint (knownConstListLength xs)))),
+           (tailConstListValue xs),
          .error (SExpr.not (SExpr.or (SExpr.and dl.guard (SExpr.not (SExpr.isCtor "DNil" dl.val)))
                                      (SExpr.and vl.guard (SExpr.not (SExpr.isCtor "VNil" vl.val)))))]
     | .NullList, [xs] =>
@@ -1144,7 +1278,7 @@ mutual
     | .DropList, [xs, n] =>
         let vl := Proj.map2 (fun n xs => .app "vlist_drop" [n, xs]) (asInt n) (asConstList xs)
         let dl := Proj.map2 (fun n xs => .app "dlist_drop" [n, xs]) (asInt n) (asDataList xs)
-        [.ok vl.guard (.const (.constList vl.val none)),
+        [.ok vl.guard (.const (.constList vl.val .unknown)),
          .ok dl.guard (.const (.dataList dl.val)),
          .error (SExpr.not (SExpr.or vl.guard dl.guard))]
     | .IndexArray, [idx, arr] =>

@@ -495,6 +495,22 @@ private theorem evalApp_vtail (h : Val) (t : List Val) :
     evalApp "vtail" [SVal.valList (h :: t)] = some (SVal.valList t) := by
   rfl
 
+private theorem evalApp_VCons_exact (head tail : SVal) :
+    evalApp "VCons" [head, tail] =
+      match head, tail with
+      | .val h, .valList t => some (.valList (h :: t))
+      | _, _ => none := by
+  cases head <;> cases tail <;> rfl
+
+private theorem evalApp_vtail_exact (value : SVal) :
+    evalApp "vtail" [value] =
+      match value with
+      | .valList (_ :: tail) => some (.valList tail)
+      | _ => none := by
+  cases value <;> try rfl
+  rename_i values
+  cases values <;> rfl
+
 private theorem evalApp_dhead (h : Data) (t : List Data) :
     evalApp "dhead" [SVal.dataList (h :: t)] = some (SVal.data h) := by
   rfl
@@ -3465,6 +3481,70 @@ theorem eval_VCons_of {m : Model} {h t : Expr} {hv : Val} {tv : List Val}
   simp [ht]
   rw [evalList.eq_def]
   rfl
+
+theorem eval_VCons_inv {m : Model} {h t : Expr} {values : List Val}
+    (hEval : eval m (.app "VCons" [h, t]) = some (.valList values)) :
+    ∃ hv tv,
+      eval m h = some (.val hv) ∧
+      eval m t = some (.valList tv) ∧
+      values = hv :: tv := by
+  rw [eval.eq_def] at hEval
+  change
+    (do
+      let vs ← evalList m [h, t]
+      evalApp "VCons" vs) = some (.valList values) at hEval
+  rw [evalList.eq_def] at hEval
+  cases hh : eval m h with
+  | none => simp [hh] at hEval
+  | some headValue =>
+      simp [hh] at hEval
+      rw [evalList.eq_def] at hEval
+      cases ht : eval m t with
+      | none => simp [ht] at hEval
+      | some tailValue =>
+          simp [ht] at hEval
+          rw [evalList.eq_def] at hEval
+          simp at hEval
+          rw [evalApp_VCons_exact] at hEval
+          cases headValue <;> try { simp at hEval }
+          case val hv =>
+            cases tailValue <;> try { simp at hEval }
+            case valList tv =>
+              change (some (SVal.valList (hv :: tv)) : Option SVal) =
+                some (SVal.valList values) at hEval
+              injection hEval with hValues
+              injection hValues with hLists
+              subst values
+              exact ⟨hv, tv, rfl, rfl, rfl⟩
+
+theorem eval_vtail_inv {m : Model} {xs : Expr} {values : List Val}
+    (hEval : eval m (.app "vtail" [xs]) = some (.valList values)) :
+    ∃ head,
+      eval m xs = some (.valList (head :: values)) := by
+  rw [eval.eq_def] at hEval
+  change
+    (do
+      let vs ← evalList m [xs]
+      evalApp "vtail" vs) = some (.valList values) at hEval
+  rw [evalList.eq_def] at hEval
+  cases hxs : eval m xs with
+  | none => simp [hxs] at hEval
+  | some listValue =>
+      simp [hxs] at hEval
+      rw [evalList.eq_def] at hEval
+      simp at hEval
+      rw [evalApp_vtail_exact] at hEval
+      cases listValue <;> try { simp at hEval }
+      case valList sourceValues =>
+        cases sourceValues with
+        | nil => simp at hEval
+        | cons head tail =>
+            change (some (SVal.valList tail) : Option SVal) =
+              some (SVal.valList values) at hEval
+            injection hEval with hValues
+            injection hValues with hLists
+            subst values
+            exact ⟨head, rfl⟩
 
 theorem eval_DCons_of {m : Model} {h t : Expr} {hd : Data} {td : List Data}
     (hh : eval m h = some (SVal.data hd))
