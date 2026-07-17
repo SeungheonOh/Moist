@@ -160,13 +160,27 @@ private def indexedTesterHeads : List String :=
 private def applicationHeadRendererSafe (name : String) : Bool :=
   simpleSymbolRendererSafe name || indexedTesterHeads.contains name
 
+/-- Atomic symbols admitted at the checked renderer boundary.
+
+Arbitrary SMT-LIB simple symbols are not sufficient here.  Tokens such as
+`true`, `false`, numerals, and nullary datatype constructors are parsed by Z3
+as literals or constructors, while `Semantics.eval` would otherwise treat an
+`Expr.sym` carrying the same text as a model lookup.  Compiler declarations
+live in the private sanitized namespace; the remaining atoms below are the
+exact fixed constants whose SMT and executable interpretations coincide. -/
+private def symbolAtomRendererSafe (name : String) : Bool :=
+  declarationNameRendererSafe name ||
+    name == "(as seq.empty Bytes)" ||
+    name == "(as seq.empty (Seq Int))" ||
+    name == "g1_default" ||
+    name == "g2_default" ||
+    name == "ml_default"
+
 mutual
   /-- A structural expression check sufficient to prevent one AST node from
   rendering as multiple SMT-LIB terms or commands. -/
   def expressionRendererSafe : SExpr → Bool
-    | .sym "(as seq.empty Bytes)" => true
-    | .sym "(as seq.empty (Seq Int))" => true
-    | .sym name => simpleSymbolRendererSafe name
+    | .sym name => symbolAtomRendererSafe name
     | .int _ | .bytes _ | .dataLit _ | .dataListLit _
     | .dataPairListLit _ | .constListLit _ | .bool _ | .str _ => true
     | .app name arguments =>

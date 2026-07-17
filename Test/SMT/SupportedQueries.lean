@@ -261,6 +261,30 @@ example : declarationNameRendererSafe (Moist.SMT.sanitize "x (y)") = true := by
 example : declarationNameRendererSafe "x) (assert false)" = false := by
   native_decide
 
+/-! SMT-LIB literals and nullary constructors must not be smuggled through
+`Expr.sym`: the executable semantics treats a general symbol as a model
+lookup, whereas Z3 assigns these tokens fixed meanings. -/
+
+def literalAtomCollisionDeclaration (atom : String) : SymDecl :=
+  (symInt "x").withAssumptions [.sym atom]
+
+example : expressionRendererSafe (.sym "true") = false := by native_decide
+example : expressionRendererSafe (.sym "false") = false := by native_decide
+example : expressionRendererSafe (.sym "0") = false := by native_decide
+example : expressionRendererSafe (.sym "VUnit") = false := by native_decide
+example : expressionRendererSafe (.sym "DNil") = false := by native_decide
+
+example :
+    (SupportedDeclarations.check
+      [literalAtomCollisionDeclaration "true"]).isSome = false := by
+  native_decide
+
+example : expressionRendererSafe (.sym (Moist.SMT.sanitize "x")) = true := by
+  native_decide
+
+example : expressionRendererSafe (.sym "(as seq.empty Bytes)") = true := by
+  native_decide
+
 example :
     (IntEqQuery.compile? 20 supportedDeclarations
       (.Constant (.Integer 1, .AtomicType .TypeInteger)) 1).isSome = true := by
