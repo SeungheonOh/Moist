@@ -1,5 +1,5 @@
 import Test.SMT.Examples
-import Moist.SMT.Soundness
+import Test.SMT.Coverage
 
 namespace Test.SMT.Optimize
 

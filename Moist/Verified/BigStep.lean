@@ -1440,6 +1440,64 @@ theorem bigEval_iff_halt {t : Term} {v : CekValue} :
   · rintro ⟨f, hf⟩; exact bigEval_sound hf
   · exact bigEval_complete
 
+/-! ## Environment-parametric CEK equivalence
+
+The symbolic evaluator decodes an SMT model to a `CekEnv` and evaluates an
+open term directly in that environment.  These variants expose the same CEK
+equivalence from an arbitrary environment, starting at the corresponding CEK
+`compute` state rather than `init`.
+-/
+
+/-- A halting CEK computation in an arbitrary environment passes through the
+empty-stack return state carrying the same value. -/
+theorem exists_ret_nil_env {ρ : CekEnv} {t : Term} {v : CekValue} :
+    ∀ (N : Nat), steps N (.compute [] ρ t) = .halt v →
+      ∃ n, steps n (.compute [] ρ t) = .ret [] v := by
+  intro N
+  induction N with
+  | zero =>
+      intro hN
+      rw [steps] at hN
+      exact absurd hN (by simp)
+  | succ N ih =>
+      intro hN
+      rw [steps_succ_right] at hN
+      rcases step_pre_halt hN with hr | hh
+      · exact ⟨N, hr⟩
+      · exact ih hh
+
+/-- Completeness of `bigEval` for the CEK computation started in an arbitrary
+environment. -/
+theorem bigEval_complete_env {ρ : CekEnv} {t : Term} {v : CekValue}
+    (h : Reaches (.compute [] ρ t) (.halt v)) :
+    ∃ f, bigEval f ρ t = some v := by
+  obtain ⟨N, hN⟩ := h
+  obtain ⟨n0, hn0⟩ := exists_ret_nil_env N hN
+  have hno : ∀ i, i < n0 → ∀ w,
+      steps i (.compute [] ρ t) ≠ .ret [] w := by
+    intro i hi w hcontra
+    have hih : steps (i + 1) (.compute [] ρ t) = .halt w := by
+      rw [steps_succ_right, hcontra]
+      simp only [step]
+    have hhalt : steps n0 (.compute [] ρ t) = .halt w := by
+      have h2 : steps ((i + 1) + (n0 - (i + 1))) (.compute [] ρ t) = .halt w := by
+        rw [steps_add, hih]
+        exact steps_halt _ w
+      rwa [Nat.add_sub_cancel' (by omega)] at h2
+    rw [hhalt] at hn0
+    exact absurd hn0 (by simp)
+  exact evalBwd n0 [] ρ t v hn0 hno
+
+/-- Big-step evaluation is exactly CEK halting from an arbitrary decoded
+environment. -/
+theorem bigEval_iff_halt_env {ρ : CekEnv} {t : Term} {v : CekValue} :
+    (∃ f, bigEval f ρ t = some v) ↔
+      Reaches (.compute [] ρ t) (.halt v) := by
+  constructor
+  · rintro ⟨f, hf⟩
+    exact reaches_trans (evalFwd hf []) (one_step rfl)
+  · exact bigEval_complete_env
+
 /-! ## Builtin denotation specs (Blaster optimization)
 
 `Moist.CEK.evalBuiltin` is a monolithic dispatch that the SMT optimizer cannot
