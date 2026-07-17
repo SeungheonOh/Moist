@@ -1276,12 +1276,13 @@ def timeoutCond (outs : List Outcome) : SExpr :=
     | .timeout pc => some pc
     | _ => none
 
-/-- Z3's context-aware simplifier is particularly effective on the nested
-datatype decisions produced by symbolic list programs.  This changes only
-the solver strategy: the asserted expression and the returned model retain
-their ordinary SMT meaning. -/
+/-- Run Z3's context-aware datatype simplification and its direct SMT search
+as a two-way portfolio.  Symbolic list queries vary sharply: model-producing
+queries often favor the former while counterexample queries favor the latter.
+This changes only solver strategy; assertions and returned models retain their
+ordinary SMT meaning. -/
 def z3QueryTactic : String :=
-  "(then simplify ctx-solver-simplify smt)"
+  "(par-or (then simplify ctx-solver-simplify smt) smt)"
 
 def scriptWith (decls : List SymDecl) (assertions : List SExpr) : Moist.SMT.Script :=
   ⟨prelude ++ declCommands decls ++ assumptionCommands decls ++

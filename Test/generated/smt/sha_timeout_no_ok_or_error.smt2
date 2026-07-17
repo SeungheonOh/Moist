@@ -154,5 +154,5 @@
 (assert false)
 (assert (not (= (uplc_sha2_256 $u$120) (uplc_sha2_256 $u$121))))
 (assert true)
-(check-sat-using (then simplify ctx-solver-simplify smt))
+(check-sat-using (par-or (then simplify ctx-solver-simplify smt) smt))
 (get-model)

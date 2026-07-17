@@ -149,5 +149,5 @@
 (declare-fun uplc_g2_multiScalarMul (ValList ValList) G2)
 (declare-const $u$120 Int)
 (assert (and (>= $u$120 0) (= $u$120 2)))
-(check-sat-using (then simplify ctx-solver-simplify smt))
+(check-sat-using (par-or (then simplify ctx-solver-simplify smt) smt))
 (get-model)

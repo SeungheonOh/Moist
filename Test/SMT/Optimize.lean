@@ -56,7 +56,7 @@ example : scriptWithSimplified [xInt] [rawRecursiveSum55] =
     scriptWith [xInt] [rawRecursiveSum55.simplifyBool] := rfl
 
 #guard Command.render (.checkSatUsing z3QueryTactic) ==
-  "(check-sat-using (then simplify ctx-solver-simplify smt))"
+  "(check-sat-using (par-or (then simplify ctx-solver-simplify smt) smt))"
 
 -- Solver preprocessing is deliberately outside the assertion list.  The
 -- kernel checks that the optimized script still submits exactly the symbolic

@@ -148,5 +148,5 @@
 (declare-fun uplc_g1_multiScalarMul (ValList ValList) G1)
 (declare-fun uplc_g2_multiScalarMul (ValList ValList) G2)
 (assert true)
-(check-sat-using (then simplify ctx-solver-simplify smt))
+(check-sat-using (par-or (then simplify ctx-solver-simplify smt) smt))
 (get-model)
