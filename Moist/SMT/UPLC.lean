@@ -209,7 +209,10 @@ inductive SymConst where
   | bool : SExpr → SymConst
   | unit : SymConst
   | data : SExpr → SymConst
-  | constList : SExpr → SymConst
+  /-- A builtin constant list together with a conservative known-length hint.
+  The hint controls branch generation only; every retained branch still carries
+  the ordinary SMT nil/non-nil guard. -/
+  | constList : SExpr → Option Nat → SymConst
   | dataList : SExpr → SymConst
   | pairDataList : SExpr → SymConst
   | pairData : SExpr → SExpr → SymConst
@@ -304,7 +307,7 @@ where
     | .bool b => some (.app "VBool" [b])
     | .unit => some (.app "VUnit" [])
     | .data d => some (.app "VData" [d])
-    | .constList xs => some (.app "VList" [xs])
+    | .constList xs _ => some (.app "VList" [xs])
     | .dataList xs => some (.app "VDataList" [xs])
     | .pairDataList xs => some (.app "VPairDataList" [xs])
     | .pairData a b => some (.app "VPairData" [a, b])
@@ -347,7 +350,7 @@ namespace CompactKind
 def encode? : CompactKind → SymVal → Option SExpr
   | .integer, .const (.integer i) => some i
   | .bool, .const (.bool b) => some b
-  | .constList, .const (.constList xs) => some xs
+  | .constList, .const (.constList xs _) => some xs
   | .dataList, .const (.dataList xs) => some xs
   | .dyn, .dyn e => some e
   | _, _ => none
@@ -355,7 +358,7 @@ def encode? : CompactKind → SymVal → Option SExpr
 def decode : CompactKind → SExpr → SymVal
   | .integer, e => .const (.integer e)
   | .bool, e => .const (.bool e)
-  | .constList, e => .const (.constList e)
+  | .constList, e => .const (.constList e none)
   | .dataList, e => .const (.dataList e)
   | .dyn, e => .dyn e
 
@@ -364,7 +367,7 @@ end CompactKind
 def compactKind? : SymVal → Option CompactKind
   | .const (.integer _) => some .integer
   | .const (.bool _) => some .bool
-  | .const (.constList _) => some .constList
+  | .const (.constList _ _) => some .constList
   | .const (.dataList _) => some .dataList
   | .dyn _ => some .dyn
   | _ => none
@@ -409,10 +412,31 @@ def mergeEncodedOks : List EncodedOk → Option EncodedOk
           -- `ite` is decoded.
           some (.app "or" [pc, restPc], SExpr.ite pc value restValue)
 
+def constListHints : List Outcome → List (Option Nat)
+  | [] => []
+  | .ok _ (.const (.constList _ hint)) :: outs => hint :: constListHints outs
+  | _ :: outs => constListHints outs
+
+/-- Retain an exact-length hint across a join only when every joined constant
+list carries the same hint.  Falling back to `none` affects performance only. -/
+def commonConstListLength (outs : List Outcome) : Option Nat :=
+  match constListHints outs with
+  | some n :: rest =>
+      if rest.all (fun hint => hint == some n) then some n else none
+  | _ => none
+
+def mergedDecode (kind : CompactKind) (outs : List Outcome) (e : SExpr) : SymVal :=
+  match kind with
+  | .bool => .const (.bool e)
+  | .integer => .const (.integer e)
+  | .constList => .const (.constList e (commonConstListLength outs))
+  | .dataList => .const (.dataList e)
+  | .dyn => .dyn e
+
 def mergedOkOutcome (kind : CompactKind) (outs : List Outcome) : List Outcome :=
   match mergeEncodedOks (encodedOks kind outs) with
   | none => []
-  | some (pc, value) => [.ok pc (kind.decode value)]
+  | some (pc, value) => [.ok pc (mergedDecode kind outs value)]
 
 def compactedOkOutcomes (outs : List Outcome) : List Outcome :=
   mergedOkOutcome .integer outs ++
@@ -483,7 +507,7 @@ def asData : SymVal → Proj SExpr
 
 def asDataList : SymVal → Proj SExpr
   | .const (.dataList xs) => Proj.pure xs
-  | .const (.constList _) => ⟨SExpr.falseE, .app "DNil" []⟩
+  | .const (.constList _ _) => ⟨SExpr.falseE, .app "DNil" []⟩
   | v => valueProj "VDataList" "unVDataList" (.app "DNil" []) v
 
 def asPairDataList : SymVal → Proj SExpr
@@ -491,8 +515,26 @@ def asPairDataList : SymVal → Proj SExpr
   | v => valueProj "VPairDataList" "unVPairDataList" (.app "DPNil" []) v
 
 def asConstList : SymVal → Proj SExpr
-  | .const (.constList xs) => Proj.pure xs
+  | .const (.constList xs _) => Proj.pure xs
   | v => valueProj "VList" "unVList" (.app "VNil" []) v
+
+def knownConstListLength : SymVal → Option Nat
+  | .const (.constList _ hint) => hint
+  | _ => none
+
+def tailLengthHint : Option Nat → Option Nat
+  | some (n + 1) => some n
+  | _ => none
+
+/-- Select the constant-list alternatives that can be reachable at a known
+length.  This is intentionally only a selector: the outcomes themselves keep
+their ordinary SMT constructor guards. -/
+def constListBranches (hint : Option Nat) (nilOutcome consOutcome : Outcome) :
+    List Outcome :=
+  match hint with
+  | some 0 => [nilOutcome]
+  | some (_ + 1) => [consOutcome]
+  | none => [nilOutcome, consOutcome]
 
 def asArray : SymVal → Proj SExpr
   | .const (.array xs) => Proj.pure xs
@@ -570,7 +612,7 @@ def constLiteral : Const → SymVal
   | .String s => .const (.string (.str s))
   | .Unit => .const .unit
   | .Bool b => .const (.bool (.bool b))
-  | .ConstList xs => .const (.constList (.constListLit xs))
+  | .ConstList xs => .const (.constList (.constListLit xs) (some xs.length))
   | .ConstDataList xs => .const (.dataList (dataListLiteral xs))
   | .ConstPairDataList xs => .const (.pairDataList (dataPairListLiteral xs))
   | .Pair (a, b) => .pair (constLiteral a) (constLiteral b)
@@ -599,7 +641,7 @@ def enumerate (xs : List α) : List (Nat × α) :=
   go 0 xs
 
 def fieldFromValList (xs : SExpr) : SymVal := .dyn (.app "vhead" [xs])
-def tailFromValList (xs : SExpr) : SymVal := .const (.constList (.app "vtail" [xs]))
+def tailFromValList (xs : SExpr) : SymVal := .const (.constList (.app "vtail" [xs]) none)
 def fieldFromDataList (xs : SExpr) : SymVal := .const (.data (.app "dhead" [xs]))
 def tailFromDataList (xs : SExpr) : SymVal := .const (.dataList (.app "dtail" [xs]))
 
@@ -715,7 +757,7 @@ mutual
         let covered := SExpr.and (nonnegGuard x)
           (SExpr.any ((enumerate alts).map fun (i, _) => SExpr.eq x (.int (Int.ofNat i))))
         branchOutcomes branches [SExpr.not covered]
-    | n, ρ, .const (.constList xs), alts =>
+    | n, ρ, .const (.constList xs _), alts =>
         if alts.length > 2 then err
         else
           let nilBranch := match alts[1]? with
@@ -954,9 +996,10 @@ mutual
         let dBranches :=
           [.ok (SExpr.and dl.guard (SExpr.isCtor "DNil" dl.val)) nilCase,
            .ok (SExpr.and dl.guard (SExpr.not (SExpr.isCtor "DNil" dl.val))) consCase]
-        let vBranches :=
-          [.ok (SExpr.and vl.guard (SExpr.isCtor "VNil" vl.val)) nilCase,
-           .ok (SExpr.and vl.guard (SExpr.not (SExpr.isCtor "VNil" vl.val))) consCase]
+        let nilOutcome := .ok (SExpr.and vl.guard (SExpr.isCtor "VNil" vl.val)) nilCase
+        let consOutcome :=
+          .ok (SExpr.and vl.guard (SExpr.not (SExpr.isCtor "VNil" vl.val))) consCase
+        let vBranches := constListBranches (knownConstListLength xs) nilOutcome consOutcome
         dBranches ++ vBranches ++ [.error (SExpr.not (SExpr.or dl.guard vl.guard))]
     | .MkCons, [tail, head] =>
         let dl := asDataList tail
@@ -966,7 +1009,8 @@ mutual
         let dataOk := SExpr.and dl.guard hd.guard
         let constOk := SExpr.and vl.guard hv.guard
         [.ok dataOk (.const (.dataList (.app "DCons" [hd.val, dl.val]))),
-         .ok constOk (.const (.constList (.app "VCons" [hv.val, vl.val]))),
+         .ok constOk (.const (.constList (.app "VCons" [hv.val, vl.val])
+           ((knownConstListLength tail).map Nat.succ))),
          .error (SExpr.not (SExpr.or dataOk constOk))]
     | .HeadList, [xs] =>
         let dl := asDataList xs
@@ -979,7 +1023,9 @@ mutual
         let dl := asDataList xs
         let vl := asConstList xs
         [.ok (SExpr.and dl.guard (SExpr.not (SExpr.isCtor "DNil" dl.val))) (.const (.dataList (.app "dtail" [dl.val]))),
-         .ok (SExpr.and vl.guard (SExpr.not (SExpr.isCtor "VNil" vl.val))) (.const (.constList (.app "vtail" [vl.val]))),
+         .ok (SExpr.and vl.guard (SExpr.not (SExpr.isCtor "VNil" vl.val)))
+           (.const (.constList (.app "vtail" [vl.val])
+             (tailLengthHint (knownConstListLength xs)))),
          .error (SExpr.not (SExpr.or (SExpr.and dl.guard (SExpr.not (SExpr.isCtor "DNil" dl.val)))
                                      (SExpr.and vl.guard (SExpr.not (SExpr.isCtor "VNil" vl.val)))))]
     | .NullList, [xs] =>
@@ -1098,7 +1144,7 @@ mutual
     | .DropList, [xs, n] =>
         let vl := Proj.map2 (fun n xs => .app "vlist_drop" [n, xs]) (asInt n) (asConstList xs)
         let dl := Proj.map2 (fun n xs => .app "dlist_drop" [n, xs]) (asInt n) (asDataList xs)
-        [.ok vl.guard (.const (.constList vl.val)),
+        [.ok vl.guard (.const (.constList vl.val none)),
          .ok dl.guard (.const (.dataList dl.val)),
          .error (SExpr.not (SExpr.or vl.guard dl.guard))]
     | .IndexArray, [idx, arr] =>

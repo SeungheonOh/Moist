@@ -161,7 +161,7 @@ def timeoutCount (outs : List Outcome) : Nat :=
 -- The optimization itself has a small, deterministic unit regression: all
 -- encodable successes and all errors/timeouts are represented once.
 private def sampleOutcomes : List Outcome :=
-  [ .ok (.sym "a") (.const (.constList (.sym "xs")))
+  [ .ok (.sym "a") (.const (.constList (.sym "xs") none))
   , .ok (.sym "b") (.dyn (.sym "v"))
   , .ok (.sym "data") (.const (.dataList (.sym "ds")))
   , .ok (.sym "i1") (.const (.integer (.sym "x")))
@@ -183,13 +183,26 @@ private def sampleOutcomes : List Outcome :=
 -- Recursive Boolean and integer results are each joined at their native sort.
 #guard
   let outs := sortedAfterInsertionOutcomes 3
-  outs.length == 10 && successCount outs == 2 &&
-    errorCount outs == 6 && timeoutCount outs == 2
+  outs.length == 9 && successCount outs == 2 &&
+    errorCount outs == 6 && timeoutCount outs == 1
 
 #guard
   let outs := sumAfterInsertionOutcomes 3
-  outs.length == 11 && successCount outs == 2 &&
-    errorCount outs == 6 && timeoutCount outs == 3
+  outs.length == 10 && successCount outs == 2 &&
+    errorCount outs == 6 && timeoutCount outs == 2
+
+private def nilOutcome : Outcome := .ok (.sym "nil-pc") (.const .unit)
+private def consOutcome : Outcome := .ok (.sym "cons-pc") (.const .unit)
+
+private def branchNames : List Outcome → List String
+  | [] => []
+  | .ok (.sym name) _ :: outs => name :: branchNames outs
+  | _ :: outs => branchNames outs
+
+#guard branchNames (constListBranches (some 0) nilOutcome consOutcome) == ["nil-pc"]
+#guard branchNames (constListBranches (some 3) nilOutcome consOutcome) == ["cons-pc"]
+#guard branchNames (constListBranches none nilOutcome consOutcome) == ["nil-pc", "cons-pc"]
+#guard knownConstListLength (constLiteral (.ConstList [])) == some 0
 
 -- End-to-end regression beyond the former six-element practical limit.  Each
 -- successful representation is packed once; only the linearly many
@@ -205,6 +218,7 @@ private def sampleOutcomes : List Outcome :=
 #check Moist.SMT.UPLC.Soundness.evalSym_errorCond_sound
 #check Moist.SMT.UPLC.Soundness.evalSym_okBoolTrueCond_sound
 #check Moist.SMT.UPLC.Soundness.compactOutcomes_active_timeout
+#check Moist.SMT.UPLC.Soundness.constListBranches_sublist
 
 def benchmarkSize (n : Nat) : IO Unit := do
   let start ← IO.monoMsNow

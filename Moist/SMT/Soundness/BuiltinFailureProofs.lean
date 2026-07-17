@@ -2459,14 +2459,65 @@ theorem evalBuiltinSym_active_error_ChooseList : BuiltinErrorSound .ChooseList :
                         Outcome.ok
                           (SExpr.and dl.guard (SExpr.not (SExpr.isCtor "DNil" dl.val)))
                           consCase]
+                     let nilOutcome :=
+                       Outcome.ok (SExpr.and vl.guard (SExpr.isCtor "VNil" vl.val)) nilCase
+                     let consOutcome :=
+                       Outcome.ok
+                         (SExpr.and vl.guard (SExpr.not (SExpr.isCtor "VNil" vl.val)))
+                         consCase
                      let vBranches :=
-                       [Outcome.ok (SExpr.and vl.guard (SExpr.isCtor "VNil" vl.val))
-                          nilCase,
-                        Outcome.ok
-                          (SExpr.and vl.guard (SExpr.not (SExpr.isCtor "VNil" vl.val)))
-                          consCase]
+                       constListBranches (knownConstListLength xs) nilOutcome consOutcome
                      dBranches ++ vBranches ++
                        [Outcome.error (SExpr.not (SExpr.or dl.guard vl.guard))]) at hmem
+                  have hmemFull : out ∈
+                      (let dl := asDataList xs
+                       let vl := asConstList xs
+                       let dBranches :=
+                         [Outcome.ok (SExpr.and dl.guard (SExpr.isCtor "DNil" dl.val))
+                            nilCase,
+                          Outcome.ok
+                            (SExpr.and dl.guard (SExpr.not (SExpr.isCtor "DNil" dl.val)))
+                            consCase]
+                       let vBranches :=
+                         [Outcome.ok (SExpr.and vl.guard (SExpr.isCtor "VNil" vl.val))
+                            nilCase,
+                          Outcome.ok
+                            (SExpr.and vl.guard (SExpr.not (SExpr.isCtor "VNil" vl.val)))
+                            consCase]
+                       dBranches ++ vBranches ++
+                         [Outcome.error (SExpr.not (SExpr.or dl.guard vl.guard))]) := by
+                    let dl := asDataList xs
+                    let vl := asConstList xs
+                    let dBranches : List Outcome :=
+                      [Outcome.ok (SExpr.and dl.guard (SExpr.isCtor "DNil" dl.val))
+                         nilCase,
+                       Outcome.ok
+                         (SExpr.and dl.guard (SExpr.not (SExpr.isCtor "DNil" dl.val)))
+                         consCase]
+                    let nilOutcome :=
+                      Outcome.ok (SExpr.and vl.guard (SExpr.isCtor "VNil" vl.val)) nilCase
+                    let consOutcome :=
+                      Outcome.ok
+                        (SExpr.and vl.guard (SExpr.not (SExpr.isCtor "VNil" vl.val)))
+                        consCase
+                    let errorOutcome :=
+                      Outcome.error (SExpr.not (SExpr.or dl.guard vl.guard))
+                    change out ∈
+                      dBranches ++
+                        constListBranches (knownConstListLength xs)
+                          nilOutcome consOutcome ++ [errorOutcome] at hmem
+                    change out ∈ dBranches ++ [nilOutcome, consOutcome] ++ [errorOutcome]
+                    have hs : List.Sublist
+                        (dBranches ++
+                          constListBranches (knownConstListLength xs)
+                            nilOutcome consOutcome ++ [errorOutcome])
+                        (dBranches ++ [nilOutcome, consOutcome] ++ [errorOutcome]) :=
+                      (List.Sublist.refl dBranches).append
+                        ((constListBranches_sublist _ _ _).append
+                          (List.Sublist.refl [errorOutcome]))
+                    exact hs.subset hmem
+                  clear hmem
+                  have hmem := hmemFull
                   simp only [List.mem_cons, List.not_mem_nil, List.mem_append] at hmem
                   obtain ⟨ccons, cnil, cxs, hcons, hnil, hxs, rfl⟩ :=
                     symValListToCekList_triple hargs
@@ -2551,7 +2602,8 @@ theorem evalBuiltinSym_active_error_MkCons : BuiltinErrorSound .MkCons := by
                  let dataOk := SExpr.and dl.guard hd.guard
                  let constOk := SExpr.and vl.guard hv.guard
                  [Outcome.ok dataOk (.const (.dataList (.app "DCons" [hd.val, dl.val]))),
-                  Outcome.ok constOk (.const (.constList (.app "VCons" [hv.val, vl.val]))),
+                  Outcome.ok constOk (.const (.constList (.app "VCons" [hv.val, vl.val])
+                    ((knownConstListLength tail).map Nat.succ))),
                   Outcome.error (SExpr.not (SExpr.or dataOk constOk))]) at hmem
               simp only [List.mem_cons, List.not_mem_nil] at hmem
               obtain ⟨ctail, chead, htail, hhead, rfl⟩ :=
@@ -2714,7 +2766,8 @@ theorem evalBuiltinSym_active_error_TailList : BuiltinErrorSound .TailList := by
                 (.const (.dataList (.app "dtail" [dl.val]))),
               Outcome.ok
                 (SExpr.and vl.guard (SExpr.not (SExpr.isCtor "VNil" vl.val)))
-                (.const (.constList (.app "vtail" [vl.val]))),
+                (.const (.constList (.app "vtail" [vl.val])
+                  (tailLengthHint (knownConstListLength xs)))),
               Outcome.error (SExpr.not
                 (SExpr.or
                   (SExpr.and dl.guard (SExpr.not (SExpr.isCtor "DNil" dl.val)))
@@ -3914,7 +3967,7 @@ theorem evalBuiltinSym_active_error_DropList : BuiltinErrorSound .DropList := by
                     (asInt n) (asConstList xs)
                  let dl := Proj.map2 (fun n xs => .app "dlist_drop" [n, xs])
                     (asInt n) (asDataList xs)
-                 [Outcome.ok vl.guard (.const (.constList vl.val)),
+                 [Outcome.ok vl.guard (.const (.constList vl.val none)),
                   Outcome.ok dl.guard (.const (.dataList dl.val)),
                   Outcome.error (SExpr.not (SExpr.or vl.guard dl.guard))]) at hmem
               simp only [List.mem_cons, List.not_mem_nil] at hmem

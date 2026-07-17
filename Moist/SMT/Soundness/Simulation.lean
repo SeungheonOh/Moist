@@ -1009,7 +1009,7 @@ mutual
               | g1 g => simp [symValToCek?, symConstToCek?, he] at hscrut
               | g2 g => simp [symValToCek?, symConstToCek?, he] at hscrut
               | ml r => simp [symValToCek?, symConstToCek?, he] at hscrut
-        | constList xs =>
+        | constList xs _hint =>
             cases hxs : SmtSem.eval m xs with
             | none => simp [symValToCek?, symConstToCek?, hxs] at hscrut
             | some sv =>
@@ -3136,7 +3136,7 @@ mutual
             cases sv <;> simp [hr] at hscrut
             subst cscrut
             simp [caseCekResult, Moist.CEK.constToTagAndFields]
-        | constList xs =>
+        | constList xs _hint =>
             cases hxs : SmtSem.eval m xs with
             | none => simp [symValToCek?, symConstToCek?, hxs] at hscrut
             | some sv =>

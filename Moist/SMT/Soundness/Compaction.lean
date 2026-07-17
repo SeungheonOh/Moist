@@ -11,44 +11,113 @@ datatype projections while preserving exactly the same decoded CEK value.
 
 namespace Moist.SMT.UPLC.Soundness
 
-theorem compactDecode_encode {kind : CompactKind} {v : SymVal} {e : SExpr}
-    (h : kind.encode? v = some e) : kind.decode e = v := by
+theorem compactDecode_encode_toCek {m : SmtSem.Model} {kind : CompactKind}
+    {v : SymVal} {e : SExpr} (h : kind.encode? v = some e) :
+    symValToCek? m (kind.decode e) = symValToCek? m v := by
   cases kind with
   | integer =>
       cases v with
       | const c =>
           cases c <;> simp [CompactKind.encode?, CompactKind.decode] at h ⊢
-          exact h.symm
+          subst e
+          rfl
       | dyn d | pair _ _ | constr _ _ | lam _ _ | delay _ _ | builtin _ _ _ =>
           simp [CompactKind.encode?] at h
   | bool =>
       cases v with
       | const c =>
           cases c <;> simp [CompactKind.encode?, CompactKind.decode] at h ⊢
-          exact h.symm
+          subst e
+          rfl
       | dyn d | pair _ _ | constr _ _ | lam _ _ | delay _ _ | builtin _ _ _ =>
           simp [CompactKind.encode?] at h
   | constList =>
       cases v with
       | const c =>
           cases c <;> simp [CompactKind.encode?, CompactKind.decode] at h ⊢
-          exact h.symm
+          subst e
+          rfl
       | dyn d | pair _ _ | constr _ _ | lam _ _ | delay _ _ | builtin _ _ _ =>
           simp [CompactKind.encode?] at h
   | dataList =>
       cases v with
       | const c =>
           cases c <;> simp [CompactKind.encode?, CompactKind.decode] at h ⊢
-          exact h.symm
+          subst e
+          rfl
       | dyn d | pair _ _ | constr _ _ | lam _ _ | delay _ _ | builtin _ _ _ =>
           simp [CompactKind.encode?] at h
   | dyn =>
       cases v with
       | dyn d =>
           simp [CompactKind.encode?, CompactKind.decode] at h ⊢
-          exact h.symm
+          subst e
+          rfl
       | const c | pair _ _ | constr _ _ | lam _ _ | delay _ _ | builtin _ _ _ =>
           simp [CompactKind.encode?] at h
+
+theorem compactDecode_encode_noOpaque {kind : CompactKind} {v : SymVal}
+    {e : SExpr} (h : kind.encode? v = some e) :
+    symValNoOpaqueForSoundness (kind.decode e) =
+      symValNoOpaqueForSoundness v := by
+  cases kind with
+  | bool =>
+      cases v with
+      | const c =>
+          cases c <;> simp [CompactKind.encode?, CompactKind.decode] at h ⊢
+          subst e
+          rfl
+      | dyn d | pair _ _ | constr _ _ | lam _ _ | delay _ _ | builtin _ _ _ =>
+          simp [CompactKind.encode?] at h
+  | integer =>
+      cases v with
+      | const c =>
+          cases c <;> simp [CompactKind.encode?, CompactKind.decode] at h ⊢
+          subst e
+          rfl
+      | dyn d | pair _ _ | constr _ _ | lam _ _ | delay _ _ | builtin _ _ _ =>
+          simp [CompactKind.encode?] at h
+  | constList =>
+      cases v with
+      | const c =>
+          cases c <;> simp [CompactKind.encode?, CompactKind.decode] at h ⊢
+          subst e
+          rfl
+      | dyn d | pair _ _ | constr _ _ | lam _ _ | delay _ _ | builtin _ _ _ =>
+          simp [CompactKind.encode?] at h
+  | dataList =>
+      cases v with
+      | const c =>
+          cases c <;> simp [CompactKind.encode?, CompactKind.decode] at h ⊢
+          subst e
+          rfl
+      | dyn d | pair _ _ | constr _ _ | lam _ _ | delay _ _ | builtin _ _ _ =>
+          simp [CompactKind.encode?] at h
+  | dyn =>
+      cases v with
+      | dyn d =>
+          simp [CompactKind.encode?, CompactKind.decode] at h ⊢
+          subst e
+          rfl
+      | const c | pair _ _ | constr _ _ | lam _ _ | delay _ _ | builtin _ _ _ =>
+          simp [CompactKind.encode?] at h
+
+theorem mergedDecode_toCek (m : SmtSem.Model) (kind : CompactKind)
+    (outs : List Outcome) (e : SExpr) :
+    symValToCek? m (mergedDecode kind outs e) =
+      symValToCek? m (kind.decode e) := by
+  cases kind <;> rfl
+
+theorem mergedDecode_noOpaque (kind : CompactKind) (outs : List Outcome)
+    (e : SExpr) :
+    symValNoOpaqueForSoundness (mergedDecode kind outs e) =
+      symValNoOpaqueForSoundness (kind.decode e) := by
+  cases kind <;> rfl
+
+theorem compactDecode_noOpaque_irrel (kind : CompactKind) (a b : SExpr) :
+    symValNoOpaqueForSoundness (kind.decode a) =
+      symValNoOpaqueForSoundness (kind.decode b) := by
+  cases kind <;> rfl
 
 theorem symValToCek_decode_ite_of (kind : CompactKind) {m : SmtSem.Model}
     {c t e : SExpr} {b : Bool}
@@ -215,10 +284,13 @@ theorem mergedOkOutcome_active {kind : CompactKind} {m : SmtSem.Model}
       obtain ⟨sourcePc, sourceExpr, hentry, hsourcePc, hsourceEq⟩ :=
         mergeEncodedOks_active kind hm hpc
       obtain ⟨sourceValue, hsourceMem, hencode⟩ := encodedOks_mem hentry
-      have hdecode : kind.decode sourceExpr = sourceValue := compactDecode_encode hencode
-      subst sourceValue
-      exact ⟨sourcePc, kind.decode sourceExpr, hsourceMem, hsourcePc,
-        hsourceEq, by cases kind <;> rfl⟩
+      have hdecode := compactDecode_encode_toCek (m := m) hencode
+      have hdecodeNo := compactDecode_encode_noOpaque hencode
+      refine ⟨sourcePc, sourceValue, hsourceMem, hsourcePc, ?_, ?_⟩
+      · exact (mergedDecode_toCek m kind outs mergedValue).trans
+          (hsourceEq.trans hdecode)
+      · exact (mergedDecode_noOpaque kind outs mergedValue).trans
+          ((compactDecode_noOpaque_irrel kind mergedValue sourceExpr).trans hdecodeNo)
 
 theorem compactedOkOutcomes_active_ok {m : SmtSem.Model} {outs : List Outcome}
     {pc : SExpr} {v : SymVal}

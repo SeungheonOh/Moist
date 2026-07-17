@@ -32,6 +32,20 @@ def ifThenElse (c t e : Term) : Term :=
 def lazyIf (c t e : Term) : Term :=
   .Force (ifThenElse c (.Delay t) (.Delay e))
 
+/-- Length-guided `ChooseList` pruning never creates a new symbolic outcome:
+it only removes one of the two exhaustive constant-list alternatives. -/
+theorem constListBranches_sublist (hint : Option Nat) (nilOutcome consOutcome : Outcome) :
+    List.Sublist (constListBranches hint nilOutcome consOutcome)
+      [nilOutcome, consOutcome] := by
+  cases hint with
+  | none => exact List.Sublist.refl _
+  | some n =>
+      cases n with
+      | zero =>
+          exact (List.nil_sublist [consOutcome]).cons₂ nilOutcome
+      | succ n =>
+          exact (List.Sublist.refl [consOutcome]).cons nilOutcome
+
 def emptyBytes : Term :=
   .Constant (.ByteString ByteArray.empty, tyBytes)
 
@@ -437,7 +451,7 @@ mutual
         | some (.bool b) => some (.VCon (.Bool b))
         | _ => none
     | .unit => some (.VCon .Unit)
-    | .constList e =>
+    | .constList e _ =>
         match SmtSem.eval m e with
         | some (.valList xs) => do
             let cs ← semValListToConstList? xs
@@ -1691,7 +1705,7 @@ theorem symConstToCek_bool {m : SmtSem.Model} {c : SymConst} {b : Bool}
       cases he : SmtSem.eval m e <;> simp [he] at h
       rename_i sv
       cases sv <;> simp [he] at h
-  | constList e =>
+  | constList e _hint =>
       simp [symConstToCek?] at h
       cases he : SmtSem.eval m e <;> simp [he] at h
       rename_i sv
@@ -1867,7 +1881,7 @@ theorem symConstToCek_integer {m : SmtSem.Model} {c : SymConst} {i : Int}
       cases he : SmtSem.eval m e <;> simp [he] at h
       rename_i sv
       cases sv <;> simp [he] at h
-  | constList e =>
+  | constList e _hint =>
       simp [symConstToCek?] at h
       cases he : SmtSem.eval m e <;> simp [he] at h
       rename_i sv
@@ -1948,7 +1962,7 @@ theorem symConstToCek_bytes {m : SmtSem.Model} {c : SymConst} {bs : ByteArray}
       cases he : SmtSem.eval m e <;> simp [he] at h
       rename_i sv
       cases sv <;> simp [he] at h
-  | constList e =>
+  | constList e _hint =>
       simp [symConstToCek?] at h
       cases he : SmtSem.eval m e <;> simp [he] at h
       rename_i sv
@@ -2029,7 +2043,7 @@ theorem symConstToCek_string {m : SmtSem.Model} {c : SymConst} {s : String}
       cases he : SmtSem.eval m e <;> simp [he] at h
       rename_i sv
       cases sv <;> simp [he] at h
-  | constList e =>
+  | constList e _hint =>
       simp [symConstToCek?] at h
       cases he : SmtSem.eval m e <;> simp [he] at h
       rename_i sv
@@ -2110,7 +2124,7 @@ theorem symConstToCek_data {m : SmtSem.Model} {c : SymConst} {d : Plutus.Data}
       case data d' =>
         subst d
         exact ⟨e, rfl, he⟩
-  | constList e =>
+  | constList e _hint =>
       simp [symConstToCek?] at h
       cases he : SmtSem.eval m e <;> simp [he] at h
       rename_i sv
@@ -2188,7 +2202,7 @@ theorem symConstToCek_dataList {m : SmtSem.Model} {c : SymConst} {xs : List Plut
       cases he : SmtSem.eval m e <;> simp [he] at h
       rename_i sv
       cases sv <;> simp [he] at h
-  | constList e =>
+  | constList e _hint =>
       simp [symConstToCek?] at h
       cases he : SmtSem.eval m e <;> simp [he] at h
       rename_i sv
@@ -2270,7 +2284,7 @@ theorem symConstToCek_pairDataList {m : SmtSem.Model} {c : SymConst}
       cases he : SmtSem.eval m e <;> simp [he] at h
       rename_i sv
       cases sv <;> simp [he] at h
-  | constList e =>
+  | constList e _hint =>
       simp [symConstToCek?] at h
       cases he : SmtSem.eval m e <;> simp [he] at h
       rename_i sv
@@ -2322,7 +2336,7 @@ theorem symConstToCek_pairDataList {m : SmtSem.Model} {c : SymConst}
 
 theorem symConstToCek_constList {m : SmtSem.Model} {c : SymConst} {cs : List Const}
     (h : symConstToCek? m c = some (.VCon (.ConstList cs))) :
-    ∃ e vals, c = .constList e ∧ SmtSem.eval m e = some (.valList vals) ∧
+    ∃ e hint vals, c = .constList e hint ∧ SmtSem.eval m e = some (.valList vals) ∧
       semValListToConstList? vals = some cs := by
   cases c with
   | integer e =>
@@ -2352,7 +2366,7 @@ theorem symConstToCek_constList {m : SmtSem.Model} {c : SymConst} {cs : List Con
       cases he : SmtSem.eval m e <;> simp [he] at h
       rename_i sv
       cases sv <;> simp [he] at h
-  | constList e =>
+  | constList e hint =>
       simp [symConstToCek?] at h
       cases he : SmtSem.eval m e <;> simp [he] at h
       rename_i sv
@@ -2360,7 +2374,7 @@ theorem symConstToCek_constList {m : SmtSem.Model} {c : SymConst} {cs : List Con
       case valList vals =>
         cases hcs : semValListToConstList? vals <;> simp [hcs] at h
         subst cs
-        exact ⟨e, vals, rfl, he, hcs⟩
+        exact ⟨e, hint, vals, rfl, he, hcs⟩
   | dataList e =>
       simp [symConstToCek?] at h
       cases he : SmtSem.eval m e <;> simp [he] at h
@@ -2433,7 +2447,7 @@ theorem symConstToCek_array {m : SmtSem.Model} {c : SymConst} {cs : List Const}
       cases he : SmtSem.eval m e <;> simp [he] at h
       rename_i sv
       cases sv <;> simp [he] at h
-  | constList e =>
+  | constList e _hint =>
       simp [symConstToCek?] at h
       cases he : SmtSem.eval m e <;> simp [he] at h
       rename_i sv
@@ -2514,7 +2528,7 @@ theorem symConstToCek_vcon {m : SmtSem.Model} :
   case unit =>
     subst cv
     exact ⟨_, rfl⟩
-  case constList e =>
+  case constList e _hint =>
     cases he : SmtSem.eval m e <;> simp [he] at h
     rename_i sv
     cases sv <;> simp at h
@@ -3622,7 +3636,7 @@ theorem asPair_guard_of_cek {m : SmtSem.Model} {v : SymVal} {a b : Const}
           | some sv => cases sv <;> simp [symValToCek?, symConstToCek?, he] at hv
       | unit =>
           simp [symValToCek?, symConstToCek?] at hv
-      | constList e =>
+      | constList e _hint =>
           cases he : SmtSem.eval m e with
           | none => simp [symValToCek?, symConstToCek?, he] at hv
           | some sv =>
@@ -3762,7 +3776,7 @@ theorem asPairData_guard_of_cek {m : SmtSem.Model} {v : SymVal} {a b : Plutus.Da
       | unit =>
           exfalso
           simp [symValToCek?, symConstToCek?] at hv
-      | constList e =>
+      | constList e _hint =>
           exfalso
           cases he : SmtSem.eval m e with
           | none => simp [symValToCek?, symConstToCek?, he] at hv
@@ -3884,7 +3898,7 @@ theorem asConstList_sound {m : SmtSem.Model} {v : SymVal} {cv : CekValue}
   | const c =>
       cases c <;> simp [asConstList, valueProj, Proj.pure, Proj.fail, pcHolds,
         symValToCek?, symConstToCek?] at hv hg ⊢
-      case constList e =>
+      case constList e _hint =>
         cases he : SmtSem.eval m e <;> simp [he] at hv
         rename_i sv
         cases sv <;> simp [he] at hv
@@ -3918,7 +3932,7 @@ theorem asConstList_guard_of_cek {m : SmtSem.Model} {v : SymVal} {cs : List Cons
     pcHolds m (asConstList v).guard = true := by
   cases v with
   | const c =>
-      obtain ⟨e, vals, hc, _he, _hcs⟩ :=
+      obtain ⟨e, _hint, vals, hc, _he, _hcs⟩ :=
         symConstToCek_constList (by simpa [symValToCek?] using hv)
       subst c
       simp [asConstList, Proj.pure, pcHolds]
@@ -4129,7 +4143,7 @@ theorem asConstVal_sound {m : SmtSem.Model} {v : SymVal} {cv : CekValue}
           exact ⟨rfl, by
             simpa [asConstVal, encodeVal?, encodeVal?.encodeConst?, Proj.pure]
               using Moist.SMT.Semantics.eval_VData_of he, rfl⟩
-      | constList e =>
+      | constList e _hint =>
           simp [symValToCek?, symConstToCek?] at hv
           cases he : SmtSem.eval m e <;> simp [he] at hv
           rename_i sv
@@ -4561,7 +4575,7 @@ theorem symConstToCek_unit {m : SmtSem.Model} {c : SymConst}
       cases he : SmtSem.eval m e with
       | none => simp [he] at h
       | some sv => cases sv <;> simp [he] at h
-  | constList e =>
+  | constList e _hint =>
       simp [symConstToCek?] at h
       cases he : SmtSem.eval m e with
       | none => simp [he] at h
