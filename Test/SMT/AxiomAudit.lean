@@ -1,4 +1,4 @@
-import Moist.SMT.Soundness
+import Moist.SMT.Soundness.SolverBoundary
 
 /-!
 The optimizer and the CEK endpoints for the supported (no-opaque-builtin)
@@ -189,3 +189,27 @@ info: 'Moist.SMT.UPLC.Soundness.evalSym_okIntEqCond_sound' depends on axioms: [p
 -/
 #guard_msgs in
 #print axioms Moist.SMT.UPLC.Soundness.evalSym_okIntEqCond_sound
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.inputSymEnvSafe_decodes' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.inputSymEnvSafe_decodes
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.BoolTrueQuery.sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.BoolTrueQuery.sound
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.IntEqQuery.sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.IntEqQuery.sound
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.ErrorQuery.sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.ErrorQuery.sound
