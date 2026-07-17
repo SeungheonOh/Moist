@@ -26,9 +26,8 @@ applies the selected branch to its fields (`applyValList`), matching `Moist.CEK.
 (`constrField`/`caseScrutinee`/`applyArg` frames) exactly.
 
 Both `bigEval` and the CEK invoke the *same* `evalBuiltin`, so they agree on builtins
-by construction. The builtin denotations are additionally exposed to Blaster as `@[simp]`
-axioms (trusted denotations, à la `PlutusCore.Integer.addInteger_rfl`) so the optimizer
-need not unfold the monolithic `evalBuiltin`; the `≡ CEK` results do NOT depend on them.
+by construction. This module deliberately exposes no shortcut axioms for builtin
+denotations: every theorem below is checked against the executable evaluator.
 -/
 
 namespace Moist.Verified.BigStep
@@ -1497,38 +1496,5 @@ theorem bigEval_iff_halt_env {ρ : CekEnv} {t : Term} {v : CekValue} :
   · rintro ⟨f, hf⟩
     exact reaches_trans (evalFwd hf []) (one_step rfl)
   · exact bigEval_complete_env
-
-/-! ## Builtin denotation specs (Blaster optimization)
-
-`Moist.CEK.evalBuiltin` is a monolithic dispatch that the SMT optimizer cannot
-afford to unfold (it `whnf`-times-out even in Lean — the same blow-up Blaster hits;
-cf. `docs/blaster-bench/VERDICT.md`).  Following what the Blaster-optimized CEK does
-with builtins (per-builtin `@[simp] …_rfl` denotations), we expose the builtin
-results as `@[simp]` axioms so the optimizer rewrites a builtin call straight to the
-native `Int`/`Bool` operation.  These are *trusted denotations* (the analogue of
-`PlutusCore.Integer.addInteger_rfl` / `Demo.lean`'s `opaque … := sorry`); they are
-each true by `rfl` but stated as axioms only because reducing `evalBuiltin` is
-prohibitively expensive.  **The `≡ CEK` results above do not depend on them** — both
-`bigEval` and the CEK invoke the *same* `evalBuiltin`, so they agree on builtins by
-construction (`#print axioms bigEval_sound` stays `propext`/`Quot.sound`/`Classical.choice`). -/
-
-@[simp] axiom evalBuiltin_addInteger (x y : Int) :
-    evalBuiltin .AddInteger [.VCon (.Integer y), .VCon (.Integer x)]
-      = some (.VCon (.Integer (x + y)))
-@[simp] axiom evalBuiltin_subtractInteger (x y : Int) :
-    evalBuiltin .SubtractInteger [.VCon (.Integer y), .VCon (.Integer x)]
-      = some (.VCon (.Integer (x - y)))
-@[simp] axiom evalBuiltin_multiplyInteger (x y : Int) :
-    evalBuiltin .MultiplyInteger [.VCon (.Integer y), .VCon (.Integer x)]
-      = some (.VCon (.Integer (x * y)))
-@[simp] axiom evalBuiltin_lessThanEqualsInteger (x y : Int) :
-    evalBuiltin .LessThanEqualsInteger [.VCon (.Integer y), .VCon (.Integer x)]
-      = some (.VCon (.Bool (x ≤ y)))
-@[simp] axiom evalBuiltin_lessThanInteger (x y : Int) :
-    evalBuiltin .LessThanInteger [.VCon (.Integer y), .VCon (.Integer x)]
-      = some (.VCon (.Bool (x < y)))
-@[simp] axiom evalBuiltin_equalsInteger (x y : Int) :
-    evalBuiltin .EqualsInteger [.VCon (.Integer y), .VCon (.Integer x)]
-      = some (.VCon (.Bool (x == y)))
 
 end Moist.Verified.BigStep
