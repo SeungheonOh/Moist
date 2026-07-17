@@ -213,59 +213,204 @@ def prelude : List Moist.SMT.Command :=
       "    (seq.++ (seq.unit (utf8_decode_scalar bs i))\n" ++
       "      (uplc_decodeUtf8_at bs (+ i (utf8_width (seq.nth bs i)))))))"
   , .raw "(define-fun uplc_decodeUtf8 ((bs Bytes)) UString (uplc_decodeUtf8_at bs 0))"
-  , .declareFun "uplc_serializeData" [.data] .bytes
-  , .declareFun "uplc_sha2_256" [.bytes] .bytes
-  , .declareFun "uplc_sha3_256" [.bytes] .bytes
-  , .declareFun "uplc_blake2b_256" [.bytes] .bytes
-  , .declareFun "uplc_keccak_256" [.bytes] .bytes
-  , .declareFun "uplc_blake2b_224" [.bytes] .bytes
-  , .declareFun "uplc_ripemd_160" [.bytes] .bytes
-  , .declareFun "uplc_verifyEd25519Signature" [.bytes, .bytes, .bytes] .bool
-  , .declareFun "uplc_verifyEcdsaSecp256k1Signature" [.bytes, .bytes, .bytes] .bool
-  , .declareFun "uplc_verifySchnorrSecp256k1Signature" [.bytes, .bytes, .bytes] .bool
-  , .declareFun "uplc_integerToByteString" [.bool, .int, .int] .bytes
-  , .declareFun "uplc_integerToByteString_defined" [.bool, .int, .int] .bool
-  , .declareFun "uplc_byteStringToInteger" [.bool, .bytes] .int
-  , .declareFun "uplc_andByteString" [.bool, .bytes, .bytes] .bytes
-  , .declareFun "uplc_orByteString" [.bool, .bytes, .bytes] .bytes
-  , .declareFun "uplc_xorByteString" [.bool, .bytes, .bytes] .bytes
-  , .declareFun "uplc_complementByteString" [.bytes] .bytes
-  , .declareFun "uplc_readBit" [.bytes, .int] .bool
-  , .declareFun "uplc_writeBits" [.bytes, .valList, .bool] .bytes
-  , .declareFun "uplc_writeBits_defined" [.bytes, .valList, .bool] .bool
-  , .declareFun "uplc_replicateByte" [.int, .int] .bytes
-  , .declareFun "uplc_shiftByteString" [.bytes, .int] .bytes
-  , .declareFun "uplc_rotateByteString" [.bytes, .int] .bytes
-  , .declareFun "uplc_countSetBits" [.bytes] .int
-  , .declareFun "uplc_findFirstSetBit" [.bytes] .int
-  , .declareFun "uplc_expModInteger" [.int, .int, .int] .int
-  , .declareFun "uplc_expModInteger_defined" [.int, .int, .int] .bool
-  , .declareFun "uplc_g1_add" [.g1, .g1] .g1
-  , .declareFun "uplc_g1_neg" [.g1] .g1
-  , .declareFun "uplc_g1_scalarMul" [.int, .g1] .g1
-  , .declareFun "uplc_g1_equal" [.g1, .g1] .bool
-  , .declareFun "uplc_g1_hashToGroup" [.bytes, .bytes] .g1
-  , .declareFun "uplc_g1_compress" [.g1] .bytes
-  , .declareFun "uplc_g1_uncompress" [.bytes] .g1
-  , .declareFun "uplc_g2_add" [.g2, .g2] .g2
-  , .declareFun "uplc_g2_neg" [.g2] .g2
-  , .declareFun "uplc_g2_scalarMul" [.int, .g2] .g2
-  , .declareFun "uplc_g2_equal" [.g2, .g2] .bool
-  , .declareFun "uplc_g2_hashToGroup" [.bytes, .bytes] .g2
-  , .declareFun "uplc_g2_compress" [.g2] .bytes
-  , .declareFun "uplc_g2_uncompress" [.bytes] .g2
-  , .declareFun "uplc_millerLoop" [.g1, .g2] .ml
-  , .declareFun "uplc_mulMlResult" [.ml, .ml] .ml
-  , .declareFun "uplc_finalVerify" [.ml, .ml] .bool
-  , .declareFun "uplc_valueData" [.val] .data
-  , .declareFun "uplc_unValueData" [.data] .val
-  , .declareFun "uplc_insertCoin" [.bytes, .bytes, .int, .val] .val
-  , .declareFun "uplc_lookupCoin" [.bytes, .bytes, .val] .int
-  , .declareFun "uplc_scaleValue" [.int, .val] .val
-  , .declareFun "uplc_unionValue" [.val, .val] .val
-  , .declareFun "uplc_valueContains" [.val, .val] .bool
-  , .declareFun "uplc_g1_multiScalarMul" [.valList, .valList] .g1
-  , .declareFun "uplc_g2_multiScalarMul" [.valList, .valList] .g2
+  , .raw "(define-fun-rec uplc_pow_nat ((base Int) (exponent Int)) Int (ite (<= exponent 0) 1 (* base (uplc_pow_nat base (- exponent 1)))))"
+  , .raw "(define-fun uplc_pow2 ((exponent Int)) Int (uplc_pow_nat 2 exponent))"
+  , .raw "(define-fun uplc_byte_bit ((byte Int) (bit Int)) Int (mod (div byte (uplc_pow2 bit)) 2))"
+  , .raw <|
+      "(define-fun uplc_byte_and ((a Int) (b Int)) Int " ++
+      "(+ (* 1 (uplc_byte_bit a 0) (uplc_byte_bit b 0)) " ++
+      "(* 2 (uplc_byte_bit a 1) (uplc_byte_bit b 1)) " ++
+      "(* 4 (uplc_byte_bit a 2) (uplc_byte_bit b 2)) " ++
+      "(* 8 (uplc_byte_bit a 3) (uplc_byte_bit b 3)) " ++
+      "(* 16 (uplc_byte_bit a 4) (uplc_byte_bit b 4)) " ++
+      "(* 32 (uplc_byte_bit a 5) (uplc_byte_bit b 5)) " ++
+      "(* 64 (uplc_byte_bit a 6) (uplc_byte_bit b 6)) " ++
+      "(* 128 (uplc_byte_bit a 7) (uplc_byte_bit b 7))))"
+  , .raw <|
+      "(define-fun uplc_byte_or ((a Int) (b Int)) Int " ++
+      "(+ (* 1 (ite (> (+ (uplc_byte_bit a 0) (uplc_byte_bit b 0)) 0) 1 0)) " ++
+      "(* 2 (ite (> (+ (uplc_byte_bit a 1) (uplc_byte_bit b 1)) 0) 1 0)) " ++
+      "(* 4 (ite (> (+ (uplc_byte_bit a 2) (uplc_byte_bit b 2)) 0) 1 0)) " ++
+      "(* 8 (ite (> (+ (uplc_byte_bit a 3) (uplc_byte_bit b 3)) 0) 1 0)) " ++
+      "(* 16 (ite (> (+ (uplc_byte_bit a 4) (uplc_byte_bit b 4)) 0) 1 0)) " ++
+      "(* 32 (ite (> (+ (uplc_byte_bit a 5) (uplc_byte_bit b 5)) 0) 1 0)) " ++
+      "(* 64 (ite (> (+ (uplc_byte_bit a 6) (uplc_byte_bit b 6)) 0) 1 0)) " ++
+      "(* 128 (ite (> (+ (uplc_byte_bit a 7) (uplc_byte_bit b 7)) 0) 1 0))))"
+  , .raw <|
+      "(define-fun uplc_byte_xor ((a Int) (b Int)) Int " ++
+      "(+ (* 1 (mod (+ (uplc_byte_bit a 0) (uplc_byte_bit b 0)) 2)) " ++
+      "(* 2 (mod (+ (uplc_byte_bit a 1) (uplc_byte_bit b 1)) 2)) " ++
+      "(* 4 (mod (+ (uplc_byte_bit a 2) (uplc_byte_bit b 2)) 2)) " ++
+      "(* 8 (mod (+ (uplc_byte_bit a 3) (uplc_byte_bit b 3)) 2)) " ++
+      "(* 16 (mod (+ (uplc_byte_bit a 4) (uplc_byte_bit b 4)) 2)) " ++
+      "(* 32 (mod (+ (uplc_byte_bit a 5) (uplc_byte_bit b 5)) 2)) " ++
+      "(* 64 (mod (+ (uplc_byte_bit a 6) (uplc_byte_bit b 6)) 2)) " ++
+      "(* 128 (mod (+ (uplc_byte_bit a 7) (uplc_byte_bit b 7)) 2))))"
+  , .raw <|
+      "(define-fun uplc_byte_binop ((op Int) (a Int) (b Int)) Int " ++
+      "(ite (= op 0) (uplc_byte_and a b) (ite (= op 1) (uplc_byte_or a b) (uplc_byte_xor a b))))"
+  , .raw <|
+      "(define-fun-rec uplc_bitwise_go ((op Int) (pad Bool) (a Bytes) (b Bytes) (i Int) (n Int)) Bytes " ++
+      "(ite (>= i n) (as seq.empty Bytes) " ++
+      "(let ((pad-byte (ite (= op 0) 255 0))) " ++
+      "(seq.++ (seq.unit (uplc_byte_binop op " ++
+      "(ite (< i (seq.len a)) (seq.nth a i) pad-byte) " ++
+      "(ite (< i (seq.len b)) (seq.nth b i) pad-byte))) " ++
+      "(uplc_bitwise_go op pad a b (+ i 1) n)))))"
+  , .raw <|
+      "(define-fun uplc_bitwise ((op Int) (pad Bool) (a Bytes) (b Bytes)) Bytes " ++
+      "(uplc_bitwise_go op pad a b 0 (ite pad " ++
+      "(ite (> (seq.len a) (seq.len b)) (seq.len a) (seq.len b)) " ++
+      "(ite (< (seq.len a) (seq.len b)) (seq.len a) (seq.len b)))))"
+  , .raw "(define-fun uplc_andByteString ((pad Bool) (a Bytes) (b Bytes)) Bytes (uplc_bitwise 0 pad a b))"
+  , .raw "(define-fun uplc_orByteString ((pad Bool) (a Bytes) (b Bytes)) Bytes (uplc_bitwise 1 pad a b))"
+  , .raw "(define-fun uplc_xorByteString ((pad Bool) (a Bytes) (b Bytes)) Bytes (uplc_bitwise 2 pad a b))"
+  , .raw <|
+      "(define-fun-rec uplc_complement_go ((bs Bytes) (i Int)) Bytes " ++
+      "(ite (>= i (seq.len bs)) (as seq.empty Bytes) " ++
+      "(seq.++ (seq.unit (- 255 (seq.nth bs i))) (uplc_complement_go bs (+ i 1)))))"
+  , .raw "(define-fun uplc_complementByteString ((bs Bytes)) Bytes (uplc_complement_go bs 0))"
+  , .raw <|
+      "(define-fun uplc_readBit ((bs Bytes) (index Int)) Bool " ++
+      "(let ((byte-index (- (- (seq.len bs) 1) (div index 8))) (bit-index (mod index 8))) " ++
+      "(= (uplc_byte_bit (seq.nth bs byte-index) bit-index) 1)))"
+  , .raw <|
+      "(define-fun uplc_readBit_defined ((bs Bytes) (index Int)) Bool " ++
+      "(and (>= index 0) (< index (* (seq.len bs) 8))))"
+  , .raw <|
+      "(define-fun uplc_set_bit ((bs Bytes) (index Int) (value Bool)) Bytes " ++
+      "(let ((byte-index (- (- (seq.len bs) 1) (div index 8))) (bit-index (mod index 8))) " ++
+      "(let ((old (seq.nth bs byte-index)) (mask (uplc_pow2 bit-index))) " ++
+      "(let ((updated (ite value " ++
+      "(ite (= (uplc_byte_bit old bit-index) 0) (+ old mask) old) " ++
+      "(ite (= (uplc_byte_bit old bit-index) 1) (- old mask) old)))) " ++
+      "(seq.++ (seq.extract bs 0 byte-index) " ++
+      "(seq.++ (seq.unit updated) " ++
+      "(seq.extract bs (+ byte-index 1) (- (- (seq.len bs) byte-index) 1))))))))"
+  , .raw <|
+      "(define-fun-rec uplc_writeBits_defined_go ((bs Bytes) (indices ValList)) Bool " ++
+      "(ite ((_ is VNil) indices) true " ++
+      "(let ((head (vhead indices))) " ++
+      "(ite ((_ is VInt) head) " ++
+      "(let ((index (unVInt head))) " ++
+      "(and (>= index 0) (< index (* (seq.len bs) 8)) " ++
+      "(uplc_writeBits_defined_go bs (vtail indices)))) false))))"
+  , .raw <|
+      "(define-fun-rec uplc_writeBits_go ((bs Bytes) (indices ValList) (value Bool)) Bytes " ++
+      "(ite ((_ is VNil) indices) bs " ++
+      "(uplc_writeBits_go (uplc_set_bit bs (unVInt (vhead indices)) value) (vtail indices) value)))"
+  , .raw <|
+      "(define-fun uplc_writeBits_defined ((bs Bytes) (indices ValList) (value Bool)) Bool " ++
+      "(uplc_writeBits_defined_go bs indices))"
+  , .raw <|
+      "(define-fun uplc_writeBits ((bs Bytes) (indices ValList) (value Bool)) Bytes " ++
+      "(uplc_writeBits_go bs indices value))"
+  , .raw <|
+      "(define-fun-rec uplc_replicateByte ((count Int) (byte Int)) Bytes " ++
+      "(ite (<= count 0) (as seq.empty Bytes) " ++
+      "(seq.++ (seq.unit byte) (uplc_replicateByte (- count 1) byte))))"
+  , .raw <|
+      "(define-fun uplc_replicateByte_defined ((count Int) (byte Int)) Bool " ++
+      "(and (>= count 0) (<= count 8192) (>= byte 0) (<= byte 255)))"
+  , .raw <|
+      "(define-fun-rec uplc_bytes_to_int_be_go ((bs Bytes) (i Int) (acc Int)) Int " ++
+      "(ite (>= i (seq.len bs)) acc " ++
+      "(uplc_bytes_to_int_be_go bs (+ i 1) (+ (* acc 256) (seq.nth bs i)))))"
+  , .raw <|
+      "(define-fun-rec uplc_bytes_to_int_le_go ((bs Bytes) (i Int) (base Int) (acc Int)) Int " ++
+      "(ite (>= i (seq.len bs)) acc " ++
+      "(uplc_bytes_to_int_le_go bs (+ i 1) (* base 256) (+ acc (* (seq.nth bs i) base)))))"
+  , .raw <|
+      "(define-fun uplc_byteStringToInteger ((endian Bool) (bs Bytes)) Int " ++
+      "(ite endian (uplc_bytes_to_int_be_go bs 0 0) (uplc_bytes_to_int_le_go bs 0 1 0)))"
+  , .raw <|
+      "(define-fun-rec uplc_nat_byte_length ((n Int)) Int " ++
+      "(ite (<= n 0) 0 (+ 1 (uplc_nat_byte_length (div n 256)))))"
+  , .raw <|
+      "(define-fun-rec uplc_int_fixed_be_go ((n Int) (width Int) (i Int)) Bytes " ++
+      "(ite (>= i width) (as seq.empty Bytes) " ++
+      "(seq.++ (seq.unit (mod (div n (uplc_pow_nat 256 (- (- width i) 1))) 256)) " ++
+      "(uplc_int_fixed_be_go n width (+ i 1)))))"
+  , .raw <|
+      "(define-fun-rec uplc_reverse_go ((bs Bytes) (i Int)) Bytes " ++
+      "(ite (>= i (seq.len bs)) (as seq.empty Bytes) " ++
+      "(seq.++ (seq.unit (seq.nth bs (- (- (seq.len bs) 1) i))) (uplc_reverse_go bs (+ i 1)))))"
+  , .raw <|
+      "(define-fun uplc_integerToByteString_defined ((endian Bool) (width Int) (n Int)) Bool " ++
+      "(and (>= n 0) (>= width 0) (<= width 8192) " ++
+      "(<= (uplc_nat_byte_length n) (ite (= width 0) 8192 width))))"
+  , .raw <|
+      "(define-fun uplc_integerToByteString ((endian Bool) (width Int) (n Int)) Bytes " ++
+      "(let ((actual-width (ite (= width 0) (uplc_nat_byte_length n) width))) " ++
+      "(let ((be (uplc_int_fixed_be_go n actual-width 0))) " ++
+      "(ite endian be (uplc_reverse_go be 0)))))"
+  , .raw <|
+      "(define-fun uplc_shiftByteString ((bs Bytes) (amount Int)) Bytes " ++
+      "(ite (= (seq.len bs) 0) bs " ++
+      "(let ((bits (* (seq.len bs) 8)) (absolute (ite (< amount 0) (- amount) amount))) " ++
+      "(ite (>= absolute bits) (uplc_replicateByte (seq.len bs) 0) " ++
+      "(ite (= amount 0) bs " ++
+      "(let ((number (uplc_bytes_to_int_be_go bs 0 0)) (modulus (uplc_pow2 bits))) " ++
+      "(uplc_int_fixed_be_go (ite (> amount 0) " ++
+      "(mod (* number (uplc_pow2 amount)) modulus) " ++
+      "(div number (uplc_pow2 (- amount)))) (seq.len bs) 0)))))))"
+  , .raw <|
+      "(define-fun uplc_rotateByteString ((bs Bytes) (amount Int)) Bytes " ++
+      "(ite (= (seq.len bs) 0) bs " ++
+      "(let ((bits (* (seq.len bs) 8))) " ++
+      "(let ((rotation (mod amount bits))) " ++
+      "(ite (= rotation 0) bs " ++
+      "(let ((number (uplc_bytes_to_int_be_go bs 0 0)) (modulus (uplc_pow2 bits))) " ++
+      "(uplc_int_fixed_be_go (mod (+ (* number (uplc_pow2 rotation)) " ++
+      "(div number (uplc_pow2 (- bits rotation)))) modulus) (seq.len bs) 0)))))))"
+  , .raw <|
+      "(define-fun uplc_popcount_byte ((byte Int)) Int " ++
+      "(+ (uplc_byte_bit byte 0) (uplc_byte_bit byte 1) (uplc_byte_bit byte 2) " ++
+      "(uplc_byte_bit byte 3) (uplc_byte_bit byte 4) (uplc_byte_bit byte 5) " ++
+      "(uplc_byte_bit byte 6) (uplc_byte_bit byte 7)))"
+  , .raw <|
+      "(define-fun-rec uplc_countSetBits_go ((bs Bytes) (i Int) (acc Int)) Int " ++
+      "(ite (>= i (seq.len bs)) acc " ++
+      "(uplc_countSetBits_go bs (+ i 1) (+ acc (uplc_popcount_byte (seq.nth bs i))))))"
+  , .raw "(define-fun uplc_countSetBits ((bs Bytes)) Int (uplc_countSetBits_go bs 0 0))"
+  , .raw <|
+      "(define-fun-rec uplc_findFirstSetBit_go ((bs Bytes) (index Int) (total Int)) Int " ++
+      "(ite (>= index total) (- 1) " ++
+      "(ite (uplc_readBit bs index) index (uplc_findFirstSetBit_go bs (+ index 1) total))))"
+  , .raw <|
+      "(define-fun uplc_findFirstSetBit ((bs Bytes)) Int " ++
+      "(uplc_findFirstSetBit_go bs 0 (* (seq.len bs) 8)))"
+  , .raw <|
+      "(define-fun-rec uplc_gcd ((a Int) (b Int)) Int " ++
+      "(ite (= b 0) a (uplc_gcd b (mod a b))))"
+  , .raw <|
+      "(define-fun-rec uplc_inverse_coeff_go ((r Int) (new-r Int) (t Int) (new-t Int)) Int " ++
+      "(ite (= new-r 0) t " ++
+      "(uplc_inverse_coeff_go new-r (mod r new-r) new-t (- t (* (div r new-r) new-t)))))"
+  , .raw <|
+      "(define-fun uplc_normalize_mod ((value Int) (modulus Int)) Int " ++
+      "(mod value modulus))"
+  , .raw <|
+      "(define-fun uplc_mod_inverse ((value Int) (modulus Int)) Int " ++
+      "(mod (uplc_inverse_coeff_go modulus (uplc_normalize_mod value modulus) 0 1) modulus))"
+  , .raw <|
+      "(define-fun-rec uplc_mod_pow_go ((base Int) (exponent Int) (acc Int) (modulus Int)) Int " ++
+      "(ite (<= exponent 0) (mod acc modulus) " ++
+      "(uplc_mod_pow_go (mod (* base base) modulus) (div exponent 2) " ++
+      "(ite (= (mod exponent 2) 1) (mod (* acc base) modulus) acc) modulus)))"
+  , .raw <|
+      "(define-fun uplc_mod_pow ((base Int) (exponent Int) (modulus Int)) Int " ++
+      "(ite (= modulus 1) 0 " ++
+      "(uplc_mod_pow_go (uplc_normalize_mod base modulus) exponent 1 modulus)))"
+  , .raw <|
+      "(define-fun uplc_expModInteger_defined ((base Int) (exponent Int) (modulus Int)) Bool " ++
+      "(and (> modulus 0) (or (= modulus 1) (or (>= exponent 0) " ++
+      "(= (uplc_gcd (uplc_normalize_mod base modulus) modulus) 1)))))"
+  , .raw <|
+      "(define-fun uplc_expModInteger ((base Int) (exponent Int) (modulus Int)) Int " ++
+      "(ite (= modulus 1) 0 (ite (= exponent 0) 1 " ++
+      "(ite (> exponent 0) (uplc_mod_pow base exponent modulus) " ++
+      "(uplc_mod_pow (uplc_mod_inverse base modulus) (- exponent) modulus)))))"
   ]
 
 /-! ## Certified constant-list lengths
@@ -824,6 +969,49 @@ def constLiteral : Const → SymVal
   | .Bls12_381_G2_element => .const (.g2 (.sym "g2_default"))
   | .Bls12_381_MlResult => .const (.ml (.sym "ml_default"))
 
+/-! ## CEK-backed ground evaluation
+
+`SymConst` records an SMT expression, so being in the `.const` constructor does
+not by itself mean an expression is ground.  This recognizer is deliberately
+strict: it succeeds only for literal syntax emitted from a UPLC constant.
+When every saturated argument is literal, use the executable CEK builtin
+implementation as the single source of truth and re-embed its result.  This
+both avoids unnecessary SMT and prevents the ground case from drifting away
+from CEK while a symbolic encoding is optimized.
+-/
+
+def symValLiteral? : SymVal → Option Const
+  | .const (.integer (.int i)) => some (.Integer i)
+  | .const (.bytes (.bytes bs)) => some (.ByteString bs)
+  | .const (.string (.str s)) => some (.String s)
+  | .const (.bool (.bool b)) => some (.Bool b)
+  | .const .unit => some .Unit
+  | .const (.data (.dataLit d)) => some (.Data d)
+  | .const (.constList (.constListLit xs) _) => some (.ConstList xs)
+  | .const (.dataList (.dataListLit xs)) => some (.ConstDataList xs)
+  | .const (.pairDataList (.dataPairListLit xs)) => some (.ConstPairDataList xs)
+  | .const (.pairData (.dataLit a) (.dataLit b)) => some (.PairData (a, b))
+  | .const (.array (.constListLit xs)) => some (.ConstArray xs)
+  | .pair a b => do
+      let ca ← symValLiteral? a
+      let cb ← symValLiteral? b
+      some (.Pair (ca, cb))
+  | _ => none
+
+def evalBuiltinStatic? (b : BuiltinFun) (args : List SymVal) : Option (List Outcome) := do
+  let constArgs ← args.mapM symValLiteral?
+  let cekArgs := constArgs.map Moist.CEK.CekValue.VCon
+  match Moist.CEK.evalBuiltin b cekArgs with
+  | some (.VCon c) => some (ok (constLiteral c))
+  | some _ => none
+  | none => some err
+
+def staticOrSymbolic (b : BuiltinFun) (args : List SymVal)
+    (symbolic : Unit → List Outcome) : List Outcome :=
+  match evalBuiltinStatic? b args with
+  | some outs => outs
+  | none => symbolic ()
+
 def lookupEnv : List SymVal → Nat → Option SymVal
   | [], _ => none
   | _, 0 => none
@@ -898,7 +1086,7 @@ mutual
         | .argV =>
             match ea.tail with
             | some rest => ok (.builtin b (va :: args) rest)
-            | none => evalBuiltinSym b (va :: args)
+            | none => evalBuiltinSaturated b (va :: args)
         | .argQ => err
     | _ + 1, _, _ => err
   termination_by n _ _ => (n, (0, 0))
@@ -911,7 +1099,7 @@ mutual
         | .argQ =>
             match ea.tail with
             | some rest => ok (.builtin b args rest)
-            | none => evalBuiltinSym b args
+            | none => evalBuiltinSaturated b args
         | .argV => err
     | _ + 1, _ => err
   termination_by n _ => (n, (0, 0))
@@ -1152,12 +1340,10 @@ mutual
     | .LessThanByteString, [b, a] => checkedBool (Proj.map2 (fun a b => .app "bytes_lt" [a, b]) (asBytes a) (asBytes b))
     | .LessThanEqualsByteString, [b, a] => checkedBool (Proj.map2 (fun a b => .app "bytes_le" [a, b]) (asBytes a) (asBytes b))
 
-    | .Sha2_256, [bs] => checkedConst ((asBytes bs).map fun b => .app "uplc_sha2_256" [b]) .bytes
-    | .Sha3_256, [bs] => checkedConst ((asBytes bs).map fun b => .app "uplc_sha3_256" [b]) .bytes
-    | .Blake2b_256, [bs] => checkedConst ((asBytes bs).map fun b => .app "uplc_blake2b_256" [b]) .bytes
-    | .VerifyEd25519Signature, [msg, sig, key] =>
-        checkedBool (Proj.map3 (fun key msg sig => .app "uplc_verifyEd25519Signature" [key, msg, sig])
-          (asBytes key) (asBytes msg) (asBytes sig))
+    | .Sha2_256, _ => timeout
+    | .Sha3_256, _ => timeout
+    | .Blake2b_256, _ => timeout
+    | .VerifyEd25519Signature, _ => timeout
 
     | .AppendString, [b, a] => checkedConst (Proj.map2 SExpr.strAppend (asString a) (asString b)) .string
     | .EqualsString, [b, a] => checkedBool (Proj.map2 SExpr.eq (asString a) (asString b))
@@ -1284,21 +1470,16 @@ mutual
         let g := unitGuard u
         [.ok g (.const (.pairDataList (.app "DPNil" []))), .error (SExpr.not g)]
 
-    | .SerializeData, [d] => checkedConst ((asData d).map fun d => .app "uplc_serializeData" [d]) .bytes
-    | .VerifyEcdsaSecp256k1Signature, [msg, sig, key] =>
-        checkedBool (Proj.map3 (fun key msg sig => .app "uplc_verifyEcdsaSecp256k1Signature" [key, msg, sig])
-          (asBytes key) (asBytes msg) (asBytes sig))
-    | .VerifySchnorrSecp256k1Signature, [msg, sig, key] =>
-        checkedBool (Proj.map3 (fun key msg sig => .app "uplc_verifySchnorrSecp256k1Signature" [key, msg, sig])
-          (asBytes key) (asBytes msg) (asBytes sig))
+    | .SerializeData, _ => timeout
+    | .VerifyEcdsaSecp256k1Signature, _ => timeout
+    | .VerifySchnorrSecp256k1Signature, _ => timeout
 
-    | .Keccak_256, [bs] => checkedConst ((asBytes bs).map fun b => .app "uplc_keccak_256" [b]) .bytes
-    | .Blake2b_224, [bs] => checkedConst ((asBytes bs).map fun b => .app "uplc_blake2b_224" [b]) .bytes
+    | .Keccak_256, _ => timeout
+    | .Blake2b_224, _ => timeout
     | .IntegerToByteString, [n, width, endian] =>
         let p := Proj.map3 (fun endian width n => (endian, width, n)) (asBool endian) (asInt width) (asInt n)
         checked2 p fun (endian, width, n) =>
-          let basic := SExpr.all [SExpr.ge n (.int 0), SExpr.ge width (.int 0), SExpr.le width (.int 8192)]
-          let defined := SExpr.and basic (.app "uplc_integerToByteString_defined" [endian, width, n])
+          let defined := .app "uplc_integerToByteString_defined" [endian, width, n]
           [.ok defined (.const (.bytes (.app "uplc_integerToByteString" [endian, width, n]))),
            .error (SExpr.not defined)]
     | .ByteStringToInteger, [bs, endian] =>
@@ -1315,8 +1496,9 @@ mutual
     | .ReadBit, [idx, bs] =>
         let p := Proj.map2 (fun bs idx => (bs, idx)) (asBytes bs) (asInt idx)
         checked2 p fun (bs, idx) =>
-          let inRange := SExpr.and (SExpr.ge idx (.int 0)) (SExpr.lt idx (SExpr.mul (SExpr.seqLen bs) (.int 8)))
-          [.ok inRange (.const (.bool (.app "uplc_readBit" [bs, idx]))), .error (SExpr.not inRange)]
+          let defined := .app "uplc_readBit_defined" [bs, idx]
+          [.ok defined (.const (.bool (.app "uplc_readBit" [bs, idx]))),
+           .error (SExpr.not defined)]
     | .WriteBits, [val, idxs, bs] =>
         let p := Proj.map3 (fun bs idxs val => (bs, idxs, val)) (asBytes bs) (asConstList idxs) (asBool val)
         checked2 p fun (bs, idxs, val) =>
@@ -1325,20 +1507,24 @@ mutual
     | .ReplicateByte, [byte, count] =>
         let p := Proj.map2 (fun count byte => (count, byte)) (asInt count) (asInt byte)
         checked2 p fun (count, byte) =>
-          let g := SExpr.all [SExpr.ge count (.int 0), SExpr.le count (.int 8192),
-            SExpr.ge byte (.int 0), SExpr.le byte (.int 255)]
-          [.ok g (.const (.bytes (.app "uplc_replicateByte" [count, byte]))), .error (SExpr.not g)]
+          let defined := .app "uplc_replicateByte_defined" [count, byte]
+          [.ok defined (.const (.bytes (.app "uplc_replicateByte" [count, byte]))),
+           .error (SExpr.not defined)]
     | .ShiftByteString, [n, bs] =>
-        checkedConst (Proj.map2 (fun bs n => .app "uplc_shiftByteString" [bs, n]) (asBytes bs) (asInt n)) .bytes
+        checkedConst
+          (Proj.map2 (fun bs n => .app "uplc_shiftByteString" [bs, n])
+            (asBytes bs) (asInt n)) .bytes
     | .RotateByteString, [n, bs] =>
-        checkedConst (Proj.map2 (fun bs n => .app "uplc_rotateByteString" [bs, n]) (asBytes bs) (asInt n)) .bytes
+        checkedConst
+          (Proj.map2 (fun bs n => .app "uplc_rotateByteString" [bs, n])
+            (asBytes bs) (asInt n)) .bytes
     | .CountSetBits, [bs] => checkedConst ((asBytes bs).map fun b => .app "uplc_countSetBits" [b]) .integer
     | .FindFirstSetBit, [bs] => checkedConst ((asBytes bs).map fun b => .app "uplc_findFirstSetBit" [b]) .integer
-    | .Ripemd_160, [bs] => checkedConst ((asBytes bs).map fun b => .app "uplc_ripemd_160" [b]) .bytes
+    | .Ripemd_160, _ => timeout
     | .ExpModInteger, [m, e, b] =>
         let p := Proj.map3 (fun b e m => (b, e, m)) (asInt b) (asInt e) (asInt m)
         checked2 p fun (b, e, m) =>
-          let defined := SExpr.and (SExpr.gt m (.int 0)) (.app "uplc_expModInteger_defined" [b, e, m])
+          let defined := .app "uplc_expModInteger_defined" [b, e, m]
           [.ok defined (.const (.integer (.app "uplc_expModInteger" [b, e, m]))), .error (SExpr.not defined)]
 
     | .DropList, [xs, n] =>
@@ -1354,58 +1540,40 @@ mutual
           [.ok g (.dyn (.app "vlist_index" [idx, arr])), .error (SExpr.not g)]
     | .LengthOfArray, [arr] => checkedConst ((asArray arr).map fun xs => .app "vlist_length" [xs]) .integer
     | .ListToArray, [xs] => checkedConst (asConstList xs) .array
-    | .InsertCoin, [value, amount, token, policy] =>
-        checked1 (Proj.map3 (fun policy token amount => (policy, token, amount)) (asBytes policy) (asBytes token) (asInt amount))
-          (fun (policy, token, amount) =>
-            match encodeVal? value with
-            | some v => .dyn (.app "uplc_insertCoin" [policy, token, amount, v])
-            | none => .dyn (.app "VUnit" []))
-    | .LookupCoin, [value, token, policy] =>
-        checkedConst (Proj.map2 (fun policy token =>
-          match encodeVal? value with
-          | some v => .app "uplc_lookupCoin" [policy, token, v]
-          | none => .int 0) (asBytes policy) (asBytes token)) .integer
-    | .ScaleValue, [value, scale] =>
-        checked1 (asInt scale) (fun scale =>
-          match encodeVal? value with
-          | some v => .dyn (.app "uplc_scaleValue" [scale, v])
-          | none => .dyn (.app "VUnit" []))
-    | .UnionValue, [b, a] =>
-        match encodeVal? a, encodeVal? b with
-        | some a, some b => ok (.dyn (.app "uplc_unionValue" [a, b]))
-        | _, _ => err
-    | .ValueContains, [b, a] =>
-        match encodeVal? a, encodeVal? b with
-        | some a, some b => ok (.const (.bool (.app "uplc_valueContains" [a, b])))
-        | _, _ => err
-    | .ValueData, [v] =>
-        match encodeVal? v with
-        | some v => ok (.const (.data (.app "uplc_valueData" [v])))
-        | none => err
-    | .UnValueData, [d] => checked1 ((asData d).map fun d => .app "uplc_unValueData" [d]) .dyn
+    | .InsertCoin, _ => timeout
+    | .LookupCoin, _ => timeout
+    | .ScaleValue, _ => timeout
+    | .UnionValue, _ => timeout
+    | .ValueContains, _ => timeout
+    | .ValueData, _ => timeout
+    | .UnValueData, _ => timeout
 
-    | .Bls12_381_G1_add, [b, a] => checkedConst (Proj.map2 (fun a b => .app "uplc_g1_add" [a, b]) (asG1 a) (asG1 b)) .g1
-    | .Bls12_381_G1_neg, [a] => checkedConst ((asG1 a).map fun a => .app "uplc_g1_neg" [a]) .g1
-    | .Bls12_381_G1_scalarMul, [g, n] => checkedConst (Proj.map2 (fun n g => .app "uplc_g1_scalarMul" [n, g]) (asInt n) (asG1 g)) .g1
-    | .Bls12_381_G1_equal, [b, a] => checkedBool (Proj.map2 (fun a b => .app "uplc_g1_equal" [a, b]) (asG1 a) (asG1 b))
-    | .Bls12_381_G1_hashToGroup, [dst, bs] => checkedConst (Proj.map2 (fun bs dst => .app "uplc_g1_hashToGroup" [bs, dst]) (asBytes bs) (asBytes dst)) .g1
-    | .Bls12_381_G1_compress, [g] => checkedConst ((asG1 g).map fun g => .app "uplc_g1_compress" [g]) .bytes
-    | .Bls12_381_G1_uncompress, [bs] => checkedConst ((asBytes bs).map fun bs => .app "uplc_g1_uncompress" [bs]) .g1
-    | .Bls12_381_G2_add, [b, a] => checkedConst (Proj.map2 (fun a b => .app "uplc_g2_add" [a, b]) (asG2 a) (asG2 b)) .g2
-    | .Bls12_381_G2_neg, [a] => checkedConst ((asG2 a).map fun a => .app "uplc_g2_neg" [a]) .g2
-    | .Bls12_381_G2_scalarMul, [g, n] => checkedConst (Proj.map2 (fun n g => .app "uplc_g2_scalarMul" [n, g]) (asInt n) (asG2 g)) .g2
-    | .Bls12_381_G2_equal, [b, a] => checkedBool (Proj.map2 (fun a b => .app "uplc_g2_equal" [a, b]) (asG2 a) (asG2 b))
-    | .Bls12_381_G2_hashToGroup, [dst, bs] => checkedConst (Proj.map2 (fun bs dst => .app "uplc_g2_hashToGroup" [bs, dst]) (asBytes bs) (asBytes dst)) .g2
-    | .Bls12_381_G2_compress, [g] => checkedConst ((asG2 g).map fun g => .app "uplc_g2_compress" [g]) .bytes
-    | .Bls12_381_G2_uncompress, [bs] => checkedConst ((asBytes bs).map fun bs => .app "uplc_g2_uncompress" [bs]) .g2
-    | .Bls12_381_millerLoop, [g2, g1] => checkedConst (Proj.map2 (fun g1 g2 => .app "uplc_millerLoop" [g1, g2]) (asG1 g1) (asG2 g2)) .ml
-    | .Bls12_381_mulMlResult, [b, a] => checkedConst (Proj.map2 (fun a b => .app "uplc_mulMlResult" [a, b]) (asMl a) (asMl b)) .ml
-    | .Bls12_381_finalVerify, [b, a] => checkedBool (Proj.map2 (fun a b => .app "uplc_finalVerify" [a, b]) (asMl a) (asMl b))
-    | .Bls12_381_G1_multiScalarMul, [points, scalars] =>
-        checkedConst (Proj.map2 (fun scalars points => .app "uplc_g1_multiScalarMul" [scalars, points]) (asConstList scalars) (asConstList points)) .g1
-    | .Bls12_381_G2_multiScalarMul, [points, scalars] =>
-        checkedConst (Proj.map2 (fun scalars points => .app "uplc_g2_multiScalarMul" [scalars, points]) (asConstList scalars) (asConstList points)) .g2
+    | .Bls12_381_G1_add, _ => timeout
+    | .Bls12_381_G1_neg, _ => timeout
+    | .Bls12_381_G1_scalarMul, _ => timeout
+    | .Bls12_381_G1_equal, _ => timeout
+    | .Bls12_381_G1_hashToGroup, _ => timeout
+    | .Bls12_381_G1_compress, _ => timeout
+    | .Bls12_381_G1_uncompress, _ => timeout
+    | .Bls12_381_G2_add, _ => timeout
+    | .Bls12_381_G2_neg, _ => timeout
+    | .Bls12_381_G2_scalarMul, _ => timeout
+    | .Bls12_381_G2_equal, _ => timeout
+    | .Bls12_381_G2_hashToGroup, _ => timeout
+    | .Bls12_381_G2_compress, _ => timeout
+    | .Bls12_381_G2_uncompress, _ => timeout
+    | .Bls12_381_millerLoop, _ => timeout
+    | .Bls12_381_mulMlResult, _ => timeout
+    | .Bls12_381_finalVerify, _ => timeout
+    | .Bls12_381_G1_multiScalarMul, _ => timeout
+    | .Bls12_381_G2_multiScalarMul, _ => timeout
     | _, _ => err
+
+  /-- General saturated-builtin boundary.  Every fully applied builtin takes
+  the same CEK-backed ground fast path; the handwritten encoding is used only
+  when at least one argument is genuinely symbolic. -/
+  def evalBuiltinSaturated (b : BuiltinFun) (args : List SymVal) : List Outcome :=
+    staticOrSymbolic b args fun _ => evalBuiltinSym b args
 end
 
 private def symDeclRequired? (name : String) (sort : Moist.SMT.SSort)
@@ -1455,6 +1623,42 @@ def withAssumptions (d : SymDecl) (extra : List SExpr) : SymDecl :=
     wellFormed := by
       rcases d.wellFormed with ⟨required, hrequired, hmem⟩
       exact ⟨required, hrequired, fun e he => List.mem_append_left _ (hmem e he)⟩ }
+
+/-- The declaration invariant exposes the nonnegative-tag assertion required
+by an integer declaration whose value is a symbolic constructor. -/
+theorem constrTagNonnegative_mem (declaration : SymDecl)
+    {tag : String} {fields : List SymVal}
+    (hsort : declaration.sort = .int)
+    (hvalue : declaration.value = .constr (.sym tag) fields)
+    (hname : tag = declaration.name) :
+    SExpr.ge (.sym tag) (.int 0) ∈ declaration.assumptions := by
+  rcases declaration with ⟨name, sort, value, assumptions, hwellFormed⟩
+  simp only at hsort hvalue hname ⊢
+  subst sort
+  subst value
+  subst name
+  rcases hwellFormed with ⟨required, hrequired, hcontains⟩
+  simp [symDeclRequired?] at hrequired
+  subst required
+  exact hcontains _ (by simp)
+
+/-- Every declaration at SMT sort `Val` carries the exact validity assertion
+needed to decode its model value into a CEK value. -/
+theorem valValid_mem_of_sort (declaration : SymDecl)
+    (hsort : declaration.sort = .val) :
+    (.app "val_valid" [.sym declaration.name] : SExpr) ∈
+      declaration.assumptions := by
+  rcases declaration with ⟨name, sort, value, assumptions, hwellFormed⟩
+  simp only at hsort ⊢
+  subst sort
+  rcases hwellFormed with ⟨required, hrequired, hcontains⟩
+  cases value <;> simp [symDeclRequired?] at hrequired
+  case dyn expression =>
+    cases expression <;> simp at hrequired
+    case sym symbol =>
+      rcases hrequired with ⟨rfl, hrequired⟩
+      subst required
+      exact hcontains _ (.head _)
 
 end SymDecl
 

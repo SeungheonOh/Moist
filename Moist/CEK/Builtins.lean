@@ -240,7 +240,7 @@ private def shiftBS (bs : ByteArray) (n : Int) : ByteArray := Id.run do
       if srcIdx < bs.size then
         let current := bs.get! srcIdx
         let shifted := current <<< bitShift.toUInt8
-        let carry := if srcIdx + 1 < bs.size then
+        let carry := if bitShift == 0 then 0 else if srcIdx + 1 < bs.size then
           bs.get! (srcIdx + 1) >>> (8 - bitShift).toUInt8
         else 0
         result := result.set! i (shifted ||| carry)
@@ -255,7 +255,7 @@ private def shiftBS (bs : ByteArray) (n : Int) : ByteArray := Id.run do
         let srcIdx := i - byteShift
         let current := bs.get! srcIdx
         let shifted := current >>> bitShift.toUInt8
-        let carry := if srcIdx > 0 then
+        let carry := if bitShift == 0 then 0 else if srcIdx > 0 then
           bs.get! (srcIdx - 1) <<< (8 - bitShift).toUInt8
         else 0
         result := result.set! i (shifted ||| carry)
@@ -391,12 +391,53 @@ private def modInverse (a m : Int) : Option Int :=
 
 /-! ### ConstList helpers for extracting typed elements -/
 
-private def constListToInts : List Const → Option (List Int)
+def constListToInts : List Const → Option (List Int)
   | [] => some []
   | .Integer i :: rest => do
     let tail ← constListToInts rest
     some (i :: tail)
   | _ => none
+
+/-! Typed helpers for advanced builtins. Keeping the partial
+computation separate from the `Const` wrapper makes each builtin's result
+shape explicit and gives the SMT soundness proof a small definitional
+interface to use. -/
+
+def builtinReadBit (bs : ByteArray) (idx : Int) : Option Bool :=
+  if idx < 0 then none else readBitBS bs idx.toNat
+
+def builtinWriteBits (bs : ByteArray) (indices : List Const)
+    (value : Bool) : Option ByteArray := do
+  let is ← constListToInts indices
+  writeBitsHelper bs is value
+
+def builtinReplicateByte (count byte : Int) : Option ByteArray :=
+  if count < 0 || count > 8192 || byte < 0 || byte > 255 then none
+  else some (ByteArray.mk (Array.replicate count.toNat byte.toNat.toUInt8))
+
+def builtinShiftByteString (bs : ByteArray) (amount : Int) : ByteArray :=
+  shiftBS bs amount
+
+def builtinRotateByteString (bs : ByteArray) (amount : Int) : ByteArray :=
+  rotateBS bs amount
+
+def builtinIntegerToByteString (endian : Bool) (width n : Int) : Option ByteArray :=
+  if n < 0 || width < 0 || width > 8192 then none
+  else
+    let endianInt : Int := if endian then 0 else 1
+    match integerToBS n width.toNat endianInt with
+    | some bs =>
+      if width == 0 && bs.size > 8192 then none else some bs
+    | none => none
+
+def builtinExpModInteger (base exponent modulus : Int) : Option Int :=
+  if modulus <= 0 then none
+  else if modulus == 1 then some 0
+  else if exponent == 0 then some 1
+  else if exponent > 0 then some (modPow base exponent modulus)
+  else do
+    let baseInv ← modInverse base modulus
+    some (modPow baseInv (-exponent) modulus)
 
 /-! ## Two-Stage Builtin Evaluation
 
@@ -514,25 +555,15 @@ def evalBuiltinConstCore (b : BuiltinFun) (args : List Const) : Option Const :=
   | .ComplementByteString, [.ByteString bs] =>
     some (.ByteString (complementBS bs))
   | .ReadBit, [.Integer idx, .ByteString bs] =>
-    if idx < 0 then none
-    else match readBitBS bs idx.toNat with
-      | some v => some (.Bool v)
-      | none => none
+    (builtinReadBit bs idx).map Const.Bool
   | .WriteBits, [.Bool val, .ConstList idxConsts, .ByteString bs] =>
-    match constListToInts idxConsts with
-    | some indices =>
-      match writeBitsHelper bs indices val with
-      | some result => some (.ByteString result)
-      | none => none
-    | none => none
+    (builtinWriteBits bs idxConsts val).map Const.ByteString
   | .ReplicateByte, [.Integer byte, .Integer count] =>
-    if count < 0 || count > 8192 || byte < 0 || byte > 255 then none
-    else
-      some (.ByteString (ByteArray.mk (Array.replicate count.toNat byte.toNat.toUInt8)))
+    (builtinReplicateByte count byte).map Const.ByteString
   | .ShiftByteString, [.Integer n, .ByteString bs] =>
-    some (.ByteString (shiftBS bs n))
+    some (.ByteString (builtinShiftByteString bs n))
   | .RotateByteString, [.Integer n, .ByteString bs] =>
-    some (.ByteString (rotateBS bs n))
+    some (.ByteString (builtinRotateByteString bs n))
   | .CountSetBits, [.ByteString bs] =>
     some (.Integer (Int.ofNat (countSetBitsBS bs)))
   | .FindFirstSetBit, [.ByteString bs] =>
@@ -540,28 +571,14 @@ def evalBuiltinConstCore (b : BuiltinFun) (args : List Const) : Option Const :=
 
   -- Integer/ByteString conversions
   | .IntegerToByteString, [.Integer n, .Integer width, .Bool endian] =>
-    if n < 0 || width < 0 || width > 8192 then none
-    else
-      let endianInt : Int := if endian then 0 else 1
-      match integerToBS n width.toNat endianInt with
-      | some bs =>
-        if width == 0 && bs.size > 8192 then none
-        else some (.ByteString bs)
-      | none => none
+    (builtinIntegerToByteString endian width n).map Const.ByteString
   | .ByteStringToInteger, [.ByteString bs, .Bool endian] =>
     if endian then some (.Integer (bytesToIntBE bs))
     else some (.Integer (bytesToIntLE bs))
 
   -- Modular exponentiation
   | .ExpModInteger, [.Integer m, .Integer e, .Integer b] =>
-    if m <= 0 then none
-    else if m == 1 then some (.Integer 0)
-    else if e == 0 then some (.Integer 1)
-    else if e > 0 then some (.Integer (modPow b e m))
-    else
-      match modInverse b m with
-      | some bInv => some (.Integer (modPow bInv (-e) m))
-      | none => none
+    (builtinExpModInteger b e m).map Const.Integer
 
   -- DropList
   | .DropList, [.ConstList l, .Integer n] =>
@@ -580,23 +597,153 @@ def evalBuiltinConstCore (b : BuiltinFun) (args : List Const) : Option Const :=
   -- Fallthrough
   | _, _ => none
 
+def evalIntegerToByteStringConst : List Const → Option Const
+  | [.Integer n, .Integer width, .Bool endian] =>
+    (builtinIntegerToByteString endian width n).map Const.ByteString
+  | _ => none
+
+def evalByteStringToIntegerConst : List Const → Option Const
+  | [.ByteString bs, .Bool endian] =>
+    if endian then some (.Integer (bytesToIntBE bs))
+    else some (.Integer (bytesToIntLE bs))
+  | _ => none
+
+def evalAndByteStringConst : List Const → Option Const
+  | [.ByteString bs2, .ByteString bs1, .Bool padMode] =>
+    some (.ByteString (bitwiseOp (· &&& ·) padMode 0xFF bs1 bs2))
+  | _ => none
+
+def evalOrByteStringConst : List Const → Option Const
+  | [.ByteString bs2, .ByteString bs1, .Bool padMode] =>
+    some (.ByteString (bitwiseOp (· ||| ·) padMode 0x00 bs1 bs2))
+  | _ => none
+
+def evalXorByteStringConst : List Const → Option Const
+  | [.ByteString bs2, .ByteString bs1, .Bool padMode] =>
+    some (.ByteString (bitwiseOp (· ^^^ ·) padMode 0x00 bs1 bs2))
+  | _ => none
+
+def evalComplementByteStringConst : List Const → Option Const
+  | [.ByteString bs] => some (.ByteString (complementBS bs))
+  | _ => none
+
+def evalReadBitConst : List Const → Option Const
+  | [.Integer idx, .ByteString bs] => (builtinReadBit bs idx).map Const.Bool
+  | _ => none
+
+def evalWriteBitsConst : List Const → Option Const
+  | [.Bool value, .ConstList indices, .ByteString bs] =>
+    (builtinWriteBits bs indices value).map Const.ByteString
+  | _ => none
+
+def evalReplicateByteConst : List Const → Option Const
+  | [.Integer byte, .Integer count] =>
+    (builtinReplicateByte count byte).map Const.ByteString
+  | _ => none
+
+def evalShiftByteStringConst : List Const → Option Const
+  | [.Integer amount, .ByteString bs] =>
+    some (.ByteString (builtinShiftByteString bs amount))
+  | _ => none
+
+def evalRotateByteStringConst : List Const → Option Const
+  | [.Integer amount, .ByteString bs] =>
+    some (.ByteString (builtinRotateByteString bs amount))
+  | _ => none
+
+def evalCountSetBitsConst : List Const → Option Const
+  | [.ByteString bs] => some (.Integer (Int.ofNat (countSetBitsBS bs)))
+  | _ => none
+
+def evalFindFirstSetBitConst : List Const → Option Const
+  | [.ByteString bs] => some (.Integer (findFirstSetBitBS bs))
+  | _ => none
+
+def evalExpModIntegerConst : List Const → Option Const
+  | [.Integer modulus, .Integer exponent, .Integer base] =>
+    (builtinExpModInteger base exponent modulus).map Const.Integer
+  | _ => none
+
 def evalBuiltinConst (b : BuiltinFun) (args : List Const) : Option Const :=
-  match b, args with
-  | .DivideInteger, [.Integer b, .Integer a] =>
-    if b == 0 then none else some (.Integer (haskellDiv a b))
-  | .QuotientInteger, [.Integer b, .Integer a] =>
-    if b == 0 then none else some (.Integer (builtinIntegerTDiv a b))
-  | .RemainderInteger, [.Integer b, .Integer a] =>
-    if b == 0 then none else some (.Integer (builtinIntegerTMod a b))
-  | .ModInteger, [.Integer b, .Integer a] =>
-    if b == 0 then none else some (.Integer (haskellMod a b))
-  | .ConsByteString, [.ByteString bs, .Integer n] =>
-    if n < 0 || n > 255 then none
-    else some (.ByteString (Moist.Plutus.bytesSingletonValue n ++ bs))
-  | .IndexByteString, [.Integer idx, .ByteString bs] =>
-    if idx < 0 || idx >= Int.ofNat bs.size then none
-    else some (.Integer (Moist.Plutus.bytesNthValue bs idx))
-  | _, _ => evalBuiltinConstCore b args
+  match b with
+  | .IntegerToByteString => evalIntegerToByteStringConst args
+  | .ByteStringToInteger => evalByteStringToIntegerConst args
+  | .AndByteString => evalAndByteStringConst args
+  | .OrByteString => evalOrByteStringConst args
+  | .XorByteString => evalXorByteStringConst args
+  | .ComplementByteString => evalComplementByteStringConst args
+  | .ReadBit => evalReadBitConst args
+  | .WriteBits => evalWriteBitsConst args
+  | .ReplicateByte => evalReplicateByteConst args
+  | .ShiftByteString => evalShiftByteStringConst args
+  | .RotateByteString => evalRotateByteStringConst args
+  | .CountSetBits => evalCountSetBitsConst args
+  | .FindFirstSetBit => evalFindFirstSetBitConst args
+  | .ExpModInteger => evalExpModIntegerConst args
+  | _ =>
+    match b, args with
+    | .DivideInteger, [.Integer b, .Integer a] =>
+      if b == 0 then none else some (.Integer (haskellDiv a b))
+    | .QuotientInteger, [.Integer b, .Integer a] =>
+      if b == 0 then none else some (.Integer (builtinIntegerTDiv a b))
+    | .RemainderInteger, [.Integer b, .Integer a] =>
+      if b == 0 then none else some (.Integer (builtinIntegerTMod a b))
+    | .ModInteger, [.Integer b, .Integer a] =>
+      if b == 0 then none else some (.Integer (haskellMod a b))
+    | .ConsByteString, [.ByteString bs, .Integer n] =>
+      if n < 0 || n > 255 then none
+      else some (.ByteString (Moist.Plutus.bytesSingletonValue n ++ bs))
+    | .IndexByteString, [.Integer idx, .ByteString bs] =>
+      if idx < 0 || idx >= Int.ofNat bs.size then none
+      else some (.Integer (Moist.Plutus.bytesNthValue bs idx))
+    | _, _ => evalBuiltinConstCore b args
+
+@[simp] theorem evalBuiltinConst_integerToByteString
+    (n width : Int) (endian : Bool) :
+    evalBuiltinConst .IntegerToByteString
+      [.Integer n, .Integer width, .Bool endian] =
+      (builtinIntegerToByteString endian width n).map Const.ByteString := rfl
+
+@[simp] theorem evalBuiltinConst_readBit (index : Int) (bs : ByteArray) :
+    evalBuiltinConst .ReadBit [.Integer index, .ByteString bs] =
+      (builtinReadBit bs index).map Const.Bool := rfl
+
+@[simp] theorem evalBuiltinConst_writeBits (value : Bool)
+    (indices : List Const) (bs : ByteArray) :
+    evalBuiltinConst .WriteBits [.Bool value, .ConstList indices, .ByteString bs] =
+      (builtinWriteBits bs indices value).map Const.ByteString := rfl
+
+@[simp] theorem evalBuiltinConst_replicateByte (byte count : Int) :
+    evalBuiltinConst .ReplicateByte [.Integer byte, .Integer count] =
+      (builtinReplicateByte count byte).map Const.ByteString := rfl
+
+@[simp] theorem evalBuiltinConst_shiftByteString (amount : Int) (bs : ByteArray) :
+    evalBuiltinConst .ShiftByteString [.Integer amount, .ByteString bs] =
+      some (.ByteString (builtinShiftByteString bs amount)) := rfl
+
+@[simp] theorem evalBuiltinConst_rotateByteString (amount : Int) (bs : ByteArray) :
+    evalBuiltinConst .RotateByteString [.Integer amount, .ByteString bs] =
+      some (.ByteString (builtinRotateByteString bs amount)) := rfl
+
+@[simp] theorem evalBuiltinConst_expModInteger
+    (modulus exponent base : Int) :
+    evalBuiltinConst .ExpModInteger
+      [.Integer modulus, .Integer exponent, .Integer base] =
+      (builtinExpModInteger base exponent modulus).map Const.Integer := rfl
+
+theorem constListToInts_some_shape {cs : List Const} {is : List Int}
+    (h : constListToInts cs = some is) : cs = is.map Const.Integer := by
+  induction cs generalizing is with
+  | nil => simp [constListToInts] at h; subst is; rfl
+  | cons c cs ih =>
+      cases c <;> simp [constListToInts] at h
+      case Integer i =>
+        cases ht : constListToInts cs with
+        | none => simp [ht] at h
+        | some tail =>
+            simp [ht] at h
+            subst is
+            simp [ih ht]
 
 theorem evalBuiltinConst_DivideInteger_of {a b : Int}
     (h : (b == 0) = false) :

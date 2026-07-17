@@ -1,9 +1,12 @@
 import Moist.SMT.Basic
+import Moist.CEK.Builtins
 import Moist.Plutus.ByteString
 import Moist.Plutus.DecidableEq
 import Moist.Plutus.Integer
 
 namespace Moist.SMT.Semantics
+
+/-! Executable semantics for the SMT expression vocabulary. -/
 
 open Moist.Plutus
 open Moist.Plutus.Term
@@ -139,6 +142,10 @@ mutual
     | x :: xs => constValValid x && constValListValid xs
 end
 
+@[simp] private theorem constValValid_constr (tag : Int) (fields : List Val) :
+    constValValid (.constr tag fields) = false := by
+  rfl
+
 mutual
   def constValCompatible : Val → Bool
     | .int _ | .bytes _ | .string _ | .bool _ | .unit | .data _
@@ -191,19 +198,23 @@ mutual
 end
 
 mutual
-  private def valValid : Val → Bool
+  /-- A semantic `Val` is representable by the CEK value decoder.  This is
+  public because the solver-input proof connects the generated `val_valid`
+  assertion to `Soundness.semValToCek?`. -/
+  def valValid : Val → Bool
     | .constr tag fields => tag >= 0 && valListValid fields
     | .list xs => constValListValid xs
     | .pair a b => constValValid a && constValValid b
     | .array xs => constValListValid xs
     | v => constValValid v
 
-  private def valListValid : List Val → Bool
+  /-- Pointwise CEK-decodability for semantic value lists. -/
+  def valListValid : List Val → Bool
     | [] => true
     | x :: xs => valValid x && valListValid xs
 end
 
-private def isCtor (ctor : String) : SVal → Option Bool
+def isCtor (ctor : String) : SVal → Option Bool
   | .data (.Constr _ _) => some (ctor == "DConstr")
   | .data (.Map _) => some (ctor == "DMap")
   | .data (.List _) => some (ctor == "DList")
@@ -251,6 +262,68 @@ private def isVBoolSVal : SVal → Option Bool
   | .valList _ => some false
   | _ => none
 
+@[simp] private theorem isCtor_data (ctor : String) (value : Data) :
+    isCtor ctor (.data value) = some (match value with
+      | .Constr _ _ => ctor == "DConstr"
+      | .Map _ => ctor == "DMap"
+      | .List _ => ctor == "DList"
+      | .I _ => ctor == "DI"
+      | .B _ => ctor == "DB") := by
+  cases value <;> rfl
+
+@[simp] private theorem isCtor_dataList (ctor : String)
+    (values : List Data) :
+    isCtor ctor (.dataList values) = some (match values with
+      | [] => ctor == "DNil"
+      | _ :: _ => ctor == "DCons") := by
+  cases values <;> rfl
+
+@[simp] private theorem isCtor_dataPairList (ctor : String)
+    (values : List (Data × Data)) :
+    isCtor ctor (.dataPairList values) = some (match values with
+      | [] => ctor == "DPNil"
+      | _ :: _ => ctor == "DPCons") := by
+  cases values <;> rfl
+
+@[simp] private theorem isCtor_val (ctor : String) (value : Val) :
+    isCtor ctor (.val value) = some (match value with
+      | .int _ => ctor == "VInt"
+      | .bytes _ => ctor == "VBytes"
+      | .string _ => ctor == "VString"
+      | .bool _ => ctor == "VBool"
+      | .unit => ctor == "VUnit"
+      | .list _ => ctor == "VList"
+      | .dataList _ => ctor == "VDataList"
+      | .pairDataList _ => ctor == "VPairDataList"
+      | .pair _ _ => ctor == "VPair"
+      | .pairData _ _ => ctor == "VPairData"
+      | .data _ => ctor == "VData"
+      | .array _ => ctor == "VArray"
+      | .g1 _ => ctor == "VG1"
+      | .g2 _ => ctor == "VG2"
+      | .ml _ => ctor == "VMlResult"
+      | .constr _ _ => ctor == "VConstr") := by
+  cases value <;> rfl
+
+@[simp] private theorem isCtor_valList (ctor : String)
+    (values : List Val) :
+    isCtor ctor (.valList values) = some (match values with
+      | [] => ctor == "VNil"
+      | _ :: _ => ctor == "VCons") := by
+  cases values <;> rfl
+
+@[simp] private theorem isVIntSVal_val (value : Val) :
+    isVIntSVal (.val value) = some (match value with
+      | .int _ => true
+      | _ => false) := by
+  cases value <;> rfl
+
+@[simp] private theorem isVBoolSVal_val (value : Val) :
+    isVBoolSVal (.val value) = some (match value with
+      | .bool _ => true
+      | _ => false) := by
+  cases value <;> rfl
+
 private def valEq : Val → Val → Bool
   | .int a, .int b => a == b
   | .bytes a, .bytes b => a == b
@@ -294,6 +367,50 @@ where
     | [], [] => true
     | a :: as, b :: bs => valEq a b && go as bs
     | _, _ => false
+
+/-! ## CEK-backed denotations for complex non-cryptographic builtins
+
+The corresponding SMT-LIB functions are recursively defined in the fixed
+prelude.  At the expression-semantics layer we deliberately reuse the CEK
+constant evaluator as the executable specification.  This avoids maintaining
+a second Lean implementation of the byte-level algorithms and gives the
+soundness proof a direct statement to connect to. -/
+
+def cekConstResultSVal? : Option Const → Option SVal
+  | some (.Integer i) => some (.int i)
+  | some (.ByteString bs) => some (.bytes bs)
+  | some (.String s) => some (.string s)
+  | some (.Bool b) => some (.bool b)
+  | _ => none
+
+def cekBuiltinConstSVal? (b : BuiltinFun) (args : List Const) : Option SVal :=
+  cekConstResultSVal? (Moist.CEK.evalBuiltinConst b args)
+
+def cekBuiltinConstDefined (b : BuiltinFun) (args : List Const) : Bool :=
+  (Moist.CEK.evalBuiltinConst b args).isSome
+
+def intValsToConsts? : List Val → Option (List Const)
+  | [] => some []
+  | .int i :: rest => do
+      let tail ← intValsToConsts? rest
+      some (.Integer i :: tail)
+  | _ :: _ => none
+
+def writeBitsConstArgs? (bs : ByteArray) (indices : List Val)
+    (value : Bool) : Option (List Const) := do
+  let ints ← intValsToConsts? indices
+  some [.Bool value, .ConstList ints, .ByteString bs]
+
+def writeBitsSVal? (bs : ByteArray) (indices : List Val)
+    (value : Bool) : Option SVal := do
+  let args ← writeBitsConstArgs? bs indices value
+  cekBuiltinConstSVal? .WriteBits args
+
+def writeBitsDefined (bs : ByteArray) (indices : List Val)
+    (value : Bool) : Bool :=
+  match writeBitsConstArgs? bs indices value with
+  | some args => cekBuiltinConstDefined .WriteBits args
+  | none => false
 
 mutual
   def constToVal : Const → Val
@@ -349,7 +466,11 @@ private def evalIsCtorApp (f : String) (args : List SVal) : Option SVal :=
   | "(_ is VCons)", [v] => (isCtor "VCons" v).map SVal.bool
   | _, _ => none
 
-private def evalApp (f : String) (vs : List SVal) : Option SVal :=
+/-- Execute one first-order SMT application on already evaluated arguments.
+
+This is public so checked-input proofs can reduce the exact production
+semantics, rather than duplicating an application interpretation. -/
+def evalApp (f : String) (vs : List SVal) : Option SVal :=
   match evalIsCtorApp f vs with
   | some v => some v
   | none =>
@@ -375,6 +496,53 @@ private def evalApp (f : String) (vs : List SVal) : Option SVal :=
       | "valid_utf8", [.bytes bs] => some (.bool (String.validateUTF8 bs))
       | "uplc_decodeUtf8", [.bytes bs] =>
           if h : String.validateUTF8 bs then some (.string (String.fromUTF8 bs h)) else none
+      | "uplc_integerToByteString", [.bool endian, .int width, .int n] =>
+          cekBuiltinConstSVal? .IntegerToByteString
+            [.Integer n, .Integer width, .Bool endian]
+      | "uplc_integerToByteString_defined", [.bool endian, .int width, .int n] =>
+          some (.bool (cekBuiltinConstDefined .IntegerToByteString
+            [.Integer n, .Integer width, .Bool endian]))
+      | "uplc_byteStringToInteger", [.bool endian, .bytes bs] =>
+          cekBuiltinConstSVal? .ByteStringToInteger [.ByteString bs, .Bool endian]
+      | "uplc_andByteString", [.bool pad, .bytes a, .bytes b] =>
+          cekBuiltinConstSVal? .AndByteString
+            [.ByteString b, .ByteString a, .Bool pad]
+      | "uplc_orByteString", [.bool pad, .bytes a, .bytes b] =>
+          cekBuiltinConstSVal? .OrByteString
+            [.ByteString b, .ByteString a, .Bool pad]
+      | "uplc_xorByteString", [.bool pad, .bytes a, .bytes b] =>
+          cekBuiltinConstSVal? .XorByteString
+            [.ByteString b, .ByteString a, .Bool pad]
+      | "uplc_complementByteString", [.bytes bs] =>
+          cekBuiltinConstSVal? .ComplementByteString [.ByteString bs]
+      | "uplc_readBit", [.bytes bs, .int index] =>
+          cekBuiltinConstSVal? .ReadBit [.Integer index, .ByteString bs]
+      | "uplc_readBit_defined", [.bytes bs, .int index] =>
+          some (.bool (cekBuiltinConstDefined .ReadBit
+            [.Integer index, .ByteString bs]))
+      | "uplc_writeBits", [.bytes bs, .valList indices, .bool value] =>
+          writeBitsSVal? bs indices value
+      | "uplc_writeBits_defined", [.bytes bs, .valList indices, .bool value] =>
+          some (.bool (writeBitsDefined bs indices value))
+      | "uplc_replicateByte", [.int count, .int byte] =>
+          cekBuiltinConstSVal? .ReplicateByte [.Integer byte, .Integer count]
+      | "uplc_replicateByte_defined", [.int count, .int byte] =>
+          some (.bool (cekBuiltinConstDefined .ReplicateByte
+            [.Integer byte, .Integer count]))
+      | "uplc_shiftByteString", [.bytes bs, .int amount] =>
+          cekBuiltinConstSVal? .ShiftByteString [.Integer amount, .ByteString bs]
+      | "uplc_rotateByteString", [.bytes bs, .int amount] =>
+          cekBuiltinConstSVal? .RotateByteString [.Integer amount, .ByteString bs]
+      | "uplc_countSetBits", [.bytes bs] =>
+          cekBuiltinConstSVal? .CountSetBits [.ByteString bs]
+      | "uplc_findFirstSetBit", [.bytes bs] =>
+          cekBuiltinConstSVal? .FindFirstSetBit [.ByteString bs]
+      | "uplc_expModInteger", [.int base, .int exponent, .int modulus] =>
+          cekBuiltinConstSVal? .ExpModInteger
+            [.Integer modulus, .Integer exponent, .Integer base]
+      | "uplc_expModInteger_defined", [.int base, .int exponent, .int modulus] =>
+          some (.bool (cekBuiltinConstDefined .ExpModInteger
+            [.Integer modulus, .Integer exponent, .Integer base]))
       | "same_sign", [.int a, .int b] => some (.bool (sameSign a b))
       | "abs_int", [.int a] => some (.int (Int.ofNat a.natAbs))
       | "uplc_tdiv", [.int a, .int b] => if b == 0 then none else some (.int (a.tdiv b))
@@ -457,6 +625,118 @@ private def evalApp (f : String) (vs : List SVal) : Option SVal :=
       | "dpTail", [.dataPairList (_ :: t)] => some (.dataPairList t)
       | _, _ => none
 
+/-- Equality is total for every pair of semantic values.  The Boolean witness
+remains abstract so checked-input proofs need not expose the private equality
+implementation. -/
+theorem evalApp_eq_total (a b : SVal) :
+    ∃ result, evalApp "=" [a, b] = some (.bool result) :=
+  ⟨svalEq a b, rfl⟩
+
+/-! Small reduction lemmas for the total, first-order applications admitted
+by the checked solver-input grammar.  They expose no second interpretation:
+every equation is definitionally equal to `evalApp` above.  Keeping them as
+separate kernel declarations prevents downstream exhaustiveness proofs from
+embedding the entire dispatcher body once per table entry. -/
+
+theorem evalApp_total_gt (a b : Int) :
+    evalApp ">" [.int a, .int b] = some (.bool (a > b)) := by rfl
+theorem evalApp_total_sameSign (a b : Int) :
+    evalApp "same_sign" [.int a, .int b] = some (.bool (sameSign a b)) := by rfl
+theorem evalApp_total_abs (a : Int) :
+    evalApp "abs_int" [.int a] = some (.int (Int.ofNat a.natAbs)) := by rfl
+theorem evalApp_total_bytesValid (a : ByteArray) :
+    evalApp "bytes_valid" [.bytes a] = some (.bool true) := by rfl
+theorem evalApp_total_stringValid (a : String) :
+    evalApp "ustring_valid" [.string a] = some (.bool true) := by rfl
+theorem evalApp_total_dataValid (a : Data) :
+    evalApp "data_valid" [.data a] = some (.bool true) := by rfl
+theorem evalApp_total_dataListValid (a : List Data) :
+    evalApp "dlist_valid" [.dataList a] = some (.bool true) := by rfl
+theorem evalApp_total_dataPairListValid
+    (a : List (Data × Data)) :
+    evalApp "dplist_valid" [.dataPairList a] = some (.bool true) := by rfl
+theorem evalApp_total_valListValid (a : List Val) :
+    evalApp "vlist_valid" [.valList a] = some (.bool (a.all valValid)) := by rfl
+theorem evalApp_total_constValValid (a : Val) :
+    evalApp "const_val_valid" [.val a] = some (.bool (constValValid a)) := by rfl
+theorem evalApp_total_constValListValid (a : List Val) :
+    evalApp "const_vlist_valid" [.valList a] =
+      some (.bool (a.all constValValid)) := by rfl
+theorem evalApp_total_VInt (a : Int) :
+    evalApp "VInt" [.int a] = some (.val (.int a)) := by rfl
+theorem evalApp_total_VBytes (a : ByteArray) :
+    evalApp "VBytes" [.bytes a] = some (.val (.bytes a)) := by rfl
+theorem evalApp_total_VString (a : String) :
+    evalApp "VString" [.string a] = some (.val (.string a)) := by rfl
+theorem evalApp_total_VBool (a : Bool) :
+    evalApp "VBool" [.bool a] = some (.val (.bool a)) := by rfl
+theorem evalApp_total_VUnit :
+    evalApp "VUnit" [] = some (.val .unit) := by rfl
+theorem evalApp_total_VList (a : List Val) :
+    evalApp "VList" [.valList a] = some (.val (.list a)) := by rfl
+theorem evalApp_total_VDataList (a : List Data) :
+    evalApp "VDataList" [.dataList a] = some (.val (.dataList a)) := by rfl
+theorem evalApp_total_VPairDataList
+    (a : List (Data × Data)) :
+    evalApp "VPairDataList" [.dataPairList a] =
+      some (.val (.pairDataList a)) := by rfl
+theorem evalApp_total_VPair (a b : Val) :
+    evalApp "VPair" [.val a, .val b] = some (.val (.pair a b)) := by rfl
+theorem evalApp_total_VPairData (a b : Data) :
+    evalApp "VPairData" [.data a, .data b] = some (.val (.pairData a b)) := by rfl
+theorem evalApp_total_VData (a : Data) :
+    evalApp "VData" [.data a] = some (.val (.data a)) := by rfl
+theorem evalApp_total_VArray (a : List Val) :
+    evalApp "VArray" [.valList a] = some (.val (.array a)) := by rfl
+theorem evalApp_total_VG1 (a : String) :
+    evalApp "VG1" [.g1 a] = some (.val (.g1 a)) := by rfl
+theorem evalApp_total_VG2 (a : String) :
+    evalApp "VG2" [.g2 a] = some (.val (.g2 a)) := by rfl
+theorem evalApp_total_VMlResult (a : String) :
+    evalApp "VMlResult" [.ml a] = some (.val (.ml a)) := by rfl
+theorem evalApp_total_VConstr (tag : Int) (fields : List Val) :
+    evalApp "VConstr" [.int tag, .valList fields] =
+      some (.val (.constr tag fields)) := by rfl
+theorem evalApp_total_VNil :
+    evalApp "VNil" [] = some (.valList []) := by rfl
+theorem evalApp_total_VCons (head : Val) (tail : List Val) :
+    evalApp "VCons" [.val head, .valList tail] =
+      some (.valList (head :: tail)) := by rfl
+theorem evalApp_total_vlistLength (a : List Val) :
+    evalApp "vlist_length" [.valList a] =
+      some (.int (Int.ofNat a.length)) := by rfl
+theorem evalApp_total_vlistDrop (n : Int) (a : List Val) :
+    evalApp "vlist_drop" [.int n, .valList a] =
+      some (.valList (if n < 0 then a else a.drop n.toNat)) := by rfl
+theorem evalApp_total_DConstr (tag : Int) (fields : List Data) :
+    evalApp "DConstr" [.int tag, .dataList fields] =
+      some (.data (.Constr tag fields)) := by rfl
+theorem evalApp_total_DMap (a : List (Data × Data)) :
+    evalApp "DMap" [.dataPairList a] = some (.data (.Map a)) := by rfl
+theorem evalApp_total_DList (a : List Data) :
+    evalApp "DList" [.dataList a] = some (.data (.List a)) := by rfl
+theorem evalApp_total_DI (a : Int) :
+    evalApp "DI" [.int a] = some (.data (.I a)) := by rfl
+theorem evalApp_total_DB (a : ByteArray) :
+    evalApp "DB" [.bytes a] = some (.data (.B a)) := by rfl
+theorem evalApp_total_DNil :
+    evalApp "DNil" [] = some (.dataList []) := by rfl
+theorem evalApp_total_DCons (head : Data) (tail : List Data) :
+    evalApp "DCons" [.data head, .dataList tail] =
+      some (.dataList (head :: tail)) := by rfl
+theorem evalApp_total_dlistLength (a : List Data) :
+    evalApp "dlist_length" [.dataList a] =
+      some (.int (Int.ofNat a.length)) := by rfl
+theorem evalApp_total_dlistDrop (n : Int) (a : List Data) :
+    evalApp "dlist_drop" [.int n, .dataList a] =
+      some (.dataList (if n < 0 then a else a.drop n.toNat)) := by rfl
+theorem evalApp_total_DPNil :
+    evalApp "DPNil" [] = some (.dataPairList []) := by rfl
+theorem evalApp_total_DPCons
+    (key value : Data) (tail : List (Data × Data)) :
+    evalApp "DPCons" [.data key, .data value, .dataPairList tail] =
+      some (.dataPairList ((key, value) :: tail)) := by rfl
+
 private theorem evalApp_unVBytes (bs : ByteArray) :
     evalApp "unVBytes" [SVal.val (Val.bytes bs)] = some (SVal.bytes bs) := by
   rfl
@@ -489,6 +769,11 @@ private theorem evalApp_unVArray (xs : List Val) :
 private theorem evalApp_constValValid_constr_false (tag : Int) (fields : List Val) :
     evalApp "const_val_valid" [SVal.val (Val.constr tag fields)] =
       some (SVal.bool false) := by
+  rfl
+
+theorem evalApp_val_valid (value : Val) :
+    evalApp "val_valid" [SVal.val value] =
+      some (SVal.bool (valValid value)) := by
   rfl
 
 private theorem evalApp_vfst (a b : Val) :
@@ -547,73 +832,73 @@ private theorem evalApp_dtail (h : Data) (t : List Data) :
     evalApp "dtail" [SVal.dataList (h :: t)] = some (SVal.dataList t) := by
   rfl
 
-private theorem evalApp_add (a b : Int) :
+theorem evalApp_add (a b : Int) :
     evalApp "+" [SVal.int a, SVal.int b] = some (SVal.int (a + b)) := by
   rfl
 
-private theorem evalApp_sub (a b : Int) :
+theorem evalApp_sub (a b : Int) :
     evalApp "-" [SVal.int a, SVal.int b] = some (SVal.int (a - b)) := by
   rfl
 
-private theorem evalApp_mul (a b : Int) :
+theorem evalApp_mul (a b : Int) :
     evalApp "*" [SVal.int a, SVal.int b] = some (SVal.int (a * b)) := by
   rfl
 
-private theorem evalApp_eq_int (a b : Int) :
+theorem evalApp_eq_int (a b : Int) :
     evalApp "=" [SVal.int a, SVal.int b] = some (SVal.bool (a == b)) := by
   rfl
 
-private theorem evalApp_lt (a b : Int) :
+theorem evalApp_lt (a b : Int) :
     evalApp "<" [SVal.int a, SVal.int b] = some (SVal.bool (a < b)) := by
   rfl
 
-private theorem evalApp_le (a b : Int) :
+theorem evalApp_le (a b : Int) :
     evalApp "<=" [SVal.int a, SVal.int b] = some (SVal.bool (a <= b)) := by
   rfl
 
-private theorem evalApp_ge (a b : Int) :
+theorem evalApp_ge (a b : Int) :
     evalApp ">=" [SVal.int a, SVal.int b] = some (SVal.bool (a >= b)) := by
   rfl
 
-private theorem evalApp_eq_bytes (a b : ByteArray) :
+theorem evalApp_eq_bytes (a b : ByteArray) :
     evalApp "=" [SVal.bytes a, SVal.bytes b] = some (SVal.bool (a == b)) := by
   rfl
 
-private theorem evalApp_eq_string (a b : String) :
+theorem evalApp_eq_string (a b : String) :
     evalApp "=" [SVal.string a, SVal.string b] = some (SVal.bool (a == b)) := by
   rfl
 
-private theorem evalApp_eq_data (a b : Data) :
+theorem evalApp_eq_data (a b : Data) :
     evalApp "=" [SVal.data a, SVal.data b] = some (SVal.bool (a == b)) := by
   rfl
 
-private theorem evalApp_seqAppend (a b : ByteArray) :
+theorem evalApp_seqAppend (a b : ByteArray) :
     evalApp "seq.++" [SVal.bytes a, SVal.bytes b] = some (SVal.bytes (a ++ b)) := by
   rfl
 
-private theorem evalApp_seqLen (a : ByteArray) :
+theorem evalApp_seqLen (a : ByteArray) :
     evalApp "seq.len" [SVal.bytes a] = some (SVal.int (Int.ofNat a.size)) := by
   rfl
 
-private theorem evalApp_bytesLt (a b : ByteArray) :
+theorem evalApp_bytesLt (a b : ByteArray) :
     evalApp "bytes_lt" [SVal.bytes a, SVal.bytes b] =
       some (SVal.bool (Moist.Plutus.bytesLt a b)) := by
   rfl
 
-private theorem evalApp_bytesLe (a b : ByteArray) :
+theorem evalApp_bytesLe (a b : ByteArray) :
     evalApp "bytes_le" [SVal.bytes a, SVal.bytes b] =
       some (SVal.bool (Moist.Plutus.bytesLe a b)) := by
   rfl
 
-private theorem evalApp_strAppend (a b : String) :
+theorem evalApp_strAppend (a b : String) :
     evalApp "seq.++" [SVal.string a, SVal.string b] = some (SVal.string (a ++ b)) := by
   rfl
 
-private theorem evalApp_uplcEncodeUtf8 (s : String) :
+theorem evalApp_uplcEncodeUtf8 (s : String) :
     evalApp "uplc_encodeUtf8" [SVal.string s] = some (SVal.bytes s.toUTF8) := by
   rfl
 
-private theorem evalApp_validUtf8 (bs : ByteArray) :
+theorem evalApp_validUtf8 (bs : ByteArray) :
     evalApp "valid_utf8" [SVal.bytes bs] =
       some (SVal.bool (String.validateUTF8 bs)) := by
   rfl
@@ -626,7 +911,7 @@ private theorem evalApp_uplcDecodeUtf8 {bs : ByteArray} (h : String.validateUTF8
     some (SVal.string (String.fromUTF8 bs h))
   simp [h]
 
-private theorem evalApp_isCtor_VBytes (sv : SVal) :
+theorem evalApp_isCtor_VBytes (sv : SVal) :
     evalApp "(_ is VBytes)" [sv] = (isCtor "VBytes" sv).map SVal.bool := by
   cases sv with
   | val v =>
@@ -647,7 +932,7 @@ private theorem evalApp_isCtor_VBytes (sv : SVal) :
   | g2 g => rfl
   | ml r => rfl
 
-private theorem evalApp_isCtor_VUnit (sv : SVal) :
+theorem evalApp_isCtor_VUnit (sv : SVal) :
     evalApp "(_ is VUnit)" [sv] = (isCtor "VUnit" sv).map SVal.bool := by
   cases sv with
   | val v =>
@@ -668,7 +953,7 @@ private theorem evalApp_isCtor_VUnit (sv : SVal) :
   | g2 g => rfl
   | ml r => rfl
 
-private theorem evalApp_isCtor_VList (sv : SVal) :
+theorem evalApp_isCtor_VList (sv : SVal) :
     evalApp "(_ is VList)" [sv] = (isCtor "VList" sv).map SVal.bool := by
   cases sv with
   | val v =>
@@ -689,7 +974,7 @@ private theorem evalApp_isCtor_VList (sv : SVal) :
   | g2 g => rfl
   | ml r => rfl
 
-private theorem evalApp_isCtor_VDataList (sv : SVal) :
+theorem evalApp_isCtor_VDataList (sv : SVal) :
     evalApp "(_ is VDataList)" [sv] = (isCtor "VDataList" sv).map SVal.bool := by
   cases sv with
   | val v =>
@@ -710,7 +995,7 @@ private theorem evalApp_isCtor_VDataList (sv : SVal) :
   | g2 g => rfl
   | ml r => rfl
 
-private theorem evalApp_isCtor_VPair (sv : SVal) :
+theorem evalApp_isCtor_VPair (sv : SVal) :
     evalApp "(_ is VPair)" [sv] = (isCtor "VPair" sv).map SVal.bool := by
   cases sv with
   | val v =>
@@ -731,7 +1016,7 @@ private theorem evalApp_isCtor_VPair (sv : SVal) :
   | g2 g => rfl
   | ml r => rfl
 
-private theorem evalApp_isCtor_VPairData (sv : SVal) :
+theorem evalApp_isCtor_VPairData (sv : SVal) :
     evalApp "(_ is VPairData)" [sv] = (isCtor "VPairData" sv).map SVal.bool := by
   cases sv with
   | val v =>
@@ -752,7 +1037,7 @@ private theorem evalApp_isCtor_VPairData (sv : SVal) :
   | g2 g => rfl
   | ml r => rfl
 
-private theorem evalApp_isCtor_VConstr (sv : SVal) :
+theorem evalApp_isCtor_VConstr (sv : SVal) :
     evalApp "(_ is VConstr)" [sv] = (isCtor "VConstr" sv).map SVal.bool := by
   cases sv with
   | val v =>
@@ -773,7 +1058,7 @@ private theorem evalApp_isCtor_VConstr (sv : SVal) :
   | g2 g => rfl
   | ml r => rfl
 
-private theorem evalApp_isCtor_VString (sv : SVal) :
+theorem evalApp_isCtor_VString (sv : SVal) :
     evalApp "(_ is VString)" [sv] = (isCtor "VString" sv).map SVal.bool := by
   cases sv with
   | val v =>
@@ -794,7 +1079,7 @@ private theorem evalApp_isCtor_VString (sv : SVal) :
   | g2 g => rfl
   | ml r => rfl
 
-private theorem evalApp_isCtor_VData (sv : SVal) :
+theorem evalApp_isCtor_VData (sv : SVal) :
     evalApp "(_ is VData)" [sv] = (isCtor "VData" sv).map SVal.bool := by
   cases sv with
   | val v =>
@@ -815,7 +1100,7 @@ private theorem evalApp_isCtor_VData (sv : SVal) :
   | g2 g => rfl
   | ml r => rfl
 
-private theorem evalApp_isCtor_VPairDataList (sv : SVal) :
+theorem evalApp_isCtor_VPairDataList (sv : SVal) :
     evalApp "(_ is VPairDataList)" [sv] = (isCtor "VPairDataList" sv).map SVal.bool := by
   cases sv with
   | val v =>
@@ -836,7 +1121,7 @@ private theorem evalApp_isCtor_VPairDataList (sv : SVal) :
   | g2 g => rfl
   | ml r => rfl
 
-private theorem evalApp_isCtor_VArray (sv : SVal) :
+theorem evalApp_isCtor_VArray (sv : SVal) :
     evalApp "(_ is VArray)" [sv] = (isCtor "VArray" sv).map SVal.bool := by
   cases sv with
   | val v =>
@@ -857,7 +1142,7 @@ private theorem evalApp_isCtor_VArray (sv : SVal) :
   | g2 g => rfl
   | ml r => rfl
 
-private theorem evalApp_isCtor_VG1 (sv : SVal) :
+theorem evalApp_isCtor_VG1 (sv : SVal) :
     evalApp "(_ is VG1)" [sv] = (isCtor "VG1" sv).map SVal.bool := by
   cases sv with
   | val v =>
@@ -878,7 +1163,7 @@ private theorem evalApp_isCtor_VG1 (sv : SVal) :
   | g2 g => rfl
   | ml r => rfl
 
-private theorem evalApp_isCtor_VG2 (sv : SVal) :
+theorem evalApp_isCtor_VG2 (sv : SVal) :
     evalApp "(_ is VG2)" [sv] = (isCtor "VG2" sv).map SVal.bool := by
   cases sv with
   | val v =>
@@ -899,7 +1184,7 @@ private theorem evalApp_isCtor_VG2 (sv : SVal) :
   | g2 g => rfl
   | ml r => rfl
 
-private theorem evalApp_isCtor_VMlResult (sv : SVal) :
+theorem evalApp_isCtor_VMlResult (sv : SVal) :
     evalApp "(_ is VMlResult)" [sv] = (isCtor "VMlResult" sv).map SVal.bool := by
   cases sv with
   | val v =>
@@ -920,7 +1205,7 @@ private theorem evalApp_isCtor_VMlResult (sv : SVal) :
   | g2 g => rfl
   | ml r => rfl
 
-private theorem evalApp_isCtor_DConstr (sv : SVal) :
+theorem evalApp_isCtor_DConstr (sv : SVal) :
     evalApp "(_ is DConstr)" [sv] = (isCtor "DConstr" sv).map SVal.bool := by
   cases sv with
   | val v =>
@@ -941,7 +1226,7 @@ private theorem evalApp_isCtor_DConstr (sv : SVal) :
   | g2 g => rfl
   | ml r => rfl
 
-private theorem evalApp_isCtor_DMap (sv : SVal) :
+theorem evalApp_isCtor_DMap (sv : SVal) :
     evalApp "(_ is DMap)" [sv] = (isCtor "DMap" sv).map SVal.bool := by
   cases sv with
   | val v =>
@@ -962,7 +1247,7 @@ private theorem evalApp_isCtor_DMap (sv : SVal) :
   | g2 g => rfl
   | ml r => rfl
 
-private theorem evalApp_isCtor_DList (sv : SVal) :
+theorem evalApp_isCtor_DList (sv : SVal) :
     evalApp "(_ is DList)" [sv] = (isCtor "DList" sv).map SVal.bool := by
   cases sv with
   | val v =>
@@ -983,7 +1268,7 @@ private theorem evalApp_isCtor_DList (sv : SVal) :
   | g2 g => rfl
   | ml r => rfl
 
-private theorem evalApp_isCtor_DI (sv : SVal) :
+theorem evalApp_isCtor_DI (sv : SVal) :
     evalApp "(_ is DI)" [sv] = (isCtor "DI" sv).map SVal.bool := by
   cases sv with
   | val v =>
@@ -1004,7 +1289,7 @@ private theorem evalApp_isCtor_DI (sv : SVal) :
   | g2 g => rfl
   | ml r => rfl
 
-private theorem evalApp_isCtor_DB (sv : SVal) :
+theorem evalApp_isCtor_DB (sv : SVal) :
     evalApp "(_ is DB)" [sv] = (isCtor "DB" sv).map SVal.bool := by
   cases sv with
   | val v =>
@@ -1024,6 +1309,86 @@ private theorem evalApp_isCtor_DB (sv : SVal) :
   | g1 g => rfl
   | g2 g => rfl
   | ml r => rfl
+
+theorem evalApp_isCtor_DNil (sv : SVal) :
+    evalApp "(_ is DNil)" [sv] = (isCtor "DNil" sv).map SVal.bool := by
+  cases sv with
+  | val v => cases v <;> rfl
+  | data d => cases d <;> rfl
+  | dataList xs => cases xs <;> rfl
+  | dataPairList xs => cases xs <;> rfl
+  | valList xs => cases xs <;> rfl
+  | _ => rfl
+
+theorem evalApp_isCtor_DCons (sv : SVal) :
+    evalApp "(_ is DCons)" [sv] = (isCtor "DCons" sv).map SVal.bool := by
+  cases sv with
+  | val v => cases v <;> rfl
+  | data d => cases d <;> rfl
+  | dataList xs => cases xs <;> rfl
+  | dataPairList xs => cases xs <;> rfl
+  | valList xs => cases xs <;> rfl
+  | _ => rfl
+
+theorem evalApp_isCtor_DPNil (sv : SVal) :
+    evalApp "(_ is DPNil)" [sv] = (isCtor "DPNil" sv).map SVal.bool := by
+  cases sv with
+  | val v => cases v <;> rfl
+  | data d => cases d <;> rfl
+  | dataList xs => cases xs <;> rfl
+  | dataPairList xs => cases xs <;> rfl
+  | valList xs => cases xs <;> rfl
+  | _ => rfl
+
+theorem evalApp_isCtor_DPCons (sv : SVal) :
+    evalApp "(_ is DPCons)" [sv] = (isCtor "DPCons" sv).map SVal.bool := by
+  cases sv with
+  | val v => cases v <;> rfl
+  | data d => cases d <;> rfl
+  | dataList xs => cases xs <;> rfl
+  | dataPairList xs => cases xs <;> rfl
+  | valList xs => cases xs <;> rfl
+  | _ => rfl
+
+theorem evalApp_isCtor_VInt (sv : SVal) :
+    evalApp "(_ is VInt)" [sv] = (isCtor "VInt" sv).map SVal.bool := by
+  cases sv with
+  | val v => cases v <;> rfl
+  | data d => cases d <;> rfl
+  | dataList xs => cases xs <;> rfl
+  | dataPairList xs => cases xs <;> rfl
+  | valList xs => cases xs <;> rfl
+  | _ => rfl
+
+theorem evalApp_isCtor_VBool (sv : SVal) :
+    evalApp "(_ is VBool)" [sv] = (isCtor "VBool" sv).map SVal.bool := by
+  cases sv with
+  | val v => cases v <;> rfl
+  | data d => cases d <;> rfl
+  | dataList xs => cases xs <;> rfl
+  | dataPairList xs => cases xs <;> rfl
+  | valList xs => cases xs <;> rfl
+  | _ => rfl
+
+theorem evalApp_isCtor_VNil (sv : SVal) :
+    evalApp "(_ is VNil)" [sv] = (isCtor "VNil" sv).map SVal.bool := by
+  cases sv with
+  | val v => cases v <;> rfl
+  | data d => cases d <;> rfl
+  | dataList xs => cases xs <;> rfl
+  | dataPairList xs => cases xs <;> rfl
+  | valList xs => cases xs <;> rfl
+  | _ => rfl
+
+theorem evalApp_isCtor_VCons (sv : SVal) :
+    evalApp "(_ is VCons)" [sv] = (isCtor "VCons" sv).map SVal.bool := by
+  cases sv with
+  | val v => cases v <;> rfl
+  | data d => cases d <;> rfl
+  | dataList xs => cases xs <;> rfl
+  | dataPairList xs => cases xs <;> rfl
+  | valList xs => cases xs <;> rfl
+  | _ => rfl
 
 mutual
   def eval (m : Model) : Expr → Option SVal
@@ -1283,6 +1648,16 @@ theorem evalBoolIs_true_eq (m : Model) (e : Expr) :
       | g1 g => simp [he]
       | g2 g => simp [he]
       | ml r => simp [he]
+
+/-- The executable interpretation of the generated `val_valid` assertion is
+exactly `valValid` for the semantic value produced by its argument. -/
+theorem evalBoolIs_val_valid_of_eval {m : Model} {expression : Expr}
+    {value : Val} (heval : eval m expression = some (.val value)) :
+    evalBoolIs m (.app "val_valid" [expression]) true = valValid value := by
+  have happ : eval m (.app "val_valid" [expression]) =
+      some (.bool (valValid value)) := by
+    simp [eval, evalList, heval, evalApp_val_valid]
+  simp [evalBoolIs, evalBool?, happ]
 
 set_option linter.unusedSimpArgs false in
 private theorem evalBoolIs_app_and_true (m : Model) (a b : Expr) :
@@ -2390,6 +2765,303 @@ theorem eval_strAppend_of {m : Model} {a b : Expr} {x y : String}
   simp [hb]
   rw [evalList.eq_def]
   exact evalApp_strAppend x y
+
+/-! The complex builtin applications below expose their denotation without
+duplicating the byte algorithms in proofs.  Each right-hand side is the actual
+CEK constant evaluator applied in the CEK machine's reversed argument order. -/
+
+section ComplexBuiltinApplications
+
+set_option maxHeartbeats 0
+
+@[simp] private theorem evalApp_uplcIntegerToByteString (be : Bool) (w i : Int) :
+    evalApp "uplc_integerToByteString" [.bool be, .int w, .int i] =
+      cekBuiltinConstSVal? .IntegerToByteString [.Integer i, .Integer w, .Bool be] := rfl
+
+@[simp] private theorem evalApp_uplcIntegerToByteStringDefined (be : Bool) (w i : Int) :
+    evalApp "uplc_integerToByteString_defined" [.bool be, .int w, .int i] =
+      some (.bool (cekBuiltinConstDefined .IntegerToByteString
+        [.Integer i, .Integer w, .Bool be])) := rfl
+
+@[simp] private theorem evalApp_uplcByteStringToInteger (be : Bool) (bs : ByteArray) :
+    evalApp "uplc_byteStringToInteger" [.bool be, .bytes bs] =
+      cekBuiltinConstSVal? .ByteStringToInteger [.ByteString bs, .Bool be] := rfl
+
+@[simp] private theorem evalApp_uplcAndByteString
+    (p : Bool) (a b : ByteArray) :
+    evalApp "uplc_andByteString" [.bool p, .bytes a, .bytes b] =
+      cekBuiltinConstSVal? .AndByteString [.ByteString b, .ByteString a, .Bool p] := rfl
+
+@[simp] private theorem evalApp_uplcOrByteString
+    (p : Bool) (a b : ByteArray) :
+    evalApp "uplc_orByteString" [.bool p, .bytes a, .bytes b] =
+      cekBuiltinConstSVal? .OrByteString [.ByteString b, .ByteString a, .Bool p] := rfl
+
+@[simp] private theorem evalApp_uplcXorByteString
+    (p : Bool) (a b : ByteArray) :
+    evalApp "uplc_xorByteString" [.bool p, .bytes a, .bytes b] =
+      cekBuiltinConstSVal? .XorByteString [.ByteString b, .ByteString a, .Bool p] := rfl
+
+@[simp] private theorem evalApp_uplcComplementByteString (bs : ByteArray) :
+    evalApp "uplc_complementByteString" [.bytes bs] =
+      cekBuiltinConstSVal? .ComplementByteString [.ByteString bs] := rfl
+
+@[simp] private theorem evalApp_uplcReadBit (bs : ByteArray) (i : Int) :
+    evalApp "uplc_readBit" [.bytes bs, .int i] =
+      cekBuiltinConstSVal? .ReadBit [.Integer i, .ByteString bs] := rfl
+
+@[simp] private theorem evalApp_uplcReadBitDefined (bs : ByteArray) (i : Int) :
+    evalApp "uplc_readBit_defined" [.bytes bs, .int i] =
+      some (.bool (cekBuiltinConstDefined .ReadBit
+        [.Integer i, .ByteString bs])) := rfl
+
+@[simp] private theorem evalApp_uplcWriteBits
+    (bs : ByteArray) (is : List Val) (v : Bool) :
+    evalApp "uplc_writeBits" [.bytes bs, .valList is, .bool v] =
+      writeBitsSVal? bs is v := rfl
+
+@[simp] private theorem evalApp_uplcWriteBitsDefined
+    (bs : ByteArray) (is : List Val) (v : Bool) :
+    evalApp "uplc_writeBits_defined" [.bytes bs, .valList is, .bool v] =
+      some (.bool (writeBitsDefined bs is v)) := rfl
+
+@[simp] private theorem evalApp_uplcReplicateByte (c b : Int) :
+    evalApp "uplc_replicateByte" [.int c, .int b] =
+      cekBuiltinConstSVal? .ReplicateByte [.Integer b, .Integer c] := rfl
+
+@[simp] private theorem evalApp_uplcReplicateByteDefined (c b : Int) :
+    evalApp "uplc_replicateByte_defined" [.int c, .int b] =
+      some (.bool (cekBuiltinConstDefined .ReplicateByte
+        [.Integer b, .Integer c])) := rfl
+
+@[simp] private theorem evalApp_uplcShiftByteString (bs : ByteArray) (n : Int) :
+    evalApp "uplc_shiftByteString" [.bytes bs, .int n] =
+      cekBuiltinConstSVal? .ShiftByteString [.Integer n, .ByteString bs] := rfl
+
+@[simp] private theorem evalApp_uplcRotateByteString (bs : ByteArray) (n : Int) :
+    evalApp "uplc_rotateByteString" [.bytes bs, .int n] =
+      cekBuiltinConstSVal? .RotateByteString [.Integer n, .ByteString bs] := rfl
+
+@[simp] private theorem evalApp_uplcCountSetBits (bs : ByteArray) :
+    evalApp "uplc_countSetBits" [.bytes bs] =
+      cekBuiltinConstSVal? .CountSetBits [.ByteString bs] := rfl
+
+@[simp] private theorem evalApp_uplcFindFirstSetBit (bs : ByteArray) :
+    evalApp "uplc_findFirstSetBit" [.bytes bs] =
+      cekBuiltinConstSVal? .FindFirstSetBit [.ByteString bs] := rfl
+
+@[simp] private theorem evalApp_uplcExpModInteger (b e m : Int) :
+    evalApp "uplc_expModInteger" [.int b, .int e, .int m] =
+      cekBuiltinConstSVal? .ExpModInteger [.Integer m, .Integer e, .Integer b] := rfl
+
+@[simp] private theorem evalApp_uplcExpModIntegerDefined (b e m : Int) :
+    evalApp "uplc_expModInteger_defined" [.int b, .int e, .int m] =
+      some (.bool (cekBuiltinConstDefined .ExpModInteger
+        [.Integer m, .Integer e, .Integer b])) := rfl
+
+theorem eval_uplcIntegerToByteString_of {m : Model} {endian width n : Expr}
+    {be : Bool} {w i : Int}
+    (hendian : eval m endian = some (.bool be))
+    (hwidth : eval m width = some (.int w))
+    (hn : eval m n = some (.int i)) :
+    eval m (.app "uplc_integerToByteString" [endian, width, n]) =
+      cekBuiltinConstSVal? .IntegerToByteString
+        [.Integer i, .Integer w, .Bool be] := by
+  rw [eval.eq_def]
+  change (do let vs ← evalList m [endian, width, n]; evalApp _ vs) = _
+  simp [evalList, hendian, hwidth, hn]
+
+theorem eval_uplcIntegerToByteStringDefined_of {m : Model}
+    {endian width n : Expr} {be : Bool} {w i : Int}
+    (hendian : eval m endian = some (.bool be))
+    (hwidth : eval m width = some (.int w))
+    (hn : eval m n = some (.int i)) :
+    eval m (.app "uplc_integerToByteString_defined" [endian, width, n]) =
+      some (.bool (cekBuiltinConstDefined .IntegerToByteString
+        [.Integer i, .Integer w, .Bool be])) := by
+  rw [eval.eq_def]
+  change (do let vs ← evalList m [endian, width, n]; evalApp _ vs) = _
+  simp [evalList, hendian, hwidth, hn]
+
+theorem eval_uplcByteStringToInteger_of {m : Model} {endian bytes : Expr}
+    {be : Bool} {bs : ByteArray}
+    (hendian : eval m endian = some (.bool be))
+    (hbytes : eval m bytes = some (.bytes bs)) :
+    eval m (.app "uplc_byteStringToInteger" [endian, bytes]) =
+      cekBuiltinConstSVal? .ByteStringToInteger [.ByteString bs, .Bool be] := by
+  rw [eval.eq_def]
+  change (do let vs ← evalList m [endian, bytes]; evalApp _ vs) = _
+  simp [evalList, hendian, hbytes]
+
+theorem eval_uplcAndByteString_of {m : Model} {pad a b : Expr}
+    {p : Bool} {as bs : ByteArray}
+    (hpad : eval m pad = some (.bool p))
+    (ha : eval m a = some (.bytes as))
+    (hb : eval m b = some (.bytes bs)) :
+    eval m (.app "uplc_andByteString" [pad, a, b]) =
+      cekBuiltinConstSVal? .AndByteString
+        [.ByteString bs, .ByteString as, .Bool p] := by
+  rw [eval.eq_def]
+  change (do let vs ← evalList m [pad, a, b]; evalApp _ vs) = _
+  simp [evalList, hpad, ha, hb]
+
+theorem eval_uplcOrByteString_of {m : Model} {pad a b : Expr}
+    {p : Bool} {as bs : ByteArray}
+    (hpad : eval m pad = some (.bool p))
+    (ha : eval m a = some (.bytes as))
+    (hb : eval m b = some (.bytes bs)) :
+    eval m (.app "uplc_orByteString" [pad, a, b]) =
+      cekBuiltinConstSVal? .OrByteString
+        [.ByteString bs, .ByteString as, .Bool p] := by
+  rw [eval.eq_def]
+  change (do let vs ← evalList m [pad, a, b]; evalApp _ vs) = _
+  simp [evalList, hpad, ha, hb]
+
+theorem eval_uplcXorByteString_of {m : Model} {pad a b : Expr}
+    {p : Bool} {as bs : ByteArray}
+    (hpad : eval m pad = some (.bool p))
+    (ha : eval m a = some (.bytes as))
+    (hb : eval m b = some (.bytes bs)) :
+    eval m (.app "uplc_xorByteString" [pad, a, b]) =
+      cekBuiltinConstSVal? .XorByteString
+        [.ByteString bs, .ByteString as, .Bool p] := by
+  rw [eval.eq_def]
+  change (do let vs ← evalList m [pad, a, b]; evalApp _ vs) = _
+  simp [evalList, hpad, ha, hb]
+
+theorem eval_uplcComplementByteString_of {m : Model} {bytes : Expr}
+    {bs : ByteArray} (hbytes : eval m bytes = some (.bytes bs)) :
+    eval m (.app "uplc_complementByteString" [bytes]) =
+      cekBuiltinConstSVal? .ComplementByteString [.ByteString bs] := by
+  rw [eval.eq_def]
+  change (do let vs ← evalList m [bytes]; evalApp _ vs) = _
+  simp [evalList, hbytes]
+
+theorem eval_uplcReadBit_of {m : Model} {bytes index : Expr}
+    {bs : ByteArray} {i : Int}
+    (hbytes : eval m bytes = some (.bytes bs))
+    (hindex : eval m index = some (.int i)) :
+    eval m (.app "uplc_readBit" [bytes, index]) =
+      cekBuiltinConstSVal? .ReadBit [.Integer i, .ByteString bs] := by
+  rw [eval.eq_def]
+  change (do let vs ← evalList m [bytes, index]; evalApp _ vs) = _
+  simp [evalList, hbytes, hindex]
+
+theorem eval_uplcReadBitDefined_of {m : Model} {bytes index : Expr}
+    {bs : ByteArray} {i : Int}
+    (hbytes : eval m bytes = some (.bytes bs))
+    (hindex : eval m index = some (.int i)) :
+    eval m (.app "uplc_readBit_defined" [bytes, index]) =
+      some (.bool (cekBuiltinConstDefined .ReadBit
+        [.Integer i, .ByteString bs])) := by
+  rw [eval.eq_def]
+  change (do let vs ← evalList m [bytes, index]; evalApp _ vs) = _
+  simp [evalList, hbytes, hindex]
+
+theorem eval_uplcWriteBits_of {m : Model} {bytes indices value : Expr}
+    {bs : ByteArray} {is : List Val} {v : Bool}
+    (hbytes : eval m bytes = some (.bytes bs))
+    (hindices : eval m indices = some (.valList is))
+    (hvalue : eval m value = some (.bool v)) :
+    eval m (.app "uplc_writeBits" [bytes, indices, value]) =
+      writeBitsSVal? bs is v := by
+  rw [eval.eq_def]
+  change (do let vs ← evalList m [bytes, indices, value]; evalApp _ vs) = _
+  simp [evalList, hbytes, hindices, hvalue]
+
+theorem eval_uplcWriteBitsDefined_of {m : Model} {bytes indices value : Expr}
+    {bs : ByteArray} {is : List Val} {v : Bool}
+    (hbytes : eval m bytes = some (.bytes bs))
+    (hindices : eval m indices = some (.valList is))
+    (hvalue : eval m value = some (.bool v)) :
+    eval m (.app "uplc_writeBits_defined" [bytes, indices, value]) =
+      some (.bool (writeBitsDefined bs is v)) := by
+  rw [eval.eq_def]
+  change (do let vs ← evalList m [bytes, indices, value]; evalApp _ vs) = _
+  simp [evalList, hbytes, hindices, hvalue]
+
+theorem eval_uplcReplicateByte_of {m : Model} {count byte : Expr}
+    {c b : Int}
+    (hcount : eval m count = some (.int c))
+    (hbyte : eval m byte = some (.int b)) :
+    eval m (.app "uplc_replicateByte" [count, byte]) =
+      cekBuiltinConstSVal? .ReplicateByte [.Integer b, .Integer c] := by
+  rw [eval.eq_def]
+  change (do let vs ← evalList m [count, byte]; evalApp _ vs) = _
+  simp [evalList, hcount, hbyte]
+
+theorem eval_uplcReplicateByteDefined_of {m : Model} {count byte : Expr}
+    {c b : Int}
+    (hcount : eval m count = some (.int c))
+    (hbyte : eval m byte = some (.int b)) :
+    eval m (.app "uplc_replicateByte_defined" [count, byte]) =
+      some (.bool (cekBuiltinConstDefined .ReplicateByte
+        [.Integer b, .Integer c])) := by
+  rw [eval.eq_def]
+  change (do let vs ← evalList m [count, byte]; evalApp _ vs) = _
+  simp [evalList, hcount, hbyte]
+
+theorem eval_uplcShiftByteString_of {m : Model} {bytes amount : Expr}
+    {bs : ByteArray} {n : Int}
+    (hbytes : eval m bytes = some (.bytes bs))
+    (hamount : eval m amount = some (.int n)) :
+    eval m (.app "uplc_shiftByteString" [bytes, amount]) =
+      cekBuiltinConstSVal? .ShiftByteString [.Integer n, .ByteString bs] := by
+  rw [eval.eq_def]
+  change (do let vs ← evalList m [bytes, amount]; evalApp _ vs) = _
+  simp [evalList, hbytes, hamount]
+
+theorem eval_uplcRotateByteString_of {m : Model} {bytes amount : Expr}
+    {bs : ByteArray} {n : Int}
+    (hbytes : eval m bytes = some (.bytes bs))
+    (hamount : eval m amount = some (.int n)) :
+    eval m (.app "uplc_rotateByteString" [bytes, amount]) =
+      cekBuiltinConstSVal? .RotateByteString [.Integer n, .ByteString bs] := by
+  rw [eval.eq_def]
+  change (do let vs ← evalList m [bytes, amount]; evalApp _ vs) = _
+  simp [evalList, hbytes, hamount]
+
+theorem eval_uplcCountSetBits_of {m : Model} {bytes : Expr}
+    {bs : ByteArray} (hbytes : eval m bytes = some (.bytes bs)) :
+    eval m (.app "uplc_countSetBits" [bytes]) =
+      cekBuiltinConstSVal? .CountSetBits [.ByteString bs] := by
+  rw [eval.eq_def]
+  change (do let vs ← evalList m [bytes]; evalApp _ vs) = _
+  simp [evalList, hbytes]
+
+theorem eval_uplcFindFirstSetBit_of {m : Model} {bytes : Expr}
+    {bs : ByteArray} (hbytes : eval m bytes = some (.bytes bs)) :
+    eval m (.app "uplc_findFirstSetBit" [bytes]) =
+      cekBuiltinConstSVal? .FindFirstSetBit [.ByteString bs] := by
+  rw [eval.eq_def]
+  change (do let vs ← evalList m [bytes]; evalApp _ vs) = _
+  simp [evalList, hbytes]
+
+theorem eval_uplcExpModInteger_of {m : Model} {base exponent modulus : Expr}
+    {b e md : Int}
+    (hbase : eval m base = some (.int b))
+    (hexponent : eval m exponent = some (.int e))
+    (hmodulus : eval m modulus = some (.int md)) :
+    eval m (.app "uplc_expModInteger" [base, exponent, modulus]) =
+      cekBuiltinConstSVal? .ExpModInteger
+        [.Integer md, .Integer e, .Integer b] := by
+  rw [eval.eq_def]
+  change (do let vs ← evalList m [base, exponent, modulus]; evalApp _ vs) = _
+  simp [evalList, hbase, hexponent, hmodulus]
+
+theorem eval_uplcExpModIntegerDefined_of {m : Model}
+    {base exponent modulus : Expr} {b e md : Int}
+    (hbase : eval m base = some (.int b))
+    (hexponent : eval m exponent = some (.int e))
+    (hmodulus : eval m modulus = some (.int md)) :
+    eval m (.app "uplc_expModInteger_defined" [base, exponent, modulus]) =
+      some (.bool (cekBuiltinConstDefined .ExpModInteger
+        [.Integer md, .Integer e, .Integer b])) := by
+  rw [eval.eq_def]
+  change (do let vs ← evalList m [base, exponent, modulus]; evalApp _ vs) = _
+  simp [evalList, hbase, hexponent, hmodulus]
+
+end ComplexBuiltinApplications
 
 theorem eval_uplcEncodeUtf8_of {m : Model} {e : Expr} {s : String}
     (he : eval m e = some (SVal.string s)) :

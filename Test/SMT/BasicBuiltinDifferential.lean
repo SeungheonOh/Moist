@@ -265,6 +265,137 @@ def basicBuiltins : List BuiltinFun :=
     .UnIData, .UnBData, .EqualsData, .MkPairData, .MkNilData,
     .MkNilPairData, .DropList, .IndexArray, .LengthOfArray, .ListToArray ]
 
+def advancedBuiltins : List BuiltinFun :=
+  [ .IntegerToByteString, .ByteStringToInteger,
+    .AndByteString, .OrByteString, .XorByteString,
+    .ComplementByteString, .ReadBit, .WriteBits, .ReplicateByte,
+    .ShiftByteString, .RotateByteString, .CountSetBits,
+    .FindFirstSetBit, .ExpModInteger ]
+
+def advancedPartialBuiltins : List BuiltinFun :=
+  [ .IntegerToByteString, .ReadBit, .WriteBits, .ReplicateByte,
+    .ExpModInteger ]
+
+/-- Closed calls exercise the CEK-backed exact folding path for every
+advanced non-cryptographic builtin.  ByteString results are consumed by
+proved basic builtins so the existing exact Boolean/integer harness can
+compare CEK, internal SMT semantics, and rendered Z3 queries. -/
+def advancedPrimaryCases : List Case :=
+  [ primary .IntegerToByteString "integer-to-byte-string"
+      (call .EqualsByteString 0
+        [call .IntegerToByteString 0 [bool true, int 2, int 258],
+         bytes #[1, 2]]) (.boolean true)
+  , primary .ByteStringToInteger "byte-string-to-integer"
+      (call .ByteStringToInteger 0 [bool false, bytes #[1, 2]])
+      (.integer 513)
+  , primary .AndByteString "and-byte-string"
+      (call .EqualsByteString 0
+        [call .AndByteString 0
+          [bool true, bytes #[0xf0, 0x0f], bytes #[0xaa]],
+         bytes #[0xa0, 0x0f]]) (.boolean true)
+  , primary .OrByteString "or-byte-string"
+      (call .EqualsByteString 0
+        [call .OrByteString 0
+          [bool true, bytes #[0xf0, 0x0f], bytes #[0xaa]],
+         bytes #[0xfa, 0x0f]]) (.boolean true)
+  , primary .XorByteString "xor-byte-string"
+      (call .EqualsByteString 0
+        [call .XorByteString 0
+          [bool true, bytes #[0xf0, 0x0f], bytes #[0xaa]],
+         bytes #[0x5a, 0x0f]]) (.boolean true)
+  , primary .ComplementByteString "complement-byte-string"
+      (call .EqualsByteString 0
+        [call .ComplementByteString 0 [bytes #[0x00, 0xaa, 0xff]],
+         bytes #[0xff, 0x55, 0x00]]) (.boolean true)
+  , primary .ReadBit "read-bit"
+      (call .ReadBit 0 [bytes #[0x01], int 0]) (.boolean true)
+  , primary .WriteBits "write-bits"
+      (call .EqualsByteString 0
+        [call .WriteBits 0
+          [bytes #[0x00, 0x00], listInteger [0, 15], bool true],
+         bytes #[0x80, 0x01]]) (.boolean true)
+  , primary .ReplicateByte "replicate-byte"
+      (call .EqualsByteString 0
+        [call .ReplicateByte 0 [int 3, int 0xab],
+         bytes #[0xab, 0xab, 0xab]]) (.boolean true)
+  , primary .ShiftByteString "shift-byte-string"
+      (call .EqualsByteString 0
+        [call .ShiftByteString 0 [bytes #[0x12, 0x34], int 4],
+         bytes #[0x23, 0x40]]) (.boolean true)
+  , primary .RotateByteString "rotate-byte-string"
+      (call .EqualsByteString 0
+        [call .RotateByteString 0 [bytes #[0x12, 0x34], int (-4)],
+         bytes #[0x41, 0x23]]) (.boolean true)
+  , primary .CountSetBits "count-set-bits"
+      (call .CountSetBits 0 [bytes #[0x00, 0xff, 0x81]]) (.integer 10)
+  , primary .FindFirstSetBit "find-first-set-bit"
+      (call .FindFirstSetBit 0 [bytes #[0x04, 0x00]]) (.integer 10)
+  , primary .ExpModInteger "exp-mod-integer"
+      (call .ExpModInteger 0 [int 3, int 4, int 5]) (.integer 1)
+  ]
+
+/-- Every advanced builtin is also exercised on a closed failing call.  For
+total operations this is a CEK runtime type error; partial operations use a
+domain error, ensuring the ground fast path preserves `none` exactly. -/
+def advancedGroundErrorCases : List Case :=
+  [ { name := "ground-error-integer-to-byte-string"
+      primaryBuiltin := some .IntegerToByteString
+      term := call .IntegerToByteString 0 [bool true, int 1, int 256]
+      expected := .error }
+  , { name := "ground-error-byte-string-to-integer"
+      primaryBuiltin := some .ByteStringToInteger
+      term := call .ByteStringToInteger 0 [unit, bytes #[]]
+      expected := .error }
+  , { name := "ground-error-and-byte-string"
+      primaryBuiltin := some .AndByteString
+      term := call .AndByteString 0 [unit, bytes #[], bytes #[]]
+      expected := .error }
+  , { name := "ground-error-or-byte-string"
+      primaryBuiltin := some .OrByteString
+      term := call .OrByteString 0 [unit, bytes #[], bytes #[]]
+      expected := .error }
+  , { name := "ground-error-xor-byte-string"
+      primaryBuiltin := some .XorByteString
+      term := call .XorByteString 0 [unit, bytes #[], bytes #[]]
+      expected := .error }
+  , { name := "ground-error-complement-byte-string"
+      primaryBuiltin := some .ComplementByteString
+      term := call .ComplementByteString 0 [unit]
+      expected := .error }
+  , { name := "ground-error-read-bit"
+      primaryBuiltin := some .ReadBit
+      term := call .ReadBit 0 [bytes #[0], int 8]
+      expected := .error }
+  , { name := "ground-error-write-bits"
+      primaryBuiltin := some .WriteBits
+      term := call .WriteBits 0 [bytes #[0], listInteger [8], bool true]
+      expected := .error }
+  , { name := "ground-error-replicate-byte"
+      primaryBuiltin := some .ReplicateByte
+      term := call .ReplicateByte 0 [int (-1), int 0]
+      expected := .error }
+  , { name := "ground-error-shift-byte-string"
+      primaryBuiltin := some .ShiftByteString
+      term := call .ShiftByteString 0 [unit, int 1]
+      expected := .error }
+  , { name := "ground-error-rotate-byte-string"
+      primaryBuiltin := some .RotateByteString
+      term := call .RotateByteString 0 [unit, int 1]
+      expected := .error }
+  , { name := "ground-error-count-set-bits"
+      primaryBuiltin := some .CountSetBits
+      term := call .CountSetBits 0 [unit]
+      expected := .error }
+  , { name := "ground-error-find-first-set-bit"
+      primaryBuiltin := some .FindFirstSetBit
+      term := call .FindFirstSetBit 0 [unit]
+      expected := .error }
+  , { name := "ground-error-exp-mod-integer"
+      primaryBuiltin := some .ExpModInteger
+      term := call .ExpModInteger 0 [int 2, int (-1), int 4]
+      expected := .error }
+  ]
+
 /-- Failures are checked both as positive error queries and as negative value
 queries.  These cover arithmetic-domain, UTF-8, projection, list, data, array,
 and dynamic-type rejection. -/
@@ -625,6 +756,66 @@ def symbolicBuiltinCases : List Case :=
       (fun x => call .LengthOfArray 1 [call .ListToArray 1 [x]]) (.integer 4)
   ]
 
+/-- Genuine declaration-backed success paths for every advanced builtin. -/
+def advancedSymbolicBuiltinCases : List Case :=
+  [ constrainedIntCase .IntegerToByteString
+      "symbolic-integer-to-byte-string" 258
+      (fun x => call .EqualsByteString 0
+        [call .IntegerToByteString 0 [bool true, int 2, x],
+         bytes #[1, 2]]) (.boolean true)
+  , constrainedBytesCase .ByteStringToInteger
+      "symbolic-byte-string-to-integer" #[1, 2]
+      (fun x => call .ByteStringToInteger 0 [bool false, x]) (.integer 513)
+  , constrainedBytesCase .AndByteString "symbolic-and-byte-string"
+      #[0xf0, 0x0f]
+      (fun x => call .EqualsByteString 0
+        [call .AndByteString 0 [bool true, x, bytes #[0xaa]],
+         bytes #[0xa0, 0x0f]]) (.boolean true)
+  , constrainedBytesCase .OrByteString "symbolic-or-byte-string"
+      #[0xf0, 0x0f]
+      (fun x => call .EqualsByteString 0
+        [call .OrByteString 0 [bool true, x, bytes #[0xaa]],
+         bytes #[0xfa, 0x0f]]) (.boolean true)
+  , constrainedBytesCase .XorByteString "symbolic-xor-byte-string"
+      #[0xf0, 0x0f]
+      (fun x => call .EqualsByteString 0
+        [call .XorByteString 0 [bool true, x, bytes #[0xaa]],
+         bytes #[0x5a, 0x0f]]) (.boolean true)
+  , constrainedBytesCase .ComplementByteString
+      "symbolic-complement-byte-string" #[0x00, 0xaa, 0xff]
+      (fun x => call .EqualsByteString 0
+        [call .ComplementByteString 0 [x], bytes #[0xff, 0x55, 0x00]])
+      (.boolean true)
+  , constrainedBytesCase .ReadBit "symbolic-read-bit" #[0x01]
+      (fun x => call .ReadBit 0 [x, int 0]) (.boolean true)
+  , constrainedBytesCase .WriteBits "symbolic-write-bits" #[0x00, 0x00]
+      (fun x => call .EqualsByteString 0
+        [call .WriteBits 0 [x, listInteger [0, 15], bool true],
+         bytes #[0x80, 0x01]]) (.boolean true)
+  , constrainedIntCase .ReplicateByte "symbolic-replicate-byte" 3
+      (fun x => call .EqualsByteString 0
+        [call .ReplicateByte 0 [x, int 0xab], bytes #[0xab, 0xab, 0xab]])
+      (.boolean true)
+  , constrainedBytesCase .ShiftByteString "symbolic-shift-byte-string"
+      #[0x12, 0x34]
+      (fun x => call .EqualsByteString 0
+        [call .ShiftByteString 0 [x, int 4], bytes #[0x23, 0x40]])
+      (.boolean true)
+  , constrainedBytesCase .RotateByteString "symbolic-rotate-byte-string"
+      #[0x12, 0x34]
+      (fun x => call .EqualsByteString 0
+        [call .RotateByteString 0 [x, int (-4)], bytes #[0x41, 0x23]])
+      (.boolean true)
+  , constrainedBytesCase .CountSetBits "symbolic-count-set-bits"
+      #[0x00, 0xff, 0x81]
+      (fun x => call .CountSetBits 0 [x]) (.integer 10)
+  , constrainedBytesCase .FindFirstSetBit "symbolic-find-first-set-bit"
+      #[0x04, 0x00]
+      (fun x => call .FindFirstSetBit 0 [x]) (.integer 10)
+  , constrainedIntCase .ExpModInteger "symbolic-exp-mod-integer" 3
+      (fun x => call .ExpModInteger 0 [x, int 4, int 5]) (.integer 1)
+  ]
+
 private def wrongUnitCase (builtin : BuiltinFun) (name : String)
     (build : Term → Term) : Case :=
   constrainedValCase builtin name vUnitExpr .unit build .error
@@ -747,6 +938,61 @@ def symbolicBuiltinErrorCases : List Case :=
       (fun x => call .ListToArray 1 [x])
   ]
 
+/-- Declaration-backed runtime type failures for every advanced builtin. -/
+def advancedSymbolicBuiltinErrorCases : List Case :=
+  [ wrongUnitCase .IntegerToByteString
+      "symbolic-error-integer-to-byte-string"
+      (fun x => call .IntegerToByteString 0 [bool true, int 2, x])
+  , wrongUnitCase .ByteStringToInteger
+      "symbolic-error-byte-string-to-integer"
+      (fun x => call .ByteStringToInteger 0 [x, bytes #[]])
+  , wrongUnitCase .AndByteString "symbolic-error-and-byte-string"
+      (fun x => call .AndByteString 0 [bool false, x, bytes #[]])
+  , wrongUnitCase .OrByteString "symbolic-error-or-byte-string"
+      (fun x => call .OrByteString 0 [bool false, x, bytes #[]])
+  , wrongUnitCase .XorByteString "symbolic-error-xor-byte-string"
+      (fun x => call .XorByteString 0 [bool false, x, bytes #[]])
+  , wrongUnitCase .ComplementByteString
+      "symbolic-error-complement-byte-string"
+      (fun x => call .ComplementByteString 0 [x])
+  , wrongUnitCase .ReadBit "symbolic-error-read-bit"
+      (fun x => call .ReadBit 0 [x, int 0])
+  , wrongUnitCase .WriteBits "symbolic-error-write-bits"
+      (fun x => call .WriteBits 0 [x, listInteger [], bool false])
+  , wrongUnitCase .ReplicateByte "symbolic-error-replicate-byte"
+      (fun x => call .ReplicateByte 0 [x, int 0])
+  , wrongUnitCase .ShiftByteString "symbolic-error-shift-byte-string"
+      (fun x => call .ShiftByteString 0 [x, int 0])
+  , wrongUnitCase .RotateByteString "symbolic-error-rotate-byte-string"
+      (fun x => call .RotateByteString 0 [x, int 0])
+  , wrongUnitCase .CountSetBits "symbolic-error-count-set-bits"
+      (fun x => call .CountSetBits 0 [x])
+  , wrongUnitCase .FindFirstSetBit "symbolic-error-find-first-set-bit"
+      (fun x => call .FindFirstSetBit 0 [x])
+  , wrongUnitCase .ExpModInteger "symbolic-error-exp-mod-integer"
+      (fun x => call .ExpModInteger 0 [x, int 0, int 1])
+  ]
+
+/-! Declaration-backed domain failures for every partial advanced builtin.
+Unlike the dynamic-type matrix above, these drive each raw SMT `_defined`
+guard with correctly typed symbolic data constrained to a failing CEK value. -/
+def advancedSymbolicDomainErrorCases : List Case :=
+  [ constrainedIntCase .IntegerToByteString
+      "symbolic-domain-error-integer-to-byte-string" 1
+      (fun x => call .IntegerToByteString 0 [bool true, x, int 256]) .error
+  , constrainedIntCase .ReadBit "symbolic-domain-error-read-bit" 8
+      (fun x => call .ReadBit 0 [bytes #[0], x]) .error
+  , constrainedIntCase .WriteBits "symbolic-domain-error-write-bits" 8
+      (fun x => call .WriteBits 0
+        [bytes #[0], call .MkCons 1 [x, listInteger []], bool true]) .error
+  , constrainedIntCase .ReplicateByte
+      "symbolic-domain-error-replicate-byte" (-1)
+      (fun x => call .ReplicateByte 0 [x, int 0]) .error
+  , constrainedIntCase .ExpModInteger
+      "symbolic-domain-error-exp-mod-integer" (-1)
+      (fun x => call .ExpModInteger 0 [int 2, x, int 4]) .error
+  ]
+
 /-- Symbolic cases exercise every first-order declaration sort, generic `Val`
 selectors, constructors, and a constructor field that references another
 declaration. -/
@@ -811,8 +1057,11 @@ def symbolicCases : List Case :=
   ]
 
 def allCases : List Case :=
-  primaryCases ++ edgeCases ++ symbolicCases ++
-    symbolicBuiltinCases ++ symbolicBuiltinErrorCases
+  primaryCases ++ advancedPrimaryCases ++ edgeCases ++
+    advancedGroundErrorCases ++ symbolicCases ++
+    symbolicBuiltinCases ++ advancedSymbolicBuiltinCases ++
+    symbolicBuiltinErrorCases ++ advancedSymbolicBuiltinErrorCases ++
+    advancedSymbolicDomainErrorCases
 
 private def runCek : Nat → Moist.CEK.State → Moist.CEK.CekResult
   | _, .halt value => .success value
@@ -973,22 +1222,33 @@ private def compiledCaseMentionsItsInput (fuel : Nat) (test : Case) : Bool :=
   | _ => false
 
 private def isExactGroundOutcome (expected : Expected) : List Outcome → Bool
-  | [.ok (.bool true) (.const (.integer (.int actual)))] =>
-      match expected with | .integer value => actual == value | _ => false
-  | [.ok (.bool true) (.const (.bool (.bool actual)))] =>
-      match expected with | .boolean value => actual == value | _ => false
-  | [.error (.bool true)] =>
-      match expected with | .error => true | _ => false
-  | _ => false
+  | outcomes =>
+      match outcomes.filter (fun outcome => outcome.pc != .bool false) with
+      | [.ok (.bool true) (.const (.integer (.int actual)))] =>
+          match expected with | .integer value => actual == value | _ => false
+      | [.ok (.bool true) (.const (.bool (.bool actual)))] =>
+          match expected with | .boolean value => actual == value | _ => false
+      | [.error (.bool true)] =>
+          match expected with | .error => true | _ => false
+      | _ => false
 
-/-- Post-fast-path regression hook.  The generic saturated-ground evaluator
-should make every closed primary case a single literal success or literal
-error, with no residual SMT application.  This definition intentionally is
-not called by `main` on the pre-fast-path baseline; the advanced-builtin
-integration enables it once that implementation lands. -/
+/-- Post-fast-path regression hook.  After discarding only syntactically false
+paths, every closed primary case must have a single literal success or literal
+error, with no active residual SMT application.  `main` checks the full basic
+and advanced success/error corpus before invoking either executable semantics
+or Z3. -/
+def exactGroundCases : List Case :=
+  primaryCases ++ advancedPrimaryCases ++ edgeCases ++
+    advancedGroundErrorCases
+
 def saturatedGroundCasesAreExactLiterals (fuel : Nat := 120) : Bool :=
-  primaryCases.all fun test =>
+  exactGroundCases.all fun test =>
     isExactGroundOutcome test.expected (evalSym fuel [] test.term)
+
+def inexactGroundCaseDetails (fuel : Nat := 120) : List String :=
+  (exactGroundCases.filter fun test =>
+    !isExactGroundOutcome test.expected (evalSym fuel [] test.term)).map
+      (fun test => test.name ++ ": " ++ reprStr (evalSym fuel [] test.term))
 
 private def checkZ3 (fuel : Nat) (test : Case) : IO Unit := do
   match test.expected with
@@ -1038,7 +1298,41 @@ private def checkCoverage : IO Unit := do
       s!"symbolic-error coverage changed: expected {basicBuiltins.length}, got {symbolicErrors.length}"
   unless basicBuiltins.eraseDups.length == basicBuiltins.length do
     throw <| IO.userError "basic builtin coverage contains a duplicate"
+  let advancedPrimary := advancedPrimaryCases.filterMap Case.primaryBuiltin
+  unless advancedPrimary == advancedBuiltins do
+    throw <| IO.userError
+      s!"advanced ground-success coverage changed: expected {advancedBuiltins.length}, got {advancedPrimary.length}"
+  let advancedGroundErrors :=
+    advancedGroundErrorCases.filterMap Case.primaryBuiltin
+  unless advancedGroundErrors == advancedBuiltins do
+    throw <| IO.userError
+      s!"advanced ground-error coverage changed: expected {advancedBuiltins.length}, got {advancedGroundErrors.length}"
+  let advancedSymbolic :=
+    advancedSymbolicBuiltinCases.filterMap Case.primaryBuiltin
+  unless advancedSymbolic == advancedBuiltins do
+    throw <| IO.userError
+      s!"advanced symbolic-success coverage changed: expected {advancedBuiltins.length}, got {advancedSymbolic.length}"
+  let advancedSymbolicErrors :=
+    advancedSymbolicBuiltinErrorCases.filterMap Case.primaryBuiltin
+  unless advancedSymbolicErrors == advancedBuiltins do
+    throw <| IO.userError
+      s!"advanced symbolic-error coverage changed: expected {advancedBuiltins.length}, got {advancedSymbolicErrors.length}"
+  let advancedSymbolicDomainErrors :=
+    advancedSymbolicDomainErrorCases.filterMap Case.primaryBuiltin
+  unless advancedSymbolicDomainErrors == advancedPartialBuiltins do
+    throw <| IO.userError
+      s!"advanced symbolic domain-error coverage changed: expected {advancedPartialBuiltins.length}, got {advancedSymbolicDomainErrors.length}"
+  unless advancedBuiltins.all builtinAllowedForSoundness do
+    throw <| IO.userError
+      "an advanced differential builtin is no longer in the proved fragment"
+  unless advancedBuiltins.eraseDups.length == advancedBuiltins.length do
+    throw <| IO.userError "advanced builtin coverage contains a duplicate"
   for test in symbolicBuiltinCases ++ symbolicBuiltinErrorCases do
+    unless compiledCaseMentionsItsInput 120 test do
+      throw <| IO.userError
+        s!"{test.name}: compiler erased the supposedly symbolic declaration"
+  for test in advancedSymbolicBuiltinCases ++ advancedSymbolicBuiltinErrorCases ++
+      advancedSymbolicDomainErrorCases do
     unless compiledCaseMentionsItsInput 120 test do
       throw <| IO.userError
         s!"{test.name}: compiler erased the supposedly symbolic declaration"
@@ -1057,12 +1351,19 @@ private def checkCase (symbolicFuel cekFuel : Nat) (test : Case) : IO Unit := do
 
 unsafe def main : IO Unit := do
   checkCoverage
+  unless saturatedGroundCasesAreExactLiterals 120 do
+    throw <| IO.userError
+      ("saturated ground builtins left residual SMT or disagreed with CEK: " ++
+        String.intercalate "\n" (inexactGroundCaseDetails 120))
   for test in allCases do
     checkCase 120 10000 test
   IO.println <|
-    s!"basic SMT/CEK differential passed: {primaryCases.length} builtins, " ++
-      s!"{symbolicBuiltinCases.length} symbolic successes, " ++
-      s!"{symbolicBuiltinErrorCases.length} symbolic errors, " ++
+    s!"SMT/CEK differential passed: " ++
+      s!"{primaryCases.length + advancedPrimaryCases.length} ground successes, " ++
+      s!"{advancedGroundErrorCases.length} advanced ground errors, " ++
+      s!"{symbolicBuiltinCases.length + advancedSymbolicBuiltinCases.length} symbolic successes, " ++
+      s!"{symbolicBuiltinErrorCases.length + advancedSymbolicBuiltinErrorCases.length} symbolic errors, " ++
+      s!"{advancedSymbolicDomainErrorCases.length} symbolic domain errors, " ++
       s!"{edgeCases.length} failures/edges, {symbolicCases.length} declaration-shape cases"
 
 end Test.SMT.BasicBuiltinDifferential

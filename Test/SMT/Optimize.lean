@@ -68,11 +68,13 @@ example (decls : List SymDecl) (assertions : List Expr) :
 
 -- Regression benchmark for the path-exploding recursive query.  Construction-
 -- time smart constructors already reach this compact form; the exact query
--- normalizer is therefore idempotent on this workload.
-#guard exprNodes rawRecursiveSum55 == 1555
-#guard exprNodes rawRecursiveSum55.simplifyBool == 1555
-#guard rawRecursiveSum55.render.length == 5157
-#guard rawRecursiveSum55.simplifyBool.render.length == 5157
+-- normalizer is therefore idempotent on this workload.  The 18 merged paths
+-- use lazy `ite` discriminators so the path and selected value are defined
+-- together under the executable partial SMT semantics.
+#guard exprNodes rawRecursiveSum55 == 1573
+#guard exprNodes rawRecursiveSum55.simplifyBool == 1573
+#guard rawRecursiveSum55.render.length == 5265
+#guard rawRecursiveSum55.simplifyBool.render.length == 5265
 
 -- The generic preservation theorem and all end-to-end CEK corollaries are
 -- typechecked here at their public interfaces.

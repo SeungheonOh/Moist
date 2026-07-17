@@ -6,6 +6,11 @@ open Moist.Plutus.Term
 open Moist.Verified.BigStep
 open Moist.CEK (ArgKind ExpectedArgs expectedArgs CekEnv CekValue)
 
+/-! Failure-side CEK shape and arity lemmas.
+
+The advanced arity and shape lemmas live in focused modules so this legacy
+collection remains cheap and reliable to import. -/
+
 set_option maxHeartbeats 0 in
 theorem evalBuiltinConst_AddInteger_none_of_length_ne_two {cs : List Const}
     (h : cs.length ≠ 2) :

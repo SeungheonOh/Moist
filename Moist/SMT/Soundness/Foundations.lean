@@ -4,6 +4,8 @@ import Moist.Verified.BigStep
 
 namespace Moist.SMT.UPLC.Soundness
 
+/-! Shared semantic foundations for compiler soundness. -/
+
 open Moist.Plutus.Term
 open Moist.Verified.BigStep
 open Moist.CEK (ArgKind ExpectedArgs expectedArgs CekEnv CekValue)
@@ -100,7 +102,6 @@ def mkConsRejectsRuntimeConstrExample : Term :=
 
 def builtinOpaqueForSoundness : BuiltinFun → Bool
   | .Sha2_256 | .Sha3_256 | .Blake2b_256 | .VerifyEd25519Signature
-  | .SerializeData
   | .VerifyEcdsaSecp256k1Signature | .VerifySchnorrSecp256k1Signature
   | .Bls12_381_G1_add | .Bls12_381_G1_neg | .Bls12_381_G1_scalarMul
   | .Bls12_381_G1_equal | .Bls12_381_G1_hashToGroup
@@ -110,13 +111,9 @@ def builtinOpaqueForSoundness : BuiltinFun → Bool
   | .Bls12_381_G2_compress | .Bls12_381_G2_uncompress
   | .Bls12_381_millerLoop | .Bls12_381_mulMlResult | .Bls12_381_finalVerify
   | .Keccak_256 | .Blake2b_224
-  | .IntegerToByteString | .ByteStringToInteger
-  | .AndByteString | .OrByteString | .XorByteString | .ComplementByteString
-  | .ReadBit | .WriteBits | .ReplicateByte | .ShiftByteString
-  | .RotateByteString | .CountSetBits | .FindFirstSetBit
-  | .Ripemd_160 | .ExpModInteger
-  | .InsertCoin | .LookupCoin | .ScaleValue | .UnionValue | .ValueContains
-  | .ValueData | .UnValueData
+  | .Ripemd_160
+  | .SerializeData | .InsertCoin | .LookupCoin | .ScaleValue | .UnionValue
+  | .ValueContains | .ValueData | .UnValueData
   | .Bls12_381_G1_multiScalarMul | .Bls12_381_G2_multiScalarMul => true
   | _ => false
 
@@ -1074,6 +1071,20 @@ theorem pcHolds_all3_intro {m : SmtSem.Model} {a b c : SExpr}
   have habc := pcHolds_and_intro (m := m) (a := SExpr.and a b) (b := c) hab hc
   simpa [SExpr.all, Moist.SMT.Expr.all] using habc
 
+theorem pcHolds_all4 {m : SmtSem.Model} {a b c d : SExpr}
+    (h : pcHolds m (SExpr.all [a, b, c, d]) = true) :
+    pcHolds m a = true ∧ pcHolds m b = true ∧
+      pcHolds m c = true ∧ pcHolds m d = true := by
+  have h' :
+      pcHolds m (SExpr.and (SExpr.and (SExpr.and a b) c) d) = true := by
+    simpa [SExpr.all, Moist.SMT.Expr.all] using h
+  have hd := (Moist.SMT.Semantics.evalBoolIs_and_true m
+    (SExpr.and (SExpr.and a b) c) d).mp h'
+  have hc := (Moist.SMT.Semantics.evalBoolIs_and_true m
+    (SExpr.and a b) c).mp hd.1
+  have hab := (Moist.SMT.Semantics.evalBoolIs_and_true m a b).mp hc.1
+  exact ⟨hab.1, hab.2, hc.2, hd.2⟩
+
 theorem pcHolds_isDConstr_intro {m : SmtSem.Model} {e : SExpr}
     {tag : Int} {fields : List Plutus.Data}
     (he : SmtSem.eval m e = some (.data (.Constr tag fields))) :
@@ -1530,6 +1541,106 @@ theorem constLiteral_sound (m : SmtSem.Model) : ∀ c,
     (fun _ _ _ _ => trivial)
     (fun _ _ ha hb => ⟨ha, hb⟩)
     c
+
+/-! The ground evaluator only recognizes literal SMT syntax.  Recognition is
+therefore a proof-producing boundary: every recovered `Const` decodes to the
+same CEK constant in every model. -/
+
+set_option maxHeartbeats 0 in
+theorem symValLiteral?_sound (m : SmtSem.Model) (v : SymVal) (c : Const)
+    (h : symValLiteral? v = some c) :
+    symValToCek? m v = some (.VCon c) := by
+  cases v with
+  | const sc =>
+      cases sc with
+      | integer e =>
+          cases e <;>
+            simp_all [symValLiteral?, symValToCek?, symConstToCek?,
+              Moist.SMT.Semantics.eval]
+      | bytes e =>
+          cases e <;>
+            simp_all [symValLiteral?, symValToCek?, symConstToCek?,
+              Moist.SMT.Semantics.eval]
+      | string e =>
+          cases e <;>
+            simp_all [symValLiteral?, symValToCek?, symConstToCek?,
+              Moist.SMT.Semantics.eval]
+      | bool e =>
+          cases e <;>
+            simp_all [symValLiteral?, symValToCek?, symConstToCek?,
+              Moist.SMT.Semantics.eval]
+      | unit => simpa [symValLiteral?, symValToCek?, symConstToCek?] using h
+      | data e =>
+          cases e <;>
+            simp_all [symValLiteral?, symValToCek?, symConstToCek?,
+              Moist.SMT.Semantics.eval]
+      | constList e hint =>
+          cases e <;>
+            simp_all [symValLiteral?, symValToCek?, symConstToCek?,
+              Moist.SMT.Semantics.eval, semValListToConstList_constListToVals]
+      | dataList e =>
+          cases e <;>
+            simp_all [symValLiteral?, symValToCek?, symConstToCek?,
+              Moist.SMT.Semantics.eval]
+      | pairDataList e =>
+          cases e <;>
+            simp_all [symValLiteral?, symValToCek?, symConstToCek?,
+              Moist.SMT.Semantics.eval]
+      | pairData a b =>
+          cases a <;> cases b <;>
+            simp_all [symValLiteral?, symValToCek?, symConstToCek?,
+              Moist.SMT.Semantics.eval]
+      | array e =>
+          cases e <;>
+            simp_all [symValLiteral?, symValToCek?, symConstToCek?,
+              Moist.SMT.Semantics.eval, semValListToConstList_constListToVals]
+      | g1 e => cases e <;> simp_all [symValLiteral?]
+      | g2 e => cases e <;> simp_all [symValLiteral?]
+      | ml e => cases e <;> simp_all [symValLiteral?]
+  | dyn e => simp [symValLiteral?] at h
+  | pair a b =>
+      cases ha : symValLiteral? a with
+      | none => simp [symValLiteral?, ha] at h
+      | some ca =>
+          cases hb : symValLiteral? b with
+          | none => simp [symValLiteral?, ha, hb] at h
+          | some cb =>
+              simp [symValLiteral?, ha, hb] at h
+              subst c
+              have hca := symValLiteral?_sound m a ca ha
+              have hcb := symValLiteral?_sound m b cb hb
+              simp [symValToCek?, hca, hcb]
+  | constr tag fields => simp [symValLiteral?] at h
+  | lam body env => simp [symValLiteral?] at h
+  | delay body env => simp [symValLiteral?] at h
+  | builtin b args ea => simp [symValLiteral?] at h
+termination_by sizeOf v
+
+set_option maxHeartbeats 0 in
+theorem symValListLiteral?_sound (m : SmtSem.Model) : ∀ args constArgs,
+    args.mapM symValLiteral? = some constArgs →
+    symValListToCekList? m args =
+      some (constArgs.map CekValue.VCon) := by
+  intro args
+  induction args with
+  | nil =>
+      intro constArgs h
+      simp at h
+      subst constArgs
+      rfl
+  | cons v vs ih =>
+      intro constArgs h
+      cases hv : symValLiteral? v with
+      | none => simp [List.mapM_cons, hv] at h
+      | some c =>
+          cases hvs : vs.mapM symValLiteral? with
+          | none => simp [List.mapM_cons, hv, hvs] at h
+          | some cs =>
+              simp [List.mapM_cons, hv, hvs] at h
+              subst constArgs
+              have hvSound := symValLiteral?_sound m v c hv
+              have hvsSound := ih cs hvs
+              simp [symValListToCekList?, hvSound, hvsSound]
 
 theorem constLiteral_noOpaque : ∀ c,
     symValNoOpaqueForSoundness (constLiteral c) = true := by
@@ -2897,6 +3008,41 @@ theorem asBool_false_to_cek {m : SmtSem.Model} {v : SymVal}
       injection hvEval with hbv
       cases hbv
       simp [symValToCek?, he, semValToCek?, semValToConst?]
+  | pair a b =>
+      simp [asBool, valueProj, Proj.fail, pcHolds] at hg
+  | constr tag fields =>
+      simp [asBool, valueProj, Proj.fail, pcHolds] at hg
+  | lam body ρ =>
+      simp [asBool, valueProj, Proj.fail, pcHolds] at hg
+  | delay body ρ =>
+      simp [asBool, valueProj, Proj.fail, pcHolds] at hg
+  | builtin b args ea =>
+      simp [asBool, valueProj, Proj.fail, pcHolds] at hg
+
+theorem asBool_sound {m : SmtSem.Model} {v : SymVal} {cv : CekValue}
+    (hv : symValToCek? m v = some cv)
+    (hg : pcHolds m (asBool v).guard = true) :
+    ∃ b, cv = .VCon (.Bool b) ∧
+      SmtSem.eval m (asBool v).val = some (.bool b) := by
+  cases v with
+  | const c =>
+      cases c <;> simp [asBool, valueProj, Proj.pure, Proj.fail, pcHolds,
+        symValToCek?, symConstToCek?] at hv hg
+      case bool e =>
+        cases he : SmtSem.eval m e with
+        | none => simp [he] at hv
+        | some sv =>
+            cases sv <;> simp [he] at hv
+            case bool b =>
+              subst cv
+              exact ⟨b, rfl, by simpa [he]⟩
+  | dyn e =>
+      simp [asBool, valueProj, pcHolds, symValToCek?] at hv hg
+      obtain ⟨b, he⟩ := Moist.SMT.Semantics.evalBoolIs_isVBool_true hg
+      have hun := Moist.SMT.Semantics.eval_unVBool_of (m := m) (e := e) he
+      simp [he, semValToCek?, semValToConst?] at hv
+      subst cv
+      exact ⟨b, rfl, hun⟩
   | pair a b =>
       simp [asBool, valueProj, Proj.fail, pcHolds] at hg
   | constr tag fields =>

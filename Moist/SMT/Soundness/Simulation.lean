@@ -108,21 +108,21 @@ def builtinOkSoundAllowed : (b : BuiltinFun) →
   | .Bls12_381_finalVerify, h => noOkSoundOfOpaque h rfl
   | .Keccak_256, h => noOkSoundOfOpaque h rfl
   | .Blake2b_224, h => noOkSoundOfOpaque h rfl
-  | .IntegerToByteString, h => noOkSoundOfOpaque h rfl
-  | .ByteStringToInteger, h => noOkSoundOfOpaque h rfl
-  | .AndByteString, h => noOkSoundOfOpaque h rfl
-  | .OrByteString, h => noOkSoundOfOpaque h rfl
-  | .XorByteString, h => noOkSoundOfOpaque h rfl
-  | .ComplementByteString, h => noOkSoundOfOpaque h rfl
-  | .ReadBit, h => noOkSoundOfOpaque h rfl
-  | .WriteBits, h => noOkSoundOfOpaque h rfl
-  | .ReplicateByte, h => noOkSoundOfOpaque h rfl
-  | .ShiftByteString, h => noOkSoundOfOpaque h rfl
-  | .RotateByteString, h => noOkSoundOfOpaque h rfl
-  | .CountSetBits, h => noOkSoundOfOpaque h rfl
-  | .FindFirstSetBit, h => noOkSoundOfOpaque h rfl
+  | .IntegerToByteString, _ => evalBuiltinSym_active_ok_IntegerToByteString
+  | .ByteStringToInteger, _ => evalBuiltinSym_active_ok_ByteStringToInteger
+  | .AndByteString, _ => evalBuiltinSym_active_ok_AndByteString
+  | .OrByteString, _ => evalBuiltinSym_active_ok_OrByteString
+  | .XorByteString, _ => evalBuiltinSym_active_ok_XorByteString
+  | .ComplementByteString, _ => evalBuiltinSym_active_ok_ComplementByteString
+  | .ReadBit, _ => evalBuiltinSym_active_ok_ReadBit
+  | .WriteBits, _ => evalBuiltinSym_active_ok_WriteBits
+  | .ReplicateByte, _ => evalBuiltinSym_active_ok_ReplicateByte
+  | .ShiftByteString, _ => evalBuiltinSym_active_ok_ShiftByteString
+  | .RotateByteString, _ => evalBuiltinSym_active_ok_RotateByteString
+  | .CountSetBits, _ => evalBuiltinSym_active_ok_CountSetBits
+  | .FindFirstSetBit, _ => evalBuiltinSym_active_ok_FindFirstSetBit
   | .Ripemd_160, h => noOkSoundOfOpaque h rfl
-  | .ExpModInteger, h => noOkSoundOfOpaque h rfl
+  | .ExpModInteger, _ => evalBuiltinSym_active_ok_ExpModInteger
   | .InsertCoin, h => noOkSoundOfOpaque h rfl
   | .LookupCoin, h => noOkSoundOfOpaque h rfl
   | .ScaleValue, h => noOkSoundOfOpaque h rfl
@@ -213,21 +213,21 @@ def builtinErrorSoundAllowed : (b : BuiltinFun) →
   | .Bls12_381_finalVerify, h => noErrorSoundOfOpaque h rfl
   | .Keccak_256, h => noErrorSoundOfOpaque h rfl
   | .Blake2b_224, h => noErrorSoundOfOpaque h rfl
-  | .IntegerToByteString, h => noErrorSoundOfOpaque h rfl
-  | .ByteStringToInteger, h => noErrorSoundOfOpaque h rfl
-  | .AndByteString, h => noErrorSoundOfOpaque h rfl
-  | .OrByteString, h => noErrorSoundOfOpaque h rfl
-  | .XorByteString, h => noErrorSoundOfOpaque h rfl
-  | .ComplementByteString, h => noErrorSoundOfOpaque h rfl
-  | .ReadBit, h => noErrorSoundOfOpaque h rfl
-  | .WriteBits, h => noErrorSoundOfOpaque h rfl
-  | .ReplicateByte, h => noErrorSoundOfOpaque h rfl
-  | .ShiftByteString, h => noErrorSoundOfOpaque h rfl
-  | .RotateByteString, h => noErrorSoundOfOpaque h rfl
-  | .CountSetBits, h => noErrorSoundOfOpaque h rfl
-  | .FindFirstSetBit, h => noErrorSoundOfOpaque h rfl
+  | .IntegerToByteString, _ => evalBuiltinSym_active_error_IntegerToByteString
+  | .ByteStringToInteger, _ => evalBuiltinSym_active_error_ByteStringToInteger
+  | .AndByteString, _ => evalBuiltinSym_active_error_AndByteString
+  | .OrByteString, _ => evalBuiltinSym_active_error_OrByteString
+  | .XorByteString, _ => evalBuiltinSym_active_error_XorByteString
+  | .ComplementByteString, _ => evalBuiltinSym_active_error_ComplementByteString
+  | .ReadBit, _ => evalBuiltinSym_active_error_ReadBit
+  | .WriteBits, _ => evalBuiltinSym_active_error_WriteBits
+  | .ReplicateByte, _ => evalBuiltinSym_active_error_ReplicateByte
+  | .ShiftByteString, _ => evalBuiltinSym_active_error_ShiftByteString
+  | .RotateByteString, _ => evalBuiltinSym_active_error_RotateByteString
+  | .CountSetBits, _ => evalBuiltinSym_active_error_CountSetBits
+  | .FindFirstSetBit, _ => evalBuiltinSym_active_error_FindFirstSetBit
   | .Ripemd_160, h => noErrorSoundOfOpaque h rfl
-  | .ExpModInteger, h => noErrorSoundOfOpaque h rfl
+  | .ExpModInteger, _ => evalBuiltinSym_active_error_ExpModInteger
   | .InsertCoin, h => noErrorSoundOfOpaque h rfl
   | .LookupCoin, h => noErrorSoundOfOpaque h rfl
   | .ScaleValue, h => noErrorSoundOfOpaque h rfl
@@ -611,9 +611,11 @@ mutual
                     (v := va) (vs := args) (cv := cva) (cvs := cargs) hva hargs
                   have hnoArgs' := symValNoOpaqueList_cons
                     (v := va) (vs := args) hnoa hnoParts.2
-                  have hmemBuiltin : Outcome.ok pc v ∈ evalBuiltinSym b (va :: args) := by
+                  have hmemBuiltin : Outcome.ok pc v ∈
+                      evalBuiltinSaturated b (va :: args) := by
                     simpa [applySym, hea, htail] using hmem
-                  have hb := builtinOkSoundAllowed b hnoParts.1
+                  have hb := evalBuiltinSaturated_ok_sound
+                    (builtinOkSoundAllowed b hnoParts.1)
                     hargs' hnoArgs' hmemBuiltin hpc
                   rcases hb with ⟨cv, hv, hnov, hb⟩
                   exact ⟨cv, hv, hnov,
@@ -678,9 +680,11 @@ mutual
                     by simp [symValNoOpaqueForSoundness, hnoParts.1, hnoParts.2],
                     by simp [forceVal, hea, htail]⟩
               | none =>
-                  have hmemBuiltin : Outcome.ok pc v ∈ evalBuiltinSym b args := by
+                  have hmemBuiltin : Outcome.ok pc v ∈
+                      evalBuiltinSaturated b args := by
                     simpa [forceSym, hea, htail] using hmem
-                  have hb := builtinOkSoundAllowed b hnoParts.1
+                  have hb := evalBuiltinSaturated_ok_sound
+                    (builtinOkSoundAllowed b hnoParts.1)
                     hargs hnoParts.2 hmemBuiltin hpc
                   rcases hb with ⟨cv, hv, hnov, hb⟩
                   exact ⟨cv, hv, hnov,
@@ -2381,7 +2385,8 @@ mutual
                 | none =>
                     have hargs' := symValListToCekList_cons (m := m)
                       (v := va) (vs := args) (cv := cva) (cvs := cargs) hva hargs
-                    have hb := builtinErrorSoundAllowed b hnoParts.1
+                    have hb := evalBuiltinSaturated_error_sound
+                      (builtinErrorSoundAllowed b hnoParts.1)
                       (m := m) (args := va :: args) (cargs := cva :: cargs)
                       hargs' (by simpa [htail] using hmem) herr
                     simp [Moist.Verified.ExactBigStep.apply, hea, htail, hb]
@@ -2484,7 +2489,8 @@ mutual
                 | some rest =>
                     cases out <;> simp [htail, ok, outcomeErrorActive] at hmem herr
                 | none =>
-                    have hb := builtinErrorSoundAllowed b hnoParts.1
+                    have hb := evalBuiltinSaturated_error_sound
+                      (builtinErrorSoundAllowed b hnoParts.1)
                       (m := m) (args := args) (cargs := cargs)
                       hargs (by simpa [htail] using hmem) herr
                     simp [Moist.Verified.ExactBigStep.force, hea, htail, hb]

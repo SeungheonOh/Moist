@@ -48,10 +48,26 @@ theorem sha2Refl_cek_fails :
     cekFails sha2Refl = true := by
   native_decide
 
-theorem sha2Refl_opaque_smt_not_executable_in_internal_semantics :
+theorem sha2Refl_ground_static_cek_error :
     smtBoolTrue emptyModel (okBoolTrueCond (evalSym 20 [] sha2Refl)) = false ∧
-    smtBoolTrue emptyModel (errorCond (evalSym 20 [] sha2Refl)) = false ∧
+    smtBoolTrue emptyModel (errorCond (evalSym 20 [] sha2Refl)) = true ∧
     smtBoolTrue emptyModel (timeoutCond (evalSym 20 [] sha2Refl)) = false := by
+  native_decide
+
+def symbolicSha2 : Term :=
+  app1 .Sha2_256 (.Var 1)
+
+def modelBytes (name : String) (bytes : ByteArray) : SmtSem.Model :=
+  Moist.SMT.Semantics.Model.bind Moist.SMT.Semantics.Model.empty
+    (Moist.SMT.sanitize name) (.bytes bytes)
+
+theorem symbolicSha2_is_timeout_only :
+    let declaration := symBytes "sha-input"
+    let model := modelBytes "sha-input" (ByteArray.mk #[1, 2, 3])
+    let outcomes := evalSym 20 (envOf [declaration]) symbolicSha2
+    smtBoolTrue model (okBoolTrueCond outcomes) = false ∧
+    smtBoolTrue model (errorCond outcomes) = false ∧
+    smtBoolTrue model (timeoutCond outcomes) = true := by
   native_decide
 
 theorem recursiveSum10_bigEval_55 :

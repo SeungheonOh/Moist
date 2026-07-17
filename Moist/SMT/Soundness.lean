@@ -18,7 +18,7 @@ decoded internal model and environment, these theorems guarantee:
   evaluator returns an actual runtime error, and the CEK machine reaches its
   `.error` state in finitely many transitions.
 
-Both results require the explicitly supported (non-opaque-builtin) fragment.
+All three results require the explicitly supported (non-opaque-builtin) fragment.
 -/
 
 namespace Moist.SMT.UPLC.Soundness

@@ -46,21 +46,46 @@ including declaration validity assumptions, are true in the same executable
 model used by the CEK simulation.  Neither a `sat` token nor syntactic prelude
 membership can construct this field.
 -/
-structure CertifiedZ3Model (decls : List SymDecl)
+structure CertifiedZ3Model (inputs : SupportedDeclarations)
     (script : Moist.SMT.Script) where
   model : SmtSem.Model
-  /-- The typed CEK environment decoded from exactly the symbolic
-  declarations used to build the production script. -/
-  cekEnv : CekEnv
-  env_decodes : symEnvToCek? model (envOf decls) = some cekEnv
+  /-- The external model bridge is limited to the values and sorts of symbols
+  actually declared by the checked input.  Total composite-expression typing
+  and evaluation, plus direct `Val` decoding, are proved internally; the
+  latter also uses the exact `val_valid` assertion from `assertionsTrue`. -/
+  inputSemantics : SolverInputModel inputs.declarations model
   assertionsTrue : ∀ e, e ∈ script.assertions →
     SmtSem.evalBoolIs model e true = true
 
 /-- Semantic satisfiability exposed to solver integrations.  Raw Z3 `sat`
-must be accompanied by a decoded `CertifiedZ3Model`; no theorem treats the
-status token alone as evidence. -/
-def Z3Sat (decls : List SymDecl) (script : Moist.SMT.Script) : Prop :=
-  Nonempty (CertifiedZ3Model decls script)
+must be accompanied by a `CertifiedZ3Model` carrying the exact model bridge
+and assertion semantics; no theorem treats the status token alone as
+evidence. -/
+def Z3Sat (inputs : SupportedDeclarations)
+    (script : Moist.SMT.Script) : Prop :=
+  Nonempty (CertifiedZ3Model inputs script)
+
+namespace CertifiedZ3Model
+
+/-- Declaration assertions in the certified script, together with the
+checked input grammar, determine one exact CEK environment.  Environment
+decoding is a theorem, not a field supplied by the solver integration. -/
+theorem environmentDecodes {inputs : SupportedDeclarations}
+    {script : Moist.SMT.Script} (z3 : CertifiedZ3Model inputs script)
+    (declarationAssertionsIncluded : ∀ expression,
+      expression ∈ inputs.declarations.flatMap SymDecl.assumptions →
+        expression ∈ script.assertions) :
+    ∃ environment, symEnvToCek? z3.model (envOf inputs.declarations) =
+      some environment := by
+  apply declarationsInputSafe_decodes z3.inputSemantics
+    inputs.inputSafe inputs.sortSafe
+  intro declaration hdeclaration expression hexpression
+  apply z3.assertionsTrue
+  apply declarationAssertionsIncluded
+  simp only [List.mem_flatMap]
+  exact ⟨declaration, hdeclaration, hexpression⟩
+
+end CertifiedZ3Model
 
 theorem scriptWith_hasCompilerPrelude (decls : List SymDecl)
     (assertions : List SExpr) :
@@ -127,14 +152,41 @@ theorem hasCompilerPrelude (query : BoolTrueQuery) :
     Moist.SMT.UPLC.Soundness.hasCompilerPrelude query.script := by
   exact scriptForBoolTrue_hasCompilerPrelude _ _ _
 
+private theorem declarationAssertionsIncluded (query : BoolTrueQuery) :
+    ∀ expression,
+      expression ∈ query.inputs.declarations.flatMap SymDecl.assumptions →
+        expression ∈ query.script.assertions := by
+  intro expression hmember
+  rw [script, scriptForBoolTrue_assertions]
+  exact List.mem_append_left _ hmember
+
+theorem environmentDecodes (query : BoolTrueQuery)
+    (z3 : CertifiedZ3Model query.inputs query.script) :
+    ∃ environment,
+      symEnvToCek? z3.model (envOf query.inputs.declarations) =
+        some environment :=
+  z3.environmentDecodes (declarationAssertionsIncluded query)
+
+/-- The CEK environment is derived from the checked solver input and the
+model's certified declaration assertions. -/
+noncomputable def cekEnv (query : BoolTrueQuery)
+    (z3 : CertifiedZ3Model query.inputs query.script) : CekEnv :=
+  (environmentDecodes query z3).choose
+
+theorem cekEnv_decodes (query : BoolTrueQuery)
+    (z3 : CertifiedZ3Model query.inputs query.script) :
+    symEnvToCek? z3.model (envOf query.inputs.declarations) =
+      some (cekEnv query z3) :=
+  (environmentDecodes query z3).choose_spec
+
 /-- A certified model of a checked Boolean query yields the actual CEK
 result.  Fragment membership is carried by `query`; callers cannot forget it. -/
 theorem sound (query : BoolTrueQuery)
-    (z3 : CertifiedZ3Model query.inputs.declarations query.script) :
-    CekHaltsBoolTrue z3.cekEnv query.program.term := by
+    (z3 : CertifiedZ3Model query.inputs query.script) :
+    CekHaltsBoolTrue (cekEnv query z3) query.program.term := by
   apply evalSym_okBoolTrueCond_sound
     (fuel := query.fuel) (ρ := envOf query.inputs.declarations)
-    z3.env_decodes query.inputs.noOpaque query.program.noOpaque
+    (cekEnv_decodes query z3) query.inputs.noOpaque query.program.noOpaque
   apply z3.assertionsTrue
   rw [script, scriptForBoolTrue_assertions]
   exact List.mem_append_right _ (by simp)
@@ -187,15 +239,40 @@ theorem hasCompilerPrelude (query : IntEqQuery) :
     Moist.SMT.UPLC.Soundness.hasCompilerPrelude query.script := by
   exact scriptForIntEq_hasCompilerPrelude _ _ _ _
 
+private theorem declarationAssertionsIncluded (query : IntEqQuery) :
+    ∀ expression,
+      expression ∈ query.inputs.declarations.flatMap SymDecl.assumptions →
+        expression ∈ query.script.assertions := by
+  intro expression hmember
+  rw [script, scriptForIntEq_assertions]
+  exact List.mem_append_left _ hmember
+
+theorem environmentDecodes (query : IntEqQuery)
+    (z3 : CertifiedZ3Model query.inputs query.script) :
+    ∃ environment,
+      symEnvToCek? z3.model (envOf query.inputs.declarations) =
+        some environment :=
+  z3.environmentDecodes (declarationAssertionsIncluded query)
+
+noncomputable def cekEnv (query : IntEqQuery)
+    (z3 : CertifiedZ3Model query.inputs query.script) : CekEnv :=
+  (environmentDecodes query z3).choose
+
+theorem cekEnv_decodes (query : IntEqQuery)
+    (z3 : CertifiedZ3Model query.inputs query.script) :
+    symEnvToCek? z3.model (envOf query.inputs.declarations) =
+      some (cekEnv query z3) :=
+  (environmentDecodes query z3).choose_spec
+
 /-- A certified model of a checked integer query yields exactly the requested
 CEK integer. -/
 theorem sound (query : IntEqQuery)
-    (z3 : CertifiedZ3Model query.inputs.declarations query.script) :
-    CekHaltsInteger z3.cekEnv query.program.term query.expected := by
+    (z3 : CertifiedZ3Model query.inputs query.script) :
+    CekHaltsInteger (cekEnv query z3) query.program.term query.expected := by
   apply evalSym_okIntEqCond_sound
     (fuel := query.fuel) (ρ := envOf query.inputs.declarations)
     (rhs := .int query.expected) (expected := query.expected)
-    z3.env_decodes query.inputs.noOpaque query.program.noOpaque
+    (cekEnv_decodes query z3) query.inputs.noOpaque query.program.noOpaque
   · exact Moist.SMT.Semantics.eval.eq_7 _ _
   · apply z3.assertionsTrue
     rw [script, scriptForIntEq_assertions]
@@ -245,14 +322,39 @@ theorem hasCompilerPrelude (query : ErrorQuery) :
     Moist.SMT.UPLC.Soundness.hasCompilerPrelude query.script := by
   exact scriptForError_hasCompilerPrelude _ _ _
 
+private theorem declarationAssertionsIncluded (query : ErrorQuery) :
+    ∀ expression,
+      expression ∈ query.inputs.declarations.flatMap SymDecl.assumptions →
+        expression ∈ query.script.assertions := by
+  intro expression hmember
+  rw [script, scriptForError_assertions]
+  exact List.mem_append_left _ hmember
+
+theorem environmentDecodes (query : ErrorQuery)
+    (z3 : CertifiedZ3Model query.inputs query.script) :
+    ∃ environment,
+      symEnvToCek? z3.model (envOf query.inputs.declarations) =
+        some environment :=
+  z3.environmentDecodes (declarationAssertionsIncluded query)
+
+noncomputable def cekEnv (query : ErrorQuery)
+    (z3 : CertifiedZ3Model query.inputs query.script) : CekEnv :=
+  (environmentDecodes query z3).choose
+
+theorem cekEnv_decodes (query : ErrorQuery)
+    (z3 : CertifiedZ3Model query.inputs query.script) :
+    symEnvToCek? z3.model (envOf query.inputs.declarations) =
+      some (cekEnv query z3) :=
+  (environmentDecodes query z3).choose_spec
+
 /-- A certified model of a checked error query reaches the actual CEK
 runtime-error state in finitely many transitions. -/
 theorem sound (query : ErrorQuery)
-    (z3 : CertifiedZ3Model query.inputs.declarations query.script) :
-    CekHaltsError z3.cekEnv query.program.term := by
+    (z3 : CertifiedZ3Model query.inputs query.script) :
+    CekHaltsError (cekEnv query z3) query.program.term := by
   apply evalSym_errorCond_sound
     (fuel := query.fuel) (ρ := envOf query.inputs.declarations)
-    z3.env_decodes query.inputs.noOpaque query.program.noOpaque
+    (cekEnv_decodes query z3) query.inputs.noOpaque query.program.noOpaque
   apply z3.assertionsTrue
   rw [script, scriptForError_assertions]
   exact List.mem_append_right _ (by simp)

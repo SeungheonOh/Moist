@@ -172,15 +172,27 @@ def unsupportedBuiltins : List BuiltinFun :=
 def isUnsupportedBuiltin (builtin : BuiltinFun) : Bool :=
   unsupportedBuiltins.any fun candidate => candidate == builtin
 
+/-- The checked soundness allowlist is exactly the complement of the one
+explicit unsupported policy table, over the complete `BuiltinFun` enum. -/
+def supportPolicyIsExact : Bool :=
+  allBuiltins.all fun builtin =>
+    builtinAllowedForSoundness builtin == !isUnsupportedBuiltin builtin
+
+def certifiedBuiltins : List BuiltinFun :=
+  allBuiltins.filter builtinAllowedForSoundness
+
 def checkerMatchesSupportTable : Bool :=
   allBuiltins.all fun builtin =>
     (SupportedTerm.check (.Builtin builtin)).isSome ==
       builtinAllowedForSoundness builtin
 
 def allSupportedQueriesAccepted : Bool :=
-  allBuiltins.all fun builtin =>
-    !builtinAllowedForSoundness builtin ||
-      (BoolTrueQuery.compile? 1 [] (.Builtin builtin)).isSome
+  certifiedBuiltins.all fun builtin =>
+    (BoolTrueQuery.compile? 1 [] (.Builtin builtin)).isSome
+
+def allUnsupportedQueriesRejected : Bool :=
+  unsupportedBuiltins.all fun builtin =>
+    !(BoolTrueQuery.compile? 1 [] (.Builtin builtin)).isSome
 
 def allCryptoQueriesRejected : Bool :=
   cryptoBuiltins.all fun builtin =>
@@ -194,14 +206,68 @@ def noUnsupportedBuiltinDeclaredSupported : Bool :=
   allBuiltins.all fun builtin =>
     !builtinAllowedForSoundness builtin || !isUnsupportedBuiltin builtin
 
+def isUnconditionalTimeout : List Outcome → Bool
+  | [.timeout (.bool true)] => true
+  | _ => false
+
+/-- Even callers below the checked production boundary cannot obtain a
+symbolic success/error formula for an unsupported builtin. -/
+def allUnsupportedRawBranchesTimeout : Bool :=
+  unsupportedBuiltins.all fun builtin =>
+    isUnconditionalTimeout (evalBuiltinSym builtin [])
+
+/-- Unsupported behavior has no callable SMT declaration.  Exact ground
+folding may still return a literal CEK result before this symbolic branch. -/
+def unsupportedFunctionNames : List String :=
+  [ "uplc_serializeData", "uplc_sha2_256", "uplc_sha3_256",
+    "uplc_blake2b_256", "uplc_keccak_256", "uplc_blake2b_224",
+    "uplc_ripemd_160", "uplc_verifyEd25519Signature",
+    "uplc_verifyEcdsaSecp256k1Signature",
+    "uplc_verifySchnorrSecp256k1Signature", "uplc_g1_add", "uplc_g1_neg",
+    "uplc_g1_scalarMul", "uplc_g1_equal", "uplc_g1_hashToGroup",
+    "uplc_g1_compress", "uplc_g1_uncompress", "uplc_g2_add",
+    "uplc_g2_neg", "uplc_g2_scalarMul", "uplc_g2_equal",
+    "uplc_g2_hashToGroup", "uplc_g2_compress", "uplc_g2_uncompress",
+    "uplc_millerLoop", "uplc_mulMlResult", "uplc_finalVerify",
+    "uplc_g1_multiScalarMul", "uplc_g2_multiScalarMul",
+    "uplc_insertCoin", "uplc_lookupCoin", "uplc_scaleValue",
+    "uplc_unionValue", "uplc_valueContains", "uplc_valueData",
+    "uplc_unValueData" ]
+
+def containsSubstring (haystack needle : String) : Bool :=
+  (haystack.splitOn needle).length > 1
+
+/-- Inspect rendered text, including `.raw` commands.  Most of the prelude is
+intentionally represented as raw, so checking only structured declarations
+would leave this regression unable to detect reintroduced callable UFs. -/
+def commandDefinesUnsupported (command : Moist.SMT.Command) : Bool :=
+  unsupportedFunctionNames.any fun name =>
+    containsSubstring command.render name
+
+def noUnsupportedCallableFunctionInPrelude : Bool :=
+  prelude.all fun command => !commandDefinesUnsupported command
+
 example : allBuiltins.length = 101 := by native_decide
 example : cryptoBuiltins.length = 28 := by native_decide
 example : unimplementedBuiltins.length = 8 := by native_decide
+example : unsupportedBuiltins.length = 36 := by native_decide
+example : certifiedBuiltins.length = 65 := by native_decide
+example : allBuiltins.eraseDups.length = allBuiltins.length := by native_decide
+example : cryptoBuiltins.eraseDups.length = cryptoBuiltins.length := by native_decide
+example : unimplementedBuiltins.eraseDups.length = unimplementedBuiltins.length := by
+  native_decide
+example : unsupportedBuiltins.eraseDups.length = unsupportedBuiltins.length := by
+  native_decide
+example : supportPolicyIsExact = true := by native_decide
 example : checkerMatchesSupportTable = true := by native_decide
 example : allSupportedQueriesAccepted = true := by native_decide
+example : allUnsupportedQueriesRejected = true := by native_decide
 example : allCryptoQueriesRejected = true := by native_decide
 example : allUnimplementedQueriesRejected = true := by native_decide
 example : noUnsupportedBuiltinDeclaredSupported = true := by native_decide
+example : allUnsupportedRawBranchesTimeout = true := by native_decide
+example : unsupportedFunctionNames.length = 36 := by native_decide
+example : noUnsupportedCallableFunctionInPrelude = true := by native_decide
 
 def nestedOpaqueTerm : Term :=
   .Case (.Constr 0 []) [.Lam 0 (.Builtin .Sha2_256)]
@@ -291,6 +357,10 @@ example : expressionRendererSafe (.sym "(as seq.empty Bytes)") = true := by
 example : expressionRendererSafe (.sym "(as seq.empty (Seq Int))") = false := by
   native_decide
 
+example : expressionSort? [] (.sym "(as seq.empty (Seq Int))") ==
+    some .bytes := by
+  native_decide
+
 /-! Renderer-safe syntax is still rejected unless it is closed, uniquely
 declared, and sorted according to the executable SMT semantics.  These cases
 regress concrete Z3 `error`-then-`sat` and Bytes/UString aliasing failures. -/
@@ -314,6 +384,14 @@ def crossSortEqualityDeclaration : SymDecl :=
 
 example : expressionSort? []
     (.app "=" [.bytes (ByteArray.mk #[65]), .str "A"]) == none := by
+  native_decide
+
+example : expressionSort? [] (.app "(_ is VInt)" []) == none := by
+  native_decide
+
+example : expressionSort? []
+    (.app "(_ is VInt)" [.app "VInt" [.int 0], .app "VInt" [.int 1]]) ==
+      none := by
   native_decide
 
 example : declarationsSortSafe [crossSortEqualityDeclaration] = false := by
@@ -463,9 +541,5 @@ example :
     (IntEqQuery.compile? 20 supportedDeclarations
       (.Constant (.Integer 1, .AtomicType .TypeInteger)) 1).isSome = true := by
   native_decide
-
-#print axioms BoolTrueQuery.sound
-#print axioms IntEqQuery.sound
-#print axioms ErrorQuery.sound
 
 end Test.SMT.SupportedQueries

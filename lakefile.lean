@@ -69,3 +69,9 @@ lean_exe conformance where
 
 lean_exe ptah_test where
   root := `Test.Ptah
+
+lean_exe smt_builtin_differential where
+  root := `Test.SMT.BasicBuiltinDifferential
+
+lean_exe smt_advanced_raw_differential where
+  root := `Test.SMT.AdvancedBuiltinRawDifferential

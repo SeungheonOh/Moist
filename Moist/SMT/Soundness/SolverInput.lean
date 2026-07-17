@@ -278,6 +278,7 @@ private def declarationSort? (declarations : List SymDecl)
 mutual
   def expressionSort? (declarations : List SymDecl) : SExpr → Option Moist.SMT.SSort
     | .sym "(as seq.empty Bytes)" => some .bytes
+    | .sym "(as seq.empty (Seq Int))" => some .bytes
     | .sym "g1_default" => some .g1
     | .sym "g2_default" => some .g2
     | .sym "ml_default" => some .ml
@@ -317,6 +318,34 @@ end
 def expressionHasSort (declarations : List SymDecl)
     (expression : SExpr) (sort : Moist.SMT.SSort) : Bool :=
   expressionSort? declarations expression == some sort
+
+/- `SSort`'s generated `BEq` is structurally lawful.  This proof-only local
+instance is intentionally introduced after the executable checker definitions,
+and is not exported as part of the public typeclass API. -/
+local instance : LawfulBEq Moist.SMT.SSort where
+  eq_of_beq {a b} h := by
+    change Moist.SMT.instBEqSSort.beq a b = true at h
+    cases a <;> cases b <;>
+      simp_all [Moist.SMT.instBEqSSort.beq]
+  rfl {a} := by
+    change Moist.SMT.instBEqSSort.beq a a = true
+    cases a <;> simp [Moist.SMT.instBEqSSort.beq]
+
+theorem expressionHasSort_eq_true_iff
+    (declarations : List SymDecl) (expression : SExpr)
+    (sort : Moist.SMT.SSort) :
+    expressionHasSort declarations expression sort = true ↔
+      expressionSort? declarations expression = some sort := by
+  simp [expressionHasSort]
+
+private theorem expressionSort_app_of_ne_eq
+    (declarations : List SymDecl) (name : String) (arguments : List SExpr)
+    (hname : name ≠ "=") :
+    expressionSort? declarations (.app name arguments) = (do
+      let argumentSorts ← expressionSorts? declarations arguments
+      applicationResultSort? name argumentSorts) := by
+  rw [expressionSort?.eq_def]
+  simp [hname]
 
 mutual
   def symConstSortSafe (declarations : List SymDecl) : SymConst → Bool
@@ -421,7 +450,10 @@ mutual
 end
 
 private def directValSymbol (declarations : List SymDecl) : SExpr → Bool
-  | .sym name => declarationSort? declarations name == some .val
+  | .sym name =>
+      match declarationSort? declarations name with
+      | some .val => true
+      | _ => false
   | _ => false
 
 private def nonnegativeLiteral : SExpr → Bool
@@ -505,18 +537,13 @@ def declarationsInputSafe (declarations : List SymDecl) : Bool :=
 
 /-! ## Checked-input decoding
 
-The checker above is syntactic.  The two premises below are the precise
-semantic facts a solver/model integration must establish for its decoded
-internal model:
-
-* every admitted, well-sorted total expression evaluates to a value of that
-  sort; and
-* a direct symbolic `Val` satisfies the generated validity assumption and
-  therefore decodes to a CEK value.
-
-These premises deliberately stop at the user-accepted SMT-LIB/Z3 bridge.  The
-theorems following them prove, in the kernel, that the recursive declaration
-grammar adds no further decoding assumption.
+The checker above is syntactic.  A solver/model integration only has to
+establish the interpretation and runtime sort of each symbol declared in the
+query.  The theorems below lift that narrow premise, in the kernel, through
+every literal, conditional, and total well-sorted application admitted by the
+public declaration grammar.  A direct symbolic `Val` then decodes from the
+generated validity assertion, so the recursive declaration grammar adds no
+further model-typing or decoding assumption.
 -/
 
 /-- Runtime sort evidence for the executable SMT semantics. -/
@@ -537,22 +564,883 @@ inductive SValHasSort : SmtSem.SVal → Moist.SMT.SSort → Prop where
   | g2Val (value : String) : SValHasSort (.g2 value) .g2
   | mlVal (value : String) : SValHasSort (.ml value) .ml
 
-/-- Explicit model-typing and validity premises at the accepted solver bridge.
+/-- Pointwise evidence that a list of declaration expressions evaluates with
+the sorts assigned by the checked expression grammar. -/
+inductive ExpressionsEvaluateWithSorts (model : SmtSem.Model) :
+    List SExpr → List Moist.SMT.SSort → Prop where
+  | nil : ExpressionsEvaluateWithSorts model [] []
+  | cons {expression expressions sort sorts value}
+      (evaluates : SmtSem.eval model expression = some value)
+      (hasSort : SValHasSort value sort)
+      (tail : ExpressionsEvaluateWithSorts model expressions sorts) :
+      ExpressionsEvaluateWithSorts model
+        (expression :: expressions) (sort :: sorts)
 
-`expressionEvaluates` says the model interpretation respects the semantic sort
-checker on the total public-expression fragment.  `directValDecodes` is the
-semantic content of the mandatory `val_valid` assertion attached by `symVal`.
+private theorem evaluatedArguments0
+    {model : SmtSem.Model} {arguments : List SExpr}
+    (harguments : ExpressionsEvaluateWithSorts model arguments []) :
+    arguments = [] := by
+  cases harguments
+  rfl
+
+private theorem evaluatedArguments1
+    {model : SmtSem.Model} {arguments : List SExpr}
+    {sort : Moist.SMT.SSort}
+    (harguments : ExpressionsEvaluateWithSorts model arguments [sort]) :
+    ∃ expression value, arguments = [expression] ∧
+      SmtSem.eval model expression = some value ∧
+        SValHasSort value sort := by
+  cases harguments with
+  | cons heval hvalue tail =>
+      cases tail
+      exact ⟨_, _, rfl, heval, hvalue⟩
+
+private theorem evaluatedArguments2
+    {model : SmtSem.Model} {arguments : List SExpr}
+    {firstSort secondSort : Moist.SMT.SSort}
+    (harguments : ExpressionsEvaluateWithSorts model arguments
+      [firstSort, secondSort]) :
+    ∃ first second firstValue secondValue,
+      arguments = [first, second] ∧
+      SmtSem.eval model first = some firstValue ∧
+      SValHasSort firstValue firstSort ∧
+      SmtSem.eval model second = some secondValue ∧
+      SValHasSort secondValue secondSort := by
+  cases harguments with
+  | cons hfirst hfirstValue tail =>
+      cases tail with
+      | cons hsecond hsecondValue tail =>
+          cases tail
+          exact ⟨_, _, _, _, rfl, hfirst, hfirstValue,
+            hsecond, hsecondValue⟩
+
+private theorem evaluatedArguments3
+    {model : SmtSem.Model} {arguments : List SExpr}
+    {firstSort secondSort thirdSort : Moist.SMT.SSort}
+    (harguments : ExpressionsEvaluateWithSorts model arguments
+      [firstSort, secondSort, thirdSort]) :
+    ∃ first second third firstValue secondValue thirdValue,
+      arguments = [first, second, third] ∧
+      SmtSem.eval model first = some firstValue ∧
+      SValHasSort firstValue firstSort ∧
+      SmtSem.eval model second = some secondValue ∧
+      SValHasSort secondValue secondSort ∧
+      SmtSem.eval model third = some thirdValue ∧
+      SValHasSort thirdValue thirdSort := by
+  cases harguments with
+  | cons hfirst hfirstValue tail =>
+      cases tail with
+      | cons hsecond hsecondValue tail =>
+          cases tail with
+          | cons hthird hthirdValue tail =>
+              cases tail
+              exact ⟨_, _, _, _, _, _, rfl, hfirst, hfirstValue,
+                hsecond, hsecondValue, hthird, hthirdValue⟩
+
+/- Reduction equations are enabled only for this exhaustiveness proof.  Each
+is a theorem about the single production `Semantics.evalApp` dispatcher. -/
+attribute [local simp]
+  Moist.SMT.Semantics.evalApp_add
+  Moist.SMT.Semantics.evalApp_sub
+  Moist.SMT.Semantics.evalApp_mul
+  Moist.SMT.Semantics.evalApp_lt
+  Moist.SMT.Semantics.evalApp_le
+  Moist.SMT.Semantics.evalApp_total_gt
+  Moist.SMT.Semantics.evalApp_ge
+  Moist.SMT.Semantics.evalApp_seqAppend
+  Moist.SMT.Semantics.evalApp_strAppend
+  Moist.SMT.Semantics.evalApp_seqLen
+  Moist.SMT.Semantics.evalApp_uplcEncodeUtf8
+  Moist.SMT.Semantics.evalApp_validUtf8
+  Moist.SMT.Semantics.evalApp_total_sameSign
+  Moist.SMT.Semantics.evalApp_total_abs
+  Moist.SMT.Semantics.evalApp_bytesLt
+  Moist.SMT.Semantics.evalApp_bytesLe
+  Moist.SMT.Semantics.evalApp_total_bytesValid
+  Moist.SMT.Semantics.evalApp_total_stringValid
+  Moist.SMT.Semantics.evalApp_total_dataValid
+  Moist.SMT.Semantics.evalApp_total_dataListValid
+  Moist.SMT.Semantics.evalApp_total_dataPairListValid
+  Moist.SMT.Semantics.evalApp_val_valid
+  Moist.SMT.Semantics.evalApp_total_valListValid
+  Moist.SMT.Semantics.evalApp_total_constValValid
+  Moist.SMT.Semantics.evalApp_total_constValListValid
+  Moist.SMT.Semantics.evalApp_total_VInt
+  Moist.SMT.Semantics.evalApp_total_VBytes
+  Moist.SMT.Semantics.evalApp_total_VString
+  Moist.SMT.Semantics.evalApp_total_VBool
+  Moist.SMT.Semantics.evalApp_total_VUnit
+  Moist.SMT.Semantics.evalApp_total_VList
+  Moist.SMT.Semantics.evalApp_total_VDataList
+  Moist.SMT.Semantics.evalApp_total_VPairDataList
+  Moist.SMT.Semantics.evalApp_total_VPair
+  Moist.SMT.Semantics.evalApp_total_VPairData
+  Moist.SMT.Semantics.evalApp_total_VData
+  Moist.SMT.Semantics.evalApp_total_VArray
+  Moist.SMT.Semantics.evalApp_total_VG1
+  Moist.SMT.Semantics.evalApp_total_VG2
+  Moist.SMT.Semantics.evalApp_total_VMlResult
+  Moist.SMT.Semantics.evalApp_total_VConstr
+  Moist.SMT.Semantics.evalApp_total_VNil
+  Moist.SMT.Semantics.evalApp_total_VCons
+  Moist.SMT.Semantics.evalApp_total_vlistLength
+  Moist.SMT.Semantics.evalApp_total_vlistDrop
+  Moist.SMT.Semantics.evalApp_total_DConstr
+  Moist.SMT.Semantics.evalApp_total_DMap
+  Moist.SMT.Semantics.evalApp_total_DList
+  Moist.SMT.Semantics.evalApp_total_DI
+  Moist.SMT.Semantics.evalApp_total_DB
+  Moist.SMT.Semantics.evalApp_total_DNil
+  Moist.SMT.Semantics.evalApp_total_DCons
+  Moist.SMT.Semantics.evalApp_total_dlistLength
+  Moist.SMT.Semantics.evalApp_total_dlistDrop
+  Moist.SMT.Semantics.evalApp_total_DPNil
+  Moist.SMT.Semantics.evalApp_total_DPCons
+
+private theorem tableApplication_evaluates_first
+    {model : SmtSem.Model} {signature : ApplicationSignature}
+    {arguments : List SExpr}
+    (hmember : signature ∈ applicationSignatures.take 35)
+    (htotal :
+      (totalApplicationHeads.contains signature.name ||
+        indexedTesterHeads.contains signature.name) = true)
+    (harguments :
+      ExpressionsEvaluateWithSorts model arguments signature.arguments) :
+    ∃ value,
+      SmtSem.eval model (.app signature.name arguments) = some value ∧
+        SValHasSort value signature.result := by
+  simp [applicationSignatures] at hmember
+  repeat' rcases hmember with rfl | hmember
+  all_goals simp [totalApplicationHeads, indexedTesterHeads] at htotal
+  all_goals dsimp at harguments ⊢
+  all_goals first
+    | obtain rfl := evaluatedArguments0 harguments
+    | (obtain ⟨first, firstValue, rfl, hfirst, hfirstSort⟩ :=
+          evaluatedArguments1 harguments
+       cases hfirstSort)
+    | (obtain ⟨first, second, firstValue, secondValue, rfl,
+          hfirst, hfirstSort, hsecond, hsecondSort⟩ :=
+          evaluatedArguments2 harguments
+       cases hfirstSort
+       cases hsecondSort)
+    | (obtain ⟨first, second, third, firstValue, secondValue, thirdValue,
+          rfl, hfirst, hfirstSort, hsecond, hsecondSort,
+          hthird, hthirdSort⟩ := evaluatedArguments3 harguments
+       cases hfirstSort
+       cases hsecondSort
+       cases hthirdSort)
+  all_goals
+    simp [Moist.SMT.Semantics.eval, Moist.SMT.Semantics.evalList, *]
+    constructor
+
+private theorem tableApplication_evaluates_middle
+    {model : SmtSem.Model} {signature : ApplicationSignature}
+    {arguments : List SExpr}
+    (hmember : signature ∈ (applicationSignatures.drop 35).take 35)
+    (htotal :
+      (totalApplicationHeads.contains signature.name ||
+        indexedTesterHeads.contains signature.name) = true)
+    (harguments :
+      ExpressionsEvaluateWithSorts model arguments signature.arguments) :
+    ∃ value,
+      SmtSem.eval model (.app signature.name arguments) = some value ∧
+        SValHasSort value signature.result := by
+  simp [applicationSignatures] at hmember
+  repeat' rcases hmember with rfl | hmember
+  all_goals simp [totalApplicationHeads, indexedTesterHeads] at htotal
+  all_goals dsimp at harguments ⊢
+  all_goals first
+    | obtain rfl := evaluatedArguments0 harguments
+    | (obtain ⟨first, firstValue, rfl, hfirst, hfirstSort⟩ :=
+          evaluatedArguments1 harguments
+       cases hfirstSort)
+    | (obtain ⟨first, second, firstValue, secondValue, rfl,
+          hfirst, hfirstSort, hsecond, hsecondSort⟩ :=
+          evaluatedArguments2 harguments
+       cases hfirstSort
+       cases hsecondSort)
+    | (obtain ⟨first, second, third, firstValue, secondValue, thirdValue,
+          rfl, hfirst, hfirstSort, hsecond, hsecondSort,
+          hthird, hthirdSort⟩ := evaluatedArguments3 harguments
+       cases hfirstSort
+       cases hsecondSort
+       cases hthirdSort)
+  all_goals
+    simp [Moist.SMT.Semantics.eval, Moist.SMT.Semantics.evalList, *]
+    constructor
+
+private theorem tableApplication_evaluates_last
+    {model : SmtSem.Model} {signature : ApplicationSignature}
+    {arguments : List SExpr}
+    (hmember : signature ∈ applicationSignatures.drop 70)
+    (htotal :
+      (totalApplicationHeads.contains signature.name ||
+        indexedTesterHeads.contains signature.name) = true)
+    (harguments :
+      ExpressionsEvaluateWithSorts model arguments signature.arguments) :
+    ∃ value,
+      SmtSem.eval model (.app signature.name arguments) = some value ∧
+        SValHasSort value signature.result := by
+  simp [applicationSignatures] at hmember
+  repeat' rcases hmember with rfl | hmember
+  all_goals simp [totalApplicationHeads, indexedTesterHeads] at htotal
+  all_goals dsimp at harguments ⊢
+  all_goals first
+    | obtain rfl := evaluatedArguments0 harguments
+    | (obtain ⟨first, firstValue, rfl, hfirst, hfirstSort⟩ :=
+          evaluatedArguments1 harguments
+       cases hfirstSort)
+    | (obtain ⟨first, second, firstValue, secondValue, rfl,
+          hfirst, hfirstSort, hsecond, hsecondSort⟩ :=
+          evaluatedArguments2 harguments
+       cases hfirstSort
+       cases hsecondSort)
+    | (obtain ⟨first, second, third, firstValue, secondValue, thirdValue,
+          rfl, hfirst, hfirstSort, hsecond, hsecondSort,
+          hthird, hthirdSort⟩ := evaluatedArguments3 harguments
+       cases hfirstSort
+       cases hsecondSort
+       cases hthirdSort)
+  all_goals
+    simp [Moist.SMT.Semantics.eval, Moist.SMT.Semantics.evalList, *]
+    constructor
+
+private theorem tableApplication_evaluates
+    {model : SmtSem.Model} {signature : ApplicationSignature}
+    {arguments : List SExpr}
+    (hmember : signature ∈ applicationSignatures)
+    (htotal :
+      (totalApplicationHeads.contains signature.name ||
+        indexedTesterHeads.contains signature.name) = true)
+    (harguments :
+      ExpressionsEvaluateWithSorts model arguments signature.arguments) :
+    ∃ value,
+      SmtSem.eval model (.app signature.name arguments) = some value ∧
+        SValHasSort value signature.result := by
+  rw [← List.take_append_drop 35 applicationSignatures] at hmember
+  rcases List.mem_append.mp hmember with hfirst | hrest
+  · exact tableApplication_evaluates_first hfirst htotal harguments
+  rw [← List.take_append_drop 35 (applicationSignatures.drop 35)] at hrest
+  rcases List.mem_append.mp hrest with hmiddle | hlast
+  · exact tableApplication_evaluates_middle hmiddle htotal harguments
+  simpa only [List.drop_drop] using
+    tableApplication_evaluates_last hlast htotal harguments
+
+private theorem testerSignature_none_of_totalHead
+    {name : String} (htotal : totalApplicationHeads.contains name = true) :
+    testerSignature? name = none := by
+  simp [totalApplicationHeads] at htotal
+  repeat' rcases htotal with htotal | htotal
+  all_goals rfl
+
+attribute [local simp]
+  Moist.SMT.Semantics.evalApp_isCtor_DConstr
+  Moist.SMT.Semantics.evalApp_isCtor_DMap
+  Moist.SMT.Semantics.evalApp_isCtor_DList
+  Moist.SMT.Semantics.evalApp_isCtor_DI
+  Moist.SMT.Semantics.evalApp_isCtor_DB
+  Moist.SMT.Semantics.evalApp_isCtor_DNil
+  Moist.SMT.Semantics.evalApp_isCtor_DCons
+  Moist.SMT.Semantics.evalApp_isCtor_DPNil
+  Moist.SMT.Semantics.evalApp_isCtor_DPCons
+  Moist.SMT.Semantics.evalApp_isCtor_VInt
+  Moist.SMT.Semantics.evalApp_isCtor_VBytes
+  Moist.SMT.Semantics.evalApp_isCtor_VString
+  Moist.SMT.Semantics.evalApp_isCtor_VBool
+  Moist.SMT.Semantics.evalApp_isCtor_VUnit
+  Moist.SMT.Semantics.evalApp_isCtor_VList
+  Moist.SMT.Semantics.evalApp_isCtor_VDataList
+  Moist.SMT.Semantics.evalApp_isCtor_VPairDataList
+  Moist.SMT.Semantics.evalApp_isCtor_VPair
+  Moist.SMT.Semantics.evalApp_isCtor_VPairData
+  Moist.SMT.Semantics.evalApp_isCtor_VData
+  Moist.SMT.Semantics.evalApp_isCtor_VArray
+  Moist.SMT.Semantics.evalApp_isCtor_VG1
+  Moist.SMT.Semantics.evalApp_isCtor_VG2
+  Moist.SMT.Semantics.evalApp_isCtor_VMlResult
+  Moist.SMT.Semantics.evalApp_isCtor_VConstr
+  Moist.SMT.Semantics.evalApp_isCtor_VNil
+  Moist.SMT.Semantics.evalApp_isCtor_VCons
+
+private theorem testerApplication_evaluates
+    {model : SmtSem.Model} {name : String}
+    {signature : ApplicationSignature} {arguments : List SExpr}
+    (htester : testerSignature? name = some signature)
+    (htotal :
+      (totalApplicationHeads.contains name ||
+        indexedTesterHeads.contains name) = true)
+    (harguments :
+      ExpressionsEvaluateWithSorts model arguments signature.arguments) :
+    ∃ value, SmtSem.eval model (.app name arguments) = some value ∧
+      SValHasSort value signature.result := by
+  simp only [Bool.or_eq_true] at htotal
+  rcases htotal with htotal | htesterHead
+  · rw [testerSignature_none_of_totalHead htotal] at htester
+    contradiction
+  simp [indexedTesterHeads] at htesterHead
+  repeat' rcases htesterHead with htesterHead | htesterHead
+  all_goals simp [testerSignature?] at htester
+  all_goals subst signature
+  all_goals dsimp at harguments ⊢
+  all_goals
+    obtain ⟨first, firstValue, rfl, hfirst, hfirstSort⟩ :=
+      evaluatedArguments1 harguments
+    cases hfirstSort
+  all_goals
+    simp [Moist.SMT.Semantics.eval, Moist.SMT.Semantics.evalList, *]
+    constructor
+
+private theorem totalApplication_evaluates
+    {model : SmtSem.Model} {name : String} {arguments : List SExpr}
+    {argumentSorts : List Moist.SMT.SSort} {resultSort : Moist.SMT.SSort}
+    (htotal :
+      (totalApplicationHeads.contains name ||
+        indexedTesterHeads.contains name) = true)
+    (hsignature :
+      applicationResultSort? name argumentSorts = some resultSort)
+    (harguments :
+      ExpressionsEvaluateWithSorts model arguments argumentSorts) :
+    ∃ value, SmtSem.eval model (.app name arguments) = some value ∧
+      SValHasSort value resultSort := by
+  unfold applicationResultSort? at hsignature
+  generalize hcandidates :
+    (match testerSignature? name with
+      | some signature => signature :: applicationSignatures
+      | none => applicationSignatures) = candidates at hsignature
+  simp only [Option.map_eq_some_iff] at hsignature
+  obtain ⟨signature, hfound, hresult⟩ := hsignature
+  have hmember := List.mem_of_find?_eq_some hfound
+  have hmatches := List.find?_some hfound
+  simp only [Bool.and_eq_true] at hmatches
+  have hname : signature.name = name := by
+    simpa using hmatches.1
+  have hsorts : signature.arguments = argumentSorts := by
+    simpa using hmatches.2
+  subst name
+  subst argumentSorts
+  subst resultSort
+  cases htester : testerSignature? signature.name with
+  | none =>
+      simp [htester] at hcandidates
+      subst candidates
+      exact tableApplication_evaluates hmember htotal harguments
+  | some tester =>
+      simp [htester] at hcandidates
+      subst candidates
+      simp only [List.mem_cons] at hmember
+      rcases hmember with rfl | htable
+      · exact testerApplication_evaluates htester htotal harguments
+      · exact tableApplication_evaluates htable htotal harguments
+
+mutual
+  /-- Constant-compatible semantic values are accepted by the CEK constant
+  decoder. -/
+  private theorem constValCompatible_decodes : ∀ value,
+      Moist.SMT.Semantics.constValCompatible value = true →
+      ∃ constant, semValToConst? value = some constant
+    | .int value, _ => ⟨.Integer value, rfl⟩
+    | .bytes value, _ => ⟨.ByteString value, rfl⟩
+    | .string value, _ => ⟨.String value, rfl⟩
+    | .bool value, _ => ⟨.Bool value, rfl⟩
+    | .unit, _ => ⟨.Unit, rfl⟩
+    | .list values, hcompatible => by
+        simp [Moist.SMT.Semantics.constValCompatible] at hcompatible
+        obtain ⟨constants, hconstants⟩ :=
+          constValListCompatible_decodes values hcompatible
+        exact ⟨.ConstList constants, by
+          simp [semValToConst?, hconstants]⟩
+    | .dataList values, _ => ⟨.ConstDataList values, rfl⟩
+    | .pairDataList values, _ => ⟨.ConstPairDataList values, rfl⟩
+    | .pair first second, hcompatible => by
+        simp [Moist.SMT.Semantics.constValCompatible] at hcompatible
+        obtain ⟨firstConstant, hfirst⟩ :=
+          constValCompatible_decodes first hcompatible.1
+        obtain ⟨secondConstant, hsecond⟩ :=
+          constValCompatible_decodes second hcompatible.2
+        exact ⟨.Pair (firstConstant, secondConstant), by
+          simp [semValToConst?, hfirst, hsecond]⟩
+    | .pairData first second, _ => ⟨.PairData (first, second), rfl⟩
+    | .data value, _ => ⟨.Data value, rfl⟩
+    | .array values, hcompatible => by
+        simp [Moist.SMT.Semantics.constValCompatible] at hcompatible
+        obtain ⟨constants, hconstants⟩ :=
+          constValListCompatible_decodes values hcompatible
+        exact ⟨.ConstArray constants, by
+          simp [semValToConst?, hconstants]⟩
+    | .g1 _, _ => ⟨.Bls12_381_G1_element, rfl⟩
+    | .g2 _, _ => ⟨.Bls12_381_G2_element, rfl⟩
+    | .ml _, _ => ⟨.Bls12_381_MlResult, rfl⟩
+    | .constr _ _, hcompatible => by
+        simp [Moist.SMT.Semantics.constValCompatible] at hcompatible
+
+  /-- Lists of constant-compatible semantic values are accepted by the CEK
+  constant-list decoder. -/
+  private theorem constValListCompatible_decodes : ∀ values,
+      Moist.SMT.Semantics.constValListCompatible values = true →
+      ∃ constants, semValListToConstList? values = some constants
+    | [], _ => ⟨[], rfl⟩
+    | value :: values, hcompatible => by
+        simp [Moist.SMT.Semantics.constValListCompatible] at hcompatible
+        obtain ⟨constant, hconstant⟩ :=
+          constValCompatible_decodes value hcompatible.1
+        obtain ⟨constants, hconstants⟩ :=
+          constValListCompatible_decodes values hcompatible.2
+        exact ⟨constant :: constants, by
+          simp [semValListToConstList?, hconstant, hconstants]⟩
+end
+
+mutual
+  /-- The executable `val_valid` predicate is sufficient for the actual CEK
+  decoder.  This closes the direct-`Val` model boundary without trusting a
+  caller-provided decoding witness. -/
+  theorem valValid_decodes : ∀ value,
+      Moist.SMT.Semantics.valValid value = true →
+      ∃ decoded, semValToCek? value = some decoded
+    | .int value, _ => ⟨.VCon (.Integer value), rfl⟩
+    | .bytes value, _ => ⟨.VCon (.ByteString value), rfl⟩
+    | .string value, _ => ⟨.VCon (.String value), rfl⟩
+    | .bool value, _ => ⟨.VCon (.Bool value), rfl⟩
+    | .unit, _ => ⟨.VCon .Unit, rfl⟩
+    | .list values, hvalid => by
+        have hcompatible :
+            Moist.SMT.Semantics.constValListCompatible values = true := by
+          rw [Moist.SMT.Semantics.constValListCompatible_eq_constValListValid]
+          simpa [Moist.SMT.Semantics.valValid] using hvalid
+        obtain ⟨constants, hconstants⟩ :=
+          constValListCompatible_decodes values hcompatible
+        exact ⟨.VCon (.ConstList constants), by
+          simp [semValToCek?, semValToConst?, hconstants]⟩
+    | .dataList values, _ => ⟨.VCon (.ConstDataList values), rfl⟩
+    | .pairDataList values, _ => ⟨.VCon (.ConstPairDataList values), rfl⟩
+    | .pair first second, hvalid => by
+        simp [Moist.SMT.Semantics.valValid] at hvalid
+        have hfirstCompatible :
+            Moist.SMT.Semantics.constValCompatible first = true := by
+          rw [Moist.SMT.Semantics.constValCompatible_eq_constValValid]
+          exact hvalid.1
+        have hsecondCompatible :
+            Moist.SMT.Semantics.constValCompatible second = true := by
+          rw [Moist.SMT.Semantics.constValCompatible_eq_constValValid]
+          exact hvalid.2
+        have hcompatible :
+            Moist.SMT.Semantics.constValCompatible (.pair first second) =
+              true := by
+          simp [Moist.SMT.Semantics.constValCompatible, hfirstCompatible,
+            hsecondCompatible]
+        obtain ⟨constant, hconstant⟩ :=
+          constValCompatible_decodes (.pair first second) hcompatible
+        exact ⟨.VCon constant, semValToCek_of_const hconstant⟩
+    | .pairData first second, _ =>
+        ⟨.VCon (.PairData (first, second)), rfl⟩
+    | .data value, _ => ⟨.VCon (.Data value), rfl⟩
+    | .array values, hvalid => by
+        have hcompatible :
+            Moist.SMT.Semantics.constValListCompatible values = true := by
+          rw [Moist.SMT.Semantics.constValListCompatible_eq_constValListValid]
+          simpa [Moist.SMT.Semantics.valValid] using hvalid
+        obtain ⟨constants, hconstants⟩ :=
+          constValListCompatible_decodes values hcompatible
+        exact ⟨.VCon (.ConstArray constants), by
+          simp [semValToCek?, semValToConst?, hconstants]⟩
+    | .g1 _, _ => ⟨.VCon .Bls12_381_G1_element, rfl⟩
+    | .g2 _, _ => ⟨.VCon .Bls12_381_G2_element, rfl⟩
+    | .ml _, _ => ⟨.VCon .Bls12_381_MlResult, rfl⟩
+    | .constr tag fields, hvalid => by
+        simp [Moist.SMT.Semantics.valValid] at hvalid
+        obtain ⟨decodedFields, hfields⟩ :=
+          valListValid_decodes fields hvalid.2
+        have htag : ¬ tag < 0 := by omega
+        exact ⟨.VConstr tag.toNat decodedFields, by
+          simp [semValToCek?, htag, hfields]⟩
+
+  /-- List validity likewise composes through the actual CEK list decoder. -/
+  theorem valListValid_decodes : ∀ values,
+      Moist.SMT.Semantics.valListValid values = true →
+      ∃ decoded, semValListToCekList? values = some decoded
+    | [], _ => ⟨[], rfl⟩
+    | value :: values, hvalid => by
+        simp [Moist.SMT.Semantics.valListValid] at hvalid
+        obtain ⟨decodedValue, hvalue⟩ := valValid_decodes value hvalid.1
+        obtain ⟨decodedValues, hvalues⟩ :=
+          valListValid_decodes values hvalid.2
+        exact ⟨decodedValue :: decodedValues, by
+          simp [semValListToCekList?, hvalue, hvalues]⟩
+end
+
+/-- Declared atomic model values and their runtime sorts at the solver bridge.
+
+The external premise is deliberately limited to the symbols actually declared
+in the checked query.  Evaluation and sort preservation for literals and every
+well-sorted composite expression in the total public fragment are derived
+below from the executable semantics.  Direct `Val` decoding is then derived
+from that internal theorem and the mandatory `val_valid` assertion; it is not
+an additional bridge premise.
 -/
 structure SolverInputModel (declarations : List SymDecl)
     (model : SmtSem.Model) : Prop where
-  expressionEvaluates : ∀ expression sort,
-    expressionTotalitySafe expression = true →
-    expressionHasSort declarations expression sort = true →
-    ∃ value, SmtSem.eval model expression = some value ∧
-      SValHasSort value sort
-  directValDecodes : ∀ expression,
-    inputSymValSafe declarations (.dyn expression) = true →
-    ∃ value, symValToCek? model (.dyn expression) = some value
+  declaredSymbolValue : ∀ declaration,
+    declaration ∈ declarations →
+    ∃ value,
+      model.valueOf declaration.name = some value ∧
+        SValHasSort value declaration.sort
+
+namespace SolverInputModel
+
+set_option maxHeartbeats 5000000 in
+mutual
+  /-- Every admitted total expression evaluates in the executable SMT
+  semantics, and its value has exactly the sort computed by the checked input
+  grammar.  Only declared atomic symbols cross the external model bridge. -/
+  theorem expressionEvaluates
+      {declarations : List SymDecl} {model : SmtSem.Model}
+      (bridge : SolverInputModel declarations model)
+      (expression : SExpr) (sort : Moist.SMT.SSort)
+      (htotal : expressionTotalitySafe expression = true)
+      (hsort : expressionHasSort declarations expression sort = true) :
+      ∃ value, SmtSem.eval model expression = some value ∧
+        SValHasSort value sort := by
+    rw [expressionHasSort_eq_true_iff] at hsort
+    match hexpression : expression with
+    | .sym name =>
+        by_cases hempty : name = "(as seq.empty Bytes)"
+        · subst name
+          simp [expressionSort?] at hsort
+          subst sort
+          exact ⟨.bytes Moist.SMT.Semantics.bytesEmpty,
+            by simp [Moist.SMT.Semantics.eval],
+            .bytesVal Moist.SMT.Semantics.bytesEmpty⟩
+        by_cases hemptySeq : name = "(as seq.empty (Seq Int))"
+        · subst name
+          simp [expressionSort?] at hsort
+          subst sort
+          exact ⟨.bytes Moist.SMT.Semantics.bytesEmpty,
+            by simp [Moist.SMT.Semantics.eval],
+            .bytesVal Moist.SMT.Semantics.bytesEmpty⟩
+        by_cases hg1 : name = "g1_default"
+        · subst name
+          simp [expressionSort?] at hsort
+          subst sort
+          exact ⟨.g1 "g1_default", by simp [Moist.SMT.Semantics.eval],
+            .g1Val "g1_default"⟩
+        by_cases hg2 : name = "g2_default"
+        · subst name
+          simp [expressionSort?] at hsort
+          subst sort
+          exact ⟨.g2 "g2_default", by simp [Moist.SMT.Semantics.eval],
+            .g2Val "g2_default"⟩
+        by_cases hml : name = "ml_default"
+        · subst name
+          simp [expressionSort?] at hsort
+          subst sort
+          exact ⟨.ml "ml_default", by simp [Moist.SMT.Semantics.eval],
+            .mlVal "ml_default"⟩
+        · have hdeclarationSort :
+              declarationSort? declarations name = some sort := by
+            simpa [expressionSort?, hempty, hemptySeq, hg1, hg2, hml]
+              using hsort
+          unfold declarationSort? at hdeclarationSort
+          generalize hfind : declarations.find? (fun declaration =>
+            declaration.name == name) = found at hdeclarationSort
+          cases found with
+          | none => simp at hdeclarationSort
+          | some declaration =>
+              have hmember : declaration ∈ declarations :=
+                List.mem_of_find?_eq_some hfind
+              have hname : declaration.name = name := by
+                have := List.find?_some hfind
+                simpa using this
+              have hsort : declaration.sort = sort := by
+                simpa using hdeclarationSort
+              obtain ⟨value, hvalue, hvalueSort⟩ :=
+                bridge.declaredSymbolValue declaration hmember
+              refine ⟨value, ?_, ?_⟩
+              · calc
+                  SmtSem.eval model (.sym name) = model.valueOf name := by
+                    simp [Moist.SMT.Semantics.eval]
+                  _ = some value := by simpa [hname] using hvalue
+              · simpa [hsort] using hvalueSort
+    | .int value =>
+        simp [expressionSort?] at hsort
+        subst sort
+        exact ⟨.int value, by simp [Moist.SMT.Semantics.eval], .intVal value⟩
+    | .bytes value =>
+        simp [expressionSort?] at hsort
+        subst sort
+        exact ⟨.bytes value, by simp [Moist.SMT.Semantics.eval], .bytesVal value⟩
+    | .dataLit value =>
+        simp [expressionSort?] at hsort
+        subst sort
+        exact ⟨.data value, by simp [Moist.SMT.Semantics.eval], .dataVal value⟩
+    | .dataListLit value =>
+        simp [expressionSort?] at hsort
+        subst sort
+        exact ⟨.dataList value, by simp [Moist.SMT.Semantics.eval],
+          .dataListVal value⟩
+    | .dataPairListLit value =>
+        simp [expressionSort?] at hsort
+        subst sort
+        exact ⟨.dataPairList value, by simp [Moist.SMT.Semantics.eval],
+          .dataPairListVal value⟩
+    | .constListLit constants =>
+        simp [expressionSort?] at hsort
+        subst sort
+        exact ⟨.valList (Moist.SMT.Semantics.constListToVals constants),
+          by simp [Moist.SMT.Semantics.eval],
+          .valListVal (Moist.SMT.Semantics.constListToVals constants)⟩
+    | .bool value =>
+        simp [expressionSort?] at hsort
+        subst sort
+        exact ⟨.bool value, by simp [Moist.SMT.Semantics.eval], .boolVal value⟩
+    | .str value =>
+        simp [expressionSort?] at hsort
+        subst sort
+        exact ⟨.string value, by simp [Moist.SMT.Semantics.eval],
+          .stringVal value⟩
+    | .app name arguments =>
+        simp only [expressionTotalitySafe, Bool.and_eq_true] at htotal
+        by_cases hequality : name = "="
+        · subst name
+          cases arguments with
+          | nil =>
+              simp [expressionSort?, applicationResultSort?,
+                applicationSignatures, testerSignature?] at hsort
+          | cons left tail =>
+              cases tail with
+              | nil =>
+                  simp [expressionSort?, applicationResultSort?,
+                    applicationSignatures, testerSignature?] at hsort
+              | cons right rest =>
+                  cases rest with
+                  | cons third rest =>
+                      simp [expressionSort?, applicationResultSort?,
+                        applicationSignatures, testerSignature?] at hsort
+                  | nil =>
+                      change (do
+                        let leftSort ← expressionSort? declarations left
+                        let rightSort ← expressionSort? declarations right
+                        guard (leftSort == rightSort)
+                        pure .bool) = some sort at hsort
+                      generalize hleftSort :
+                          expressionSort? declarations left =
+                            foundLeftSort
+                      cases foundLeftSort with
+                      | none =>
+                          rw [hleftSort] at hsort
+                          simp at hsort
+                      | some leftSort =>
+                          rw [hleftSort] at hsort
+                          generalize hrightSort :
+                              expressionSort? declarations right =
+                                foundRightSort
+                          cases foundRightSort with
+                          | none =>
+                              rw [hrightSort] at hsort
+                              simp at hsort
+                          | some rightSort =>
+                              rw [hrightSort] at hsort
+                              by_cases hsame : leftSort == rightSort
+                              · simp [guard, hsame] at hsort
+                                have hsameSort : leftSort = rightSort :=
+                                  eq_of_beq hsame
+                                subst rightSort
+                                subst sort
+                                simp [expressionsTotalitySafe] at htotal
+                                obtain ⟨leftValue, hleftEval,
+                                    hleftValue⟩ :=
+                                  expressionEvaluates bridge left leftSort
+                                    htotal.2.1
+                                    ((expressionHasSort_eq_true_iff
+                                      declarations left leftSort).mpr
+                                        hleftSort)
+                                obtain ⟨rightValue, hrightEval,
+                                    hrightValue⟩ :=
+                                  expressionEvaluates bridge right leftSort
+                                    htotal.2.2
+                                    ((expressionHasSort_eq_true_iff
+                                      declarations right leftSort).mpr
+                                        hrightSort)
+                                obtain ⟨result, hresult⟩ :=
+                                  Moist.SMT.Semantics.evalApp_eq_total
+                                    leftValue rightValue
+                                exact ⟨.bool result, by
+                                  simp [Moist.SMT.Semantics.eval,
+                                    Moist.SMT.Semantics.evalList, hleftEval,
+                                    hrightEval, hresult],
+                                  .boolVal result⟩
+                              · simp [guard, hsame] at hsort
+                                change (none : Option Moist.SMT.SSort) =
+                                    some sort at hsort
+                                contradiction
+        · rw [expressionSort_app_of_ne_eq declarations name arguments
+            hequality] at hsort
+          generalize hargumentSorts :
+              expressionSorts? declarations arguments = foundSorts
+          cases foundSorts with
+          | none =>
+              rw [hargumentSorts] at hsort
+              simp at hsort
+          | some argumentSorts =>
+              rw [hargumentSorts] at hsort
+              simp at hsort
+              have harguments := expressionsEvaluateWithSorts bridge arguments
+                argumentSorts htotal.2 hargumentSorts
+              exact totalApplication_evaluates htotal.1 hsort harguments
+    | .ite condition thenBranch elseBranch =>
+        change (expressionTotalitySafe condition &&
+          expressionTotalitySafe thenBranch &&
+          expressionTotalitySafe elseBranch) = true at htotal
+        simp only [Bool.and_eq_true] at htotal
+        change (do
+          guard (expressionSort? declarations condition == some .bool)
+          let thenSort ← expressionSort? declarations thenBranch
+          let elseSort ← expressionSort? declarations elseBranch
+          guard (thenSort == elseSort)
+          pure thenSort) = some sort at hsort
+        generalize hconditionSort :
+            expressionSort? declarations condition = foundConditionSort
+        cases foundConditionSort with
+        | none =>
+            rw [hconditionSort] at hsort
+            change (none : Option Moist.SMT.SSort) = some sort at hsort
+            contradiction
+        | some conditionSort =>
+            rw [hconditionSort] at hsort
+            cases conditionSort <;>
+              try
+                { change (none : Option Moist.SMT.SSort) =
+                    some sort at hsort
+                  contradiction }
+            change (do
+              let thenSort ← expressionSort? declarations thenBranch
+              let elseSort ← expressionSort? declarations elseBranch
+              guard (thenSort == elseSort)
+              pure thenSort) = some sort at hsort
+            generalize hthenSort :
+                expressionSort? declarations thenBranch = foundThenSort
+            cases foundThenSort with
+            | none =>
+                rw [hthenSort] at hsort
+                simp at hsort
+            | some thenSort =>
+                rw [hthenSort] at hsort
+                generalize helseSort :
+                    expressionSort? declarations elseBranch = foundElseSort
+                cases foundElseSort with
+                | none =>
+                    rw [helseSort] at hsort
+                    simp at hsort
+                | some elseSort =>
+                    rw [helseSort] at hsort
+                    by_cases hsame : thenSort == elseSort
+                    · simp [guard, hsame] at hsort
+                      have hsameSort : thenSort = elseSort := eq_of_beq hsame
+                      subst elseSort
+                      subst sort
+                      obtain ⟨conditionValue, hconditionEval,
+                          hconditionValue⟩ :=
+                        expressionEvaluates bridge condition .bool htotal.1.1
+                          ((expressionHasSort_eq_true_iff declarations condition
+                            .bool).mpr hconditionSort)
+                      obtain ⟨thenValue, hthenEval, hthenValue⟩ :=
+                        expressionEvaluates bridge thenBranch thenSort
+                          htotal.1.2
+                          ((expressionHasSort_eq_true_iff declarations thenBranch
+                            thenSort).mpr hthenSort)
+                      obtain ⟨elseValue, helseEval, helseValue⟩ :=
+                        expressionEvaluates bridge elseBranch thenSort htotal.2
+                          ((expressionHasSort_eq_true_iff declarations elseBranch
+                            thenSort).mpr helseSort)
+                      cases hconditionValue with
+                      | boolVal conditionValue =>
+                          cases conditionValue with
+                          | false =>
+                              exact ⟨elseValue, by
+                                change Moist.SMT.Semantics.eval model
+                                  (.ite condition thenBranch elseBranch) =
+                                    some elseValue
+                                change Moist.SMT.Semantics.eval model condition =
+                                  some (.bool false) at hconditionEval
+                                rw [Moist.SMT.Semantics.eval_ite_exact,
+                                  hconditionEval]
+                                exact helseEval, helseValue⟩
+                          | true =>
+                              exact ⟨thenValue, by
+                                change Moist.SMT.Semantics.eval model
+                                  (.ite condition thenBranch elseBranch) =
+                                    some thenValue
+                                change Moist.SMT.Semantics.eval model condition =
+                                  some (.bool true) at hconditionEval
+                                rw [Moist.SMT.Semantics.eval_ite_exact,
+                                  hconditionEval]
+                                exact hthenEval, hthenValue⟩
+                    · simp [guard, hsame] at hsort
+                      change (none : Option Moist.SMT.SSort) =
+                          some sort at hsort
+                      contradiction
+  termination_by sizeOf expression
+  decreasing_by
+    all_goals simp_all
+    all_goals simp_wf
+    all_goals omega
+
+  /-- Pointwise form of `expressionEvaluates` for application arguments. -/
+  theorem expressionsEvaluateWithSorts
+      {declarations : List SymDecl} {model : SmtSem.Model}
+      (bridge : SolverInputModel declarations model)
+      (expressions : List SExpr) (sorts : List Moist.SMT.SSort)
+      (htotal : expressionsTotalitySafe expressions = true)
+      (hsorts : expressionSorts? declarations expressions = some sorts) :
+      ExpressionsEvaluateWithSorts model expressions sorts := by
+    match expressions with
+    | [] =>
+        simp [expressionSorts?] at hsorts
+        subst sorts
+        exact .nil
+    | expression :: expressions =>
+        simp only [expressionsTotalitySafe, Bool.and_eq_true] at htotal
+        change (do
+          let sort ← expressionSort? declarations expression
+          let sorts ← expressionSorts? declarations expressions
+          pure (sort :: sorts)) = some sorts at hsorts
+        generalize hsort :
+            expressionSort? declarations expression = foundSort
+        cases foundSort with
+        | none =>
+            rw [hsort] at hsorts
+            simp at hsorts
+        | some sort =>
+            rw [hsort] at hsorts
+            generalize htailSorts :
+                expressionSorts? declarations expressions = foundSorts
+            cases foundSorts with
+            | none =>
+                rw [htailSorts] at hsorts
+                simp at hsorts
+            | some tailSorts =>
+                rw [htailSorts] at hsorts
+                simp at hsorts
+                subst sorts
+                obtain ⟨value, heval, hvalue⟩ :=
+                  expressionEvaluates bridge expression sort htotal.1
+                    ((expressionHasSort_eq_true_iff declarations expression
+                      sort).mpr hsort)
+                exact .cons heval hvalue
+                  (expressionsEvaluateWithSorts bridge expressions
+                    tailSorts htotal.2 htailSorts)
+  termination_by sizeOf expressions
+  decreasing_by
+    all_goals simp_wf
+    all_goals omega
+end
+
+end SolverInputModel
+
+/-- Every direct symbolic `Val` reference satisfies the exact validity
+assertion emitted by its declaration. -/
+def DirectValAssertionsHold (declarations : List SymDecl)
+    (model : SmtSem.Model) : Prop :=
+  ∀ expression, inputSymValSafe declarations (.dyn expression) = true →
+    SmtSem.evalBoolIs model (.app "val_valid" [expression]) true = true
 
 /-- Every checked symbolic constant decodes specifically to a CEK constant. -/
 theorem inputSymConstSafe_decodes
@@ -686,7 +1574,9 @@ environment decoding together.  Keeping this bundled prevents a hidden
 assumption at closures, constructor fields, or partial-builtin arguments. -/
 private theorem inputValueDecodeProperties
     {declarations : List SymDecl} {model : SmtSem.Model}
-    (bridge : SolverInputModel declarations model) (value : SymVal) :
+    (bridge : SolverInputModel declarations model)
+    (directValAssertions : DirectValAssertionsHold declarations model)
+    (value : SymVal) :
     InputValueDecodeProperty declarations model value := by
   exact SymVal.rec
     (motive_1 := InputValueDecodeProperty declarations model)
@@ -705,8 +1595,24 @@ private theorem inputValueDecodeProperties
         exact ⟨decoded, by simpa [symValToCek?] using hdecoded⟩)
     (fun expression => by
       constructor
-      · intro hsafe _hsort
-        exact bridge.directValDecodes expression hsafe
+      · intro hsafe hsort
+        obtain ⟨semanticValue, heval, hsemanticSort⟩ :=
+          bridge.expressionEvaluates expression .val
+            (by
+              cases expression <;>
+                simp [inputSymValSafe, directValSymbol] at hsafe ⊢ <;> rfl)
+            (by simpa [symValSortSafe] using hsort)
+        cases hsemanticSort with
+        | valVal semanticValue =>
+            have hvalid : Moist.SMT.Semantics.valValid semanticValue = true := by
+              have hassumption := directValAssertions expression hsafe
+              change Moist.SMT.Semantics.evalBoolIs model
+                (.app "val_valid" [expression]) true = true at hassumption
+              rw [Moist.SMT.Semantics.evalBoolIs_val_valid_of_eval heval] at hassumption
+              exact hassumption
+            obtain ⟨decoded, hdecoded⟩ :=
+              valValid_decodes semanticValue hvalid
+            exact ⟨decoded, by simp [symValToCek?, heval, hdecoded]⟩
       · intro hsafe _hsort
         simp [inputConstSymValSafe] at hsafe)
     (fun first second firstIH secondIH => by
@@ -790,25 +1696,30 @@ private theorem inputValueDecodeProperties
 /-- A checked value decodes to some CEK runtime value. -/
 theorem inputSymValSafe_decodes
     {declarations : List SymDecl} {model : SmtSem.Model}
-    (bridge : SolverInputModel declarations model) (value : SymVal)
+    (bridge : SolverInputModel declarations model)
+    (directValAssertions : DirectValAssertionsHold declarations model)
+    (value : SymVal)
     (hsafe : inputSymValSafe declarations value = true)
     (hsort : symValSortSafe declarations value = true) :
     ∃ decoded, symValToCek? model value = some decoded :=
-  (inputValueDecodeProperties bridge value).1 hsafe hsort
+  (inputValueDecodeProperties bridge directValAssertions value).1 hsafe hsort
 
 /-- A checked constant-shaped symbolic value decodes specifically to `VCon`. -/
 theorem inputConstSymValSafe_decodes
     {declarations : List SymDecl} {model : SmtSem.Model}
-    (bridge : SolverInputModel declarations model) (value : SymVal)
+    (bridge : SolverInputModel declarations model)
+    (directValAssertions : DirectValAssertionsHold declarations model)
+    (value : SymVal)
     (hsafe : inputConstSymValSafe declarations value = true)
     (hsort : symValSortSafe declarations value = true) :
     ∃ constant, symValToCek? model value = some (.VCon constant) :=
-  (inputValueDecodeProperties bridge value).2 hsafe hsort
+  (inputValueDecodeProperties bridge directValAssertions value).2 hsafe hsort
 
 /-- Checked value lists compose through the ordinary list decoder. -/
 theorem inputSymValsSafe_decodes
     {declarations : List SymDecl} {model : SmtSem.Model}
-    (bridge : SolverInputModel declarations model) : ∀ values,
+    (bridge : SolverInputModel declarations model)
+    (directValAssertions : DirectValAssertionsHold declarations model) : ∀ values,
     inputSymValsSafe declarations values = true →
     symValsSortSafe declarations values = true →
     ∃ decoded, symValListToCekList? model values = some decoded
@@ -817,16 +1728,17 @@ theorem inputSymValsSafe_decodes
       simp [inputSymValsSafe] at hsafe
       simp [symValsSortSafe] at hsort
       obtain ⟨headValue, hhead⟩ := inputSymValSafe_decodes
-        bridge head hsafe.1 hsort.1
+        bridge directValAssertions head hsafe.1 hsort.1
       obtain ⟨tailValues, htail⟩ := inputSymValsSafe_decodes
-        bridge tail hsafe.2 hsort.2
+        bridge directValAssertions tail hsafe.2 hsort.2
       exact ⟨headValue :: tailValues, by
         simp [symValListToCekList?, hhead, htail]⟩
 
 /-- The same checked list composes as a CEK environment. -/
 theorem inputSymEnvSafe_decodes
     {declarations : List SymDecl} {model : SmtSem.Model}
-    (bridge : SolverInputModel declarations model) : ∀ values,
+    (bridge : SolverInputModel declarations model)
+    (directValAssertions : DirectValAssertionsHold declarations model) : ∀ values,
     inputSymValsSafe declarations values = true →
     symValsSortSafe declarations values = true →
     ∃ environment, symEnvToCek? model values = some environment
@@ -835,11 +1747,213 @@ theorem inputSymEnvSafe_decodes
       simp [inputSymValsSafe] at hsafe
       simp [symValsSortSafe] at hsort
       obtain ⟨headValue, hhead⟩ := inputSymValSafe_decodes
-        bridge head hsafe.1 hsort.1
+        bridge directValAssertions head hsafe.1 hsort.1
       obtain ⟨tailEnv, htail⟩ := inputSymEnvSafe_decodes
-        bridge tail hsafe.2 hsort.2
+        bridge directValAssertions tail hsafe.2 hsort.2
       exact ⟨.cons headValue tailEnv, by
         simp [symEnvToCek?, hhead, htail]⟩
+
+/-- A syntactically admitted direct `Val` symbol points to a declaration that
+contains the exact mandatory `val_valid` assertion. -/
+theorem directValValidityAssumption_mem
+    {declarations : List SymDecl} {expression : SExpr}
+    (hsafe : inputSymValSafe declarations (.dyn expression) = true) :
+    ∃ declaration, declaration ∈ declarations ∧
+      (.app "val_valid" [expression] : SExpr) ∈
+        declaration.assumptions := by
+  cases expression with
+  | sym name =>
+      simp [inputSymValSafe, directValSymbol] at hsafe
+      unfold declarationSort? at hsafe
+      generalize hfind :
+        declarations.find? (fun declaration => declaration.name == name) =
+          found at hsafe
+      cases found with
+      | none => simp at hsafe
+      | some declaration =>
+          have hsort : declaration.sort = .val := by
+            cases hsort : declaration.sort <;> simp [hsort] at hsafe
+            rfl
+          have hmem : declaration ∈ declarations :=
+            List.mem_of_find?_eq_some hfind
+          have hname : declaration.name = name := by
+            simpa using List.find?_some hfind
+          have hvalid := SymDecl.valValid_mem_of_sort declaration hsort
+          rw [hname] at hvalid
+          exact ⟨declaration, hmem, hvalid⟩
+  | _ => simp [inputSymValSafe, directValSymbol] at hsafe
+
+private theorem symDeclInputSafe_valueSafeUnlessConstr
+    {declarations : List SymDecl} (declaration : SymDecl)
+    (hsafe : symDeclInputSafe declarations declaration = true)
+    (hsort : symDeclSortSafe declarations declaration = true) :
+    match declaration.value with
+    | .constr (.sym _) _ => True
+    | value => inputSymValSafe declarations value = true := by
+  rcases declaration with ⟨name, sort, value, assumptions, hwellFormed⟩
+  have hsort' : symValSortSafe declarations value = true ∧
+      assumptions.all (fun assumption =>
+        expressionHasSort declarations assumption .bool) = true := by
+    simpa [symDeclSortSafe] using hsort
+  have hvalueSort : symValSortSafe declarations value = true := hsort'.1
+  unfold symDeclInputSafe at hsafe
+  dsimp only at hsafe
+  split at hsafe
+  case h_6 nameSym =>
+    unfold symValSortSafe expressionHasSort at hvalueSort
+    have hempty : nameSym ≠ "(as seq.empty Bytes)" := by
+      intro heq
+      subst nameSym
+      change false = true at hvalueSort
+      exact Bool.noConfusion hvalueSort
+    have hemptySeq : nameSym ≠ "(as seq.empty (Seq Int))" := by
+      intro heq
+      subst nameSym
+      change false = true at hvalueSort
+      exact Bool.noConfusion hvalueSort
+    have hg1 : nameSym ≠ "g1_default" := by
+      intro heq
+      subst nameSym
+      change false = true at hvalueSort
+      exact Bool.noConfusion hvalueSort
+    have hg2 : nameSym ≠ "g2_default" := by
+      intro heq
+      subst nameSym
+      change false = true at hvalueSort
+      exact Bool.noConfusion hvalueSort
+    have hml : nameSym ≠ "ml_default" := by
+      intro heq
+      subst nameSym
+      change false = true at hvalueSort
+      exact Bool.noConfusion hvalueSort
+    simp [expressionSort?] at hvalueSort
+    simp [inputSymValSafe, directValSymbol, hvalueSort]
+  all_goals
+    simp_all [symDeclSortSafe, symValSortSafe, inputSymValSafe,
+      inputSymConstSafe, expressionTotalitySafe, expressionHasSort]
+
+/-- A declaration admitted by the checked grammar decodes to a CEK value when
+its mandatory assumptions hold in the executable SMT model.  The only case
+not covered directly by `inputSymValSafe_decodes` is `symConstr`: its outer
+tag is symbolic, so nonnegativity comes from the declaration's required
+`tag >= 0` assertion. -/
+theorem inputSymDeclSafe_decodes
+    {declarations : List SymDecl} {model : SmtSem.Model}
+    (bridge : SolverInputModel declarations model) (declaration : SymDecl)
+    (hmember : declaration ∈ declarations)
+    (hsafe : symDeclInputSafe declarations declaration = true)
+    (hsort : symDeclSortSafe declarations declaration = true)
+    (hassumptions : ∀ inputDeclaration,
+      inputDeclaration ∈ declarations → ∀ expression,
+      expression ∈ inputDeclaration.assumptions →
+        SmtSem.evalBoolIs model expression true = true) :
+    ∃ decoded, symValToCek? model declaration.value = some decoded := by
+  have hsort' : symValSortSafe declarations declaration.value = true ∧
+      declaration.assumptions.all (fun assumption =>
+        expressionHasSort declarations assumption .bool) = true := by
+    simpa [symDeclSortSafe] using hsort
+  have hvalueSort : symValSortSafe declarations declaration.value = true :=
+    hsort'.1
+  have hproperty := symDeclInputSafe_valueSafeUnlessConstr
+    declaration hsafe hsort
+  have directValAssertions : DirectValAssertionsHold declarations model := by
+    intro expression hvalueSafe
+    obtain ⟨inputDeclaration, hinputMember, hvalidMember⟩ :=
+      directValValidityAssumption_mem hvalueSafe
+    exact hassumptions inputDeclaration hinputMember _ hvalidMember
+  have decodeOrdinary
+      (hvalueSafe : inputSymValSafe declarations declaration.value = true) :
+      ∃ decoded, symValToCek? model declaration.value = some decoded :=
+    inputSymValSafe_decodes bridge directValAssertions declaration.value
+      hvalueSafe hvalueSort
+  by_cases houter : ∃ tagName fields,
+      declaration.value = .constr (.sym tagName) fields
+  · rcases houter with ⟨tagName, fields, hvalue⟩
+    rcases declaration with ⟨name, sort, value, assumptions, hwellFormed⟩
+    simp only at hvalue
+    subst value
+    cases sort <;> simp [symDeclInputSafe] at hsafe
+    have htagFields : tagName = name ∧
+        inputSymValsSafe declarations fields = true := hsafe.1
+    rcases htagFields with ⟨rfl, hfieldsSafe⟩
+    simp [symValSortSafe] at hvalueSort
+    obtain ⟨tag, htagEval, htagSort⟩ := bridge.expressionEvaluates
+      (.sym tagName) .int (by rfl) hvalueSort.1
+    cases htagSort with
+    | intVal tag =>
+        obtain ⟨decodedFields, hfieldsDecoded⟩ :=
+          inputSymValsSafe_decodes bridge directValAssertions fields
+            hfieldsSafe hvalueSort.2
+        have hmandatory :
+            SExpr.ge (.sym tagName) (.int 0) ∈ assumptions :=
+          SymDecl.constrTagNonnegative_mem
+            { name := tagName
+              sort := .int
+              value := .constr (.sym tagName) fields
+              assumptions := assumptions
+              wellFormed := hwellFormed }
+            rfl rfl rfl
+        have htagNonnegative : 0 ≤ tag := by
+          apply pcHolds_nonneg htagEval
+          simpa [pcHolds, nonnegGuard] using
+            hassumptions
+              { name := tagName
+                sort := .int
+                value := .constr (.sym tagName) fields
+                assumptions := assumptions
+                wellFormed := hwellFormed }
+              hmember _ hmandatory
+        have htagNotNegative : ¬ tag < 0 := by omega
+        exact ⟨Moist.CEK.CekValue.VConstr tag.toNat decodedFields, by
+          simp [symValToCek?, htagEval, hfieldsDecoded,
+            htagNotNegative]⟩
+  · apply decodeOrdinary
+    cases hvalue : declaration.value with
+    | constr tag fields =>
+        cases htag : tag <;> simp_all
+    | _ => simpa [hvalue] using hproperty
+
+private theorem inputDeclarationsSafe_decodesAux
+    {declarations : List SymDecl} {model : SmtSem.Model}
+    (bridge : SolverInputModel declarations model) : ∀ (current : List SymDecl),
+    current.all (symDeclInputSafe declarations) = true →
+    current.all (symDeclSortSafe declarations) = true →
+    (∀ declaration, declaration ∈ current → declaration ∈ declarations) →
+    (∀ (declaration : SymDecl), declaration ∈ declarations → ∀ expression,
+      expression ∈ declaration.assumptions →
+        SmtSem.evalBoolIs model expression true = true) →
+    ∃ environment,
+      symEnvToCek? model (current.map SymDecl.value) = some environment
+  | [], _, _, _, _ => ⟨.nil, rfl⟩
+  | declaration :: declarations, hsafe, hsort, hsubset, hassumptions => by
+      simp only [List.all_cons, Bool.and_eq_true] at hsafe hsort
+      obtain ⟨headValue, hhead⟩ := inputSymDeclSafe_decodes bridge
+        declaration (hsubset declaration (by simp)) hsafe.1 hsort.1
+          hassumptions
+      obtain ⟨tailEnvironment, htail⟩ := inputDeclarationsSafe_decodesAux
+        bridge declarations hsafe.2 hsort.2
+          (fun tailDeclaration htailMem =>
+            hsubset tailDeclaration (by simp [htailMem])) hassumptions
+      exact ⟨.cons headValue tailEnvironment, by
+        simp [symEnvToCek?, hhead, htail]⟩
+
+/-- All checked declarations compose to one exact CEK environment.  In
+particular, this theorem derives the outer `symConstr` tag from its mandatory
+solver assertion instead of assuming the final environment decoder result. -/
+theorem declarationsInputSafe_decodes
+    {declarations : List SymDecl} {model : SmtSem.Model}
+    (bridge : SolverInputModel declarations model)
+    (hsafe : declarationsInputSafe declarations = true)
+    (hsort : declarationsSortSafe declarations = true)
+    (hassumptions : ∀ declaration, declaration ∈ declarations →
+      ∀ expression, expression ∈ declaration.assumptions →
+        SmtSem.evalBoolIs model expression true = true) :
+    ∃ environment,
+      symEnvToCek? model (envOf declarations) = some environment := by
+  exact inputDeclarationsSafe_decodesAux bridge declarations
+    (by simpa [declarationsInputSafe] using hsafe)
+    (by simpa [declarationsSortSafe] using hsort)
+    (fun _ hmem => hmem) hassumptions
 
 /-- Z3 rejects repeated constant declarations, but may continue processing and
 print a later `sat` status after the error.  Production scripts therefore

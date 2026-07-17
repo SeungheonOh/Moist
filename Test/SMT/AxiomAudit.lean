@@ -81,6 +81,42 @@ info: 'Moist.SMT.UPLC.Soundness.constListBranches_complete_for_toCek' depends on
 #print axioms Moist.SMT.UPLC.Soundness.constListBranches_complete_for_toCek
 
 /--
+info: 'Moist.SMT.UPLC.Soundness.evalBuiltinStatic?_ok_sound' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.evalBuiltinStatic?_ok_sound
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.evalBuiltinStatic?_error_sound' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.evalBuiltinStatic?_error_sound
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.evalBuiltinSaturated_ok_sound' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.evalBuiltinSaturated_ok_sound
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.evalBuiltinSaturated_error_sound' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.evalBuiltinSaturated_error_sound
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.builtinOkSoundAllowed' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.builtinOkSoundAllowed
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.builtinErrorSoundAllowed' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.builtinErrorSoundAllowed
+
+/--
 info: 'Moist.Verified.BigStep.bigEval_iff_halt_env' depends on axioms: [propext, Classical.choice, Quot.sound]
 -/
 #guard_msgs in
@@ -191,10 +227,50 @@ info: 'Moist.SMT.UPLC.Soundness.evalSym_okIntEqCond_sound' depends on axioms: [p
 #print axioms Moist.SMT.UPLC.Soundness.evalSym_okIntEqCond_sound
 
 /--
-info: 'Moist.SMT.UPLC.Soundness.inputSymEnvSafe_decodes' depends on axioms: [propext, Quot.sound]
+info: 'Moist.SMT.UPLC.Soundness.inputSymEnvSafe_decodes' depends on axioms: [propext, Classical.choice, Quot.sound]
 -/
 #guard_msgs in
 #print axioms Moist.SMT.UPLC.Soundness.inputSymEnvSafe_decodes
+
+/--
+info: 'Moist.SMT.Semantics.evalBoolIs_val_valid_of_eval' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.Semantics.evalBoolIs_val_valid_of_eval
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.valValid_decodes' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.valValid_decodes
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.valListValid_decodes' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.valListValid_decodes
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.SolverInputModel.expressionEvaluates' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.SolverInputModel.expressionEvaluates
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.declarationsInputSafe_decodes' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.declarationsInputSafe_decodes
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.CertifiedZ3Model.environmentDecodes' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.CertifiedZ3Model.environmentDecodes
 
 /--
 info: 'Moist.SMT.UPLC.Soundness.BoolTrueQuery.sound' depends on axioms: [propext, Classical.choice, Quot.sound]
