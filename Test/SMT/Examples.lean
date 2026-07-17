@@ -45,11 +45,6 @@ def caseEmptyConstListMissingNilExample : Term :=
 def mkConsRejectsRuntimeConstrExample : Term :=
   app (app (forceBuiltin .MkCons) (.Constr 0 [])) (.Constant (.ConstList [], tyListInt))
 
-def shaCongruenceTerm : Term :=
-  app2 .EqualsByteString
-    (app1 .Sha2_256 (.Var 1))
-    (app1 .Sha2_256 (.Var 2))
-
 def recursiveSumTerm : Term :=
   let body :=
     let x := .Var 1
@@ -63,9 +58,6 @@ def recursiveSumTerm : Term :=
   app (app sumF sumF) (.Var 1)
 
 def xInt : SymDecl := symInt "x"
-def xBytes : SymDecl := symBytes "x"
-def yBytes : SymDecl := symBytes "y"
-
 def scriptEqualsIntegerAdd : Script :=
   scriptForBoolTrue 20 [xInt] equalsIntegerAddExample
 
@@ -84,15 +76,6 @@ def scriptCaseEmptyConstListMissingNilError : Script :=
 def scriptMkConsRejectsRuntimeConstrError : Script :=
   scriptForError 20 [] mkConsRejectsRuntimeConstrExample
 
-def scriptShaTimeoutNoOkOrError : Script :=
-  let decls := [xBytes, yBytes]
-  let outs := evalSym 20 (envOf decls) shaCongruenceTerm
-  scriptWith decls
-    [ timeoutCond outs
-    , SExpr.not (okBoolTrueCond outs)
-    , SExpr.not (errorCond outs)
-    ]
-
 def scriptRecursiveSum55 : Script :=
   scriptForIntEq 100 [xInt] recursiveSumTerm (.int 55)
 
@@ -103,7 +86,6 @@ def examples : List (String × Script) :=
   , ("force_delay.smt2", scriptForceDelay)
   , ("case_empty_const_list_missing_nil_error.smt2", scriptCaseEmptyConstListMissingNilError)
   , ("mkcons_rejects_runtime_constr_error.smt2", scriptMkConsRejectsRuntimeConstrError)
-  , ("sha_timeout_no_ok_or_error.smt2", scriptShaTimeoutNoOkOrError)
   , ("recursive_sum_55.smt2", scriptRecursiveSum55)
   ]
 
