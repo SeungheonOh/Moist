@@ -439,6 +439,142 @@ def symDeclSortSafe (declarations : List SymDecl)
 def declarationsSortSafe (declarations : List SymDecl) : Bool :=
   declarations.all (symDeclSortSafe declarations)
 
+/-! ## Total public declaration expressions
+
+SMT datatype selectors and sequence operations are total, whereas the
+executable semantics deliberately returns `none` outside the domain used by
+the compiler's guarded formulas.  Public declaration fields and assumptions
+must therefore use a fail-closed, always-defined fragment.  This restriction
+does not inspect compiler-generated outcomes: their partial selectors are
+already guarded and covered by the simulation proof.
+
+The list below contains only operations whose executable interpretation is
+total for every well-sorted argument.  In particular, raw selectors,
+division, `seq.unit`, `seq.nth`, `seq.extract`, and UTF-8 decoding are absent.
+The latter operations can still be exercised through UPLC builtins, where the
+compiler emits and proves the required domain guards.
+-/
+
+private def totalApplicationHeads : List String :=
+  [ "not", "and", "or", "=", "+", "-", "*", "<", "<=", ">", ">="
+  , "seq.++", "seq.len", "uplc_encodeUtf8", "valid_utf8"
+  , "same_sign", "abs_int", "bytes_lt", "bytes_le"
+  , "bytes_valid", "ustring_valid", "data_valid", "dlist_valid"
+  , "dplist_valid", "val_valid", "vlist_valid", "const_val_valid"
+  , "const_vlist_valid"
+  , "VInt", "VBytes", "VString", "VBool", "VUnit", "VList"
+  , "VDataList", "VPairDataList", "VPair", "VPairData", "VData"
+  , "VArray", "VG1", "VG2", "VMlResult", "VConstr", "VNil", "VCons"
+  , "vlist_length", "vlist_drop"
+  , "DConstr", "DMap", "DList", "DI", "DB", "DNil", "DCons"
+  , "dlist_length", "dlist_drop", "DPNil", "DPCons"
+  ]
+
+mutual
+  /-- The total, semantics-aligned expression fragment admitted in public
+  symbolic declaration values and assumptions. -/
+  def expressionTotalitySafe : SExpr → Bool
+    | .sym _ | .int _ | .bytes _ | .dataLit _ | .dataListLit _
+    | .dataPairListLit _ | .constListLit _ | .bool _ | .str _ => true
+    | .ite condition thenBranch elseBranch =>
+        expressionTotalitySafe condition &&
+          expressionTotalitySafe thenBranch &&
+          expressionTotalitySafe elseBranch
+    | .app name arguments =>
+        (totalApplicationHeads.contains name ||
+          indexedTesterHeads.contains name) &&
+        expressionsTotalitySafe arguments
+
+  def expressionsTotalitySafe : List SExpr → Bool
+    | [] => true
+    | expression :: expressions =>
+        expressionTotalitySafe expression &&
+          expressionsTotalitySafe expressions
+end
+
+private def directValSymbol (declarations : List SymDecl) : SExpr → Bool
+  | .sym name => declarationSort? declarations name == some .val
+  | _ => false
+
+private def nonnegativeLiteral : SExpr → Bool
+  | .int value => decide (0 ≤ value)
+  | _ => false
+
+mutual
+  /-- Values embedded in a constructor declaration must not merely evaluate;
+  they must also be guaranteed to decode to a CEK value. -/
+  def inputSymConstSafe (_declarations : List SymDecl) : SymConst → Bool
+    | .integer expression => expressionTotalitySafe expression
+    | .bytes expression => expressionTotalitySafe expression
+    | .string expression => expressionTotalitySafe expression
+    | .bool expression => expressionTotalitySafe expression
+    | .unit => true
+    | .data expression => expressionTotalitySafe expression
+    | .constList (.constListLit _) _ => true
+    | .constList _ _ => false
+    | .dataList expression => expressionTotalitySafe expression
+    | .pairDataList expression => expressionTotalitySafe expression
+    | .pairData first second =>
+        expressionTotalitySafe first && expressionTotalitySafe second
+    | .array (.constListLit _) => true
+    | .array _ => false
+    | .g1 (.sym "g1_default") => true
+    | .g1 _ => false
+    | .g2 (.sym "g2_default") => true
+    | .g2 _ => false
+    | .ml (.sym "ml_default") => true
+    | .ml _ => false
+
+  /-- A symbolic value guaranteed to decode specifically to `CekValue.VCon`.
+  CEK pairs may contain constants only, so the broader decodable-value check
+  is insufficient for their children. -/
+  def inputConstSymValSafe (declarations : List SymDecl) : SymVal → Bool
+    | .const constant => inputSymConstSafe declarations constant
+    | .pair first second =>
+        inputConstSymValSafe declarations first &&
+          inputConstSymValSafe declarations second
+    | _ => false
+
+  def inputSymValSafe (declarations : List SymDecl) : SymVal → Bool
+    | .const constant => inputSymConstSafe declarations constant
+    | .dyn expression => directValSymbol declarations expression
+    | .pair first second =>
+        inputConstSymValSafe declarations first &&
+          inputConstSymValSafe declarations second
+    | .constr tag fields =>
+        nonnegativeLiteral tag && inputSymValsSafe declarations fields
+    | .lam _ environment | .delay _ environment =>
+        inputSymValsSafe declarations environment
+    | .builtin _ arguments _ => inputSymValsSafe declarations arguments
+
+  def inputSymValsSafe (declarations : List SymDecl) : List SymVal → Bool
+    | [] => true
+    | value :: values =>
+        inputSymValSafe declarations value &&
+          inputSymValsSafe declarations values
+end
+
+/-- Re-check the exact smart-constructor declaration shape computationally,
+then apply the CEK-decodable field restriction to constructor declarations. -/
+def symDeclInputSafe (declarations : List SymDecl)
+    (declaration : SymDecl) : Bool :=
+  let valueSafe :=
+    match declaration.sort, declaration.value with
+    | .int, .const (.integer (.sym name)) => name == declaration.name
+    | .bool, .const (.bool (.sym name)) => name == declaration.name
+    | .bytes, .const (.bytes (.sym name)) => name == declaration.name
+    | .string, .const (.string (.sym name)) => name == declaration.name
+    | .data, .const (.data (.sym name)) => name == declaration.name
+    | .val, .dyn (.sym name) => name == declaration.name
+    | .int, .constr (.sym name) fields =>
+        name == declaration.name && inputSymValsSafe declarations fields
+    | _, _ => false
+  valueSafe &&
+    declaration.assumptions.all expressionTotalitySafe
+
+def declarationsInputSafe (declarations : List SymDecl) : Bool :=
+  declarations.all (symDeclInputSafe declarations)
+
 /-- Z3 rejects repeated constant declarations, but may continue processing and
 print a later `sat` status after the error.  Production scripts therefore
 require every rendered declaration name to occur exactly once. -/
@@ -495,6 +631,8 @@ structure SupportedDeclarations where
     declarationsRendererSafe declarations = true
   sortSafe :
     declarationsSortSafe declarations = true
+  inputSafe :
+    declarationsInputSafe declarations = true
   namesDistinct :
     declarationNamesDistinct declarations = true
 
@@ -505,8 +643,10 @@ def check (declarations : List SymDecl) : Option SupportedDeclarations :=
   if hOpaque : symEnvNoOpaqueForSoundness (envOf declarations) = true then
     if hRenderer : declarationsRendererSafe declarations = true then
       if hSort : declarationsSortSafe declarations = true then
-        if hDistinct : declarationNamesDistinct declarations = true then
-          some ⟨declarations, hOpaque, hRenderer, hSort, hDistinct⟩
+        if hInput : declarationsInputSafe declarations = true then
+          if hDistinct : declarationNamesDistinct declarations = true then
+            some ⟨declarations, hOpaque, hRenderer, hSort, hInput, hDistinct⟩
+          else none
         else none
       else none
     else none
@@ -517,11 +657,13 @@ def check (declarations : List SymDecl) : Option SupportedDeclarations :=
       (symEnvNoOpaqueForSoundness (envOf declarations) &&
         declarationsRendererSafe declarations &&
         declarationsSortSafe declarations &&
+        declarationsInputSafe declarations &&
         declarationNamesDistinct declarations) := by
   by_cases hOpaque :
       symEnvNoOpaqueForSoundness (envOf declarations) = true <;>
     by_cases hRenderer : declarationsRendererSafe declarations = true <;>
     by_cases hSort : declarationsSortSafe declarations = true <;>
+    by_cases hInput : declarationsInputSafe declarations = true <;>
     by_cases hDistinct : declarationNamesDistinct declarations = true <;>
     simp_all [check]
 
@@ -551,17 +693,19 @@ def compile? (fuel : Nat) (declarations : List SymDecl)
       (symEnvNoOpaqueForSoundness (envOf declarations) &&
         declarationsRendererSafe declarations &&
         declarationsSortSafe declarations &&
+        declarationsInputSafe declarations &&
         declarationNamesDistinct declarations &&
         !termUsesOpaqueBuiltinForSoundness term) := by
   generalize hinputs : symEnvNoOpaqueForSoundness (envOf declarations) = inputsOk
   generalize hsafety : declarationsRendererSafe declarations = safetyOk
   generalize hsort : declarationsSortSafe declarations = sortOk
+  generalize hsafeInput : declarationsInputSafe declarations = inputOk
   generalize hdistinct : declarationNamesDistinct declarations = distinctOk
   generalize hterm : termUsesOpaqueBuiltinForSoundness term = termOpaque
   cases inputsOk <;> cases safetyOk <;> cases sortOk <;>
-    cases distinctOk <;> cases termOpaque <;>
+    cases inputOk <;> cases distinctOk <;> cases termOpaque <;>
     simp [compile?, SupportedDeclarations.check, SupportedTerm.check,
-      hinputs, hsafety, hsort, hdistinct, hterm]
+      hinputs, hsafety, hsort, hsafeInput, hdistinct, hterm]
 
 theorem hasCompilerPrelude (query : BoolTrueQuery) :
     Moist.SMT.UPLC.Soundness.hasCompilerPrelude query.script := by
@@ -609,17 +753,19 @@ def compile? (fuel : Nat) (declarations : List SymDecl)
       (symEnvNoOpaqueForSoundness (envOf declarations) &&
         declarationsRendererSafe declarations &&
         declarationsSortSafe declarations &&
+        declarationsInputSafe declarations &&
         declarationNamesDistinct declarations &&
         !termUsesOpaqueBuiltinForSoundness term) := by
   generalize hinputs : symEnvNoOpaqueForSoundness (envOf declarations) = inputsOk
   generalize hsafety : declarationsRendererSafe declarations = safetyOk
   generalize hsort : declarationsSortSafe declarations = sortOk
+  generalize hsafeInput : declarationsInputSafe declarations = inputOk
   generalize hdistinct : declarationNamesDistinct declarations = distinctOk
   generalize hterm : termUsesOpaqueBuiltinForSoundness term = termOpaque
   cases inputsOk <;> cases safetyOk <;> cases sortOk <;>
-    cases distinctOk <;> cases termOpaque <;>
+    cases inputOk <;> cases distinctOk <;> cases termOpaque <;>
     simp [compile?, SupportedDeclarations.check, SupportedTerm.check,
-      hinputs, hsafety, hsort, hdistinct, hterm]
+      hinputs, hsafety, hsort, hsafeInput, hdistinct, hterm]
 
 theorem hasCompilerPrelude (query : IntEqQuery) :
     Moist.SMT.UPLC.Soundness.hasCompilerPrelude query.script := by
@@ -665,17 +811,19 @@ def compile? (fuel : Nat) (declarations : List SymDecl)
       (symEnvNoOpaqueForSoundness (envOf declarations) &&
         declarationsRendererSafe declarations &&
         declarationsSortSafe declarations &&
+        declarationsInputSafe declarations &&
         declarationNamesDistinct declarations &&
         !termUsesOpaqueBuiltinForSoundness term) := by
   generalize hinputs : symEnvNoOpaqueForSoundness (envOf declarations) = inputsOk
   generalize hsafety : declarationsRendererSafe declarations = safetyOk
   generalize hsort : declarationsSortSafe declarations = sortOk
+  generalize hsafeInput : declarationsInputSafe declarations = inputOk
   generalize hdistinct : declarationNamesDistinct declarations = distinctOk
   generalize hterm : termUsesOpaqueBuiltinForSoundness term = termOpaque
   cases inputsOk <;> cases safetyOk <;> cases sortOk <;>
-    cases distinctOk <;> cases termOpaque <;>
+    cases inputOk <;> cases distinctOk <;> cases termOpaque <;>
     simp [compile?, SupportedDeclarations.check, SupportedTerm.check,
-      hinputs, hsafety, hsort, hdistinct, hterm]
+      hinputs, hsafety, hsort, hsafeInput, hdistinct, hterm]
 
 theorem hasCompilerPrelude (query : ErrorQuery) :
     Moist.SMT.UPLC.Soundness.hasCompilerPrelude query.script := by

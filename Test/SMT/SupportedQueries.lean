@@ -343,6 +343,122 @@ example :
     (SupportedDeclarations.check [symInt "x", symBytes "x"]).isSome = false := by
   native_decide
 
+/-! Z3 assigns values to partial selectors and sequence operations outside
+their CEK/executable domains.  Public declaration expressions reject those
+operations instead of accepting a raw `sat` model that cannot be decoded. -/
+
+def constructorWithBoolField (expression : SExpr) : SymDecl :=
+  symConstr "partial_bool" [.const (.bool expression)]
+
+def constructorWithIntField (expression : SExpr) : SymDecl :=
+  symConstr "partial_int" [.const (.integer expression)]
+
+def constructorWithBytesField (expression : SExpr) : SymDecl :=
+  symConstr "partial_bytes" [.const (.bytes expression)]
+
+def constructorWithStringField (expression : SExpr) : SymDecl :=
+  symConstr "partial_string" [.const (.string expression)]
+
+def wrongSelector : SExpr :=
+  .app "unVBool" [.app "VInt" [.int 0]]
+
+def outOfRangeNth : SExpr :=
+  .app "seq.nth" [.bytes (ByteArray.mk #[1]), .int 1]
+
+def invalidSingleton : SExpr := .app "seq.unit" [.int 300]
+def zeroDivision : SExpr := .app "uplc_tdiv" [.int 1, .int 0]
+def invalidDecode : SExpr :=
+  .app "uplc_decodeUtf8" [.bytes (ByteArray.mk #[255])]
+
+def negativeExtract : SExpr :=
+  .app "seq.extract" [.bytes (ByteArray.mk #[1, 2]), .int (-1), .int 1]
+
+example : expressionTotalitySafe wrongSelector = false := by native_decide
+example : expressionTotalitySafe outOfRangeNth = false := by native_decide
+example : expressionTotalitySafe invalidSingleton = false := by native_decide
+example : expressionTotalitySafe zeroDivision = false := by native_decide
+example : expressionTotalitySafe invalidDecode = false := by native_decide
+example : expressionTotalitySafe negativeExtract = false := by native_decide
+
+example : declarationsSortSafe [constructorWithBoolField wrongSelector] = true := by
+  native_decide
+
+example :
+    (SupportedDeclarations.check
+      [constructorWithBoolField wrongSelector]).isSome = false := by
+  native_decide
+
+example :
+    (SupportedDeclarations.check
+      [constructorWithIntField outOfRangeNth]).isSome = false := by
+  native_decide
+
+example :
+    (SupportedDeclarations.check
+      [constructorWithBytesField invalidSingleton]).isSome = false := by
+  native_decide
+
+example :
+    (SupportedDeclarations.check
+      [constructorWithIntField zeroDivision]).isSome = false := by
+  native_decide
+
+example :
+    (SupportedDeclarations.check
+      [constructorWithStringField invalidDecode]).isSome = false := by
+  native_decide
+
+example :
+    (SupportedDeclarations.check
+      [constructorWithBytesField negativeExtract]).isSome = false := by
+  native_decide
+
+def nondecodableNestedConstructor : SymDecl :=
+  symConstr "nested"
+    [.dyn (.app "VConstr" [.int (-1), .app "VNil" []])]
+
+def nondecodableConstList : SymDecl :=
+  symConstr "const_list"
+    [.const (.constList
+      (.app "VCons"
+        [.app "VConstr" [.int 0, .app "VNil" []], .app "VNil" []])
+      .unknown)]
+
+example : declarationsSortSafe [nondecodableNestedConstructor] = true := by
+  native_decide
+
+example :
+    (SupportedDeclarations.check [nondecodableNestedConstructor]).isSome = false := by
+  native_decide
+
+example :
+    (SupportedDeclarations.check [nondecodableConstList]).isSome = false := by
+  native_decide
+
+def pairContainingRuntimeConstructor : SymDecl :=
+  symConstr "pair_constr"
+    [.pair (.constr (.int 0) []) (.const .unit)]
+
+def pairContainingSymbolicVal : List SymDecl :=
+  let value := symVal "pair_value"
+  [value,
+   symConstr "pair_tag"
+     [.pair (.dyn (.sym value.name)) (.const .unit)]]
+
+example : declarationsSortSafe [pairContainingRuntimeConstructor] = true := by
+  native_decide
+
+example :
+    (SupportedDeclarations.check [pairContainingRuntimeConstructor]).isSome = false := by
+  native_decide
+
+example : declarationsSortSafe pairContainingSymbolicVal = true := by
+  native_decide
+
+example :
+    (SupportedDeclarations.check pairContainingSymbolicVal).isSome = false := by
+  native_decide
+
 example :
     (IntEqQuery.compile? 20 supportedDeclarations
       (.Constant (.Integer 1, .AtomicType .TypeInteger)) 1).isSome = true := by
