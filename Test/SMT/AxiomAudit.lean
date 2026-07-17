@@ -99,6 +99,18 @@ info: 'Moist.SMT.UPLC.Soundness.evalSym_active_error_noOpaque_le' depends on axi
 #print axioms Moist.SMT.UPLC.Soundness.evalSym_active_error_noOpaque_le
 
 /--
+info: 'Moist.SMT.UPLC.Soundness.evalSym_activeOk_sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.evalSym_activeOk_sound
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.evalSym_activeError_sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.evalSym_activeError_sound
+
+/--
 info: 'Moist.SMT.UPLC.Soundness.evalSym_errorCond_exact' depends on axioms: [propext, Classical.choice, Quot.sound]
 -/
 #guard_msgs in

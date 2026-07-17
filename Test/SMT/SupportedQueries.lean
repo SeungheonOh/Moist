@@ -230,6 +230,37 @@ def supportedDeclarations : List SymDecl :=
 example : (SupportedDeclarations.check supportedDeclarations).isSome = true := by
   native_decide
 
+def delimiterInjectionDeclaration : SymDecl :=
+  (symInt "x").withAssumptions
+    [.sym "true) (assert false) ; renderer injection"]
+
+example : expressionRendererSafe
+    (.sym "true) (assert false) ; renderer injection") = false := by
+  native_decide
+
+example :
+    (SupportedDeclarations.check [delimiterInjectionDeclaration]).isSome = false := by
+  native_decide
+
+def nestedRendererInjectionDeclaration : SymDecl :=
+  symConstr "tag"
+    [.const (.bool (.sym "x)\n(check-sat)\n(exit)\n;"))]
+
+example :
+    (SupportedDeclarations.check [nestedRendererInjectionDeclaration]).isSome = false := by
+  native_decide
+
+example :
+    (BoolTrueQuery.compile? 20 [nestedRendererInjectionDeclaration]
+      (.Case (.Var 1) [.Lam 0 (.Var 1)])).isSome = false := by
+  native_decide
+
+example : declarationNameRendererSafe (Moist.SMT.sanitize "x (y)") = true := by
+  native_decide
+
+example : declarationNameRendererSafe "x) (assert false)" = false := by
+  native_decide
+
 example :
     (IntEqQuery.compile? 20 supportedDeclarations
       (.Constant (.Integer 1, .AtomicType .TypeInteger)) 1).isSome = true := by

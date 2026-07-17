@@ -122,25 +122,139 @@ def check (term : Term) : Option SupportedTerm :=
 
 end SupportedTerm
 
+/-! The semantic certificate is the soundness boundary, but checked production
+queries should also be impossible to turn into a different SMT-LIB command
+stream by embedding delimiters in public `String` fields.  Smart constructors
+put declaration names in the private `$u$<code-points>` namespace; the checks
+below additionally reject parentheses, comments, quoting and whitespace in
+user-supplied expression atoms.  Indexed datatype testers are the only
+compiler-generated application heads that are not simple symbols. -/
+
+private def sanitizedNameTailChar (c : Char) : Bool :=
+  c.isDigit || c == '_'
+
+/-- Recognize the namespace emitted by `Moist.SMT.sanitize`. -/
+def declarationNameRendererSafe (name : String) : Bool :=
+  name.startsWith "$u$" &&
+    (name.toList.drop 3).all sanitizedNameTailChar
+
+private def simpleSymbolCharRendererSafe (c : Char) : Bool :=
+  c.toNat < 128 &&
+    c != '(' && c != ')' && c != '"' && c != ';' &&
+    c != '|' && c != '\\' && !c.isWhitespace
+
+private def simpleSymbolRendererSafe (name : String) : Bool :=
+  !name.isEmpty && name.toList.all simpleSymbolCharRendererSafe
+
+private def indexedTesterHeads : List String :=
+  [ "(_ is DConstr)", "(_ is DMap)", "(_ is DList)", "(_ is DI)",
+    "(_ is DB)", "(_ is DNil)", "(_ is DCons)", "(_ is DPNil)",
+    "(_ is DPCons)", "(_ is VInt)", "(_ is VBytes)",
+    "(_ is VString)", "(_ is VBool)", "(_ is VUnit)",
+    "(_ is VList)", "(_ is VDataList)", "(_ is VPairDataList)",
+    "(_ is VPair)", "(_ is VPairData)", "(_ is VData)",
+    "(_ is VArray)", "(_ is VG1)", "(_ is VG2)",
+    "(_ is VMlResult)", "(_ is VConstr)", "(_ is VNil)",
+    "(_ is VCons)" ]
+
+private def applicationHeadRendererSafe (name : String) : Bool :=
+  simpleSymbolRendererSafe name || indexedTesterHeads.contains name
+
+mutual
+  /-- A structural expression check sufficient to prevent one AST node from
+  rendering as multiple SMT-LIB terms or commands. -/
+  def expressionRendererSafe : SExpr → Bool
+    | .sym "(as seq.empty Bytes)" => true
+    | .sym "(as seq.empty (Seq Int))" => true
+    | .sym name => simpleSymbolRendererSafe name
+    | .int _ | .bytes _ | .dataLit _ | .dataListLit _
+    | .dataPairListLit _ | .constListLit _ | .bool _ | .str _ => true
+    | .app name arguments =>
+        applicationHeadRendererSafe name && expressionsRendererSafe arguments
+    | .ite condition thenBranch elseBranch =>
+        expressionRendererSafe condition &&
+          expressionRendererSafe thenBranch &&
+          expressionRendererSafe elseBranch
+
+def expressionsRendererSafe : List SExpr → Bool
+    | [] => true
+    | expression :: expressions =>
+        expressionRendererSafe expression &&
+          expressionsRendererSafe expressions
+end
+
+def symConstRendererSafe : SymConst → Bool
+  | .integer expression | .bytes expression | .string expression
+  | .bool expression | .data expression | .constList expression _
+  | .dataList expression | .pairDataList expression | .array expression
+  | .g1 expression | .g2 expression | .ml expression =>
+      expressionRendererSafe expression
+  | .unit => true
+  | .pairData first second =>
+      expressionRendererSafe first && expressionRendererSafe second
+
+mutual
+  def symValRendererSafe : SymVal → Bool
+    | .const constant => symConstRendererSafe constant
+    | .dyn expression => expressionRendererSafe expression
+    | .pair first second =>
+        symValRendererSafe first && symValRendererSafe second
+    | .constr tag fields =>
+        expressionRendererSafe tag && symValsRendererSafe fields
+    | .lam _ environment | .delay _ environment =>
+        symValsRendererSafe environment
+    | .builtin _ arguments _ => symValsRendererSafe arguments
+
+  def symValsRendererSafe : List SymVal → Bool
+    | [] => true
+    | value :: values =>
+        symValRendererSafe value && symValsRendererSafe values
+end
+
+def symDeclRendererSafe (declaration : SymDecl) : Bool :=
+  declarationNameRendererSafe declaration.name &&
+    symValRendererSafe declaration.value &&
+    expressionsRendererSafe declaration.assumptions
+
+def declarationsRendererSafe (declarations : List SymDecl) : Bool :=
+  declarations.all symDeclRendererSafe
+
 /-- Symbolic declarations whose decoded environment cannot contain an opaque
-closure, delay, or partial builtin. -/
+closure, delay, or partial builtin and whose public string fields render as a
+single SMT-LIB syntax tree. -/
 structure SupportedDeclarations where
   declarations : List SymDecl
   noOpaque :
     symEnvNoOpaqueForSoundness (envOf declarations) = true
+  rendererSafe :
+    declarationsRendererSafe declarations = true
 
 namespace SupportedDeclarations
 
 /-- Check declaration values before admitting them to a production query. -/
 def check (declarations : List SymDecl) : Option SupportedDeclarations :=
-  if h : symEnvNoOpaqueForSoundness (envOf declarations) = true then
-    some ⟨declarations, h⟩
+  if h : (symEnvNoOpaqueForSoundness (envOf declarations) &&
+      declarationsRendererSafe declarations) = true then
+    some ⟨declarations,
+      (by
+        have hparts :
+            symEnvNoOpaqueForSoundness (envOf declarations) = true ∧
+              declarationsRendererSafe declarations = true := by
+          simpa only [Bool.and_eq_true] using h
+        exact hparts.1),
+      (by
+        have hparts :
+            symEnvNoOpaqueForSoundness (envOf declarations) = true ∧
+              declarationsRendererSafe declarations = true := by
+          simpa only [Bool.and_eq_true] using h
+        exact hparts.2)⟩
   else
     none
 
 @[simp] theorem check_isSome (declarations : List SymDecl) :
     (check declarations).isSome =
-      symEnvNoOpaqueForSoundness (envOf declarations) := by
+      (symEnvNoOpaqueForSoundness (envOf declarations) &&
+        declarationsRendererSafe declarations) := by
   unfold check
   split <;> simp_all
 
@@ -168,12 +282,14 @@ def compile? (fuel : Nat) (declarations : List SymDecl)
     (term : Term) :
     (compile? fuel declarations term).isSome =
       (symEnvNoOpaqueForSoundness (envOf declarations) &&
+        declarationsRendererSafe declarations &&
         !termUsesOpaqueBuiltinForSoundness term) := by
   generalize hinputs : symEnvNoOpaqueForSoundness (envOf declarations) = inputsOk
+  generalize hsafety : declarationsRendererSafe declarations = safetyOk
   generalize hterm : termUsesOpaqueBuiltinForSoundness term = termOpaque
-  cases inputsOk <;> cases termOpaque <;>
+  cases inputsOk <;> cases safetyOk <;> cases termOpaque <;>
     simp [compile?, SupportedDeclarations.check, SupportedTerm.check,
-      hinputs, hterm]
+      hinputs, hsafety, hterm]
 
 theorem hasCompilerPrelude (query : BoolTrueQuery) :
     Moist.SMT.UPLC.Soundness.hasCompilerPrelude query.script := by
@@ -219,12 +335,14 @@ def compile? (fuel : Nat) (declarations : List SymDecl)
     (term : Term) (expected : Int) :
     (compile? fuel declarations term expected).isSome =
       (symEnvNoOpaqueForSoundness (envOf declarations) &&
+        declarationsRendererSafe declarations &&
         !termUsesOpaqueBuiltinForSoundness term) := by
   generalize hinputs : symEnvNoOpaqueForSoundness (envOf declarations) = inputsOk
+  generalize hsafety : declarationsRendererSafe declarations = safetyOk
   generalize hterm : termUsesOpaqueBuiltinForSoundness term = termOpaque
-  cases inputsOk <;> cases termOpaque <;>
+  cases inputsOk <;> cases safetyOk <;> cases termOpaque <;>
     simp [compile?, SupportedDeclarations.check, SupportedTerm.check,
-      hinputs, hterm]
+      hinputs, hsafety, hterm]
 
 theorem hasCompilerPrelude (query : IntEqQuery) :
     Moist.SMT.UPLC.Soundness.hasCompilerPrelude query.script := by
@@ -268,12 +386,14 @@ def compile? (fuel : Nat) (declarations : List SymDecl)
     (term : Term) :
     (compile? fuel declarations term).isSome =
       (symEnvNoOpaqueForSoundness (envOf declarations) &&
+        declarationsRendererSafe declarations &&
         !termUsesOpaqueBuiltinForSoundness term) := by
   generalize hinputs : symEnvNoOpaqueForSoundness (envOf declarations) = inputsOk
+  generalize hsafety : declarationsRendererSafe declarations = safetyOk
   generalize hterm : termUsesOpaqueBuiltinForSoundness term = termOpaque
-  cases inputsOk <;> cases termOpaque <;>
+  cases inputsOk <;> cases safetyOk <;> cases termOpaque <;>
     simp [compile?, SupportedDeclarations.check, SupportedTerm.check,
-      hinputs, hterm]
+      hinputs, hsafety, hterm]
 
 theorem hasCompilerPrelude (query : ErrorQuery) :
     Moist.SMT.UPLC.Soundness.hasCompilerPrelude query.script := by
