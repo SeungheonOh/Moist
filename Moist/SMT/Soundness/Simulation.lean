@@ -6082,15 +6082,6 @@ theorem exactEval_error_bigEval_none {fuel : Nat} {env : CekEnv} {t : Term}
       rw [herror] at hok
       cases hok
 
-theorem evalSym_errorCond_bigEval {m : SmtSem.Model} {fuel : Nat} {ρ : List SymVal}
-    {env : CekEnv} {t : Term}
-    (henv : symEnvToCek? m ρ = some env)
-    (hρno : symEnvNoOpaqueForSoundness ρ = true)
-    (hno : termNoOpaqueBuiltinsForSoundness t)
-    (herror : SmtSem.evalBoolIs m (errorCond (evalSym fuel ρ t)) true = true) :
-    bigEval fuel env t = none :=
-  exactEval_error_bigEval_none (evalSym_errorCond_exact henv hρno hno herror)
-
 theorem evalSym_okBoolTrueCond_bigEval {m : SmtSem.Model} {fuel : Nat} {ρ : List SymVal}
     {env : CekEnv} {t : Term}
     (henv : symEnvToCek? m ρ = some env)

@@ -14,15 +14,15 @@ the production UPLC query constructors emit their already-smart-constructed
 conditions directly and use the unsuffixed endpoints.
 -/
 
-theorem evalSym_simplifiedErrorCond_bigEval {m : SmtSem.Model} {fuel : Nat}
+theorem evalSym_simplifiedErrorCond_exact {m : SmtSem.Model} {fuel : Nat}
     {ρ : List SymVal} {env : CekEnv} {t : Term}
     (henv : symEnvToCek? m ρ = some env)
     (hρno : symEnvNoOpaqueForSoundness ρ = true)
     (hno : termNoOpaqueBuiltinsForSoundness t)
     (herror : SmtSem.evalBoolIs m
       (Moist.SMT.Expr.simplifyBool (errorCond (evalSym fuel ρ t))) true = true) :
-    bigEval fuel env t = none := by
-  apply evalSym_errorCond_bigEval henv hρno hno
+    Moist.Verified.ExactBigStep.eval fuel env t = .error := by
+  apply evalSym_errorCond_exact henv hρno hno
   simpa only [Moist.SMT.Semantics.evalBoolIs_simplifyBool] using herror
 
 theorem evalSym_simplifiedOkBoolTrueCond_bigEval {m : SmtSem.Model} {fuel : Nat}
