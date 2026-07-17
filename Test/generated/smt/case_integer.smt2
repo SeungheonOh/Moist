@@ -148,6 +148,6 @@
 (declare-fun uplc_g1_multiScalarMul (ValList ValList) G1)
 (declare-fun uplc_g2_multiScalarMul (ValList ValList) G2)
 (declare-const x Int)
-(assert (and (and (and true (and (and (>= x 0) (= x 2)) true)) true) true))
+(assert (and (>= x 0) (= x 2)))
 (check-sat)
 (get-model)

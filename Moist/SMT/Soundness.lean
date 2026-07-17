@@ -569,6 +569,12 @@ theorem outcomeErrorActive_guard {m : SmtSem.Model} {g : SExpr} {inner : Outcome
   | timeout pc =>
       simp [Outcome.guard, outcomeErrorActive] at h
 
+theorem bindOk_mem {pc : SExpr} {v : SymVal} {k : SymVal → List Outcome}
+    {out : Outcome} (h : out ∈ bindOk pc v k) :
+    ∃ inner, inner ∈ k v ∧ Outcome.guard pc inner = out := by
+  cases pc <;> simp [bindOk] at h ⊢
+  all_goals first | exact h | (rename_i b; cases b <;> simp_all)
+
 theorem ok_mem_singleton {pc : SExpr} {v sv : SymVal} :
     Outcome.ok pc sv ∈ ok v → pc = SExpr.trueE ∧ sv = v := by
   intro h
@@ -809,14 +815,8 @@ theorem pcHolds_not_or_contra_left {m : SmtSem.Model} {a b : SExpr}
   have haEval :=
     (Moist.SMT.Semantics.evalBoolIs_true_eq m a).mp
       (by simpa [pcHolds] using ha)
-  cases hbEval : SmtSem.eval m b with
-  | none =>
-      simp [SExpr.or, Moist.SMT.Expr.or, Moist.SMT.Semantics.eval, haEval,
-        hbEval] at horFalse
-  | some svb =>
-      cases svb <;>
-        simp [SExpr.or, Moist.SMT.Expr.or, Moist.SMT.Semantics.eval, haEval,
-          hbEval] at horFalse
+  exact Moist.SMT.Semantics.eval_or_false_contra_left m a b haEval
+    (by simpa [SExpr.or] using horFalse)
 
 theorem pcHolds_not_or_contra_right {m : SmtSem.Model} {a b : SExpr}
     (hb : pcHolds m b = true)
@@ -828,14 +828,8 @@ theorem pcHolds_not_or_contra_right {m : SmtSem.Model} {a b : SExpr}
   have hbEval :=
     (Moist.SMT.Semantics.evalBoolIs_true_eq m b).mp
       (by simpa [pcHolds] using hb)
-  cases haEval : SmtSem.eval m a with
-  | none =>
-      simp [SExpr.or, Moist.SMT.Expr.or, Moist.SMT.Semantics.eval, haEval,
-        hbEval] at horFalse
-  | some sva =>
-      cases sva <;>
-        simp [SExpr.or, Moist.SMT.Expr.or, Moist.SMT.Semantics.eval, haEval,
-          hbEval] at horFalse
+  exact Moist.SMT.Semantics.eval_or_false_contra_right m a b hbEval
+    (by simpa [SExpr.or] using horFalse)
 
 theorem evalBoolIs_has_bool_eval {m : SmtSem.Model} {e : SExpr} {b : Bool}
     (h : SmtSem.evalBoolIs m e b = true) :
@@ -855,9 +849,8 @@ theorem evalBoolExists_all2 {m : SmtSem.Model} {a b : SExpr} {ba bb : Bool}
     (hb : SmtSem.eval m b = some (.bool bb)) :
     ∃ bc, SmtSem.eval m (SExpr.all [a, b]) = some (.bool bc) := by
   refine ⟨ba && bb, ?_⟩
-  change Moist.SMT.Semantics.eval m (.app "and" [a, b]) = some (.bool (ba && bb))
-  rw [Moist.SMT.Semantics.eval.eq_def]
-  simp [ha, hb]
+  simpa [SExpr.all, Moist.SMT.Expr.all] using
+    (Moist.SMT.Semantics.eval_and_of_bools m a b ba bb ha hb)
 
 theorem eval_not_of_bool {m : SmtSem.Model} {e : SExpr} {b : Bool}
     (h : SmtSem.eval m e = some (.bool b)) :
@@ -1101,18 +1094,18 @@ theorem evalBoolIs_or_true_of_left {m : SmtSem.Model} {a b : SExpr}
     (hb : ∃ bb, SmtSem.eval m b = some (.bool bb)) :
     SmtSem.evalBoolIs m (SExpr.or a b) true = true := by
   rcases hb with ⟨bb, hb⟩
-  unfold SmtSem.evalBoolIs Moist.SMT.Semantics.evalBoolIs
-    Moist.SMT.Semantics.evalBool?
-  simp [SExpr.or, Moist.SMT.Expr.or, Moist.SMT.Semantics.eval, ha, hb]
+  apply (Moist.SMT.Semantics.evalBoolIs_true_eq m (SExpr.or a b)).mpr
+  simpa [SExpr.or] using
+    (Moist.SMT.Semantics.eval_or_of_bools m a b true bb ha hb)
 
 theorem evalBoolIs_or_true_of_right {m : SmtSem.Model} {a b : SExpr}
     (ha : ∃ ba, SmtSem.eval m a = some (.bool ba))
     (hb : SmtSem.eval m b = some (.bool true)) :
     SmtSem.evalBoolIs m (SExpr.or a b) true = true := by
   rcases ha with ⟨ba, ha⟩
-  unfold SmtSem.evalBoolIs Moist.SMT.Semantics.evalBoolIs
-    Moist.SMT.Semantics.evalBool?
-  simp [SExpr.or, Moist.SMT.Expr.or, Moist.SMT.Semantics.eval, ha, hb]
+  apply (Moist.SMT.Semantics.evalBoolIs_true_eq m (SExpr.or a b)).mpr
+  simpa [SExpr.or] using
+    (Moist.SMT.Semantics.eval_or_of_bools m a b ba true ha hb)
 
 theorem eval_or_bool_of_bool {m : SmtSem.Model} {a b : SExpr}
     (ha : ∃ ba, SmtSem.eval m a = some (.bool ba))
@@ -1120,8 +1113,9 @@ theorem eval_or_bool_of_bool {m : SmtSem.Model} {a b : SExpr}
     ∃ bc, SmtSem.eval m (SExpr.or a b) = some (.bool bc) := by
   rcases ha with ⟨ba, ha⟩
   rcases hb with ⟨bb, hb⟩
-  exact ⟨ba || bb,
-    by simp [SExpr.or, Moist.SMT.Expr.or, Moist.SMT.Semantics.eval, ha, hb]⟩
+  refine ⟨ba || bb, ?_⟩
+  simpa [SExpr.or] using
+    (Moist.SMT.Semantics.eval_or_of_bools m a b ba bb ha hb)
 
 theorem evalBoolIs_foldl_or_true_of_acc_true {m : SmtSem.Model} :
     ∀ {xs : List SExpr} {acc : SExpr},
@@ -2593,8 +2587,7 @@ theorem bindOut_active_ok {m : SmtSem.Model} {xs : List Outcome} {k : SymVal →
   rcases hmem with ⟨outer, houter, hout⟩
   cases outer with
   | ok pc v =>
-      simp at hout
-      rcases hout with ⟨inner, hinner, rfl⟩
+      obtain ⟨inner, hinner, rfl⟩ := bindOk_mem hout
       have hg := outcomeOkSym_guard hok
       exact ⟨pc, v, inner, houter, hg.1, hinner, hg.2⟩
   | error pc =>
@@ -2617,8 +2610,7 @@ theorem bindOut_active_error {m : SmtSem.Model} {xs : List Outcome} {k : SymVal 
   rcases hmem with ⟨outer, houter, hout⟩
   cases outer with
   | ok pc v =>
-      simp at hout
-      rcases hout with ⟨inner, hinner, rfl⟩
+      obtain ⟨inner, hinner, rfl⟩ := bindOk_mem hout
       have hg := outcomeErrorActive_guard herr
       exact Or.inr ⟨pc, v, inner, houter, hg.1, hinner, hg.2⟩
   | error pc =>
@@ -2643,8 +2635,7 @@ theorem bindOut_path_ok {m : SmtSem.Model} {xs : List Outcome} {k : SymVal → L
   rcases hmem with ⟨outer, houter, hout⟩
   cases outer with
   | ok outerPc outerV =>
-      simp [Outcome.guard] at hout
-      rcases hout with ⟨inner, hinner, hguard⟩
+      obtain ⟨inner, hinner, hguard⟩ := bindOk_mem hout
       cases inner with
       | ok innerPc innerV =>
           simp [Outcome.guard] at hguard
@@ -2672,8 +2663,7 @@ theorem bindOut_path_error {m : SmtSem.Model} {xs : List Outcome} {k : SymVal �
   rcases hmem with ⟨outer, houter, hout⟩
   cases outer with
   | ok outerPc outerV =>
-      simp [Outcome.guard] at hout
-      rcases hout with ⟨inner, hinner, hguard⟩
+      obtain ⟨inner, hinner, hguard⟩ := bindOk_mem hout
       cases inner with
       | ok innerPc innerV => simp [Outcome.guard] at hguard
       | error innerPc =>
@@ -15028,10 +15018,245 @@ def builtinErrorSound : (b : BuiltinFun) → BuiltinErrorSound b
   | .Bls12_381_G1_multiScalarMul => evalBuiltinSym_active_error_Bls12_381_G1_multiScalarMul
   | .Bls12_381_G2_multiScalarMul => evalBuiltinSym_active_error_Bls12_381_G2_multiScalarMul
 
+/-! The total dispatchers above document the status of every builtin, including
+opaque ones whose soundness is still postulated elsewhere in this reference
+development.  The CEK theorem is intentionally restricted to
+`builtinAllowedForSoundness`; dispatching through the total functions would
+nevertheless retain those postulates as declaration dependencies.  These two
+restricted dispatchers make that logical restriction effective in the proof
+term itself: every accepted branch selects a proved theorem, and all remaining
+branches are discharged from the false `builtinAllowedForSoundness` premise. -/
+
+theorem allowedBuiltin_not_opaque {b : BuiltinFun}
+    (hallowed : builtinAllowedForSoundness b = true)
+    (hopaque : builtinOpaqueForSoundness b = true) : False := by
+  simp [builtinAllowedForSoundness, hopaque] at hallowed
+
+def noOkSoundOfOpaque {b : BuiltinFun}
+    (hallowed : builtinAllowedForSoundness b = true)
+    (hopaque : builtinOpaqueForSoundness b = true) : BuiltinOkSound b :=
+  (allowedBuiltin_not_opaque hallowed hopaque).elim
+
+def noErrorSoundOfOpaque {b : BuiltinFun}
+    (hallowed : builtinAllowedForSoundness b = true)
+    (hopaque : builtinOpaqueForSoundness b = true) : BuiltinErrorSound b :=
+  (allowedBuiltin_not_opaque hallowed hopaque).elim
+
+set_option maxHeartbeats 0 in
+def builtinOkSoundAllowed : (b : BuiltinFun) →
+    builtinAllowedForSoundness b = true → BuiltinOkSound b
+  | .AddInteger, _ => evalBuiltinSym_active_ok_AddInteger
+  | .SubtractInteger, _ => evalBuiltinSym_active_ok_SubtractInteger
+  | .MultiplyInteger, _ => evalBuiltinSym_active_ok_MultiplyInteger
+  | .DivideInteger, _ => evalBuiltinSym_active_ok_DivideInteger
+  | .QuotientInteger, _ => evalBuiltinSym_active_ok_QuotientInteger
+  | .RemainderInteger, _ => evalBuiltinSym_active_ok_RemainderInteger
+  | .ModInteger, _ => evalBuiltinSym_active_ok_ModInteger
+  | .EqualsInteger, _ => evalBuiltinSym_active_ok_EqualsInteger
+  | .LessThanInteger, _ => evalBuiltinSym_active_ok_LessThanInteger
+  | .LessThanEqualsInteger, _ => evalBuiltinSym_active_ok_LessThanEqualsInteger
+  | .AppendByteString, _ => evalBuiltinSym_active_ok_AppendByteString
+  | .ConsByteString, _ => evalBuiltinSym_active_ok_ConsByteString
+  | .SliceByteString, _ => evalBuiltinSym_active_ok_SliceByteString
+  | .LengthOfByteString, _ => evalBuiltinSym_active_ok_LengthOfByteString
+  | .IndexByteString, _ => evalBuiltinSym_active_ok_IndexByteString
+  | .EqualsByteString, _ => evalBuiltinSym_active_ok_EqualsByteString
+  | .LessThanByteString, _ => evalBuiltinSym_active_ok_LessThanByteString
+  | .LessThanEqualsByteString, _ => evalBuiltinSym_active_ok_LessThanEqualsByteString
+  | .AppendString, _ => evalBuiltinSym_active_ok_AppendString
+  | .EqualsString, _ => evalBuiltinSym_active_ok_EqualsString
+  | .EncodeUtf8, _ => evalBuiltinSym_active_ok_EncodeUtf8
+  | .DecodeUtf8, _ => evalBuiltinSym_active_ok_DecodeUtf8
+  | .IfThenElse, _ => evalBuiltinSym_active_ok_IfThenElse
+  | .ChooseUnit, _ => evalBuiltinSym_active_ok_ChooseUnit
+  | .Trace, _ => evalBuiltinSym_active_ok_Trace
+  | .FstPair, _ => evalBuiltinSym_active_ok_FstPair
+  | .SndPair, _ => evalBuiltinSym_active_ok_SndPair
+  | .ChooseList, _ => evalBuiltinSym_active_ok_ChooseList
+  | .MkCons, _ => evalBuiltinSym_active_ok_MkCons
+  | .HeadList, _ => evalBuiltinSym_active_ok_HeadList
+  | .TailList, _ => evalBuiltinSym_active_ok_TailList
+  | .NullList, _ => evalBuiltinSym_active_ok_NullList
+  | .ChooseData, _ => evalBuiltinSym_active_ok_ChooseData
+  | .ConstrData, _ => evalBuiltinSym_active_ok_ConstrData
+  | .MapData, _ => evalBuiltinSym_active_ok_MapData
+  | .ListData, _ => evalBuiltinSym_active_ok_ListData
+  | .IData, _ => evalBuiltinSym_active_ok_IData
+  | .BData, _ => evalBuiltinSym_active_ok_BData
+  | .UnConstrData, _ => evalBuiltinSym_active_ok_UnConstrData
+  | .UnMapData, _ => evalBuiltinSym_active_ok_UnMapData
+  | .UnListData, _ => evalBuiltinSym_active_ok_UnListData
+  | .UnIData, _ => evalBuiltinSym_active_ok_UnIData
+  | .UnBData, _ => evalBuiltinSym_active_ok_UnBData
+  | .EqualsData, _ => evalBuiltinSym_active_ok_EqualsData
+  | .MkPairData, _ => evalBuiltinSym_active_ok_MkPairData
+  | .MkNilData, _ => evalBuiltinSym_active_ok_MkNilData
+  | .MkNilPairData, _ => evalBuiltinSym_active_ok_MkNilPairData
+  | .DropList, _ => evalBuiltinSym_active_ok_DropList
+  | .IndexArray, _ => evalBuiltinSym_active_ok_IndexArray
+  | .LengthOfArray, _ => evalBuiltinSym_active_ok_LengthOfArray
+  | .ListToArray, _ => evalBuiltinSym_active_ok_ListToArray
+  | .Sha2_256, h => noOkSoundOfOpaque h rfl
+  | .Sha3_256, h => noOkSoundOfOpaque h rfl
+  | .Blake2b_256, h => noOkSoundOfOpaque h rfl
+  | .VerifyEd25519Signature, h => noOkSoundOfOpaque h rfl
+  | .SerializeData, h => noOkSoundOfOpaque h rfl
+  | .VerifyEcdsaSecp256k1Signature, h => noOkSoundOfOpaque h rfl
+  | .VerifySchnorrSecp256k1Signature, h => noOkSoundOfOpaque h rfl
+  | .Bls12_381_G1_add, h => noOkSoundOfOpaque h rfl
+  | .Bls12_381_G1_neg, h => noOkSoundOfOpaque h rfl
+  | .Bls12_381_G1_scalarMul, h => noOkSoundOfOpaque h rfl
+  | .Bls12_381_G1_equal, h => noOkSoundOfOpaque h rfl
+  | .Bls12_381_G1_hashToGroup, h => noOkSoundOfOpaque h rfl
+  | .Bls12_381_G1_compress, h => noOkSoundOfOpaque h rfl
+  | .Bls12_381_G1_uncompress, h => noOkSoundOfOpaque h rfl
+  | .Bls12_381_G2_add, h => noOkSoundOfOpaque h rfl
+  | .Bls12_381_G2_neg, h => noOkSoundOfOpaque h rfl
+  | .Bls12_381_G2_scalarMul, h => noOkSoundOfOpaque h rfl
+  | .Bls12_381_G2_equal, h => noOkSoundOfOpaque h rfl
+  | .Bls12_381_G2_hashToGroup, h => noOkSoundOfOpaque h rfl
+  | .Bls12_381_G2_compress, h => noOkSoundOfOpaque h rfl
+  | .Bls12_381_G2_uncompress, h => noOkSoundOfOpaque h rfl
+  | .Bls12_381_millerLoop, h => noOkSoundOfOpaque h rfl
+  | .Bls12_381_mulMlResult, h => noOkSoundOfOpaque h rfl
+  | .Bls12_381_finalVerify, h => noOkSoundOfOpaque h rfl
+  | .Keccak_256, h => noOkSoundOfOpaque h rfl
+  | .Blake2b_224, h => noOkSoundOfOpaque h rfl
+  | .IntegerToByteString, h => noOkSoundOfOpaque h rfl
+  | .ByteStringToInteger, h => noOkSoundOfOpaque h rfl
+  | .AndByteString, h => noOkSoundOfOpaque h rfl
+  | .OrByteString, h => noOkSoundOfOpaque h rfl
+  | .XorByteString, h => noOkSoundOfOpaque h rfl
+  | .ComplementByteString, h => noOkSoundOfOpaque h rfl
+  | .ReadBit, h => noOkSoundOfOpaque h rfl
+  | .WriteBits, h => noOkSoundOfOpaque h rfl
+  | .ReplicateByte, h => noOkSoundOfOpaque h rfl
+  | .ShiftByteString, h => noOkSoundOfOpaque h rfl
+  | .RotateByteString, h => noOkSoundOfOpaque h rfl
+  | .CountSetBits, h => noOkSoundOfOpaque h rfl
+  | .FindFirstSetBit, h => noOkSoundOfOpaque h rfl
+  | .Ripemd_160, h => noOkSoundOfOpaque h rfl
+  | .ExpModInteger, h => noOkSoundOfOpaque h rfl
+  | .InsertCoin, h => noOkSoundOfOpaque h rfl
+  | .LookupCoin, h => noOkSoundOfOpaque h rfl
+  | .ScaleValue, h => noOkSoundOfOpaque h rfl
+  | .UnionValue, h => noOkSoundOfOpaque h rfl
+  | .ValueContains, h => noOkSoundOfOpaque h rfl
+  | .ValueData, h => noOkSoundOfOpaque h rfl
+  | .UnValueData, h => noOkSoundOfOpaque h rfl
+  | .Bls12_381_G1_multiScalarMul, h => noOkSoundOfOpaque h rfl
+  | .Bls12_381_G2_multiScalarMul, h => noOkSoundOfOpaque h rfl
+
+set_option maxHeartbeats 0 in
+def builtinErrorSoundAllowed : (b : BuiltinFun) →
+    builtinAllowedForSoundness b = true → BuiltinErrorSound b
+  | .AddInteger, _ => evalBuiltinSym_active_error_AddInteger
+  | .SubtractInteger, _ => evalBuiltinSym_active_error_SubtractInteger
+  | .MultiplyInteger, _ => evalBuiltinSym_active_error_MultiplyInteger
+  | .DivideInteger, _ => evalBuiltinSym_active_error_DivideInteger
+  | .QuotientInteger, _ => evalBuiltinSym_active_error_QuotientInteger
+  | .RemainderInteger, _ => evalBuiltinSym_active_error_RemainderInteger
+  | .ModInteger, _ => evalBuiltinSym_active_error_ModInteger
+  | .EqualsInteger, _ => evalBuiltinSym_active_error_EqualsInteger
+  | .LessThanInteger, _ => evalBuiltinSym_active_error_LessThanInteger
+  | .LessThanEqualsInteger, _ => evalBuiltinSym_active_error_LessThanEqualsInteger
+  | .AppendByteString, _ => evalBuiltinSym_active_error_AppendByteString
+  | .ConsByteString, _ => evalBuiltinSym_active_error_ConsByteString
+  | .SliceByteString, _ => evalBuiltinSym_active_error_SliceByteString
+  | .LengthOfByteString, _ => evalBuiltinSym_active_error_LengthOfByteString
+  | .IndexByteString, _ => evalBuiltinSym_active_error_IndexByteString
+  | .EqualsByteString, _ => evalBuiltinSym_active_error_EqualsByteString
+  | .LessThanByteString, _ => evalBuiltinSym_active_error_LessThanByteString
+  | .LessThanEqualsByteString, _ => evalBuiltinSym_active_error_LessThanEqualsByteString
+  | .AppendString, _ => evalBuiltinSym_active_error_AppendString
+  | .EqualsString, _ => evalBuiltinSym_active_error_EqualsString
+  | .EncodeUtf8, _ => evalBuiltinSym_active_error_EncodeUtf8
+  | .DecodeUtf8, _ => evalBuiltinSym_active_error_DecodeUtf8
+  | .IfThenElse, _ => evalBuiltinSym_active_error_IfThenElse
+  | .ChooseUnit, _ => evalBuiltinSym_active_error_ChooseUnit
+  | .Trace, _ => evalBuiltinSym_active_error_Trace
+  | .FstPair, _ => evalBuiltinSym_active_error_FstPair
+  | .SndPair, _ => evalBuiltinSym_active_error_SndPair
+  | .ChooseList, _ => evalBuiltinSym_active_error_ChooseList
+  | .MkCons, _ => evalBuiltinSym_active_error_MkCons
+  | .HeadList, _ => evalBuiltinSym_active_error_HeadList
+  | .TailList, _ => evalBuiltinSym_active_error_TailList
+  | .NullList, _ => evalBuiltinSym_active_error_NullList
+  | .ChooseData, _ => evalBuiltinSym_active_error_ChooseData
+  | .ConstrData, _ => evalBuiltinSym_active_error_ConstrData
+  | .MapData, _ => evalBuiltinSym_active_error_MapData
+  | .ListData, _ => evalBuiltinSym_active_error_ListData
+  | .IData, _ => evalBuiltinSym_active_error_IData
+  | .BData, _ => evalBuiltinSym_active_error_BData
+  | .UnConstrData, _ => evalBuiltinSym_active_error_UnConstrData
+  | .UnMapData, _ => evalBuiltinSym_active_error_UnMapData
+  | .UnListData, _ => evalBuiltinSym_active_error_UnListData
+  | .UnIData, _ => evalBuiltinSym_active_error_UnIData
+  | .UnBData, _ => evalBuiltinSym_active_error_UnBData
+  | .EqualsData, _ => evalBuiltinSym_active_error_EqualsData
+  | .MkPairData, _ => evalBuiltinSym_active_error_MkPairData
+  | .MkNilData, _ => evalBuiltinSym_active_error_MkNilData
+  | .MkNilPairData, _ => evalBuiltinSym_active_error_MkNilPairData
+  | .DropList, _ => evalBuiltinSym_active_error_DropList
+  | .IndexArray, _ => evalBuiltinSym_active_error_IndexArray
+  | .LengthOfArray, _ => evalBuiltinSym_active_error_LengthOfArray
+  | .ListToArray, _ => evalBuiltinSym_active_error_ListToArray
+  | .Sha2_256, h => noErrorSoundOfOpaque h rfl
+  | .Sha3_256, h => noErrorSoundOfOpaque h rfl
+  | .Blake2b_256, h => noErrorSoundOfOpaque h rfl
+  | .VerifyEd25519Signature, h => noErrorSoundOfOpaque h rfl
+  | .SerializeData, h => noErrorSoundOfOpaque h rfl
+  | .VerifyEcdsaSecp256k1Signature, h => noErrorSoundOfOpaque h rfl
+  | .VerifySchnorrSecp256k1Signature, h => noErrorSoundOfOpaque h rfl
+  | .Bls12_381_G1_add, h => noErrorSoundOfOpaque h rfl
+  | .Bls12_381_G1_neg, h => noErrorSoundOfOpaque h rfl
+  | .Bls12_381_G1_scalarMul, h => noErrorSoundOfOpaque h rfl
+  | .Bls12_381_G1_equal, h => noErrorSoundOfOpaque h rfl
+  | .Bls12_381_G1_hashToGroup, h => noErrorSoundOfOpaque h rfl
+  | .Bls12_381_G1_compress, h => noErrorSoundOfOpaque h rfl
+  | .Bls12_381_G1_uncompress, h => noErrorSoundOfOpaque h rfl
+  | .Bls12_381_G2_add, h => noErrorSoundOfOpaque h rfl
+  | .Bls12_381_G2_neg, h => noErrorSoundOfOpaque h rfl
+  | .Bls12_381_G2_scalarMul, h => noErrorSoundOfOpaque h rfl
+  | .Bls12_381_G2_equal, h => noErrorSoundOfOpaque h rfl
+  | .Bls12_381_G2_hashToGroup, h => noErrorSoundOfOpaque h rfl
+  | .Bls12_381_G2_compress, h => noErrorSoundOfOpaque h rfl
+  | .Bls12_381_G2_uncompress, h => noErrorSoundOfOpaque h rfl
+  | .Bls12_381_millerLoop, h => noErrorSoundOfOpaque h rfl
+  | .Bls12_381_mulMlResult, h => noErrorSoundOfOpaque h rfl
+  | .Bls12_381_finalVerify, h => noErrorSoundOfOpaque h rfl
+  | .Keccak_256, h => noErrorSoundOfOpaque h rfl
+  | .Blake2b_224, h => noErrorSoundOfOpaque h rfl
+  | .IntegerToByteString, h => noErrorSoundOfOpaque h rfl
+  | .ByteStringToInteger, h => noErrorSoundOfOpaque h rfl
+  | .AndByteString, h => noErrorSoundOfOpaque h rfl
+  | .OrByteString, h => noErrorSoundOfOpaque h rfl
+  | .XorByteString, h => noErrorSoundOfOpaque h rfl
+  | .ComplementByteString, h => noErrorSoundOfOpaque h rfl
+  | .ReadBit, h => noErrorSoundOfOpaque h rfl
+  | .WriteBits, h => noErrorSoundOfOpaque h rfl
+  | .ReplicateByte, h => noErrorSoundOfOpaque h rfl
+  | .ShiftByteString, h => noErrorSoundOfOpaque h rfl
+  | .RotateByteString, h => noErrorSoundOfOpaque h rfl
+  | .CountSetBits, h => noErrorSoundOfOpaque h rfl
+  | .FindFirstSetBit, h => noErrorSoundOfOpaque h rfl
+  | .Ripemd_160, h => noErrorSoundOfOpaque h rfl
+  | .ExpModInteger, h => noErrorSoundOfOpaque h rfl
+  | .InsertCoin, h => noErrorSoundOfOpaque h rfl
+  | .LookupCoin, h => noErrorSoundOfOpaque h rfl
+  | .ScaleValue, h => noErrorSoundOfOpaque h rfl
+  | .UnionValue, h => noErrorSoundOfOpaque h rfl
+  | .ValueContains, h => noErrorSoundOfOpaque h rfl
+  | .ValueData, h => noErrorSoundOfOpaque h rfl
+  | .UnValueData, h => noErrorSoundOfOpaque h rfl
+  | .Bls12_381_G1_multiScalarMul, h => noErrorSoundOfOpaque h rfl
+  | .Bls12_381_G2_multiScalarMul, h => noErrorSoundOfOpaque h rfl
+
 theorem evalBuiltinSym_active_ok {m : SmtSem.Model} {b : BuiltinFun}
     {args : List SymVal} {cargs : List CekValue} {out : Outcome}
     {sv : SymVal} {cv : CekValue}
     (hargs : symValListToCekList? m args = some cargs)
+    (hbAllowed : builtinAllowedForSoundness b = true)
     (hnoArgs : symValsNoOpaqueForSoundness args = true)
     (hmem : out ∈ evalBuiltinSym b args)
     (hok : outcomeOkSym? m out = some (sv, cv)) :
@@ -15039,7 +15264,7 @@ theorem evalBuiltinSym_active_ok {m : SmtSem.Model} {b : BuiltinFun}
   cases out with
   | ok pc v =>
       have hok' := outcomeOkSym_ok hok
-      have hpath := builtinOkSound b hargs hnoArgs hmem hok'.1
+      have hpath := builtinOkSoundAllowed b hbAllowed hargs hnoArgs hmem hok'.1
       rcases hpath with ⟨cv', hv', _hno, hb⟩
       rw [hok'.2.2] at hv'
       injection hv' with hcv
@@ -15053,10 +15278,11 @@ theorem evalBuiltinSym_active_ok {m : SmtSem.Model} {b : BuiltinFun}
 theorem evalBuiltinSym_active_error {m : SmtSem.Model} {b : BuiltinFun}
     {args : List SymVal} {cargs : List CekValue} {out : Outcome}
     (hargs : symValListToCekList? m args = some cargs)
+    (hbAllowed : builtinAllowedForSoundness b = true)
     (hmem : out ∈ evalBuiltinSym b args)
     (herr : outcomeErrorActive m out = true) :
     Moist.CEK.evalBuiltin b cargs = none := by
-  exact builtinErrorSound b hargs hmem herr
+  exact builtinErrorSoundAllowed b hbAllowed hargs hmem herr
 
 def caseCekResult (fuel : Nat) (env : CekEnv)
     (scrut : CekValue) (alts : List Term) : Option CekValue :=
@@ -15364,7 +15590,8 @@ mutual
                     (v := va) (vs := args) hnoa hnoParts.2
                   have hmemBuiltin : Outcome.ok pc v ∈ evalBuiltinSym b (va :: args) := by
                     simpa [applySym, hea, htail] using hmem
-                  have hb := builtinOkSound b hargs' hnoArgs' hmemBuiltin hpc
+                  have hb := builtinOkSoundAllowed b hnoParts.1
+                    hargs' hnoArgs' hmemBuiltin hpc
                   rcases hb with ⟨cv, hv, hnov, hb⟩
                   exact ⟨cv, hv, hnov,
                     by simpa [applyVal, hea, htail] using hb⟩
@@ -15430,7 +15657,8 @@ mutual
               | none =>
                   have hmemBuiltin : Outcome.ok pc v ∈ evalBuiltinSym b args := by
                     simpa [forceSym, hea, htail] using hmem
-                  have hb := builtinOkSound b hargs hnoParts.2 hmemBuiltin hpc
+                  have hb := builtinOkSoundAllowed b hnoParts.1
+                    hargs hnoParts.2 hmemBuiltin hpc
                   rcases hb with ⟨cv, hv, hnov, hb⟩
                   exact ⟨cv, hv, hnov,
                     by simpa [forceVal, hea, htail] using hb⟩
@@ -17100,6 +17328,9 @@ mutual
                 simp [symValToCek?, hargs] at hvf
               rename_i cargs
               subst cvf
+              have hnoParts : builtinAllowedForSoundness b = true ∧
+                  symValsNoOpaqueForSoundness args = true := by
+                simpa [symValNoOpaqueForSoundness] using hnof
               cases hea : ea.head <;> simp [applySym, hea] at hmem
               · cases htail : ea.tail with
                 | some rest =>
@@ -17107,8 +17338,8 @@ mutual
                 | none =>
                     have hargs' := symValListToCekList_cons (m := m)
                       (v := va) (vs := args) (cv := cva) (cvs := cargs) hva hargs
-                    have hb := evalBuiltinSym_active_error (m := m) (b := b)
-                      (args := va :: args) (cargs := cva :: cargs)
+                    have hb := builtinErrorSoundAllowed b hnoParts.1
+                      (m := m) (args := va :: args) (cargs := cva :: cargs)
                       hargs' (by simpa [htail] using hmem) herr
                     simpa [applyVal, hea, htail] using hb
               · have hmemErr : out ∈ err := by
@@ -17198,6 +17429,9 @@ mutual
                 simp [symValToCek?, hargs] at hvt
               rename_i cargs
               subst cvt
+              have hnoParts : builtinAllowedForSoundness b = true ∧
+                  symValsNoOpaqueForSoundness args = true := by
+                simpa [symValNoOpaqueForSoundness] using hnot
               cases hea : ea.head <;> simp [forceSym, hea] at hmem
               · have hmemErr : out ∈ err := by
                     simpa [err] using hmem
@@ -17207,8 +17441,8 @@ mutual
                 | some rest =>
                     cases out <;> simp [htail, ok, outcomeErrorActive] at hmem herr
                 | none =>
-                    have hb := evalBuiltinSym_active_error (m := m) (b := b)
-                      (args := args) (cargs := cargs)
+                    have hb := builtinErrorSoundAllowed b hnoParts.1
+                      (m := m) (args := args) (cargs := cargs)
                       hargs (by simpa [htail] using hmem) herr
                     simpa [forceVal, hea, htail] using hb
           | const c =>
@@ -20802,6 +21036,35 @@ theorem evalSym_okBoolTrueCond_sound {m : SmtSem.Model} {fuel : Nat} {ρ : List 
       simp [outcomeOkSym?] at hok
   | timeout pc =>
       simp [outcomeOkSym?] at hok
+
+/-! ## Verified compiler-output normalization
+
+`scriptWith` normalizes every final Boolean assertion.  These corollaries close
+the proof chain from the assertions actually rendered by the compiler back to
+the CEK evaluator, using semantic preservation of `Expr.simplifyBool`.
+-/
+
+theorem evalSym_simplifiedErrorCond_sound {m : SmtSem.Model} {fuel : Nat}
+    {ρ : List SymVal} {env : CekEnv} {t : Term}
+    (henv : symEnvToCek? m ρ = some env)
+    (hρno : symEnvNoOpaqueForSoundness ρ = true)
+    (hno : termNoOpaqueBuiltinsForSoundness t)
+    (herror : SmtSem.evalBoolIs m
+      (Moist.SMT.Expr.simplifyBool (errorCond (evalSym fuel ρ t))) true = true) :
+    bigEval fuel env t = none := by
+  apply evalSym_errorCond_sound henv hρno hno
+  simpa only [Moist.SMT.Semantics.evalBoolIs_simplifyBool] using herror
+
+theorem evalSym_simplifiedOkBoolTrueCond_sound {m : SmtSem.Model} {fuel : Nat}
+    {ρ : List SymVal} {env : CekEnv} {t : Term}
+    (henv : symEnvToCek? m ρ = some env)
+    (hρno : symEnvNoOpaqueForSoundness ρ = true)
+    (hno : termNoOpaqueBuiltinsForSoundness t)
+    (hokCond : SmtSem.evalBoolIs m
+      (Moist.SMT.Expr.simplifyBool (okBoolTrueCond (evalSym fuel ρ t))) true = true) :
+    bigEval fuel env t = some (.VCon (.Bool true)) := by
+  apply evalSym_okBoolTrueCond_sound henv hρno hno
+  simpa only [Moist.SMT.Semantics.evalBoolIs_simplifyBool] using hokCond
 
 def cekFails (t : Term) : Bool :=
   match bigEval 20 .nil t with

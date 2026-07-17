@@ -1,4 +1,4 @@
-import Moist.SMT.Basic
+import Moist.SMT.Optimize
 import Moist.CEK.Builtins
 import Moist.CEK.Machine
 
@@ -256,9 +256,17 @@ def ok (v : SymVal) : List Outcome := [.ok SExpr.trueE v]
 def err : List Outcome := [.error SExpr.trueE]
 def timeout : List Outcome := [.timeout SExpr.trueE]
 
+def bindOk (pc : SExpr) (v : SymVal) (k : SymVal → List Outcome) : List Outcome :=
+  match pc with
+  -- A continuation below a syntactically impossible path cannot contribute an
+  -- active result.  Avoid constructing it: recursive continuations may be
+  -- exponentially larger than the path which rules them out.
+  | .bool false => []
+  | _ => (k v).map (Outcome.guard pc)
+
 def bindOut (xs : List Outcome) (k : SymVal → List Outcome) : List Outcome :=
   xs.flatMap fun
-    | .ok pc v => (k v).map (Outcome.guard pc)
+    | .ok pc v => bindOk pc v k
     | .error pc => [.error pc]
     | .timeout pc => [.timeout pc]
 
@@ -1099,7 +1107,8 @@ def timeoutCond (outs : List Outcome) : SExpr :=
 
 def scriptWith (decls : List SymDecl) (assertions : List SExpr) : Moist.SMT.Script :=
   ⟨prelude ++ declCommands decls ++ assumptionCommands decls ++
-    assertions.map Moist.SMT.Command.assert ++ [.checkSat, .getModel]⟩
+    assertions.map (fun e => Moist.SMT.Command.assert e.simplifyBool) ++
+      [.checkSat, .getModel]⟩
 
 def scriptForBoolTrue (fuel : Nat) (decls : List SymDecl) (t : Term) : Moist.SMT.Script :=
   let outs := evalSym fuel (envOf decls) t

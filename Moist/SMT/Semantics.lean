@@ -1240,15 +1240,191 @@ private theorem evalBoolIs_app_not_true (m : Model) (a : Expr) :
       | g2 g => simp [ha]
       | ml r => simp [ha]
 
+private theorem evalBoolIs_andRight_true (m : Model) (a b : Expr) :
+    evalBoolIs m (Expr.andRight a b) true = true ↔
+      evalBoolIs m a true = true ∧ evalBoolIs m b true = true := by
+  cases b <;> simp only [Expr.andRight]
+  all_goals try cases ‹Bool›
+  all_goals first
+    | exact evalBoolIs_app_and_true _ _ _
+    | simp [Expr.trueE, Expr.falseE, evalBoolIs, evalBool?, eval]
+
 theorem evalBoolIs_and_true (m : Model) (a b : Expr) :
     evalBoolIs m (Expr.and a b) true = true ↔
       evalBoolIs m a true = true ∧ evalBoolIs m b true = true := by
-  simpa [Expr.and] using evalBoolIs_app_and_true m a b
+  cases a <;> simp only [Expr.and]
+  all_goals try cases ‹Bool›
+  all_goals first
+    | exact evalBoolIs_andRight_true _ _ _
+    | simp [Expr.trueE, Expr.falseE, evalBoolIs, evalBool?, eval]
+
+private theorem evalBoolIs_orRight_true (m : Model) (a b : Expr) :
+    evalBoolIs m (Expr.orRight a b) true = true →
+      evalBoolIs m a true = true ∨ evalBoolIs m b true = true := by
+  cases b <;> simp only [Expr.orRight]
+  all_goals try cases ‹Bool›
+  all_goals first
+    | exact evalBoolIs_app_or_true _ _ _
+    | simp [Expr.trueE, Expr.falseE, evalBoolIs, evalBool?, eval]
 
 theorem evalBoolIs_or_true (m : Model) (a b : Expr) :
     evalBoolIs m (Expr.or a b) true = true →
       evalBoolIs m a true = true ∨ evalBoolIs m b true = true := by
-  simpa [Expr.or] using evalBoolIs_app_or_true m a b
+  cases a <;> simp only [Expr.or]
+  all_goals try cases ‹Bool›
+  all_goals first
+    | exact evalBoolIs_orRight_true _ _ _
+    | simp [Expr.trueE, Expr.falseE, evalBoolIs, evalBool?, eval]
+
+private theorem eval_andRight_of_bools (m : Model) (a b : Expr) (ba bb : Bool)
+    (ha : eval m a = some (.bool ba)) (hb : eval m b = some (.bool bb)) :
+    eval m (Expr.andRight a b) = some (.bool (ba && bb)) := by
+  cases b with
+  | bool b0 =>
+      cases b0 <;> simp [Expr.andRight, Expr.trueE, Expr.falseE, eval] at hb ⊢ <;>
+        simp_all [ha]
+  | sym s => simp [Expr.andRight, eval, ha, hb]
+  | int i => simp [Expr.andRight, eval, ha, hb]
+  | bytes bs => simp [Expr.andRight, eval, ha, hb]
+  | dataLit d => simp [Expr.andRight, eval, ha, hb]
+  | dataListLit xs => simp [Expr.andRight, eval, ha, hb]
+  | dataPairListLit xs => simp [Expr.andRight, eval, ha, hb]
+  | constListLit xs => simp [Expr.andRight, eval, ha, hb]
+  | str s => simp [Expr.andRight, eval, ha, hb]
+  | app f args => simp [Expr.andRight, eval, ha, hb]
+  | ite c t e => simp [Expr.andRight, eval, ha, hb]
+
+theorem eval_and_of_bools (m : Model) (a b : Expr) (ba bb : Bool)
+    (ha : eval m a = some (.bool ba)) (hb : eval m b = some (.bool bb)) :
+    eval m (Expr.and a b) = some (.bool (ba && bb)) := by
+  cases a with
+  | bool a0 =>
+      cases a0 <;> simp [Expr.and, Expr.trueE, Expr.falseE, eval] at ha ⊢ <;>
+        simp_all [hb]
+  | sym s => exact eval_andRight_of_bools m _ _ ba bb ha hb
+  | int i => exact eval_andRight_of_bools m _ _ ba bb ha hb
+  | bytes bs => exact eval_andRight_of_bools m _ _ ba bb ha hb
+  | dataLit d => exact eval_andRight_of_bools m _ _ ba bb ha hb
+  | dataListLit xs => exact eval_andRight_of_bools m _ _ ba bb ha hb
+  | dataPairListLit xs => exact eval_andRight_of_bools m _ _ ba bb ha hb
+  | constListLit xs => exact eval_andRight_of_bools m _ _ ba bb ha hb
+  | str s => exact eval_andRight_of_bools m _ _ ba bb ha hb
+  | app f args => exact eval_andRight_of_bools m _ _ ba bb ha hb
+  | ite c t e => exact eval_andRight_of_bools m _ _ ba bb ha hb
+
+private theorem eval_orRight_of_bools (m : Model) (a b : Expr) (ba bb : Bool)
+    (ha : eval m a = some (.bool ba)) (hb : eval m b = some (.bool bb)) :
+    eval m (Expr.orRight a b) = some (.bool (ba || bb)) := by
+  cases b with
+  | bool b0 =>
+      cases b0 <;> simp [Expr.orRight, Expr.trueE, Expr.falseE, eval] at hb ⊢ <;>
+        simp_all [ha]
+  | sym s => simp [Expr.orRight, eval, ha, hb]
+  | int i => simp [Expr.orRight, eval, ha, hb]
+  | bytes bs => simp [Expr.orRight, eval, ha, hb]
+  | dataLit d => simp [Expr.orRight, eval, ha, hb]
+  | dataListLit xs => simp [Expr.orRight, eval, ha, hb]
+  | dataPairListLit xs => simp [Expr.orRight, eval, ha, hb]
+  | constListLit xs => simp [Expr.orRight, eval, ha, hb]
+  | str s => simp [Expr.orRight, eval, ha, hb]
+  | app f args => simp [Expr.orRight, eval, ha, hb]
+  | ite c t e => simp [Expr.orRight, eval, ha, hb]
+
+theorem eval_or_of_bools (m : Model) (a b : Expr) (ba bb : Bool)
+    (ha : eval m a = some (.bool ba)) (hb : eval m b = some (.bool bb)) :
+    eval m (Expr.or a b) = some (.bool (ba || bb)) := by
+  cases a with
+  | bool a0 =>
+      cases a0 <;> simp [Expr.or, Expr.trueE, Expr.falseE, eval] at ha ⊢ <;>
+        simp_all [hb]
+  | sym s => exact eval_orRight_of_bools m _ _ ba bb ha hb
+  | int i => exact eval_orRight_of_bools m _ _ ba bb ha hb
+  | bytes bs => exact eval_orRight_of_bools m _ _ ba bb ha hb
+  | dataLit d => exact eval_orRight_of_bools m _ _ ba bb ha hb
+  | dataListLit xs => exact eval_orRight_of_bools m _ _ ba bb ha hb
+  | dataPairListLit xs => exact eval_orRight_of_bools m _ _ ba bb ha hb
+  | constListLit xs => exact eval_orRight_of_bools m _ _ ba bb ha hb
+  | str s => exact eval_orRight_of_bools m _ _ ba bb ha hb
+  | app f args => exact eval_orRight_of_bools m _ _ ba bb ha hb
+  | ite c t e => exact eval_orRight_of_bools m _ _ ba bb ha hb
+
+private theorem eval_app_or_false_contra_left (m : Model) (a b : Expr)
+    (ha : eval m a = some (.bool true))
+    (hfalse : eval m (.app "or" [a, b]) = some (.bool false)) : False := by
+  cases hb : eval m b with
+  | none => simp [eval, ha, hb] at hfalse
+  | some sv => cases sv <;> simp [eval, ha, hb] at hfalse
+
+private theorem eval_orRight_false_contra_left (m : Model) (a b : Expr)
+    (ha : eval m a = some (.bool true))
+    (hfalse : eval m (Expr.orRight a b) = some (.bool false)) : False := by
+  cases b with
+  | bool bb => cases bb <;> simp [Expr.orRight, Expr.trueE, Expr.falseE, eval, ha] at hfalse
+  | sym s => exact eval_app_or_false_contra_left m _ _ ha (by simpa [Expr.orRight] using hfalse)
+  | int i => exact eval_app_or_false_contra_left m _ _ ha (by simpa [Expr.orRight] using hfalse)
+  | bytes bs => exact eval_app_or_false_contra_left m _ _ ha (by simpa [Expr.orRight] using hfalse)
+  | dataLit d => exact eval_app_or_false_contra_left m _ _ ha (by simpa [Expr.orRight] using hfalse)
+  | dataListLit xs => exact eval_app_or_false_contra_left m _ _ ha (by simpa [Expr.orRight] using hfalse)
+  | dataPairListLit xs => exact eval_app_or_false_contra_left m _ _ ha (by simpa [Expr.orRight] using hfalse)
+  | constListLit xs => exact eval_app_or_false_contra_left m _ _ ha (by simpa [Expr.orRight] using hfalse)
+  | str s => exact eval_app_or_false_contra_left m _ _ ha (by simpa [Expr.orRight] using hfalse)
+  | app f args => exact eval_app_or_false_contra_left m _ _ ha (by simpa [Expr.orRight] using hfalse)
+  | ite c t e => exact eval_app_or_false_contra_left m _ _ ha (by simpa [Expr.orRight] using hfalse)
+
+theorem eval_or_false_contra_left (m : Model) (a b : Expr)
+    (ha : eval m a = some (.bool true))
+    (hfalse : eval m (Expr.or a b) = some (.bool false)) : False := by
+  cases a with
+  | bool ba => cases ba <;> simp [Expr.or, Expr.trueE, Expr.falseE, eval] at ha hfalse
+  | sym s => exact eval_orRight_false_contra_left m _ _ ha (by simpa [Expr.or] using hfalse)
+  | int i => exact eval_orRight_false_contra_left m _ _ ha (by simpa [Expr.or] using hfalse)
+  | bytes bs => exact eval_orRight_false_contra_left m _ _ ha (by simpa [Expr.or] using hfalse)
+  | dataLit d => exact eval_orRight_false_contra_left m _ _ ha (by simpa [Expr.or] using hfalse)
+  | dataListLit xs => exact eval_orRight_false_contra_left m _ _ ha (by simpa [Expr.or] using hfalse)
+  | dataPairListLit xs => exact eval_orRight_false_contra_left m _ _ ha (by simpa [Expr.or] using hfalse)
+  | constListLit xs => exact eval_orRight_false_contra_left m _ _ ha (by simpa [Expr.or] using hfalse)
+  | str s => exact eval_orRight_false_contra_left m _ _ ha (by simpa [Expr.or] using hfalse)
+  | app f args => exact eval_orRight_false_contra_left m _ _ ha (by simpa [Expr.or] using hfalse)
+  | ite c t e => exact eval_orRight_false_contra_left m _ _ ha (by simpa [Expr.or] using hfalse)
+
+private theorem eval_app_or_false_contra_right (m : Model) (a b : Expr)
+    (hb : eval m b = some (.bool true))
+    (hfalse : eval m (.app "or" [a, b]) = some (.bool false)) : False := by
+  cases ha : eval m a with
+  | none => simp [eval, ha, hb] at hfalse
+  | some sv => cases sv <;> simp [eval, ha, hb] at hfalse
+
+private theorem eval_orRight_false_contra_right (m : Model) (a b : Expr)
+    (hb : eval m b = some (.bool true))
+    (hfalse : eval m (Expr.orRight a b) = some (.bool false)) : False := by
+  cases b with
+  | bool bb => cases bb <;> simp [Expr.orRight, Expr.trueE, Expr.falseE, eval] at hb hfalse
+  | sym s => exact eval_app_or_false_contra_right m _ _ hb (by simpa [Expr.orRight] using hfalse)
+  | int i => exact eval_app_or_false_contra_right m _ _ hb (by simpa [Expr.orRight] using hfalse)
+  | bytes bs => exact eval_app_or_false_contra_right m _ _ hb (by simpa [Expr.orRight] using hfalse)
+  | dataLit d => exact eval_app_or_false_contra_right m _ _ hb (by simpa [Expr.orRight] using hfalse)
+  | dataListLit xs => exact eval_app_or_false_contra_right m _ _ hb (by simpa [Expr.orRight] using hfalse)
+  | dataPairListLit xs => exact eval_app_or_false_contra_right m _ _ hb (by simpa [Expr.orRight] using hfalse)
+  | constListLit xs => exact eval_app_or_false_contra_right m _ _ hb (by simpa [Expr.orRight] using hfalse)
+  | str s => exact eval_app_or_false_contra_right m _ _ hb (by simpa [Expr.orRight] using hfalse)
+  | app f args => exact eval_app_or_false_contra_right m _ _ hb (by simpa [Expr.orRight] using hfalse)
+  | ite c t e => exact eval_app_or_false_contra_right m _ _ hb (by simpa [Expr.orRight] using hfalse)
+
+theorem eval_or_false_contra_right (m : Model) (a b : Expr)
+    (hb : eval m b = some (.bool true))
+    (hfalse : eval m (Expr.or a b) = some (.bool false)) : False := by
+  cases a with
+  | bool ba => cases ba <;> simp [Expr.or, Expr.trueE, Expr.falseE, eval, hb] at hfalse
+  | sym s => exact eval_orRight_false_contra_right m _ _ hb (by simpa [Expr.or] using hfalse)
+  | int i => exact eval_orRight_false_contra_right m _ _ hb (by simpa [Expr.or] using hfalse)
+  | bytes bs => exact eval_orRight_false_contra_right m _ _ hb (by simpa [Expr.or] using hfalse)
+  | dataLit d => exact eval_orRight_false_contra_right m _ _ hb (by simpa [Expr.or] using hfalse)
+  | dataListLit xs => exact eval_orRight_false_contra_right m _ _ hb (by simpa [Expr.or] using hfalse)
+  | dataPairListLit xs => exact eval_orRight_false_contra_right m _ _ hb (by simpa [Expr.or] using hfalse)
+  | constListLit xs => exact eval_orRight_false_contra_right m _ _ hb (by simpa [Expr.or] using hfalse)
+  | str s => exact eval_orRight_false_contra_right m _ _ hb (by simpa [Expr.or] using hfalse)
+  | app f args => exact eval_orRight_false_contra_right m _ _ hb (by simpa [Expr.or] using hfalse)
+  | ite c t e => exact eval_orRight_false_contra_right m _ _ hb (by simpa [Expr.or] using hfalse)
 
 theorem evalBoolIs_not_true (m : Model) (a : Expr) :
     evalBoolIs m (Expr.not a) true = true ↔

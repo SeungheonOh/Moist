@@ -72,9 +72,25 @@ def not : Expr → Expr
   | .bool false => .bool true
   | a => .app "not" [a]
 
-def and (a b : Expr) : Expr := .app "and" [a, b]
+def andRight (a : Expr) : Expr → Expr
+  | .bool false => falseE
+  | .bool true => a
+  | b => .app "and" [a, b]
 
-def or (a b : Expr) : Expr := .app "or" [a, b]
+def and : Expr → Expr → Expr
+  | .bool false, _ => falseE
+  | .bool true, b => b
+  | a, b => andRight a b
+
+def orRight (a : Expr) : Expr → Expr
+  | .bool true => trueE
+  | .bool false => a
+  | b => .app "or" [a, b]
+
+def or : Expr → Expr → Expr
+  | .bool true, _ => trueE
+  | .bool false, b => b
+  | a, b => orRight a b
 def imp (a b : Expr) : Expr := .app "=>" [a, b]
 def eq (a b : Expr) : Expr := .app "=" [a, b]
 def ne (a b : Expr) : Expr := not (eq a b)

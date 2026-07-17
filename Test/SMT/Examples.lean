@@ -86,13 +86,11 @@ def scriptMkConsRejectsRuntimeConstrError : Script :=
 def scriptShaTimeoutNoOkOrError : Script :=
   let decls := [xBytes, yBytes]
   let outs := evalSym 20 (envOf decls) shaCongruenceTerm
-  ⟨prelude ++ declCommands decls ++ assumptionCommands decls ++
-    [ .assert (timeoutCond outs)
-    , .assert (SExpr.not (okBoolTrueCond outs))
-    , .assert (SExpr.not (errorCond outs))
-    , .checkSat
-    , .getModel
-    ]⟩
+  scriptWith decls
+    [ timeoutCond outs
+    , SExpr.not (okBoolTrueCond outs)
+    , SExpr.not (errorCond outs)
+    ]
 
 def scriptRecursiveSum55 : Script :=
   scriptForIntEq 100 [xInt] recursiveSumTerm (.int 55)

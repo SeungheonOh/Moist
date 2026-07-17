@@ -147,6 +147,6 @@
 (declare-fun uplc_valueContains (Val Val) Bool)
 (declare-fun uplc_g1_multiScalarMul (ValList ValList) G1)
 (declare-fun uplc_g2_multiScalarMul (ValList ValList) G2)
-(assert false)
+(assert true)
 (check-sat)
 (get-model)
