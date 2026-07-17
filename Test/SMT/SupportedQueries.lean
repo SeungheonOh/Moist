@@ -273,6 +273,9 @@ example : expressionRendererSafe (.sym "false") = false := by native_decide
 example : expressionRendererSafe (.sym "0") = false := by native_decide
 example : expressionRendererSafe (.sym "VUnit") = false := by native_decide
 example : expressionRendererSafe (.sym "DNil") = false := by native_decide
+example : expressionRendererSafe (.app "true" []) = false := by native_decide
+example : expressionRendererSafe (.app "0" []) = false := by native_decide
+example : expressionRendererSafe (.app "VUnit" []) = true := by native_decide
 
 example :
     (SupportedDeclarations.check
@@ -283,6 +286,61 @@ example : expressionRendererSafe (.sym (Moist.SMT.sanitize "x")) = true := by
   native_decide
 
 example : expressionRendererSafe (.sym "(as seq.empty Bytes)") = true := by
+  native_decide
+
+example : expressionRendererSafe (.sym "(as seq.empty (Seq Int))") = false := by
+  native_decide
+
+/-! Renderer-safe syntax is still rejected unless it is closed, uniquely
+declared, and sorted according to the executable SMT semantics.  These cases
+regress concrete Z3 `error`-then-`sat` and Bytes/UString aliasing failures. -/
+
+def undeclaredAtomDeclaration : SymDecl :=
+  symConstr "tag" [.const (.bool (.sym "$u$999"))]
+
+example : declarationsRendererSafe [undeclaredAtomDeclaration] = true := by
+  native_decide
+
+example : declarationsSortSafe [undeclaredAtomDeclaration] = false := by
+  native_decide
+
+example :
+    (SupportedDeclarations.check [undeclaredAtomDeclaration]).isSome = false := by
+  native_decide
+
+def crossSortEqualityDeclaration : SymDecl :=
+  symConstr "tag"
+    [.const (.bool (.app "=" [.bytes (ByteArray.mk #[65]), .str "A"]))]
+
+example : expressionSort? []
+    (.app "=" [.bytes (ByteArray.mk #[65]), .str "A"]) == none := by
+  native_decide
+
+example : declarationsSortSafe [crossSortEqualityDeclaration] = false := by
+  native_decide
+
+example :
+    (BoolTrueQuery.compile? 20 [crossSortEqualityDeclaration]
+      (.Case (.Var 1) [.Lam 0 (.Var 1)])).isSome = false := by
+  native_decide
+
+def nullaryLiteralApplicationDeclaration : SymDecl :=
+  symConstr "tag" [.const (.bool (.app "true" []))]
+
+example :
+    (SupportedDeclarations.check
+      [nullaryLiteralApplicationDeclaration]).isSome = false := by
+  native_decide
+
+example : declarationNamesDistinct [symInt "x", symInt "x"] = false := by
+  native_decide
+
+example :
+    (SupportedDeclarations.check [symInt "x", symInt "x"]).isSome = false := by
+  native_decide
+
+example :
+    (SupportedDeclarations.check [symInt "x", symBytes "x"]).isSome = false := by
   native_decide
 
 example :
