@@ -1194,8 +1194,17 @@ def timeoutCond (outs : List Outcome) : SExpr :=
 
 def scriptWith (decls : List SymDecl) (assertions : List SExpr) : Moist.SMT.Script :=
   ⟨prelude ++ declCommands decls ++ assumptionCommands decls ++
-    assertions.map (fun e => Moist.SMT.Command.assert e.simplifyBool) ++
+    assertions.map Moist.SMT.Command.assert ++
       [.checkSat, .getModel]⟩
+
+/-- Opt-in final normalization for callers supplying arbitrary hand-written
+assertions.  Compiler-generated queries already use the verified smart
+constructors throughout; traversing their potentially shared decision DAG a
+second time is both redundant and prohibitively expensive for symbolic list
+programs. -/
+def scriptWithSimplified (decls : List SymDecl)
+    (assertions : List SExpr) : Moist.SMT.Script :=
+  scriptWith decls (assertions.map Expr.simplifyBool)
 
 def scriptForBoolTrue (fuel : Nat) (decls : List SymDecl) (t : Term) : Moist.SMT.Script :=
   let outs := evalSym fuel (envOf decls) t

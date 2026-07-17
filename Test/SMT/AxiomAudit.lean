@@ -55,6 +55,12 @@ info: 'Moist.SMT.UPLC.Soundness.compactOutcomes_active_error' depends on axioms:
 #print axioms Moist.SMT.UPLC.Soundness.compactOutcomes_active_error
 
 /--
+info: 'Moist.SMT.UPLC.Soundness.compactOutcomes_active_timeout' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.compactOutcomes_active_timeout
+
+/--
 info: 'Moist.Verified.BigStep.bigEval_iff_halt_env' depends on axioms: [propext, Classical.choice, Quot.sound]
 -/
 #guard_msgs in
@@ -69,10 +75,22 @@ info: 'Moist.SMT.UPLC.Soundness.evalSym_simplifiedErrorCond_allFuel' depends on 
 #print axioms Moist.SMT.UPLC.Soundness.evalSym_simplifiedErrorCond_allFuel
 
 /--
+info: 'Moist.SMT.UPLC.Soundness.evalSym_errorCond_allFuel' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.evalSym_errorCond_allFuel
+
+/--
 info: 'Moist.SMT.UPLC.Soundness.evalSym_simplifiedErrorCond_sound' depends on axioms: [propext, Classical.choice, Quot.sound]
 -/
 #guard_msgs in
 #print axioms Moist.SMT.UPLC.Soundness.evalSym_simplifiedErrorCond_sound
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.evalSym_errorCond_sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.evalSym_errorCond_sound
 
 /--
 info: 'Moist.SMT.UPLC.Soundness.evalSym_simplifiedOkBoolTrueCond_sound' depends on axioms: [propext,
@@ -81,6 +99,12 @@ info: 'Moist.SMT.UPLC.Soundness.evalSym_simplifiedOkBoolTrueCond_sound' depends 
 -/
 #guard_msgs in
 #print axioms Moist.SMT.UPLC.Soundness.evalSym_simplifiedOkBoolTrueCond_sound
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.evalSym_okBoolTrueCond_sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.evalSym_okBoolTrueCond_sound
 
 /--
 info: 'Moist.SMT.UPLC.Soundness.okIntEqCond_eval_true_mem' depends on axioms: [propext, Quot.sound]
@@ -109,3 +133,9 @@ info: 'Moist.SMT.UPLC.Soundness.evalSym_simplifiedOkIntEqCond_sound' depends on 
 -/
 #guard_msgs in
 #print axioms Moist.SMT.UPLC.Soundness.evalSym_simplifiedOkIntEqCond_sound
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.evalSym_okIntEqCond_sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.evalSym_okIntEqCond_sound

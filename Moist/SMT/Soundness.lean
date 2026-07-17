@@ -44,34 +44,34 @@ diverge. -/
 def CekDoesNotHalt (env : CekEnv) (t : Term) : Prop :=
   ¬ ∃ v, Reaches (.compute [] env t) (.halt v)
 
-/-- An active symbolic error remains an error at every larger big-step fuel.
-This is the fuel-independent core used by the CEK-facing endpoint below. -/
-theorem evalSym_simplifiedErrorCond_allFuel {m : SmtSem.Model} {fuel : Nat}
+/-- An active generated error remains an error at every larger big-step fuel.
+This is the fuel-independent core for the assertion emitted by
+`scriptForError`. -/
+theorem evalSym_errorCond_allFuel {m : SmtSem.Model} {fuel : Nat}
     {ρ : List SymVal} {env : CekEnv} {t : Term}
     (henv : symEnvToCek? m ρ = some env)
     (hρno : symEnvNoOpaqueForSoundness ρ = true)
     (hno : termNoOpaqueBuiltinsForSoundness t)
     (herror : SmtSem.evalBoolIs m
-      (Moist.SMT.Expr.simplifyBool (errorCond (evalSym fuel ρ t))) true = true) :
+      (errorCond (evalSym fuel ρ t)) true = true) :
     ∀ fuel', fuel ≤ fuel' → bigEval fuel' env t = none := by
-  obtain ⟨out, hmem, herr⟩ := errorCond_eval_true_mem
-    (by simpa only [Moist.SMT.Semantics.evalBoolIs_simplifyBool] using herror)
+  obtain ⟨out, hmem, herr⟩ := errorCond_eval_true_mem herror
   intro fuel' hle
   exact evalSym_active_error_noOpaque_le (m := m) (fuel := fuel) (fuel' := fuel')
     (ρ := ρ) (env := env) (t := t) henv hρno hno hmem herr hle
 
-/-- Public error endpoint.  A true generated error assertion cannot be caused
-by insufficient symbolic fuel, and the corresponding CEK computation cannot
-halt successfully at any value. -/
-theorem evalSym_simplifiedErrorCond_sound {m : SmtSem.Model} {fuel : Nat}
+/-- Public compiler error endpoint.  A true rendered error assertion cannot
+be caused by insufficient symbolic fuel, and the corresponding CEK
+computation cannot halt successfully at any value. -/
+theorem evalSym_errorCond_sound {m : SmtSem.Model} {fuel : Nat}
     {ρ : List SymVal} {env : CekEnv} {t : Term}
     (henv : symEnvToCek? m ρ = some env)
     (hρno : symEnvNoOpaqueForSoundness ρ = true)
     (hno : termNoOpaqueBuiltinsForSoundness t)
     (herror : SmtSem.evalBoolIs m
-      (Moist.SMT.Expr.simplifyBool (errorCond (evalSym fuel ρ t))) true = true) :
+      (errorCond (evalSym fuel ρ t)) true = true) :
     CekDoesNotHalt env t := by
-  have hall := evalSym_simplifiedErrorCond_allFuel henv hρno hno herror
+  have hall := evalSym_errorCond_allFuel henv hρno hno herror
   rintro ⟨v, hhalt⟩
   obtain ⟨f, hf⟩ := bigEval_complete_env hhalt
   by_cases hle : fuel ≤ f
@@ -82,8 +82,62 @@ theorem evalSym_simplifiedErrorCond_sound {m : SmtSem.Model} {fuel : Nat}
     rw [hall fuel (Nat.le_refl fuel)] at hf'
     contradiction
 
-/-- Public success endpoint.  A true generated Boolean-success assertion makes
-the actual CEK transition system halt with the identical Boolean value. -/
+/-- Public compiler success endpoint.  A true rendered Boolean-success
+assertion makes the actual CEK transition system halt with the identical
+Boolean value. -/
+theorem evalSym_okBoolTrueCond_sound {m : SmtSem.Model} {fuel : Nat}
+    {ρ : List SymVal} {env : CekEnv} {t : Term}
+    (henv : symEnvToCek? m ρ = some env)
+    (hρno : symEnvNoOpaqueForSoundness ρ = true)
+    (hno : termNoOpaqueBuiltinsForSoundness t)
+    (hokCond : SmtSem.evalBoolIs m
+      (okBoolTrueCond (evalSym fuel ρ t)) true = true) :
+    CekHaltsBoolTrue env t := by
+  have hbig := evalSym_okBoolTrueCond_bigEval henv hρno hno hokCond
+  exact (bigEval_iff_halt_env).mp ⟨fuel, hbig⟩
+
+/-- Public compiler integer endpoint.  If the right-hand SMT expression
+denotes `expected`, a true rendered integer-equality assertion makes the
+actual CEK transition system halt with exactly `expected`. -/
+theorem evalSym_okIntEqCond_sound {m : SmtSem.Model} {fuel : Nat}
+    {ρ : List SymVal} {env : CekEnv} {t : Term} {rhs : SExpr} {expected : Int}
+    (henv : symEnvToCek? m ρ = some env)
+    (hρno : symEnvNoOpaqueForSoundness ρ = true)
+    (hno : termNoOpaqueBuiltinsForSoundness t)
+    (hrhs : SmtSem.eval m rhs = some (.int expected))
+    (hcond : SmtSem.evalBoolIs m
+      (okIntEqCond (evalSym fuel ρ t) rhs) true = true) :
+    CekHaltsInteger env t expected := by
+  have hbig := evalSym_okIntEqCond_bigEval henv hρno hno hrhs hcond
+  exact (bigEval_iff_halt_env).mp ⟨fuel, hbig⟩
+
+/-! ## Compatibility endpoints for opt-in assertion normalization -/
+
+/-- Semantic compatibility for `scriptWithSimplified`. -/
+theorem evalSym_simplifiedErrorCond_allFuel {m : SmtSem.Model} {fuel : Nat}
+    {ρ : List SymVal} {env : CekEnv} {t : Term}
+    (henv : symEnvToCek? m ρ = some env)
+    (hρno : symEnvNoOpaqueForSoundness ρ = true)
+    (hno : termNoOpaqueBuiltinsForSoundness t)
+    (herror : SmtSem.evalBoolIs m
+      (Moist.SMT.Expr.simplifyBool (errorCond (evalSym fuel ρ t))) true = true) :
+    ∀ fuel', fuel ≤ fuel' → bigEval fuel' env t = none := by
+  apply evalSym_errorCond_allFuel henv hρno hno
+  simpa only [Moist.SMT.Semantics.evalBoolIs_simplifyBool] using herror
+
+/-- Semantic compatibility for `scriptWithSimplified`. -/
+theorem evalSym_simplifiedErrorCond_sound {m : SmtSem.Model} {fuel : Nat}
+    {ρ : List SymVal} {env : CekEnv} {t : Term}
+    (henv : symEnvToCek? m ρ = some env)
+    (hρno : symEnvNoOpaqueForSoundness ρ = true)
+    (hno : termNoOpaqueBuiltinsForSoundness t)
+    (herror : SmtSem.evalBoolIs m
+      (Moist.SMT.Expr.simplifyBool (errorCond (evalSym fuel ρ t))) true = true) :
+    CekDoesNotHalt env t := by
+  apply evalSym_errorCond_sound henv hρno hno
+  simpa only [Moist.SMT.Semantics.evalBoolIs_simplifyBool] using herror
+
+/-- Semantic compatibility for `scriptWithSimplified`. -/
 theorem evalSym_simplifiedOkBoolTrueCond_sound {m : SmtSem.Model} {fuel : Nat}
     {ρ : List SymVal} {env : CekEnv} {t : Term}
     (henv : symEnvToCek? m ρ = some env)
@@ -92,12 +146,10 @@ theorem evalSym_simplifiedOkBoolTrueCond_sound {m : SmtSem.Model} {fuel : Nat}
     (hokCond : SmtSem.evalBoolIs m
       (Moist.SMT.Expr.simplifyBool (okBoolTrueCond (evalSym fuel ρ t))) true = true) :
     CekHaltsBoolTrue env t := by
-  have hbig := evalSym_simplifiedOkBoolTrueCond_bigEval henv hρno hno hokCond
-  exact (bigEval_iff_halt_env).mp ⟨fuel, hbig⟩
+  apply evalSym_okBoolTrueCond_sound henv hρno hno
+  simpa only [Moist.SMT.Semantics.evalBoolIs_simplifyBool] using hokCond
 
-/-- Public integer endpoint.  If the right-hand SMT expression denotes
-`expected`, a true generated integer-equality assertion makes the actual CEK
-transition system halt with exactly `expected`. -/
+/-- Semantic compatibility for `scriptWithSimplified`. -/
 theorem evalSym_simplifiedOkIntEqCond_sound {m : SmtSem.Model} {fuel : Nat}
     {ρ : List SymVal} {env : CekEnv} {t : Term} {rhs : SExpr} {expected : Int}
     (henv : symEnvToCek? m ρ = some env)
@@ -108,8 +160,7 @@ theorem evalSym_simplifiedOkIntEqCond_sound {m : SmtSem.Model} {fuel : Nat}
       (Moist.SMT.Expr.simplifyBool
         (okIntEqCond (evalSym fuel ρ t) rhs)) true = true) :
     CekHaltsInteger env t expected := by
-  have hbig := evalSym_simplifiedOkIntEqCond_bigEval
-    henv hρno hno hrhs hcond
-  exact (bigEval_iff_halt_env).mp ⟨fuel, hbig⟩
+  apply evalSym_okIntEqCond_sound henv hρno hno hrhs
+  simpa only [Moist.SMT.Semantics.evalBoolIs_simplifyBool] using hcond
 
 end Moist.SMT.UPLC.Soundness

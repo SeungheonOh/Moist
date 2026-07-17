@@ -123,8 +123,9 @@ private def sampleOutcomes : List Outcome :=
 
 -- These are the public kernel-checked CEK endpoints exercised by generated
 -- success and error assertions.
-#check Moist.SMT.UPLC.Soundness.evalSym_simplifiedErrorCond_sound
-#check Moist.SMT.UPLC.Soundness.evalSym_simplifiedOkBoolTrueCond_sound
+#check Moist.SMT.UPLC.Soundness.evalSym_errorCond_sound
+#check Moist.SMT.UPLC.Soundness.evalSym_okBoolTrueCond_sound
+#check Moist.SMT.UPLC.Soundness.compactOutcomes_active_timeout
 
 def benchmarkSize (n : Nat) : IO Unit := do
   let start ← IO.monoMsNow

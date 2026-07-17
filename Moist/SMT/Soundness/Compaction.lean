@@ -137,6 +137,20 @@ theorem errorPcs_mem {outs : List Outcome} {pc : SExpr}
           · subst p; simp
           · simp [ih h]
 
+theorem timeoutPcs_mem {outs : List Outcome} {pc : SExpr}
+    (h : pc ∈ timeoutPcs outs) : Outcome.timeout pc ∈ outs := by
+  induction outs with
+  | nil => simp [timeoutPcs] at h
+  | cons out outs ih =>
+      cases out with
+      | ok p v => simp [timeoutPcs, ih h]
+      | error p => simp [timeoutPcs, ih h]
+      | timeout p =>
+          simp [timeoutPcs] at h
+          rcases h with h | h
+          · subst p; simp
+          · simp [ih h]
+
 theorem mergeEncodedOks_active {m : SmtSem.Model} {oks : List EncodedOk}
     {pc value : SExpr}
     (hmerge : mergeEncodedOks oks = some (pc, value))
@@ -213,6 +227,16 @@ theorem error_not_mem_mergedTimeoutOutcome {outs : List Outcome} {pc : SExpr} :
   unfold mergedTimeoutOutcome
   split <;> simp
 
+theorem timeout_not_mem_mergedOkOutcome {outs : List Outcome} {pc : SExpr} :
+    Outcome.timeout pc ∉ mergedOkOutcome outs := by
+  unfold mergedOkOutcome
+  split <;> simp
+
+theorem timeout_not_mem_mergedErrorOutcome {outs : List Outcome} {pc : SExpr} :
+    Outcome.timeout pc ∉ mergedErrorOutcome outs := by
+  unfold mergedErrorOutcome
+  split <;> simp
+
 theorem compactOutcomes_active_ok {m : SmtSem.Model} {outs : List Outcome}
     {pc : SExpr} {v : SymVal}
     (hmem : Outcome.ok pc v ∈ compactOutcomes outs)
@@ -257,6 +281,17 @@ theorem error_not_mem_nonEncodedOks {outs : List Outcome} {pc : SExpr} :
       | error p => simp [nonEncodedOks, ih]
       | timeout p => simp [nonEncodedOks, ih]
 
+theorem timeout_not_mem_nonEncodedOks {outs : List Outcome} {pc : SExpr} :
+    Outcome.timeout pc ∉ nonEncodedOks outs := by
+  induction outs with
+  | nil => simp [nonEncodedOks]
+  | cons out outs ih =>
+      cases out with
+      | ok p v =>
+          cases he : compactEncodeVal? v <;> simp [nonEncodedOks, he, ih]
+      | error p => simp [nonEncodedOks, ih]
+      | timeout p => simp [nonEncodedOks, ih]
+
 theorem compactOutcomes_active_error {m : SmtSem.Model} {outs : List Outcome}
     {pc : SExpr}
     (hmem : Outcome.error pc ∈ compactOutcomes outs)
@@ -281,5 +316,29 @@ theorem compactOutcomes_active_error {m : SmtSem.Model} {outs : List Outcome}
           exact ⟨sourcePc, errorPcs_mem (by simpa [hp] using hsourceMem),
             by simpa [pcHolds] using hsourceActive⟩
   · exact False.elim (error_not_mem_mergedTimeoutOutcome htimeout)
+
+theorem compactOutcomes_active_timeout {m : SmtSem.Model} {outs : List Outcome}
+    {pc : SExpr}
+    (hmem : Outcome.timeout pc ∈ compactOutcomes outs)
+    (hpc : pcHolds m pc = true) :
+    ∃ sourcePc, Outcome.timeout sourcePc ∈ outs ∧
+      pcHolds m sourcePc = true := by
+  rw [compactOutcomes] at hmem
+  rcases List.mem_append.mp hmem with hprefix | htimeout
+  · rcases List.mem_append.mp hprefix with hab | herr
+    · rcases List.mem_append.mp hab with hmerged | hnon
+      · exact False.elim (timeout_not_mem_mergedOkOutcome hmerged)
+      · exact False.elim (timeout_not_mem_nonEncodedOks hnon)
+    · exact False.elim (timeout_not_mem_mergedErrorOutcome herr)
+  · unfold mergedTimeoutOutcome at htimeout
+    cases hp : timeoutPcs outs with
+    | nil => simp [hp] at htimeout
+    | cons p ps =>
+        simp [hp] at htimeout
+        subst pc
+        obtain ⟨sourcePc, hsourceMem, hsourceActive⟩ :=
+          evalBoolIs_any_true (m := m) (by simpa [pcHolds] using hpc)
+        exact ⟨sourcePc, timeoutPcs_mem (by simpa [hp] using hsourceMem),
+          by simpa [pcHolds] using hsourceActive⟩
 
 end Moist.SMT.UPLC.Soundness

@@ -6,11 +6,12 @@ open Moist.Plutus.Term
 open Moist.Verified.BigStep
 open Moist.CEK (ArgKind ExpectedArgs expectedArgs CekEnv CekValue)
 
-/-! ## Verified compiler-output normalization
+/-! ## Verified opt-in normalization
 
-`scriptWith` normalizes every final Boolean assertion.  These corollaries close
-the proof chain from the assertions actually rendered by the compiler back to
-the CEK evaluator, using semantic preservation of `Expr.simplifyBool`.
+`scriptWithSimplified` remains available for hand-written assertions.  These
+compatibility corollaries use semantic preservation of `Expr.simplifyBool`;
+the production UPLC query constructors emit their already-smart-constructed
+conditions directly and use the unsuffixed endpoints.
 -/
 
 theorem evalSym_simplifiedErrorCond_bigEval {m : SmtSem.Model} {fuel : Nat}

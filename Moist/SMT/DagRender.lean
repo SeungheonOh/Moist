@@ -8,9 +8,9 @@ namespace Moist.SMT
 # Shared SMT rendering
 
 `Expr.render` is the small, transparent reference renderer.  This module adds
-an operational renderer for large generated expressions.  It first asks the
-Lean runtime to maximally share structurally equal subexpressions, then emits
-each repeated non-atomic node once through nested SMT-LIB `let` bindings.
+an operational renderer for large generated expressions.  It follows the
+sharing already present in Lean's immutable expression graph and emits each
+repeated non-atomic node once through nested SMT-LIB `let` bindings.
 
 The pointer identities below are used only to recover that runtime DAG while
 printing.  They do not participate in symbolic execution or in its soundness
@@ -133,7 +133,7 @@ inline.  The bindings are nested one at a time because SMT-LIB bindings in a sin
 children.  `bindings` is useful for regression and performance tests.
 -/
 unsafe def renderDagResult (expr : Expr) : DagRenderResult :=
-  let root := ShareCommon.shareCommon' expr
+  let root := expr
   let (refs, used) := scan root
   let (ids, bindings) := buildDagLoop [.visit root] refs {} used 0 #[]
   let opens := bindings.toList.map fun binding =>

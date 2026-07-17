@@ -46,9 +46,14 @@ def rawRecursiveSum55 : Expr :=
 #guard (bindOk (.bool false) (.const .unit)
   (fun _ => [.error (.sym "large")])).isEmpty
 
--- The production script constructor applies exactly the verified pass.
+-- The production compiler emits the already-smart-constructed condition
+-- directly.  Explicit normalization remains available for hand-written
+-- assertions and is structurally idempotent on this workload.
 example : scriptForIntEq 100 [xInt] recursiveSumTerm (.int 55) =
     scriptWith [xInt] [rawRecursiveSum55] := rfl
+
+example : scriptWithSimplified [xInt] [rawRecursiveSum55] =
+    scriptWith [xInt] [rawRecursiveSum55.simplifyBool] := rfl
 
 -- Regression benchmark for the path-exploding recursive query.  Construction-
 -- time smart constructors already reach this compact form; the exact query
@@ -68,5 +73,8 @@ example (m : Semantics.Model) :
 #check Moist.SMT.UPLC.Soundness.evalSym_simplifiedErrorCond_sound
 #check Moist.SMT.UPLC.Soundness.evalSym_simplifiedOkBoolTrueCond_sound
 #check Moist.SMT.UPLC.Soundness.evalSym_simplifiedOkIntEqCond_sound
+#check Moist.SMT.UPLC.Soundness.evalSym_errorCond_sound
+#check Moist.SMT.UPLC.Soundness.evalSym_okBoolTrueCond_sound
+#check Moist.SMT.UPLC.Soundness.evalSym_okIntEqCond_sound
 
 end Test.SMT.Optimize
