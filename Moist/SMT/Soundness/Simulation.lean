@@ -1,4 +1,5 @@
 import Moist.SMT.Soundness.BuiltinFailureProofs
+import Moist.Verified.ExactBigStep
 
 namespace Moist.SMT.UPLC.Soundness
 
@@ -295,6 +296,31 @@ def caseCekResult (fuel : Nat) (env : CekEnv)
             | none => none
       | none => none
   | _ => none
+
+/-- Error-aware counterpart of `caseCekResult`.  This is the exact value-level
+semantics used by `ExactBigStep.eval` after a case scrutinee has evaluated. -/
+def caseExactResult (fuel : Nat) (env : CekEnv)
+    (scrut : CekValue) (alts : List Term) :
+    Moist.Verified.ExactBigStep.Result CekValue :=
+  match scrut with
+  | .VConstr tag fields =>
+      match alts[tag]? with
+      | some alt =>
+          (Moist.Verified.ExactBigStep.eval fuel env alt).bind fun vAlt =>
+            Moist.Verified.ExactBigStep.applyList fuel vAlt fields
+      | none => .error
+  | .VCon c =>
+      match Moist.CEK.constToTagAndFields c with
+      | some (tag, numCtors, fields) =>
+          if numCtors > 0 && alts.length > numCtors then .error
+          else
+            match alts[tag]? with
+            | some alt =>
+                (Moist.Verified.ExactBigStep.eval fuel env alt).bind fun vAlt =>
+                  Moist.Verified.ExactBigStep.applyList fuel vAlt fields
+            | none => .error
+      | none => .error
+  | _ => .error
 
 set_option maxHeartbeats 0
 
@@ -2036,6 +2062,14 @@ mutual
         simp [caseSym, err] at hmem
 end
 
+attribute [local simp]
+  Moist.Verified.ExactBigStep.Result.bind
+  Moist.Verified.ExactBigStep.eval_ok_of_bigEval
+  Moist.Verified.ExactBigStep.apply_ok_of_applyVal
+  Moist.Verified.ExactBigStep.force_ok_of_forceVal
+  Moist.Verified.ExactBigStep.evalList_ok_of_bigEvalList
+  Moist.Verified.ExactBigStep.applyList_ok_of_applyValList
+
 mutual
   theorem evalSym_active_error_noOpaque_le {m : SmtSem.Model} {fuel fuel' : Nat}
       {ρ : List SymVal} {env : CekEnv} {t : Term} {out : Outcome}
@@ -2045,7 +2079,7 @@ mutual
       (hmem : out ∈ evalSym fuel ρ t)
       (herr : outcomeErrorActive m out = true)
       (hle : fuel ≤ fuel') :
-      bigEval fuel' env t = none := by
+      Moist.Verified.ExactBigStep.eval fuel' env t = .error := by
     cases fuel with
     | zero =>
         cases out <;> simp [evalSym, timeout, outcomeErrorActive] at hmem herr
@@ -2067,7 +2101,7 @@ mutual
                       have hpc := err_mem_singleton hmemErr
                       subst pc
                       have hlookupCek := symEnv_lookup_none henv hlookup
-                      simp [bigEval, hlookupCek]
+                      simp [Moist.Verified.ExactBigStep.eval, hlookupCek]
               | some v =>
                   have hmemOk : out ∈ ok v := by
                     simpa [evalSym, hlookup] using hmem
@@ -2116,7 +2150,7 @@ mutual
                   (fuel := n) (fuel' := n') (ρ := ρ) (env := env) (t := f)
                   henv hρno hnoSplit.1 hmemF
                   (by simpa [outcomeErrorActive] using hpcF) hle'
-                simp [bigEval, hfNone]
+                simp [Moist.Verified.ExactBigStep.eval, hfNone]
               · rcases hrest with
                   ⟨pcF, vf, inner, hmemF, hpcF, hmemInner, herrInner⟩
                 have hf := evalSym_path_ok_noOpaque (m := m) (fuel := n)
@@ -2133,7 +2167,7 @@ mutual
                     (fuel := n) (fuel' := n') (ρ := ρ) (env := env) (t := a)
                     henv hρno hnoSplit.2 hmemA
                     (by simpa [outcomeErrorActive] using hpcA) hle'
-                  simp [bigEval, hbigF', haNone]
+                  simp [Moist.Verified.ExactBigStep.eval, hbigF', haNone]
                 · rcases happErr with
                     ⟨pcA, va, innerApp, hmemA, hpcA, hmemApp, herrApp⟩
                   have ha := evalSym_path_ok_noOpaque (m := m) (fuel := n)
@@ -2145,7 +2179,7 @@ mutual
                     (fuel := n) (fuel' := n') (vf := vf) (va := va)
                     (cvf := cvf) (cva := cva)
                     hvf hnof hva hnoa hmemApp herrApp hle'
-                  simp [bigEval, hbigF', hbigA', happNone]
+                  simp [Moist.Verified.ExactBigStep.eval, hbigF', hbigA', happNone]
           | Force body =>
               have hnoBody := termNoOpaque_force hno
               cases out with
@@ -2169,7 +2203,7 @@ mutual
                     (fuel := n) (fuel' := n') (ρ := ρ) (env := env) (t := body)
                     henv hρno hnoBody hmemT
                     (by simpa [outcomeErrorActive] using hpcT) hle'
-                  simp [bigEval, htNone]
+                  simp [Moist.Verified.ExactBigStep.eval, htNone]
                 · rcases hforceErr with
                     ⟨pcT, vt, inner, hmemT, hpcT, hmemForce, herrForce⟩
                   have ht := evalSym_path_ok_noOpaque (m := m) (fuel := n)
@@ -2180,7 +2214,7 @@ mutual
                   have hforceNone := forceSym_active_error_noOpaque_le (m := m)
                     (fuel := n) (fuel' := n') (vt := vt) (cvt := cvt)
                     hvt hnot hmemForce herrForce hle'
-                  simp [bigEval, hbigT', hforceNone]
+                  simp [Moist.Verified.ExactBigStep.eval, hbigT', hforceNone]
           | Constr tag fields =>
               have hnoFields := termNoOpaque_constr_fields hno
               have hbind := bindOut_active_error (m := m)
@@ -2196,7 +2230,7 @@ mutual
                   (fuel := n) (fuel' := n') (ρ := ρ) (env := env) (ts := fields)
                   henv hρno hnoFields hmemFields
                   (by simpa [outcomeErrorActive] using hpcFields) hle'
-                simp [bigEval, hfieldsNone]
+                simp [Moist.Verified.ExactBigStep.eval, hfieldsNone]
               · rcases hfinalErr with
                   ⟨pcFields, vals, inner, hmemFields, hpcFields, hmemFinal, herrFinal⟩
                 have hfields := evalListSym_path_ok_noOpaque (m := m) (fuel := n)
@@ -2218,7 +2252,7 @@ mutual
                   (fuel := n) (fuel' := n') (ρ := ρ) (env := env) (t := scrut)
                   henv hρno hnoSplit.1 hmemScrut
                   (by simpa [outcomeErrorActive] using hpcScrut) hle'
-                simp [bigEval, hscrutNone]
+                simp [Moist.Verified.ExactBigStep.eval, hscrutNone]
               · rcases hcaseErr with
                   ⟨pcScrut, vScrut, inner, hmemScrut, hpcScrut, hmemCase, herrCase⟩
                 have hscrut := evalSym_path_ok_noOpaque (m := m) (fuel := n)
@@ -2230,9 +2264,9 @@ mutual
                   (fuel := n) (fuel' := n') (ρ := ρ) (env := env)
                   (scrut := vScrut) (alts := alts) (cscrut := cvScrut)
                   henv hρno hnoSplit.2 hvScrut hnoScrut hmemCase herrCase hle'
-                cases cvScrut <;> simpa [bigEval, hbigScrut', caseCekResult] using hcaseNone
+                cases cvScrut <;> simpa [Moist.Verified.ExactBigStep.eval, hbigScrut', caseExactResult] using hcaseNone
           | Error =>
-              simp [bigEval]
+              simp [Moist.Verified.ExactBigStep.eval]
 
   theorem evalListSym_active_error_noOpaque_le {m : SmtSem.Model} {fuel fuel' : Nat}
       {ρ : List SymVal} {env : CekEnv} {ts : List Term} {out : Outcome}
@@ -2242,7 +2276,7 @@ mutual
       (hmem : out ∈ evalListSym fuel ρ ts)
       (herr : outcomeErrorActive m out = true)
       (hle : fuel ≤ fuel') :
-      bigEvalList fuel' env ts = none := by
+      Moist.Verified.ExactBigStep.evalList fuel' env ts = .error := by
     cases ts with
     | nil =>
         have hmemOk : out ∈ ok (.constr (.int (-1)) []) := by
@@ -2266,7 +2300,7 @@ mutual
             (fuel := fuel) (fuel' := fuel') (ρ := ρ) (env := env) (t := t)
             henv hρno hnoSplit.1 hmemHead
             (by simpa [outcomeErrorActive] using hpcHead) hle
-          simp [bigEvalList, hheadNone]
+          simp [Moist.Verified.ExactBigStep.evalList, hheadNone]
         · rcases htailStage with
             ⟨pcHead, vHead, inner, hmemHead, hpcHead, hmemTailStage, herrTailStage⟩
           have hhead := evalSym_path_ok_noOpaque (m := m) (fuel := fuel)
@@ -2287,7 +2321,7 @@ mutual
               (fuel := fuel) (fuel' := fuel') (ρ := ρ) (env := env) (ts := ts)
               henv hρno hnoSplit.2 hmemTail
               (by simpa [outcomeErrorActive] using hpcTail) hle
-            simp [bigEvalList, hbigHead', htailNone]
+            simp [Moist.Verified.ExactBigStep.evalList, hbigHead', htailNone]
           · rcases hfinalErr with
               ⟨pcTail, vRest, innerFinal, hmemTail, hpcTail, hmemFinal, herrFinal⟩
             have htail := evalListSym_path_ok_noOpaque (m := m) (fuel := fuel)
@@ -2306,7 +2340,7 @@ mutual
       (hmem : out ∈ applySym fuel vf va)
       (herr : outcomeErrorActive m out = true)
       (hle : fuel ≤ fuel') :
-      applyVal fuel' cvf cva = none := by
+      Moist.Verified.ExactBigStep.apply fuel' cvf cva = .error := by
     cases fuel with
     | zero =>
         cases out <;> simp [applySym, timeout, outcomeErrorActive] at hmem herr
@@ -2334,7 +2368,7 @@ mutual
                 henvExt hnoExt (by
                   simpa [termNoOpaqueBuiltinsForSoundness] using hsplit.1)
                 (by simpa [applySym] using hmem) herr hle'
-              simp [applyVal, hbodyNone]
+              simp [Moist.Verified.ExactBigStep.apply, hbodyNone]
           | builtin b args ea =>
               cases hargs : symValListToCekList? m args <;>
                 simp [symValToCek?, hargs] at hvf
@@ -2353,16 +2387,16 @@ mutual
                     have hb := builtinErrorSoundAllowed b hnoParts.1
                       (m := m) (args := va :: args) (cargs := cva :: cargs)
                       hargs' (by simpa [htail] using hmem) herr
-                    simpa [applyVal, hea, htail] using hb
+                    simp [Moist.Verified.ExactBigStep.apply, hea, htail, hb]
               · have hmemErr : out ∈ err := by
                     simpa [err] using hmem
                 cases out <;> simp [err, outcomeErrorActive] at hmemErr herr
-                simp [applyVal, hea]
+                simp [Moist.Verified.ExactBigStep.apply, hea]
           | const c =>
               cases out <;> simp [applySym, err, outcomeErrorActive] at hmem herr
               obtain ⟨k, rfl⟩ := symConstToCek_vcon (m := m)
                 (by simpa [symValToCek?] using hvf)
-              simp [applyVal]
+              simp [Moist.Verified.ExactBigStep.apply]
           | dyn e =>
               cases out <;> simp [applySym, err, outcomeErrorActive] at hmem herr
               cases he : SmtSem.eval m e <;> simp [symValToCek?, he] at hvf
@@ -2373,9 +2407,9 @@ mutual
                   simpa [symValToCek?, he] using hvf
                 rcases semValToCek_con_or_constr hdec with hcon | hconstr
                 · rcases hcon with ⟨c, rfl⟩
-                  simp [applyVal]
+                  simp [Moist.Verified.ExactBigStep.apply]
                 · rcases hconstr with ⟨tag, fields, rfl⟩
-                  simp [applyVal]
+                  simp [Moist.Verified.ExactBigStep.apply]
           | pair a b =>
               cases out <;> simp [applySym, err, outcomeErrorActive] at hmem herr
               cases ha : symValToCek? m a <;> simp [symValToCek?, ha] at hvf
@@ -2384,7 +2418,7 @@ mutual
               rename_i cb
               cases ca <;> cases cb <;> simp at hvf
               subst cvf
-              simp [applyVal]
+              simp [Moist.Verified.ExactBigStep.apply]
           | constr tag fields =>
               cases out <;> simp [applySym, err, outcomeErrorActive] at hmem herr
               cases htag : SmtSem.eval m tag <;> simp [symValToCek?, htag] at hvf
@@ -2397,13 +2431,13 @@ mutual
                   simp [hneg, hfields] at hvf
                 rcases hvf with ⟨_, hcvf⟩
                 subst cvf
-                simp [applyVal]
+                simp [Moist.Verified.ExactBigStep.apply]
           | delay body ρ =>
               cases out <;> simp [applySym, err, outcomeErrorActive] at hmem herr
               cases henv0 : symEnvToCek? m ρ <;>
                 simp [symValToCek?, henv0] at hvf
               subst cvf
-              simp [applyVal]
+              simp [Moist.Verified.ExactBigStep.apply]
 
   theorem forceSym_active_error_noOpaque_le {m : SmtSem.Model} {fuel fuel' : Nat}
       {vt : SymVal} {cvt : CekValue} {out : Outcome}
@@ -2412,7 +2446,7 @@ mutual
       (hmem : out ∈ forceSym fuel vt)
       (herr : outcomeErrorActive m out = true)
       (hle : fuel ≤ fuel') :
-      forceVal fuel' cvt = none := by
+      Moist.Verified.ExactBigStep.force fuel' cvt = .error := by
     cases fuel with
     | zero =>
         cases out <;> simp [forceSym, timeout, outcomeErrorActive] at hmem herr
@@ -2435,7 +2469,7 @@ mutual
                 henv0 hsplit.2 (by
                   simpa [termNoOpaqueBuiltinsForSoundness] using hsplit.1)
                 (by simpa [forceSym] using hmem) herr hle'
-              simp [forceVal, hbodyNone]
+              simp [Moist.Verified.ExactBigStep.force, hbodyNone]
           | builtin b args ea =>
               cases hargs : symValListToCekList? m args <;>
                 simp [symValToCek?, hargs] at hvt
@@ -2448,7 +2482,7 @@ mutual
               · have hmemErr : out ∈ err := by
                     simpa [err] using hmem
                 cases out <;> simp [err, outcomeErrorActive] at hmemErr herr
-                simp [forceVal, hea]
+                simp [Moist.Verified.ExactBigStep.force, hea]
               · cases htail : ea.tail with
                 | some rest =>
                     cases out <;> simp [htail, ok, outcomeErrorActive] at hmem herr
@@ -2456,12 +2490,12 @@ mutual
                     have hb := builtinErrorSoundAllowed b hnoParts.1
                       (m := m) (args := args) (cargs := cargs)
                       hargs (by simpa [htail] using hmem) herr
-                    simpa [forceVal, hea, htail] using hb
+                    simp [Moist.Verified.ExactBigStep.force, hea, htail, hb]
           | const c =>
               cases out <;> simp [forceSym, err, outcomeErrorActive] at hmem herr
               obtain ⟨k, rfl⟩ := symConstToCek_vcon (m := m)
                 (by simpa [symValToCek?] using hvt)
-              simp [forceVal]
+              simp [Moist.Verified.ExactBigStep.force]
           | dyn e =>
               cases out <;> simp [forceSym, err, outcomeErrorActive] at hmem herr
               cases he : SmtSem.eval m e <;> simp [symValToCek?, he] at hvt
@@ -2472,9 +2506,9 @@ mutual
                   simpa [symValToCek?, he] using hvt
                 rcases semValToCek_con_or_constr hdec with hcon | hconstr
                 · rcases hcon with ⟨c, rfl⟩
-                  simp [forceVal]
+                  simp [Moist.Verified.ExactBigStep.force]
                 · rcases hconstr with ⟨tag, fields, rfl⟩
-                  simp [forceVal]
+                  simp [Moist.Verified.ExactBigStep.force]
           | pair a b =>
               cases out <;> simp [forceSym, err, outcomeErrorActive] at hmem herr
               cases ha : symValToCek? m a <;> simp [symValToCek?, ha] at hvt
@@ -2483,7 +2517,7 @@ mutual
               rename_i cb
               cases ca <;> cases cb <;> simp at hvt
               subst cvt
-              simp [forceVal]
+              simp [Moist.Verified.ExactBigStep.force]
           | constr tag fields =>
               cases out <;> simp [forceSym, err, outcomeErrorActive] at hmem herr
               cases htag : SmtSem.eval m tag <;> simp [symValToCek?, htag] at hvt
@@ -2496,13 +2530,13 @@ mutual
                   simp [hneg, hfields] at hvt
                 rcases hvt with ⟨_, hcvt⟩
                 subst cvt
-                simp [forceVal]
+                simp [Moist.Verified.ExactBigStep.force]
           | lam body ρ =>
               cases out <;> simp [forceSym, err, outcomeErrorActive] at hmem herr
               cases henv0 : symEnvToCek? m ρ <;>
                 simp [symValToCek?, henv0] at hvt
               subst cvt
-              simp [forceVal]
+              simp [Moist.Verified.ExactBigStep.force]
 
   theorem applyListSym_active_error_noOpaque_le {m : SmtSem.Model} {fuel fuel' : Nat}
       {vf : SymVal} {args : List SymVal} {cvf : CekValue} {cargs : List CekValue}
@@ -2514,7 +2548,7 @@ mutual
       (hmem : out ∈ applyListSym fuel vf args)
       (herr : outcomeErrorActive m out = true)
       (hle : fuel ≤ fuel') :
-      applyValList fuel' cvf cargs = none := by
+      Moist.Verified.ExactBigStep.applyList fuel' cvf cargs = .error := by
     cases args with
     | nil =>
         simp [symValListToCekList?] at hargs
@@ -2541,7 +2575,7 @@ mutual
             (cvf := cvf) (cva := ca)
             hvf hnof ha hnoSplit.1 hmemApply
             (by simpa [outcomeErrorActive] using hpcApply) hle
-          simp [applyValList, happNone]
+          simp [Moist.Verified.ExactBigStep.applyList, happNone]
         · rcases hrestErr with
             ⟨pcApply, vf', inner, hmemApply, hpcApply, hmemRest, herrRest⟩
           have happ := applySym_path_ok (m := m) (fuel := fuel)
@@ -2553,7 +2587,7 @@ mutual
             (fuel := fuel) (fuel' := fuel') (vf := vf') (args := as)
             (cvf := cvf') (cargs := cas)
             hvf' hnof' has hnoSplit.2 hmemRest herrRest hle
-          simp [applyValList, happVal', hrestNone]
+          simp [Moist.Verified.ExactBigStep.applyList, happVal', hrestNone]
 
   theorem applyValListSym_active_error_noOpaque_le {m : SmtSem.Model} {fuel fuel' : Nat}
       {vf : SymVal} {fieldsExpr : SExpr} {fields : List SmtSem.Val}
@@ -2565,7 +2599,7 @@ mutual
       (hmem : out ∈ applyValListSym fuel vf fieldsExpr)
       (herr : outcomeErrorActive m out = true)
       (hle : fuel ≤ fuel') :
-      applyValList fuel' cvf cfields = none := by
+      Moist.Verified.ExactBigStep.applyList fuel' cvf cfields = .error := by
     cases fuel with
     | zero =>
         cases out <;> simp [applyValListSym, timeout, outcomeErrorActive] at hmem herr
@@ -2630,7 +2664,7 @@ mutual
                     hvf hnof hheadDecode (by simp [symValNoOpaqueForSoundness])
                     hmemApply (by simpa [outcomeErrorActive] using hpcApply)
                     (by omega)
-                  simp [applyValList, happNone]
+                  simp [Moist.Verified.ExactBigStep.applyList, happNone]
                 · rcases hrestErr with
                     ⟨pcApply, vf', innerRest, hmemApply, hpcApply, hmemRest, herrRest⟩
                   have happ := applySym_path_ok (m := m) (fuel := n)
@@ -2645,7 +2679,7 @@ mutual
                     (fieldsExpr := .app "vtail" [fieldsExpr])
                     (fields := fieldsTail) (cvf := cvf') (cfields := ctail)
                     hvf' hnof' htailEval htail hmemRest herrRest (by omega)
-                  simp [applyValList, happVal', hrec]
+                  simp [Moist.Verified.ExactBigStep.applyList, happVal', hrec]
             · rcases hextra with ⟨g, hgMem, hg⟩
               simp [branchOutcomes] at hgMem
 
@@ -2661,9 +2695,9 @@ mutual
         (fun vAlt => applyListSym fuel vAlt args))
       (herr : outcomeErrorActive m out = true)
       (hle : fuel ≤ fuel') :
-      (match bigEval fuel' env alt with
-       | some vAlt => applyValList fuel' vAlt cargs
-       | none => none) = none := by
+      (Moist.Verified.ExactBigStep.eval fuel' env alt).bind
+        (fun vAlt => Moist.Verified.ExactBigStep.applyList fuel' vAlt cargs) =
+          .error := by
     have hbind := bindOut_active_error (m := m)
       (xs := evalSym fuel ρ alt)
       (k := fun vAlt => applyListSym fuel vAlt args) hmem herr
@@ -2700,9 +2734,9 @@ mutual
         (fun vAlt => applyValListSym fuel vAlt fieldsExpr))
       (herr : outcomeErrorActive m out = true)
       (hle : fuel ≤ fuel') :
-      (match bigEval fuel' env alt with
-       | some vAlt => applyValList fuel' vAlt cfields
-       | none => none) = none := by
+      (Moist.Verified.ExactBigStep.eval fuel' env alt).bind
+        (fun vAlt => Moist.Verified.ExactBigStep.applyList fuel' vAlt cfields) =
+          .error := by
     have hbind := bindOut_active_error (m := m)
       (xs := evalSym fuel ρ alt)
       (k := fun vAlt => applyValListSym fuel vAlt fieldsExpr) hmem herr
@@ -2738,7 +2772,7 @@ mutual
       (hmem : out ∈ caseSym fuel ρ scrut alts)
       (herr : outcomeErrorActive m out = true)
       (hle : fuel ≤ fuel') :
-      caseCekResult fuel' env cscrut alts = none := by
+      caseExactResult fuel' env cscrut alts = .error := by
     cases scrut with
     | constr tag fields =>
         cases htagEval : SmtSem.eval m tag with
@@ -2773,7 +2807,9 @@ mutual
                     (alt := alt) (args := fields) (cargs := cfields)
                     henv hρno hnoAlt hfields hnoFields hinner hinnerErr hle
                   subst tagInt
-                  simp [caseCekResult, hget, hnone]
+                  have hgetNat : alts[(Int.ofNat i).toNat]? = some alt := by
+                    simpa using hget
+                  simpa only [caseExactResult, hgetNat] using hnone
                 · rcases hextra with ⟨g, hgMem, hg⟩
                   simp [caseSym] at hgMem
                   subst g
@@ -2790,7 +2826,7 @@ mutual
                         (by simpa [pcHolds] using hg)
                     exact False.elim (evalBoolIs_true_false_contra hcovered hnot)
                   | none =>
-                    simp [caseCekResult, hget]
+                    simp [caseExactResult, hget]
           | bool b => simp [symValToCek?, htagEval] at hscrut
           | string s => simp [symValToCek?, htagEval] at hscrut
           | bytes bs => simp [symValToCek?, htagEval] at hscrut
@@ -2807,19 +2843,19 @@ mutual
         cases henv0 : symEnvToCek? m ρ0 <;>
           simp [symValToCek?, henv0] at hscrut
         subst cscrut
-        simp [caseCekResult]
+        simp [caseExactResult]
     | delay body ρ0 =>
         cases out <;> simp [caseSym, err, outcomeErrorActive] at hmem herr
         cases henv0 : symEnvToCek? m ρ0 <;>
           simp [symValToCek?, henv0] at hscrut
         subst cscrut
-        simp [caseCekResult]
+        simp [caseExactResult]
     | builtin b args ea =>
         cases out <;> simp [caseSym, err, outcomeErrorActive] at hmem herr
         cases hargs : symValListToCekList? m args <;>
           simp [symValToCek?, hargs] at hscrut
         subst cscrut
-        simp [caseCekResult]
+        simp [caseExactResult]
     | pair a b =>
         cases ha : symValToCek? m a <;> simp [symValToCek?, ha] at hscrut
         rename_i ca
@@ -2833,11 +2869,11 @@ mutual
             subst cscrut
             by_cases hlen : alts.length > 1
             · cases out <;> simp [caseSym, hlen, err, outcomeErrorActive] at hmem herr
-              simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen]
+              simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen]
             · cases hget : alts[0]? with
               | none =>
                   cases out <;> simp [caseSym, hlen, hget, err, outcomeErrorActive] at hmem herr
-                  simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen, hget]
+                  simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen, hget]
               | some alt =>
                   have hnoAlt := termsNoOpaque_get? hnoAlts hget
                   have hargs :
@@ -2854,7 +2890,8 @@ mutual
                     (cargs := [.VCon caConst, .VCon cbConst])
                     henv hρno hnoAlt hargs hnoArgs
                     (by simpa [caseSym, hlen, hget] using hmem) herr hle
-                  simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen, hget, hnone]
+                  simpa only [caseExactResult, Moist.CEK.constToTagAndFields,
+                    hlen, hget] using hnone
           | VLam body env0 => simp at hscrut
           | VDelay body env0 => simp at hscrut
           | VBuiltin b cargs ea => simp at hscrut
@@ -2876,7 +2913,7 @@ mutual
                 by_cases hlen : alts.length > 2
                 · cases out <;> simp [caseSym, hlen, err, outcomeErrorActive] at hmem herr
                   cases bval <;>
-                    simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen]
+                    simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen]
                 · have hbranch := branchOutcomes_active_error (m := m)
                     (hmem := by simpa [caseSym, hlen] using hmem) herr
                   rcases hbranch with hbr | hextra
@@ -2906,11 +2943,11 @@ mutual
                     cases bval
                     · have hi0 : i = 0 := intOfNat_eq_zero htagEq
                       subst i
-                      simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen,
+                      simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen,
                         hget, hAltNone, applyValList]
                     · have hi1 : i = 1 := intOfNat_eq_one htagEq
                       subst i
-                      simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen,
+                      simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen,
                         hget, hAltNone, applyValList]
                   · rcases hextra with ⟨g, hgMem, hg⟩
                     simp [caseSym, hlen] at hgMem
@@ -2939,7 +2976,7 @@ mutual
                       cases bval
                       · simp at hget
                         subst alts
-                        simp [caseCekResult, Moist.CEK.constToTagAndFields]
+                        simp [caseExactResult, Moist.CEK.constToTagAndFields]
                       · have hget1 : alts[1]? = none := by
                           cases alts with
                           | nil => simp
@@ -2948,7 +2985,7 @@ mutual
                             | nil => simp
                             | cons b rest =>
                               simp at hget
-                        simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen, hget1]
+                        simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen, hget1]
               | int i => simp [symValToCek?, symConstToCek?, he] at hscrut
               | string s => simp [symValToCek?, symConstToCek?, he] at hscrut
               | bytes bs => simp [symValToCek?, symConstToCek?, he] at hscrut
@@ -2965,18 +3002,18 @@ mutual
             subst cscrut
             by_cases hlen : alts.length > 1
             · cases out <;> simp [caseSym, hlen, err, outcomeErrorActive] at hmem herr
-              simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen]
+              simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen]
             · cases hget : alts[0]? with
               | none =>
                   cases out <;> simp [caseSym, hlen, hget, err, outcomeErrorActive] at hmem herr
-                  simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen, hget]
+                  simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen, hget]
               | some alt =>
                   have hnoAlt := termsNoOpaque_get? hnoAlts hget
                   have hAltNone := evalSym_active_error_noOpaque_le (m := m)
                     (fuel := fuel) (fuel' := fuel') (ρ := ρ) (env := env)
                     (t := alt) henv hρno hnoAlt
                     (by simpa [caseSym, hlen, hget] using hmem) herr hle
-                  simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen, hget,
+                  simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen, hget,
                     hAltNone, applyValList]
         | integer ie =>
             cases he : SmtSem.eval m ie with
@@ -3007,7 +3044,7 @@ mutual
                     (fuel := fuel) (fuel' := fuel') (ρ := ρ) (env := env)
                     (t := alt) henv hρno hnoAlt hinner hinnerErr hle
                   subst ival
-                  simp [caseCekResult, Moist.CEK.constToTagAndFields, hget,
+                  simp [caseExactResult, Moist.CEK.constToTagAndFields, hget,
                     hAltNone, applyValList]
                 · rcases hextra with ⟨g, hgMem, hg⟩
                   simp [caseSym] at hgMem
@@ -3055,9 +3092,9 @@ mutual
                             (by simpa [covered, pcHolds] using hg)
                       exact False.elim (evalBoolIs_true_false_contra hcoveredAnd hnot)
                     | none =>
-                      simp [caseCekResult, Moist.CEK.constToTagAndFields, hnonneg, hget]
+                      simp [caseExactResult, Moist.CEK.constToTagAndFields, hnonneg, hget]
                   · have hlt : ival < 0 := by omega
-                    simp [caseCekResult, Moist.CEK.constToTagAndFields, hnonneg]
+                    simp [caseExactResult, Moist.CEK.constToTagAndFields, hnonneg]
               | bool b => simp [symValToCek?, symConstToCek?, he] at hscrut
               | string s => simp [symValToCek?, symConstToCek?, he] at hscrut
               | bytes bs => simp [symValToCek?, symConstToCek?, he] at hscrut
@@ -3076,7 +3113,7 @@ mutual
             | some sv =>
               cases sv <;> simp [symValToCek?, symConstToCek?, hbs] at hscrut
               subst cscrut
-              simp [caseCekResult, Moist.CEK.constToTagAndFields]
+              simp [caseExactResult, Moist.CEK.constToTagAndFields]
         | string s =>
             cases out <;> simp [caseSym, err, outcomeErrorActive] at hmem herr
             cases hs : SmtSem.eval m s with
@@ -3084,7 +3121,7 @@ mutual
             | some sv =>
               cases sv <;> simp [symValToCek?, symConstToCek?, hs] at hscrut
               subst cscrut
-              simp [caseCekResult, Moist.CEK.constToTagAndFields]
+              simp [caseExactResult, Moist.CEK.constToTagAndFields]
         | pairDataList xs =>
             cases out <;> simp [caseSym, err, outcomeErrorActive] at hmem herr
             cases hxs : SmtSem.eval m xs with
@@ -3092,7 +3129,7 @@ mutual
             | some sv =>
               cases sv <;> simp [symValToCek?, symConstToCek?, hxs] at hscrut
               subst cscrut
-              simp [caseCekResult, Moist.CEK.constToTagAndFields]
+              simp [caseExactResult, Moist.CEK.constToTagAndFields]
         | data d =>
             cases out <;> simp [caseSym, err, outcomeErrorActive] at hmem herr
             cases hd : SmtSem.eval m d with
@@ -3100,7 +3137,7 @@ mutual
             | some sv =>
               cases sv <;> simp [symValToCek?, symConstToCek?, hd] at hscrut
               subst cscrut
-              simp [caseCekResult, Moist.CEK.constToTagAndFields]
+              simp [caseExactResult, Moist.CEK.constToTagAndFields]
         | array xs =>
             cases out <;> simp [caseSym, err, outcomeErrorActive] at hmem herr
             cases hxs : SmtSem.eval m xs with
@@ -3111,7 +3148,7 @@ mutual
               cases hconsts : semValListToConstList? vals <;>
                 simp [symValToCek?, symConstToCek?, hxs, hconsts] at hscrut
               subst cscrut
-              simp [caseCekResult, Moist.CEK.constToTagAndFields]
+              simp [caseExactResult, Moist.CEK.constToTagAndFields]
         | g1 g =>
             cases out <;> simp [caseSym, err, outcomeErrorActive] at hmem herr
             simp [symValToCek?, symConstToCek?] at hscrut
@@ -3119,7 +3156,7 @@ mutual
             rename_i sv
             cases sv <;> simp [hg] at hscrut
             subst cscrut
-            simp [caseCekResult, Moist.CEK.constToTagAndFields]
+            simp [caseExactResult, Moist.CEK.constToTagAndFields]
         | g2 g =>
             cases out <;> simp [caseSym, err, outcomeErrorActive] at hmem herr
             simp [symValToCek?, symConstToCek?] at hscrut
@@ -3127,7 +3164,7 @@ mutual
             rename_i sv
             cases sv <;> simp [hg] at hscrut
             subst cscrut
-            simp [caseCekResult, Moist.CEK.constToTagAndFields]
+            simp [caseExactResult, Moist.CEK.constToTagAndFields]
         | ml r =>
             cases out <;> simp [caseSym, err, outcomeErrorActive] at hmem herr
             simp [symValToCek?, symConstToCek?] at hscrut
@@ -3135,7 +3172,7 @@ mutual
             rename_i sv
             cases sv <;> simp [hr] at hscrut
             subst cscrut
-            simp [caseCekResult, Moist.CEK.constToTagAndFields]
+            simp [caseExactResult, Moist.CEK.constToTagAndFields]
         | constList xs _hint =>
             cases hxs : SmtSem.eval m xs with
             | none => simp [symValToCek?, symConstToCek?, hxs] at hscrut
@@ -3150,7 +3187,7 @@ mutual
                   by_cases hlen : alts.length > 2
                   · cases out <;> simp [caseSym, hlen, err, outcomeErrorActive] at hmem herr
                     cases consts <;>
-                      simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen]
+                      simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen]
                   · have hbranch := branchOutcomes_active_error (m := m)
                       (hmem := by simpa [caseSym, hlen] using hmem) herr
                     cases vals with
@@ -3161,7 +3198,7 @@ mutual
                       | none =>
                         cases h1 : alts[1]? with
                         | none =>
-                          simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen, h1]
+                          simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen, h1]
                         | some nilAlt =>
                           rcases hbranch with hbr | hextra
                           · rcases hbr with ⟨g, os, inner, hbr, hg, hinner, hinnerErr⟩
@@ -3171,7 +3208,7 @@ mutual
                             have hAltNone := evalSym_active_error_noOpaque_le (m := m)
                               (fuel := fuel) (fuel' := fuel') (ρ := ρ) (env := env)
                               (t := nilAlt) henv hρno hnoAlt hinner hinnerErr hle
-                            simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen,
+                            simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen,
                               h1, hAltNone, applyValList]
                           · rcases hextra with ⟨g, hgMem, hg⟩
                             simp [caseSym, hlen, h0, h1] at hgMem
@@ -3186,7 +3223,7 @@ mutual
                       | some consAlt =>
                         cases h1 : alts[1]? with
                         | none =>
-                          simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen, h1]
+                          simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen, h1]
                         | some nilAlt =>
                           rcases hbranch with hbr | hextra
                           · rcases hbr with ⟨g, os, inner, hbr, hg, hinner, hinnerErr⟩
@@ -3205,7 +3242,7 @@ mutual
                               have hAltNone := evalSym_active_error_noOpaque_le (m := m)
                                 (fuel := fuel) (fuel' := fuel') (ρ := ρ) (env := env)
                                 (t := nilAlt) henv hρno hnoAlt hinner hinnerErr hle
-                              simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen,
+                              simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen,
                                 h1, hAltNone, applyValList]
                           · rcases hextra with ⟨g, hgMem, hg⟩
                             simp [caseSym, hlen, h0, h1] at hgMem
@@ -3250,7 +3287,7 @@ mutual
                           subst consts
                           cases h0 : alts[0]? with
                           | none =>
-                            simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen, h0]
+                            simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen, h0]
                           | some consAlt =>
                             have hheadEval :=
                               Moist.SMT.Semantics.eval_vhead_of (m := m) (e := xs)
@@ -3284,8 +3321,10 @@ mutual
                                   (args := [fieldFromValList xs, tailFromValList xs])
                                   (cargs := [.VCon headConst, .VCon (.ConstList tailConst)])
                                   henv hρno hnoAlt hargs hnoArgs hinner hinnerErr hle
-                                simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen,
-                                  h0, hnone]
+                                have hlenDecide : decide (alts.length > 2) = false := by
+                                  simp [hlen]
+                                simpa only [caseExactResult,
+                                  Moist.CEK.constToTagAndFields, hlenDecide, h0] using hnone
                               | some nilAlt =>
                                 simp [caseSym, hlen, h0, h1] at hbr
                                 rcases hbr with hcons | hnilBranch
@@ -3297,8 +3336,8 @@ mutual
                                     (args := [fieldFromValList xs, tailFromValList xs])
                                     (cargs := [.VCon headConst, .VCon (.ConstList tailConst)])
                                     henv hρno hnoAlt hargs hnoArgs hinner hinnerErr hle
-                                  simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen,
-                                    h0, hnone]
+                                  simpa only [caseExactResult,
+                                    Moist.CEK.constToTagAndFields, hlen, h0] using hnone
                                 · rcases hnilBranch with ⟨rfl, rfl⟩
                                   have hfalse :=
                                     Moist.SMT.Semantics.evalBoolIs_isVNil_false_of_valList_cons hxs
@@ -3375,7 +3414,7 @@ mutual
                 by_cases hlen : alts.length > 2
                 · cases out <;> simp [caseSym, hlen, err, outcomeErrorActive] at hmem herr
                   cases vals <;>
-                    simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen]
+                    simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen]
                 · have hbranch := branchOutcomes_active_error (m := m)
                     (hmem := by simpa [caseSym, hlen] using hmem) herr
                   cases vals with
@@ -3384,7 +3423,7 @@ mutual
                     | none =>
                       cases h1 : alts[1]? with
                       | none =>
-                        simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen, h1]
+                        simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen, h1]
                       | some nilAlt =>
                         rcases hbranch with hbr | hextra
                         · rcases hbr with ⟨g, os, inner, hbr, hg, hinner, hinnerErr⟩
@@ -3394,7 +3433,7 @@ mutual
                           have hAltNone := evalSym_active_error_noOpaque_le (m := m)
                             (fuel := fuel) (fuel' := fuel') (ρ := ρ) (env := env)
                             (t := nilAlt) henv hρno hnoAlt hinner hinnerErr hle
-                          simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen,
+                          simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen,
                             h1, hAltNone, applyValList]
                         · rcases hextra with ⟨g, hgMem, hg⟩
                           simp [caseSym, hlen, h0, h1] at hgMem
@@ -3409,7 +3448,7 @@ mutual
                     | some consAlt =>
                       cases h1 : alts[1]? with
                       | none =>
-                        simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen, h1]
+                        simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen, h1]
                       | some nilAlt =>
                         rcases hbranch with hbr | hextra
                         · rcases hbr with ⟨g, os, inner, hbr, hg, hinner, hinnerErr⟩
@@ -3428,7 +3467,7 @@ mutual
                             have hAltNone := evalSym_active_error_noOpaque_le (m := m)
                               (fuel := fuel) (fuel' := fuel') (ρ := ρ) (env := env)
                               (t := nilAlt) henv hρno hnoAlt hinner hinnerErr hle
-                            simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen,
+                            simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen,
                               h1, hAltNone, applyValList]
                         · rcases hextra with ⟨g, hgMem, hg⟩
                           simp [caseSym, hlen, h0, h1] at hgMem
@@ -3464,7 +3503,7 @@ mutual
                   | cons head tail =>
                     cases h0 : alts[0]? with
                     | none =>
-                      simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen, h0]
+                      simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen, h0]
                     | some consAlt =>
                       have hheadEval :=
                         Moist.SMT.Semantics.eval_dhead_of (m := m) (e := xs)
@@ -3496,8 +3535,8 @@ mutual
                             (args := [fieldFromDataList xs, tailFromDataList xs])
                             (cargs := [.VCon (.Data head), .VCon (.ConstDataList tail)])
                             henv hρno hnoAlt hargs hnoArgs hinner hinnerErr hle
-                          simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen,
-                            h0, hnone]
+                          simpa only [caseExactResult,
+                            Moist.CEK.constToTagAndFields, hlen, h0] using hnone
                         | some nilAlt =>
                           simp [caseSym, hlen, h0, h1] at hbr
                           rcases hbr with hcons | hnilBranch
@@ -3509,8 +3548,8 @@ mutual
                               (args := [fieldFromDataList xs, tailFromDataList xs])
                               (cargs := [.VCon (.Data head), .VCon (.ConstDataList tail)])
                               henv hρno hnoAlt hargs hnoArgs hinner hinnerErr hle
-                            simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen,
-                              h0, hnone]
+                            simpa only [caseExactResult,
+                              Moist.CEK.constToTagAndFields, hlen, h0] using hnone
                           · rcases hnilBranch with ⟨rfl, rfl⟩
                             have hfalse :=
                               Moist.SMT.Semantics.evalBoolIs_isDNil_false_of_dataList_cons hxs
@@ -3589,12 +3628,12 @@ mutual
                 subst cscrut
                 by_cases hlen : alts.length > 1
                 · cases out <;> simp [caseSym, hlen, err, outcomeErrorActive] at hmem herr
-                  simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen]
+                  simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen]
                 · cases hget : alts[0]? with
                   | none =>
                       cases out <;>
                         simp [caseSym, hlen, hget, err, outcomeErrorActive] at hmem herr
-                      simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen, hget]
+                      simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen, hget]
                   | some alt =>
                     have hnoAlt := termsNoOpaque_get? hnoAlts hget
                     have hargs :
@@ -3611,7 +3650,8 @@ mutual
                       (cargs := [.VCon (.Data da), .VCon (.Data db)])
                       henv hρno hnoAlt hargs hnoArgs
                       (by simpa [caseSym, hlen, hget] using hmem) herr hle
-                    simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen, hget, hnone]
+                    simpa only [caseExactResult, Moist.CEK.constToTagAndFields,
+                      hlen, hget] using hnone
     | dyn e =>
         cases he : SmtSem.eval m e with
         | none => simp [symValToCek?, he] at hscrut
@@ -3658,11 +3698,11 @@ mutual
                 cases bval
                 · have hi0 : i = 0 := intOfNat_eq_zero htagEq
                   subst i
-                  simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen,
+                  simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen,
                     hget, hAltNone, applyValList]
                 · have hi1 : i = 1 := intOfNat_eq_one htagEq
                   subst i
-                  simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen,
+                  simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen,
                     hget, hAltNone, applyValList]
               · rcases hrest with hunit | hrest
                 · rcases hunit with ⟨hlen, hunitMem⟩
@@ -3682,7 +3722,7 @@ mutual
                     have hAltNone := evalSym_active_error_noOpaque_le (m := m)
                       (fuel := fuel) (fuel' := fuel') (ρ := ρ) (env := env)
                       (t := alt) henv hρno hnoAlt hinner hinnerErr hle
-                    simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen,
+                    simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen,
                       h0, hAltNone, applyValList]
                 · rcases hrest with hint | hrest
                   · rcases hint with ⟨i, alt, henum, hgEq, hosEq⟩
@@ -3708,7 +3748,7 @@ mutual
                       (fuel := fuel) (fuel' := fuel') (ρ := ρ) (env := env)
                       (t := alt) henv hρno hnoAlt hinner hinnerErr hle
                     subst ival
-                    simp [caseCekResult, Moist.CEK.constToTagAndFields, hget,
+                    simp [caseExactResult, Moist.CEK.constToTagAndFields, hget,
                       hAltNone, applyValList]
                   · rcases hrest with hlist | hrest
                     · rcases hlist with ⟨hlen, hlistMem⟩
@@ -3778,8 +3818,10 @@ mutual
                                     tailFromValList (.app "unVList" [e])])
                                   (cargs := [.VCon headConst, .VCon (.ConstList tailConst)])
                                   henv hρno hnoAlt hargs hnoArgs hinner hinnerErr hle
-                                simp [caseCekResult, Moist.CEK.constToTagAndFields,
-                                  hlen, h0, hnone]
+                                have hlenDecide : decide (alts.length > 2) = false := by
+                                  simp [hlen]
+                                simpa only [caseExactResult,
+                                  Moist.CEK.constToTagAndFields, hlenDecide, h0] using hnone
                       · cases h1 : alts[1]? with
                         | none => simp [h1] at hnil
                         | some nilAlt =>
@@ -3803,7 +3845,7 @@ mutual
                             have hAltNone := evalSym_active_error_noOpaque_le (m := m)
                               (fuel := fuel) (fuel' := fuel') (ρ := ρ) (env := env)
                               (t := nilAlt) henv hρno hnoAlt hinner hinnerErr hle
-                            simp [caseCekResult, Moist.CEK.constToTagAndFields,
+                            simp [caseExactResult, Moist.CEK.constToTagAndFields,
                               hlen, h1, hAltNone, applyValList]
                           | cons head tail =>
                             have hfalse :=
@@ -3865,8 +3907,10 @@ mutual
                                   tailFromDataList (.app "unVDataList" [e])])
                                 (cargs := [.VCon (.Data head), .VCon (.ConstDataList tail)])
                                 henv hρno hnoAlt hargs hnoArgs hinner hinnerErr hle
-                              simp [caseCekResult, Moist.CEK.constToTagAndFields,
-                                hlen, h0, hnone]
+                              have hlenDecide : decide (alts.length > 2) = false := by
+                                simp [hlen]
+                              simpa only [caseExactResult,
+                                Moist.CEK.constToTagAndFields, hlenDecide, h0] using hnone
                         · cases h1 : alts[1]? with
                           | none => simp [h1] at hnil
                           | some nilAlt =>
@@ -3889,7 +3933,7 @@ mutual
                               have hAltNone := evalSym_active_error_noOpaque_le (m := m)
                                 (fuel := fuel) (fuel' := fuel') (ρ := ρ) (env := env)
                                 (t := nilAlt) henv hρno hnoAlt hinner hinnerErr hle
-                              simp [caseCekResult, Moist.CEK.constToTagAndFields,
+                              simp [caseExactResult, Moist.CEK.constToTagAndFields,
                                 hlen, h1, hAltNone, applyValList]
                             | cons head tail =>
                               have hfalse :=
@@ -3947,8 +3991,10 @@ mutual
                                   (args := [.dyn (.app "vfst" [e]), .dyn (.app "vsnd" [e])])
                                   (cargs := [.VCon ca, .VCon cb])
                                   henv hρno hnoAlt hargs hnoArgs hinner hinnerErr hle
-                                simp [caseCekResult, Moist.CEK.constToTagAndFields,
-                                  hlen, h0, hnone]
+                                have hlenDecide : decide (alts.length > 1) = false := by
+                                  simp [hlen]
+                                simpa only [caseExactResult,
+                                  Moist.CEK.constToTagAndFields, hlenDecide, h0] using hnone
                         · rcases hrest with hpairData | hconstr
                           · rcases hpairData with ⟨hlen, hpairDataMem⟩
                             cases h0 : alts[0]? with
@@ -3990,8 +4036,10 @@ mutual
                                   .const (.data (.app "pdsnd" [e]))])
                                 (cargs := [.VCon (.Data a), .VCon (.Data b)])
                                 henv hρno hnoAlt hargs hnoArgs hinner hinnerErr hle
-                              simp [caseCekResult, Moist.CEK.constToTagAndFields,
-                                hlen, h0, hnone]
+                              have hlenDecide : decide (alts.length > 1) = false := by
+                                simp [hlen]
+                              simpa only [caseExactResult,
+                                Moist.CEK.constToTagAndFields, hlenDecide, h0] using hnone
                           · rcases hconstr with ⟨i, alt, henum, hgEq, hosEq⟩
                             subst g
                             subst os
@@ -4028,7 +4076,9 @@ mutual
                                   (fields := fields) (cfields := cfields)
                                   henv hρno hnoAlt hfieldsEval hfields hinner hinnerErr hle
                                 subst tag
-                                simp [caseCekResult, hget, hnone]
+                                have hgetNat : alts[(Int.ofNat i).toNat]? = some alt := by
+                                  simpa using hget
+                                simpa only [caseExactResult, hgetNat] using hnone
             · rcases hextra with ⟨g, hgMem, hg⟩
               simp only [List.mem_cons, List.mem_singleton] at hgMem
               cases semv with
@@ -4040,7 +4090,7 @@ mutual
                   by_cases hlen : 2 < alts.length
                   · have htoo : 0 < 2 ∧ 2 < alts.length := ⟨by decide, hlen⟩
                     cases bval <;>
-                      simp [caseCekResult, Moist.CEK.constToTagAndFields, htoo]
+                      simp [caseExactResult, Moist.CEK.constToTagAndFields, htoo]
                   · have hparts :=
                     (Moist.SMT.Semantics.evalBoolIs_and_true m
                       (SExpr.isCtor "VBool" e)
@@ -4072,10 +4122,10 @@ mutual
                       exact False.elim (evalBoolIs_true_false_contra hcovered hnot)
                     | none =>
                       cases bval
-                      · simp [caseCekResult, Moist.CEK.constToTagAndFields] at hget ⊢
+                      · simp [caseExactResult, Moist.CEK.constToTagAndFields] at hget ⊢
                         subst alts
                         simp
-                      · simp [caseCekResult, Moist.CEK.constToTagAndFields] at hget ⊢
+                      · simp [caseExactResult, Moist.CEK.constToTagAndFields] at hget ⊢
                         intro _
                         cases alts with
                         | nil => simp
@@ -4283,10 +4333,10 @@ mutual
                 · rcases hrest with hunitErr | hrest
                   · rw [hunitErr] at hg
                     by_cases hlen : 1 < alts.length
-                    · simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen]
+                    · simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen]
                     · cases h0 : alts[0]? with
                     | none =>
-                      simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen, h0]
+                      simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen, h0]
                     | some alt =>
                       have hparts :=
                         (Moist.SMT.Semantics.evalBoolIs_and_true m
@@ -4544,9 +4594,9 @@ mutual
                               (by simpa [covered, pcHolds] using hparts.2)
                           exact False.elim (evalBoolIs_true_false_contra hcoveredAnd hnot)
                         | none =>
-                          simp [caseCekResult, Moist.CEK.constToTagAndFields,
+                          simp [caseExactResult, Moist.CEK.constToTagAndFields,
                             hnonneg, hget]
-                      · simp [caseCekResult, Moist.CEK.constToTagAndFields, hnonneg]
+                      · simp [caseExactResult, Moist.CEK.constToTagAndFields, hnonneg]
                     · rcases hrest with hlistErr | hrest
                       · rw [hlistErr] at hg
                         have hlistPc : pcHolds m (SExpr.isCtor "VList" e) = true :=
@@ -4668,19 +4718,19 @@ mutual
               | bytes bs =>
                 simp [symValToCek?, semValToCek?, semValToConst?, he] at hscrut
                 subst cscrut
-                simp [caseCekResult, Moist.CEK.constToTagAndFields]
+                simp [caseExactResult, Moist.CEK.constToTagAndFields]
               | string s =>
                 simp [symValToCek?, semValToCek?, semValToConst?, he] at hscrut
                 subst cscrut
-                simp [caseCekResult, Moist.CEK.constToTagAndFields]
+                simp [caseExactResult, Moist.CEK.constToTagAndFields]
               | data d =>
                 simp [symValToCek?, semValToCek?, semValToConst?, he] at hscrut
                 subst cscrut
-                simp [caseCekResult, Moist.CEK.constToTagAndFields]
+                simp [caseExactResult, Moist.CEK.constToTagAndFields]
               | pairDataList xs =>
                 simp [symValToCek?, semValToCek?, semValToConst?, he] at hscrut
                 subst cscrut
-                simp [caseCekResult, Moist.CEK.constToTagAndFields]
+                simp [caseExactResult, Moist.CEK.constToTagAndFields]
               | array xs =>
                 cases hconsts : semValListToConstList? xs with
                 | none =>
@@ -4690,19 +4740,19 @@ mutual
                   simp [symValToCek?, semValToCek?, semValToConst?, he,
                     hconsts] at hscrut
                   subst cscrut
-                  simp [caseCekResult, Moist.CEK.constToTagAndFields]
+                  simp [caseExactResult, Moist.CEK.constToTagAndFields]
               | g1 g1 =>
                 simp [symValToCek?, semValToCek?, semValToConst?, he] at hscrut
                 subst cscrut
-                simp [caseCekResult, Moist.CEK.constToTagAndFields]
+                simp [caseExactResult, Moist.CEK.constToTagAndFields]
               | g2 g2 =>
                 simp [symValToCek?, semValToCek?, semValToConst?, he] at hscrut
                 subst cscrut
-                simp [caseCekResult, Moist.CEK.constToTagAndFields]
+                simp [caseExactResult, Moist.CEK.constToTagAndFields]
               | ml r =>
                 simp [symValToCek?, semValToCek?, semValToConst?, he] at hscrut
                 subst cscrut
-                simp [caseCekResult, Moist.CEK.constToTagAndFields]
+                simp [caseExactResult, Moist.CEK.constToTagAndFields]
               | list xs =>
                 cases hconsts : semValListToConstList? xs with
                 | none =>
@@ -4758,7 +4808,7 @@ mutual
                         · rw [hlistErr] at hg
                           by_cases hlen : 2 < alts.length
                           · cases consts <;>
-                              simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen]
+                              simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen]
                           · have hparts :=
                               (Moist.SMT.Semantics.evalBoolIs_and_true m
                                 (SExpr.isCtor "VList" e)
@@ -4789,7 +4839,7 @@ mutual
                               | none =>
                                 cases h1 : alts[1]? with
                                 | none =>
-                                  simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen, h1]
+                                  simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen, h1]
                                 | some nilAlt =>
                                   have hnil :=
                                     Moist.SMT.Semantics.evalBoolIs_isVNil_true_of_valList_nil hxsEval
@@ -4814,7 +4864,7 @@ mutual
                               | some consAlt =>
                                 cases h1 : alts[1]? with
                                 | none =>
-                                  simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen, h1]
+                                  simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen, h1]
                                 | some nilAlt =>
                                   have hnil :=
                                     Moist.SMT.Semantics.evalBoolIs_isVNil_true_of_valList_nil hxsEval
@@ -4893,7 +4943,7 @@ mutual
                                   subst consts
                                   cases h0 : alts[0]? with
                                   | none =>
-                                    simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen, h0]
+                                    simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen, h0]
                                   | some consAlt =>
                                     have hfalse :=
                                       Moist.SMT.Semantics.evalBoolIs_isVNil_false_of_valList_cons hxsEval
@@ -5140,7 +5190,7 @@ mutual
                         · rw [hdataListErr] at hg
                           by_cases hlen : 2 < alts.length
                           · cases xs <;>
-                              simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen]
+                              simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen]
                           · have hparts :=
                               (Moist.SMT.Semantics.evalBoolIs_and_true m
                                 (SExpr.isCtor "VDataList" e)
@@ -5167,7 +5217,7 @@ mutual
                             | nil =>
                               cases h1 : alts[1]? with
                               | none =>
-                                simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen, h1]
+                                simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen, h1]
                               | some nilAlt =>
                                 have hnil :=
                                   Moist.SMT.Semantics.evalBoolIs_isDNil_true_of_dataList_nil hxsEval
@@ -5253,7 +5303,7 @@ mutual
                             | cons head tail =>
                               cases h0 : alts[0]? with
                               | none =>
-                                simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen, h0]
+                                simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen, h0]
                               | some consAlt =>
                                 have hfalse :=
                                   Moist.SMT.Semantics.evalBoolIs_isDNil_false_of_dataList_cons hxsEval
@@ -5505,7 +5555,7 @@ mutual
                             · rcases hrest with hpairErr | hrest
                               · rw [hpairErr] at hg
                                 by_cases hlen : 1 < alts.length
-                                · simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen]
+                                · simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen]
                                 · have hparts :=
                                     (Moist.SMT.Semantics.evalBoolIs_and_true m
                                       (SExpr.isCtor "VPair" e)
@@ -5523,7 +5573,7 @@ mutual
                                       (by simpa [pcHolds, hlen] using hg)
                                   cases h0 : alts[0]? with
                                   | none =>
-                                    simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen, h0]
+                                    simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen, h0]
                                   | some alt =>
                                     have hcovered : pcHolds m (SExpr.any
                                         (List.map Prod.fst
@@ -5710,7 +5760,7 @@ mutual
                             · rcases hrest with hpairDataErr | hrest
                               · rw [hpairDataErr] at hg
                                 by_cases hlen : 1 < alts.length
-                                · simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen]
+                                · simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen]
                                 · have hparts :=
                                     (Moist.SMT.Semantics.evalBoolIs_and_true m
                                       (SExpr.isCtor "VPairData" e)
@@ -5728,7 +5778,7 @@ mutual
                                       (by simpa [pcHolds, hlen] using hg)
                                   cases h0 : alts[0]? with
                                   | none =>
-                                    simp [caseCekResult, Moist.CEK.constToTagAndFields, hlen, h0]
+                                    simp [caseExactResult, Moist.CEK.constToTagAndFields, hlen, h0]
                                   | some alt =>
                                     have hcovered : pcHolds m (SExpr.any
                                         (List.map Prod.fst
@@ -5944,7 +5994,7 @@ mutual
                                           (by simpa [pcHolds] using hparts.2)
                                         exact False.elim (evalBoolIs_true_false_contra hcovered hnot)
                                       | none =>
-                                        simp [caseCekResult, hget]
+                                        simp [caseExactResult, hget]
                                     · rcases hunsupportedErr with hunsupportedErr | hnil
                                       · rw [hunsupportedErr] at hg
                                         exact False.elim
@@ -6014,16 +6064,35 @@ theorem okBoolTrueCond_eval_true_mem {m : SmtSem.Model} {outs : List Outcome}
       have hcek := asBool_true_to_cek (m := m) (v := v) hg hv
       exact ⟨Outcome.ok pc0 v, v, houtMem, by simp [outcomeOkSym?, hpc, hcek]⟩
 
+theorem evalSym_errorCond_exact {m : SmtSem.Model} {fuel : Nat} {ρ : List SymVal}
+    {env : CekEnv} {t : Term}
+    (henv : symEnvToCek? m ρ = some env)
+    (hρno : symEnvNoOpaqueForSoundness ρ = true)
+    (hno : termNoOpaqueBuiltinsForSoundness t)
+    (herror : SmtSem.evalBoolIs m (errorCond (evalSym fuel ρ t)) true = true) :
+    Moist.Verified.ExactBigStep.eval fuel env t = .error := by
+  obtain ⟨out, hmem, herr⟩ := errorCond_eval_true_mem herror
+  exact evalSym_active_error_noOpaque_le (m := m) (fuel := fuel) (fuel' := fuel)
+    (ρ := ρ) (env := env) (t := t) henv hρno hno hmem herr (Nat.le_refl fuel)
+
+theorem exactEval_error_bigEval_none {fuel : Nat} {env : CekEnv} {t : Term}
+    (herror : Moist.Verified.ExactBigStep.eval fuel env t = .error) :
+    bigEval fuel env t = none := by
+  cases hbig : bigEval fuel env t with
+  | none => rfl
+  | some value =>
+      have hok := Moist.Verified.ExactBigStep.eval_ok_of_bigEval hbig
+      rw [herror] at hok
+      cases hok
+
 theorem evalSym_errorCond_bigEval {m : SmtSem.Model} {fuel : Nat} {ρ : List SymVal}
     {env : CekEnv} {t : Term}
     (henv : symEnvToCek? m ρ = some env)
     (hρno : symEnvNoOpaqueForSoundness ρ = true)
     (hno : termNoOpaqueBuiltinsForSoundness t)
     (herror : SmtSem.evalBoolIs m (errorCond (evalSym fuel ρ t)) true = true) :
-    bigEval fuel env t = none := by
-  obtain ⟨out, hmem, herr⟩ := errorCond_eval_true_mem herror
-  exact evalSym_active_error_noOpaque_le (m := m) (fuel := fuel) (fuel' := fuel)
-    (ρ := ρ) (env := env) (t := t) henv hρno hno hmem herr (Nat.le_refl fuel)
+    bigEval fuel env t = none :=
+  exactEval_error_bigEval_none (evalSym_errorCond_exact henv hρno hno herror)
 
 theorem evalSym_okBoolTrueCond_bigEval {m : SmtSem.Model} {fuel : Nat} {ρ : List SymVal}
     {env : CekEnv} {t : Term}

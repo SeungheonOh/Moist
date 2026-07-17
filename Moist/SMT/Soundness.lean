@@ -14,8 +14,9 @@ decoded internal model and environment, these theorems guarantee:
   with `true`; and
 * a satisfiable integer-equality assertion makes the actual CEK machine halt
   with that same integer; and
-* a satisfiable error assertion is not a fuel timeout: `bigEval` fails at every
-  greater fuel and the actual CEK machine cannot halt with any value.
+* a satisfiable error assertion is not a fuel timeout: the error-aware
+  evaluator returns an actual runtime error, and the CEK machine reaches its
+  `.error` state in finitely many transitions.
 
 Both results require the explicitly supported (non-opaque-builtin) fragment.
 -/
@@ -37,16 +38,20 @@ the requested integer. -/
 def CekHaltsInteger (env : CekEnv) (t : Term) (expected : Int) : Prop :=
   Reaches (.compute [] env t) (.halt (.VCon (.Integer expected)))
 
-/-- The actual CEK computation started with a decoded environment never halts
-with a value.  This rules out both a successful result and a fuel artifact.
-It deliberately does not claim finite arrival at `.error`; untyped UPLC may
-diverge. -/
+/-- The actual CEK computation started with a decoded environment reaches the
+runtime-error state in finitely many transitions. -/
+def CekHaltsError (env : CekEnv) (t : Term) : Prop :=
+  Reaches (.compute [] env t) .error
+
+/-- Compatibility predicate: the CEK computation does not halt with a value.
+The compiler's error endpoint below proves the strictly stronger
+`CekHaltsError` property. -/
 def CekDoesNotHalt (env : CekEnv) (t : Term) : Prop :=
   ¬ ∃ v, Reaches (.compute [] env t) (.halt v)
 
-/-- An active generated error remains an error at every larger big-step fuel.
-This is the fuel-independent core for the assertion emitted by
-`scriptForError`. -/
+/-- An active generated error remains a genuine runtime error at every larger
+error-aware evaluation fuel.  In particular, none of these results is a fuel
+timeout. -/
 theorem evalSym_errorCond_allFuel {m : SmtSem.Model} {fuel : Nat}
     {ρ : List SymVal} {env : CekEnv} {t : Term}
     (henv : symEnvToCek? m ρ = some env)
@@ -54,15 +59,16 @@ theorem evalSym_errorCond_allFuel {m : SmtSem.Model} {fuel : Nat}
     (hno : termNoOpaqueBuiltinsForSoundness t)
     (herror : SmtSem.evalBoolIs m
       (errorCond (evalSym fuel ρ t)) true = true) :
-    ∀ fuel', fuel ≤ fuel' → bigEval fuel' env t = none := by
+    ∀ fuel', fuel ≤ fuel' →
+      Moist.Verified.ExactBigStep.eval fuel' env t = .error := by
   obtain ⟨out, hmem, herr⟩ := errorCond_eval_true_mem herror
   intro fuel' hle
   exact evalSym_active_error_noOpaque_le (m := m) (fuel := fuel) (fuel' := fuel')
     (ρ := ρ) (env := env) (t := t) henv hρno hno hmem herr hle
 
-/-- Public compiler error endpoint.  A true rendered error assertion cannot
-be caused by insufficient symbolic fuel, and the corresponding CEK
-computation cannot halt successfully at any value. -/
+/-- Public compiler error endpoint.  A true generated error assertion cannot
+be caused by insufficient symbolic fuel: the corresponding CEK computation
+reaches `.error` in finitely many transitions. -/
 theorem evalSym_errorCond_sound {m : SmtSem.Model} {fuel : Nat}
     {ρ : List SymVal} {env : CekEnv} {t : Term}
     (henv : symEnvToCek? m ρ = some env)
@@ -70,17 +76,13 @@ theorem evalSym_errorCond_sound {m : SmtSem.Model} {fuel : Nat}
     (hno : termNoOpaqueBuiltinsForSoundness t)
     (herror : SmtSem.evalBoolIs m
       (errorCond (evalSym fuel ρ t)) true = true) :
-    CekDoesNotHalt env t := by
-  have hall := evalSym_errorCond_allFuel henv hρno hno herror
-  rintro ⟨v, hhalt⟩
-  obtain ⟨f, hf⟩ := bigEval_complete_env hhalt
-  by_cases hle : fuel ≤ f
-  · rw [hall f hle] at hf
-    contradiction
-  · have hflt : f ≤ fuel := Nat.le_of_lt (Nat.lt_of_not_ge hle)
-    have hf' := bigEval_mono_le hflt hf
-    rw [hall fuel (Nat.le_refl fuel)] at hf'
-    contradiction
+    CekHaltsError env t := by
+  have herrorExact :=
+    evalSym_errorCond_exact henv hρno hno herror
+  have hforward :=
+    Moist.Verified.ExactBigStep.eval_fwd fuel env t []
+  simpa [CekHaltsError,
+    Moist.Verified.ExactBigStep.Result.ReachesAs, herrorExact] using hforward
 
 /-- Public compiler success endpoint.  A true rendered Boolean-success
 assertion makes the actual CEK transition system halt with the identical
@@ -121,7 +123,8 @@ theorem evalSym_simplifiedErrorCond_allFuel {m : SmtSem.Model} {fuel : Nat}
     (hno : termNoOpaqueBuiltinsForSoundness t)
     (herror : SmtSem.evalBoolIs m
       (Moist.SMT.Expr.simplifyBool (errorCond (evalSym fuel ρ t))) true = true) :
-    ∀ fuel', fuel ≤ fuel' → bigEval fuel' env t = none := by
+    ∀ fuel', fuel ≤ fuel' →
+      Moist.Verified.ExactBigStep.eval fuel' env t = .error := by
   apply evalSym_errorCond_allFuel henv hρno hno
   simpa only [Moist.SMT.Semantics.evalBoolIs_simplifyBool] using herror
 
@@ -133,7 +136,7 @@ theorem evalSym_simplifiedErrorCond_sound {m : SmtSem.Model} {fuel : Nat}
     (hno : termNoOpaqueBuiltinsForSoundness t)
     (herror : SmtSem.evalBoolIs m
       (Moist.SMT.Expr.simplifyBool (errorCond (evalSym fuel ρ t))) true = true) :
-    CekDoesNotHalt env t := by
+    CekHaltsError env t := by
   apply evalSym_errorCond_sound henv hρno hno
   simpa only [Moist.SMT.Semantics.evalBoolIs_simplifyBool] using herror
 

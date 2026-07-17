@@ -87,6 +87,24 @@ info: 'Moist.Verified.BigStep.bigEval_iff_halt_env' depends on axioms: [propext,
 #print axioms Moist.Verified.BigStep.bigEval_iff_halt_env
 
 /--
+info: 'Moist.Verified.ExactBigStep.eval_fwd' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.Verified.ExactBigStep.eval_fwd
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.evalSym_active_error_noOpaque_le' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.evalSym_active_error_noOpaque_le
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.evalSym_errorCond_exact' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.evalSym_errorCond_exact
+
+/--
 info: 'Moist.SMT.UPLC.Soundness.evalSym_simplifiedErrorCond_allFuel' depends on axioms: [propext,
  Classical.choice,
  Quot.sound]
