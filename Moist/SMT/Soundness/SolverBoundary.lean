@@ -10,15 +10,18 @@ proof of their premises.  This module makes the one external boundary
 explicit: a solver integration must decode its model and certify every
 generated assertion under that executable semantics.
 
-The production-script theorems below establish the fixed prelude
-syntactically.  The one remaining trusted step is the user-accepted
+The low-level script theorems below establish the fixed prelude syntactically.
+The proof-carrying query API rejects terms and declaration environments that
+contain opaque builtins before it emits a production query.  The one remaining
+trusted step is the user-accepted
 rendering/SMT-LIB/Z3 bridge: submit exactly the reference rendering, or the
 operational DAG rendering; decode the actual Z3 model; and transfer every
 assertion into `Semantics.eval`.  The pointer-based DAG renderer is `unsafe`,
 so its equivalence to the reference renderer deliberately remains in that
 external boundary rather than being disguised as a kernel theorem.  Once the
-semantic certificate is available, all three public compiler queries compose
-directly with the CEK theorems below.
+semantic certificate is available, all three supported compiler queries
+compose directly with the CEK theorems below, without a caller-supplied
+fragment premise.
 -/
 
 namespace Moist.SMT.UPLC.Soundness
@@ -51,7 +54,6 @@ structure CertifiedZ3Model (decls : List SymDecl)
   declarations used to build the production script. -/
   cekEnv : CekEnv
   env_decodes : symEnvToCek? model (envOf decls) = some cekEnv
-  env_noOpaque : symEnvNoOpaqueForSoundness (envOf decls) = true
   assertionsTrue : ∀ e, e ∈ script.assertions →
     SmtSem.evalBoolIs model e true = true
 
@@ -84,45 +86,211 @@ theorem scriptForError_hasCompilerPrelude (fuel : Nat)
     hasCompilerPrelude (scriptForError fuel decls t) := by
   exact scriptWith_hasCompilerPrelude _ _
 
-/-- A certified model of the production Boolean script yields the actual CEK
-result. -/
-theorem certifiedZ3_scriptForBoolTrue_sound
-    {fuel : Nat} {decls : List SymDecl} {t : Term}
-    (z3 : CertifiedZ3Model decls (scriptForBoolTrue fuel decls t))
-    (hno : termNoOpaqueBuiltinsForSoundness t) :
-    CekHaltsBoolTrue z3.cekEnv t := by
-  apply evalSym_okBoolTrueCond_sound (fuel := fuel) (ρ := envOf decls)
-    z3.env_decodes z3.env_noOpaque hno
+/-! ## Checked production queries
+
+The unrestricted `scriptFor*` functions are low-level compiler primitives:
+they are useful for inspecting output, but do not by themselves certify that
+the input is in the modeled fragment.  Production integrations construct one
+of the query types below.  Their only checked constructors return `none` for
+an opaque term or declaration environment; their direct constructors require
+the corresponding kernel proof.
+
+Declaration well-formedness alone is intentionally not used as a fragment
+certificate.  In particular, `symConstr` permits arbitrary symbolic fields,
+which can include higher-order values containing opaque builtins.
+-/
+
+/-- A UPLC term whose every builtin is modeled by the symbolic compiler's
+soundness proof. -/
+structure SupportedTerm where
+  term : Term
+  noOpaque : termNoOpaqueBuiltinsForSoundness term
+
+namespace SupportedTerm
+
+/-- Check an untrusted term before admitting it to the production query API. -/
+def check (term : Term) : Option SupportedTerm :=
+  if h : termUsesOpaqueBuiltinForSoundness term = false then
+    some ⟨term, h⟩
+  else
+    none
+
+@[simp] theorem check_isSome (term : Term) :
+    (check term).isSome = !termUsesOpaqueBuiltinForSoundness term := by
+  unfold check
+  split <;> simp_all
+
+end SupportedTerm
+
+/-- Symbolic declarations whose decoded environment cannot contain an opaque
+closure, delay, or partial builtin. -/
+structure SupportedDeclarations where
+  declarations : List SymDecl
+  noOpaque :
+    symEnvNoOpaqueForSoundness (envOf declarations) = true
+
+namespace SupportedDeclarations
+
+/-- Check declaration values before admitting them to a production query. -/
+def check (declarations : List SymDecl) : Option SupportedDeclarations :=
+  if h : symEnvNoOpaqueForSoundness (envOf declarations) = true then
+    some ⟨declarations, h⟩
+  else
+    none
+
+@[simp] theorem check_isSome (declarations : List SymDecl) :
+    (check declarations).isSome =
+      symEnvNoOpaqueForSoundness (envOf declarations) := by
+  unfold check
+  split <;> simp_all
+
+end SupportedDeclarations
+
+/-- A checked Boolean-success production query. -/
+structure BoolTrueQuery where
+  fuel : Nat
+  inputs : SupportedDeclarations
+  program : SupportedTerm
+
+namespace BoolTrueQuery
+
+def script (query : BoolTrueQuery) : Moist.SMT.Script :=
+  scriptForBoolTrue query.fuel query.inputs.declarations query.program.term
+
+/-- Check both the term and its symbolic declaration environment. -/
+def compile? (fuel : Nat) (declarations : List SymDecl)
+    (term : Term) : Option BoolTrueQuery := do
+  let inputs ← SupportedDeclarations.check declarations
+  let program ← SupportedTerm.check term
+  pure ⟨fuel, inputs, program⟩
+
+@[simp] theorem compile_isSome (fuel : Nat) (declarations : List SymDecl)
+    (term : Term) :
+    (compile? fuel declarations term).isSome =
+      (symEnvNoOpaqueForSoundness (envOf declarations) &&
+        !termUsesOpaqueBuiltinForSoundness term) := by
+  generalize hinputs : symEnvNoOpaqueForSoundness (envOf declarations) = inputsOk
+  generalize hterm : termUsesOpaqueBuiltinForSoundness term = termOpaque
+  cases inputsOk <;> cases termOpaque <;>
+    simp [compile?, SupportedDeclarations.check, SupportedTerm.check,
+      hinputs, hterm]
+
+theorem hasCompilerPrelude (query : BoolTrueQuery) :
+    Moist.SMT.UPLC.Soundness.hasCompilerPrelude query.script := by
+  exact scriptForBoolTrue_hasCompilerPrelude _ _ _
+
+/-- A certified model of a checked Boolean query yields the actual CEK
+result.  Fragment membership is carried by `query`; callers cannot forget it. -/
+theorem sound (query : BoolTrueQuery)
+    (z3 : CertifiedZ3Model query.inputs.declarations query.script) :
+    CekHaltsBoolTrue z3.cekEnv query.program.term := by
+  apply evalSym_okBoolTrueCond_sound
+    (fuel := query.fuel) (ρ := envOf query.inputs.declarations)
+    z3.env_decodes query.inputs.noOpaque query.program.noOpaque
   apply z3.assertionsTrue
-  rw [scriptForBoolTrue_assertions]
+  rw [script, scriptForBoolTrue_assertions]
   exact List.mem_append_right _ (by simp)
 
-/-- A certified model of the production integer script yields the identical
+end BoolTrueQuery
+
+/-- A checked query for one concrete integer result.  Restricting the public
+query to a literal expected integer removes a second avoidable semantic
+premise about an arbitrary right-hand SMT expression. -/
+structure IntEqQuery where
+  fuel : Nat
+  inputs : SupportedDeclarations
+  program : SupportedTerm
+  expected : Int
+
+namespace IntEqQuery
+
+def script (query : IntEqQuery) : Moist.SMT.Script :=
+  scriptForIntEq query.fuel query.inputs.declarations query.program.term
+    (.int query.expected)
+
+/-- Check both the term and its symbolic declaration environment. -/
+def compile? (fuel : Nat) (declarations : List SymDecl)
+    (term : Term) (expected : Int) : Option IntEqQuery := do
+  let inputs ← SupportedDeclarations.check declarations
+  let program ← SupportedTerm.check term
+  pure ⟨fuel, inputs, program, expected⟩
+
+@[simp] theorem compile_isSome (fuel : Nat) (declarations : List SymDecl)
+    (term : Term) (expected : Int) :
+    (compile? fuel declarations term expected).isSome =
+      (symEnvNoOpaqueForSoundness (envOf declarations) &&
+        !termUsesOpaqueBuiltinForSoundness term) := by
+  generalize hinputs : symEnvNoOpaqueForSoundness (envOf declarations) = inputsOk
+  generalize hterm : termUsesOpaqueBuiltinForSoundness term = termOpaque
+  cases inputsOk <;> cases termOpaque <;>
+    simp [compile?, SupportedDeclarations.check, SupportedTerm.check,
+      hinputs, hterm]
+
+theorem hasCompilerPrelude (query : IntEqQuery) :
+    Moist.SMT.UPLC.Soundness.hasCompilerPrelude query.script := by
+  exact scriptForIntEq_hasCompilerPrelude _ _ _ _
+
+/-- A certified model of a checked integer query yields exactly the requested
 CEK integer. -/
-theorem certifiedZ3_scriptForIntEq_sound
-    {fuel : Nat} {decls : List SymDecl} {t : Term} {rhs : SExpr}
-    (z3 : CertifiedZ3Model decls (scriptForIntEq fuel decls t rhs))
-    {expected : Int}
-    (hno : termNoOpaqueBuiltinsForSoundness t)
-    (hrhs : SmtSem.eval z3.model rhs = some (.int expected)) :
-    CekHaltsInteger z3.cekEnv t expected := by
-  apply evalSym_okIntEqCond_sound (fuel := fuel) (ρ := envOf decls)
-    z3.env_decodes z3.env_noOpaque hno hrhs
+theorem sound (query : IntEqQuery)
+    (z3 : CertifiedZ3Model query.inputs.declarations query.script) :
+    CekHaltsInteger z3.cekEnv query.program.term query.expected := by
+  apply evalSym_okIntEqCond_sound
+    (fuel := query.fuel) (ρ := envOf query.inputs.declarations)
+    (rhs := .int query.expected) (expected := query.expected)
+    z3.env_decodes query.inputs.noOpaque query.program.noOpaque
+  · exact Moist.SMT.Semantics.eval.eq_7 _ _
+  · apply z3.assertionsTrue
+    rw [script, scriptForIntEq_assertions]
+    exact List.mem_append_right _ (by simp)
+
+end IntEqQuery
+
+/-- A checked runtime-error production query. -/
+structure ErrorQuery where
+  fuel : Nat
+  inputs : SupportedDeclarations
+  program : SupportedTerm
+
+namespace ErrorQuery
+
+def script (query : ErrorQuery) : Moist.SMT.Script :=
+  scriptForError query.fuel query.inputs.declarations query.program.term
+
+/-- Check both the term and its symbolic declaration environment. -/
+def compile? (fuel : Nat) (declarations : List SymDecl)
+    (term : Term) : Option ErrorQuery := do
+  let inputs ← SupportedDeclarations.check declarations
+  let program ← SupportedTerm.check term
+  pure ⟨fuel, inputs, program⟩
+
+@[simp] theorem compile_isSome (fuel : Nat) (declarations : List SymDecl)
+    (term : Term) :
+    (compile? fuel declarations term).isSome =
+      (symEnvNoOpaqueForSoundness (envOf declarations) &&
+        !termUsesOpaqueBuiltinForSoundness term) := by
+  generalize hinputs : symEnvNoOpaqueForSoundness (envOf declarations) = inputsOk
+  generalize hterm : termUsesOpaqueBuiltinForSoundness term = termOpaque
+  cases inputsOk <;> cases termOpaque <;>
+    simp [compile?, SupportedDeclarations.check, SupportedTerm.check,
+      hinputs, hterm]
+
+theorem hasCompilerPrelude (query : ErrorQuery) :
+    Moist.SMT.UPLC.Soundness.hasCompilerPrelude query.script := by
+  exact scriptForError_hasCompilerPrelude _ _ _
+
+/-- A certified model of a checked error query reaches the actual CEK
+runtime-error state in finitely many transitions. -/
+theorem sound (query : ErrorQuery)
+    (z3 : CertifiedZ3Model query.inputs.declarations query.script) :
+    CekHaltsError z3.cekEnv query.program.term := by
+  apply evalSym_errorCond_sound
+    (fuel := query.fuel) (ρ := envOf query.inputs.declarations)
+    z3.env_decodes query.inputs.noOpaque query.program.noOpaque
   apply z3.assertionsTrue
-  rw [scriptForIntEq_assertions]
+  rw [script, scriptForError_assertions]
   exact List.mem_append_right _ (by simp)
 
-/-- A certified model of the production error script reaches the actual CEK
-runtime-error state in finitely many transitions. -/
-theorem certifiedZ3_scriptForError_sound
-    {fuel : Nat} {decls : List SymDecl} {t : Term}
-    (z3 : CertifiedZ3Model decls (scriptForError fuel decls t))
-    (hno : termNoOpaqueBuiltinsForSoundness t) :
-    CekHaltsError z3.cekEnv t := by
-  apply evalSym_errorCond_sound (fuel := fuel) (ρ := envOf decls)
-    z3.env_decodes z3.env_noOpaque hno
-  apply z3.assertionsTrue
-  rw [scriptForError_assertions]
-  exact List.mem_append_right _ (by simp)
+end ErrorQuery
 
 end Moist.SMT.UPLC.Soundness
