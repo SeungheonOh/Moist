@@ -332,7 +332,8 @@ theorem termsNoOpaque_get? {alts : List Term} {i : Nat} {alt : Term}
           exact ih hsplit.2 (by simpa using hget)
 
 def modelInt (name : String) (n : Int) : SmtSem.Model :=
-  Moist.SMT.Semantics.Model.bind Moist.SMT.Semantics.Model.empty name (.int n)
+  Moist.SMT.Semantics.Model.bind Moist.SMT.Semantics.Model.empty
+    (Moist.SMT.sanitize name) (.int n)
 
 def emptyModel : SmtSem.Model := Moist.SMT.Semantics.Model.empty
 

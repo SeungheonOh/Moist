@@ -120,5 +120,3 @@ def main : IO Unit := do
 end Test.SMT.Examples
 
 def main : IO Unit := Test.SMT.Examples.main
-
-#eval! main

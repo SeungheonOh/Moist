@@ -7,6 +7,14 @@ open Moist.SMT
 open Moist.SMT.UPLC
 open Test.SMT.Examples
 
+-- External names cannot collide with SMT literals, start with a digit, or
+-- alias merely because their punctuation was replaced by the same character.
+#guard sanitize "true" != "true"
+#guard sanitize "false" != "false"
+#guard sanitize "1x" == "$u$49_120"
+#guard sanitize "a b" != sanitize "a?b"
+#guard sanitize "" == "$u$"
+
 def exprNodes : Expr → Nat
   | .sym _ | .int _ | .bytes _ | .dataLit _ | .dataListLit _
   | .dataPairListLit _ | .constListLit _ | .bool _ | .str _ => 1
@@ -47,8 +55,8 @@ example : scriptForIntEq 100 [xInt] recursiveSumTerm (.int 55) =
 -- normalizer is therefore idempotent on this workload.
 #guard exprNodes rawRecursiveSum55 == 5566
 #guard exprNodes rawRecursiveSum55.simplifyBool == 5566
-#guard rawRecursiveSum55.render.length == 17626
-#guard rawRecursiveSum55.simplifyBool.render.length == 17626
+#guard rawRecursiveSum55.render.length == 19431
+#guard rawRecursiveSum55.simplifyBool.render.length == 19431
 
 -- The generic preservation theorem and both end-to-end CEK corollaries are
 -- typechecked here at their public interfaces.

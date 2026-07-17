@@ -243,10 +243,17 @@ def render (s : Script) : String :=
 
 end Script
 
+/--
+Encode an external name as an SMT-LIB simple symbol.
+
+This is deliberately an encoding rather than replacement-by-underscore:
+replacement aliases distinct input names, leading digits are not valid simple
+symbols, and names such as `true`/`false` can shadow SMT Boolean literals in
+Z3.  A fixed `$u$` namespace followed by decimal Unicode scalar values is
+injective at the character-list level and contains only simple-symbol
+characters.
+-/
 def sanitize (s : String) : String :=
-  let ok (c : Char) := c.isAlphanum || c == '_' || c == '-' || c == '.' || c == '$'
-  let chars := s.data.map fun c => if ok c then c else '_'
-  let out := String.mk chars
-  if out.isEmpty then "x" else out
+  "$u$" ++ String.intercalate "_" (s.data.map fun c => toString c.toNat)
 
 end Moist.SMT
