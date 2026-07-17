@@ -147,6 +147,6 @@
 (declare-fun uplc_valueContains (Val Val) Bool)
 (declare-fun uplc_g1_multiScalarMul (ValList ValList) G1)
 (declare-fun uplc_g2_multiScalarMul (ValList ValList) G2)
-(assert (or (not ((_ is VNil) VNil)) ((_ is VNil) VNil)))
+(assert (let ((|moist.dag.0| ((_ is VNil) VNil))) (or (not |moist.dag.0|) |moist.dag.0|)))
 (check-sat)
 (get-model)

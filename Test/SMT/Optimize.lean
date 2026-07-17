@@ -58,7 +58,7 @@ example : scriptForIntEq 100 [xInt] recursiveSumTerm (.int 55) =
 #guard rawRecursiveSum55.render.length == 19431
 #guard rawRecursiveSum55.simplifyBool.render.length == 19431
 
--- The generic preservation theorem and both end-to-end CEK corollaries are
+-- The generic preservation theorem and all end-to-end CEK corollaries are
 -- typechecked here at their public interfaces.
 example (m : Semantics.Model) :
     Semantics.evalBool? m rawRecursiveSum55.simplifyBool =
@@ -67,5 +67,6 @@ example (m : Semantics.Model) :
 
 #check Moist.SMT.UPLC.Soundness.evalSym_simplifiedErrorCond_sound
 #check Moist.SMT.UPLC.Soundness.evalSym_simplifiedOkBoolTrueCond_sound
+#check Moist.SMT.UPLC.Soundness.evalSym_simplifiedOkIntEqCond_sound
 
 end Test.SMT.Optimize

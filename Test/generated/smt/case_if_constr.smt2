@@ -148,6 +148,6 @@
 (declare-fun uplc_g1_multiScalarMul (ValList ValList) G1)
 (declare-fun uplc_g2_multiScalarMul (ValList ValList) G2)
 (declare-const $u$120 Int)
-(assert (or (and (= $u$120 10) (= 1 1)) (and (not (= $u$120 10)) (= 0 1))))
+(assert (let ((|moist.dag.0| (= $u$120 10))) (or (and |moist.dag.0| (= 1 1)) (and (not |moist.dag.0|) (= 0 1)))))
 (check-sat)
 (get-model)

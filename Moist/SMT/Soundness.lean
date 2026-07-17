@@ -12,6 +12,8 @@ decoded internal model and environment, these theorems guarantee:
 
 * a satisfiable Boolean-success assertion makes the actual CEK machine halt
   with `true`; and
+* a satisfiable integer-equality assertion makes the actual CEK machine halt
+  with that same integer; and
 * a satisfiable error assertion is not a fuel timeout: `bigEval` fails at every
   greater fuel and the actual CEK machine cannot halt with any value.
 
@@ -29,6 +31,11 @@ open Moist.Verified.Equivalence (Reaches)
 the Boolean value `true`. -/
 def CekHaltsBoolTrue (env : CekEnv) (t : Term) : Prop :=
   Reaches (.compute [] env t) (.halt (.VCon (.Bool true)))
+
+/-- The actual CEK computation started with a decoded environment halts with
+the requested integer. -/
+def CekHaltsInteger (env : CekEnv) (t : Term) (expected : Int) : Prop :=
+  Reaches (.compute [] env t) (.halt (.VCon (.Integer expected)))
 
 /-- The actual CEK computation started with a decoded environment never halts
 with a value.  This rules out both a successful result and a fuel artifact.
@@ -86,6 +93,23 @@ theorem evalSym_simplifiedOkBoolTrueCond_sound {m : SmtSem.Model} {fuel : Nat}
       (Moist.SMT.Expr.simplifyBool (okBoolTrueCond (evalSym fuel ρ t))) true = true) :
     CekHaltsBoolTrue env t := by
   have hbig := evalSym_simplifiedOkBoolTrueCond_bigEval henv hρno hno hokCond
+  exact (bigEval_iff_halt_env).mp ⟨fuel, hbig⟩
+
+/-- Public integer endpoint.  If the right-hand SMT expression denotes
+`expected`, a true generated integer-equality assertion makes the actual CEK
+transition system halt with exactly `expected`. -/
+theorem evalSym_simplifiedOkIntEqCond_sound {m : SmtSem.Model} {fuel : Nat}
+    {ρ : List SymVal} {env : CekEnv} {t : Term} {rhs : SExpr} {expected : Int}
+    (henv : symEnvToCek? m ρ = some env)
+    (hρno : symEnvNoOpaqueForSoundness ρ = true)
+    (hno : termNoOpaqueBuiltinsForSoundness t)
+    (hrhs : SmtSem.eval m rhs = some (.int expected))
+    (hcond : SmtSem.evalBoolIs m
+      (Moist.SMT.Expr.simplifyBool
+        (okIntEqCond (evalSym fuel ρ t) rhs)) true = true) :
+    CekHaltsInteger env t expected := by
+  have hbig := evalSym_simplifiedOkIntEqCond_bigEval
+    henv hρno hno hrhs hcond
   exact (bigEval_iff_halt_env).mp ⟨fuel, hbig⟩
 
 end Moist.SMT.UPLC.Soundness

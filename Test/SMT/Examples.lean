@@ -1,4 +1,5 @@
 import Moist.SMT.UPLC
+import Moist.SMT.DagRender
 
 namespace Test.SMT.Examples
 
@@ -108,15 +109,15 @@ def examples : List (String × Script) :=
 
 def outputDir : System.FilePath := "Test/generated/smt"
 
-def writeExamples : IO Unit := do
+unsafe def writeExamples : IO Unit := do
   IO.FS.createDirAll outputDir
   for (name, script) in examples do
-    IO.FS.writeFile (outputDir / name) script.render
+    IO.FS.writeFile (outputDir / name) script.renderDag
 
-def main : IO Unit := do
+unsafe def main : IO Unit := do
   writeExamples
   IO.println s!"wrote {examples.length} SMTLib examples to {outputDir}"
 
 end Test.SMT.Examples
 
-def main : IO Unit := Test.SMT.Examples.main
+unsafe def main : IO Unit := Test.SMT.Examples.main
