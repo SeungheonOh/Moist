@@ -14,6 +14,8 @@ These workloads exercise different parts of the SMT compiler's list encoding:
 * `insertSortednessCounterexampleScript` assumes a sorted input and searches
   for a key whose insertion makes it unsorted.
 * `sortSumCounterexampleScript` searches for a failure of sum preservation.
+* `sortIdempotenceCounterexampleScript` compares one and two applications of
+  insertion sort as list values.
 
 Every query asserts `okBoolTrueCond` for a UPLC Boolean term.  Consequently, a
 satisfying counterexample query composes with the public
@@ -55,6 +57,22 @@ def sumListF : Term :=
 
 def sumList (xs : Term) : Term :=
   app (app sumListF sumListF) xs
+
+/-- Recursive elementwise equality for builtin integer lists. -/
+def listEqF : Term :=
+  let ys := .Var 1
+  let xs := .Var 2
+  let self := .Var 3
+  let recurse := app (app (app self self) (tailList xs)) (tailList ys)
+  let bothCons := lazyIf (app2 .EqualsInteger (headList xs) (headList ys))
+    recurse (bool false)
+  let body := lazyChooseList xs
+    (lazyChooseList ys (bool true) (bool false))
+    (lazyChooseList ys (bool false) bothCons)
+  .Lam 0 (.Lam 0 (.Lam 0 body))
+
+def listEq (xs ys : Term) : Term :=
+  app (app (app listEqF listEqF) xs) ys
 
 /-- Boolean negation inside UPLC, so a satisfying compiled query witnesses a
 CEK evaluation of the negated property rather than merely absence of a
@@ -98,12 +116,28 @@ def sortSumCounterexampleScript (n : Nat) : Script :=
   scriptWith decls
     [boolTrueCondition (sortFuel n + 80) decls (boolNot sameSum)]
 
+/-- Counterexample query for idempotence of insertion sort.  The lambda shares
+the first sorted list at the UPLC level before comparing it with a second
+application. -/
+def sortIdempotenceCounterexampleScript (n : Nat) : Script :=
+  let decls := symbolicInts n
+  let once := insertionSort (symbolicIntList n)
+  let sameTwice := app (.Lam 0 (listEq (.Var 1) (insertionSort (.Var 1)))) once
+  scriptWith decls
+    [boolTrueCondition (sortFuel n + 120) decls (boolNot sameTwice)]
+
 def benchmarkScripts (n : Nat) : List (String × Script) :=
   [ (s!"sorted-input-{n}.smt2", sortedInputScript n)
   , (s!"insertion-sort-sorted-{n}.smt2", sortSortednessCounterexampleScript n)
   , (s!"insert-preserves-sorted-{n}.smt2", insertSortednessCounterexampleScript n)
   , (s!"insertion-sort-sum-{n}.smt2", sortSumCounterexampleScript n)
+  , (s!"insertion-sort-idempotent-{n}.smt2", sortIdempotenceCounterexampleScript n)
   ]
+
+-- Every asserted benchmark condition is a CEK-level Boolean witness term;
+-- these are the exact assertion-neutral and actual-machine endpoints it uses.
+#check scriptWith_assertions
+#check Moist.SMT.UPLC.Soundness.evalSym_okBoolTrueCond_sound
 
 def outputDir : System.FilePath := "Test/generated/smt/list-benchmarks"
 
