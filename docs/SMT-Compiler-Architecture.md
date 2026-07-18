@@ -19,8 +19,13 @@ The portable path is ordered as follows:
    side of the boundary.
 4. `Moist.SMT.Compiler.Validation` contains fail-closed structural validation
    for the supported builtin fragment and public SMT expressions.
-5. `Moist.SMT.Render` is the transparent reference SMT-LIB renderer.
-6. `Moist.SMT.Compiler` is the public portable facade over those modules.
+5. `Moist.SMT.Compiler.InputChecked` exposes the proof-free, explicitly named
+   `*InputChecked?` entry points. They validate caller-controlled input and
+   construct one canonical script without running the output contract's
+   unbounded renderer and sort traversals over its shared assertion DAG. The
+   compiler's bounded prelude-dependency scan remains part of construction.
+6. `Moist.SMT.Render` is the transparent reference SMT-LIB renderer.
+7. `Moist.SMT.Compiler` is the public portable facade over those modules.
 
 None of these modules imports the simulated semantics or the soundness proof
 tree. `Moist.SMT.Compiler.Operational` is a separate opt-in facade for the
@@ -29,9 +34,12 @@ the reference renderer with real Z3, but it is not silently treated as a
 kernel theorem.
 
 `Command.raw`, arbitrary `Expr.app` heads, custom sort strings, and direct
-structure constructors are low-level escape hatches. Production callers use
-the checked query constructors. The compiler itself reserves raw commands for
-the reviewed, fixed prelude.
+structure constructors are low-level escape hatches. The proof-free
+`*InputChecked?` functions certify only caller input; they do not certify the
+compiler-owned output AST. Production callers that need the CEK theorem use
+the proof-carrying query constructors, whose explicit postcheck validates the
+same stored script. The compiler itself reserves raw commands for the
+reviewed, fixed prelude.
 
 ## Proof and model layers
 
@@ -48,8 +56,11 @@ The proof side is separate:
   reachability.
 - `Soundness.SolverInput` proves that checked symbolic inputs decode to one CEK
   environment.
-- the generated-output contract checks the compiler's own assertions, rather
-  than checking only caller-supplied declarations.
+- the generated-output contract checks the compiler's command allowlist,
+  solver-control suffix, assertion renderer grammar, and assertion sorts,
+  rather than checking only caller-supplied declarations. Its current pure
+  structural assertion checks can expand shared decision DAGs; moving that
+  invariant to construction time remains future work, not a solved cost.
 - `Soundness.SolverBoundary` ties a checked query to its canonical script and
   consumes a decoded, semantically certified solver model.
 
@@ -113,7 +124,9 @@ A port must preserve all of the following together:
   builtins remain explicitly unsupported);
 - reference rendering of negative integers and recursive literals;
 - injective/safe names, unique declarations, sort checking, and generated
-  output validation; and
+  output validation;
+- computational revalidation of every mandatory decoding assumption that
+  Lean's `SymDecl.wellFormed` proof field carries before erasure; and
 - the CEK/Z3 differential, raw-prelude differential, renderer differential,
   prelude-family, axiom, and no-hole test gates.
 

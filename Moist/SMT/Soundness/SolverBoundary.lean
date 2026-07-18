@@ -1,4 +1,4 @@
-import Moist.SMT.Soundness.OutputContract
+import Moist.SMT.Soundness.CheckedCompiler
 import Moist.SMT.Render
 
 /-!
@@ -138,11 +138,44 @@ namespace BoolTrueQuery
 /-- Check both the term and its symbolic declaration environment. -/
 def compile? (fuel : Nat) (declarations : List SymDecl)
     (term : Term) : Option BoolTrueQuery := do
-  let inputs ← SupportedDeclarations.check declarations
-  let program ← SupportedTerm.check term
-  let script := scriptForBoolTrue fuel inputs.declarations program.term
-  let output ← GeneratedOutputContract.check inputs.declarations script
-  pure ⟨fuel, inputs, program, script, rfl, output⟩
+  let compilation ←
+    CertifiedCompilation.compile? .boolTrue fuel declarations term
+  let inputs : SupportedDeclarations :=
+    { declarations
+      noOpaque := compilation.declarationsNoOpaque
+      rendererSafe := compilation.declarationsRendererSafe
+      sortSafe := compilation.declarationsSortSafe
+      inputSafe := compilation.declarationsInputSafe
+      namesDistinct := compilation.declarationNamesDistinct }
+  let program : SupportedTerm :=
+    { term, noOpaque := compilation.termNoOpaque }
+  pure
+    { fuel, inputs, program
+      script := compilation.script
+      script_eq := by
+        simpa [Moist.SMT.Compiler.scriptFor] using compilation.script_eq
+      output := compilation.output }
+
+/-- The proof-carrying wrapper stores exactly the portable compiler result
+after the explicit generated-output postcheck. -/
+@[simp] theorem compile_map_script (fuel : Nat)
+    (declarations : List SymDecl) (term : Term) :
+    (compile? fuel declarations term).map (·.script) =
+      CheckedCompiler.postcheck? declarations
+        (Moist.SMT.Compiler.compileBoolTrueInputChecked? fuel declarations term) := by
+  calc
+    (compile? fuel declarations term).map (·.script) =
+        (CertifiedCompilation.compile? .boolTrue fuel declarations term).map
+          (·.script) := by
+      unfold compile?
+      generalize hCompilation :
+        CertifiedCompilation.compile? .boolTrue fuel declarations term = result
+      cases result <;> rfl
+    _ = CheckedCompiler.postcheck? declarations
+        (Moist.SMT.Compiler.compileInputChecked? .boolTrue fuel declarations term) :=
+      CertifiedCompilation.compile_map_script
+        .boolTrue fuel declarations term
+    _ = _ := rfl
 
 @[simp] theorem compile_isSome (fuel : Nat) (declarations : List SymDecl)
     (term : Term) :
@@ -161,18 +194,25 @@ def compile? (fuel : Nat) (declarations : List SymDecl)
           (scriptForBoolTrue fuel declarations term) &&
         generatedAssertionsSortSafe declarations
           (scriptForBoolTrue fuel declarations term)) := by
-  generalize hinputs : symEnvNoOpaqueForSoundness (envOf declarations) = inputsOk
-  generalize hsafety : declarationsRendererSafe declarations = safetyOk
-  generalize hsort : declarationsSortSafe declarations = sortOk
-  generalize hsafeInput : declarationsInputSafe declarations = inputOk
-  generalize hdistinct : declarationNamesDistinct declarations = distinctOk
-  generalize hterm : termUsesOpaqueBuiltinForSoundness term = termOpaque
-  cases inputsOk <;> cases safetyOk <;> cases sortOk <;>
-    cases inputOk <;> cases distinctOk <;> cases termOpaque <;>
-    simp [compile?, SupportedDeclarations.check, SupportedTerm.check,
-      Option.isSome_bind, GeneratedOutputContract.check_isSome,
-      hinputs, hsafety, hsort,
-      hsafeInput, hdistinct, hterm]
+  calc
+    (compile? fuel declarations term).isSome =
+        (CertifiedCompilation.compile? .boolTrue fuel declarations term).isSome := by
+      unfold compile?
+      generalize hCompilation :
+        CertifiedCompilation.compile? .boolTrue fuel declarations term = result
+      cases result <;> rfl
+    _ = (Moist.SMT.Compiler.inputAccepted declarations term &&
+        generatedCommandsSafe declarations
+          (Moist.SMT.Compiler.scriptFor .boolTrue fuel declarations term) &&
+        generatedSolverControlSafe
+          (Moist.SMT.Compiler.scriptFor .boolTrue fuel declarations term) &&
+        generatedAssertionsRendererSafe
+          (Moist.SMT.Compiler.scriptFor .boolTrue fuel declarations term) &&
+        generatedAssertionsSortSafe declarations
+          (Moist.SMT.Compiler.scriptFor .boolTrue fuel declarations term)) :=
+      CertifiedCompilation.compile_isSome
+        .boolTrue fuel declarations term
+    _ = _ := rfl
 
 theorem hasCompilerPrelude (query : BoolTrueQuery) :
     Moist.SMT.UPLC.Soundness.hasCompilerPrelude query.script := by
@@ -254,12 +294,44 @@ namespace IntEqQuery
 /-- Check both the term and its symbolic declaration environment. -/
 def compile? (fuel : Nat) (declarations : List SymDecl)
     (term : Term) (expected : Int) : Option IntEqQuery := do
-  let inputs ← SupportedDeclarations.check declarations
-  let program ← SupportedTerm.check term
-  let script :=
-    scriptForIntEq fuel inputs.declarations program.term (.int expected)
-  let output ← GeneratedOutputContract.check inputs.declarations script
-  pure ⟨fuel, inputs, program, expected, script, rfl, output⟩
+  let compilation ←
+    CertifiedCompilation.compile? (.intEq expected) fuel declarations term
+  let inputs : SupportedDeclarations :=
+    { declarations
+      noOpaque := compilation.declarationsNoOpaque
+      rendererSafe := compilation.declarationsRendererSafe
+      sortSafe := compilation.declarationsSortSafe
+      inputSafe := compilation.declarationsInputSafe
+      namesDistinct := compilation.declarationNamesDistinct }
+  let program : SupportedTerm :=
+    { term, noOpaque := compilation.termNoOpaque }
+  pure
+    { fuel, inputs, program, expected
+      script := compilation.script
+      script_eq := by
+        simpa [Moist.SMT.Compiler.scriptFor] using compilation.script_eq
+      output := compilation.output }
+
+/-- The proof-carrying wrapper stores exactly the portable compiler result
+after the explicit generated-output postcheck. -/
+@[simp] theorem compile_map_script (fuel : Nat)
+    (declarations : List SymDecl) (term : Term) (expected : Int) :
+    (compile? fuel declarations term expected).map (·.script) =
+      CheckedCompiler.postcheck? declarations
+        (Moist.SMT.Compiler.compileIntEqInputChecked? fuel declarations term expected) := by
+  calc
+    (compile? fuel declarations term expected).map (·.script) =
+        (CertifiedCompilation.compile? (.intEq expected) fuel declarations term).map
+          (·.script) := by
+      unfold compile?
+      generalize hCompilation : CertifiedCompilation.compile?
+        (.intEq expected) fuel declarations term = result
+      cases result <;> rfl
+    _ = CheckedCompiler.postcheck? declarations
+        (Moist.SMT.Compiler.compileInputChecked? (.intEq expected) fuel declarations term) :=
+      CertifiedCompilation.compile_map_script
+        (.intEq expected) fuel declarations term
+    _ = _ := rfl
 
 @[simp] theorem compile_isSome (fuel : Nat) (declarations : List SymDecl)
     (term : Term) (expected : Int) :
@@ -278,18 +350,26 @@ def compile? (fuel : Nat) (declarations : List SymDecl)
           (scriptForIntEq fuel declarations term (.int expected)) &&
         generatedAssertionsSortSafe declarations
           (scriptForIntEq fuel declarations term (.int expected))) := by
-  generalize hinputs : symEnvNoOpaqueForSoundness (envOf declarations) = inputsOk
-  generalize hsafety : declarationsRendererSafe declarations = safetyOk
-  generalize hsort : declarationsSortSafe declarations = sortOk
-  generalize hsafeInput : declarationsInputSafe declarations = inputOk
-  generalize hdistinct : declarationNamesDistinct declarations = distinctOk
-  generalize hterm : termUsesOpaqueBuiltinForSoundness term = termOpaque
-  cases inputsOk <;> cases safetyOk <;> cases sortOk <;>
-    cases inputOk <;> cases distinctOk <;> cases termOpaque <;>
-    simp [compile?, SupportedDeclarations.check, SupportedTerm.check,
-      Option.isSome_bind, GeneratedOutputContract.check_isSome,
-      hinputs, hsafety, hsort,
-      hsafeInput, hdistinct, hterm]
+  calc
+    (compile? fuel declarations term expected).isSome =
+        (CertifiedCompilation.compile?
+          (.intEq expected) fuel declarations term).isSome := by
+      unfold compile?
+      generalize hCompilation : CertifiedCompilation.compile?
+        (.intEq expected) fuel declarations term = result
+      cases result <;> rfl
+    _ = (Moist.SMT.Compiler.inputAccepted declarations term &&
+        generatedCommandsSafe declarations
+          (Moist.SMT.Compiler.scriptFor (.intEq expected) fuel declarations term) &&
+        generatedSolverControlSafe
+          (Moist.SMT.Compiler.scriptFor (.intEq expected) fuel declarations term) &&
+        generatedAssertionsRendererSafe
+          (Moist.SMT.Compiler.scriptFor (.intEq expected) fuel declarations term) &&
+        generatedAssertionsSortSafe declarations
+          (Moist.SMT.Compiler.scriptFor (.intEq expected) fuel declarations term)) :=
+      CertifiedCompilation.compile_isSome
+        (.intEq expected) fuel declarations term
+    _ = _ := rfl
 
 theorem hasCompilerPrelude (query : IntEqQuery) :
     Moist.SMT.UPLC.Soundness.hasCompilerPrelude query.script := by
@@ -368,11 +448,44 @@ namespace ErrorQuery
 /-- Check both the term and its symbolic declaration environment. -/
 def compile? (fuel : Nat) (declarations : List SymDecl)
     (term : Term) : Option ErrorQuery := do
-  let inputs ← SupportedDeclarations.check declarations
-  let program ← SupportedTerm.check term
-  let script := scriptForError fuel inputs.declarations program.term
-  let output ← GeneratedOutputContract.check inputs.declarations script
-  pure ⟨fuel, inputs, program, script, rfl, output⟩
+  let compilation ←
+    CertifiedCompilation.compile? .error fuel declarations term
+  let inputs : SupportedDeclarations :=
+    { declarations
+      noOpaque := compilation.declarationsNoOpaque
+      rendererSafe := compilation.declarationsRendererSafe
+      sortSafe := compilation.declarationsSortSafe
+      inputSafe := compilation.declarationsInputSafe
+      namesDistinct := compilation.declarationNamesDistinct }
+  let program : SupportedTerm :=
+    { term, noOpaque := compilation.termNoOpaque }
+  pure
+    { fuel, inputs, program
+      script := compilation.script
+      script_eq := by
+        simpa [Moist.SMT.Compiler.scriptFor] using compilation.script_eq
+      output := compilation.output }
+
+/-- The proof-carrying wrapper stores exactly the portable compiler result
+after the explicit generated-output postcheck. -/
+@[simp] theorem compile_map_script (fuel : Nat)
+    (declarations : List SymDecl) (term : Term) :
+    (compile? fuel declarations term).map (·.script) =
+      CheckedCompiler.postcheck? declarations
+        (Moist.SMT.Compiler.compileErrorInputChecked? fuel declarations term) := by
+  calc
+    (compile? fuel declarations term).map (·.script) =
+        (CertifiedCompilation.compile? .error fuel declarations term).map
+          (·.script) := by
+      unfold compile?
+      generalize hCompilation :
+        CertifiedCompilation.compile? .error fuel declarations term = result
+      cases result <;> rfl
+    _ = CheckedCompiler.postcheck? declarations
+        (Moist.SMT.Compiler.compileInputChecked? .error fuel declarations term) :=
+      CertifiedCompilation.compile_map_script
+        .error fuel declarations term
+    _ = _ := rfl
 
 @[simp] theorem compile_isSome (fuel : Nat) (declarations : List SymDecl)
     (term : Term) :
@@ -391,18 +504,25 @@ def compile? (fuel : Nat) (declarations : List SymDecl)
           (scriptForError fuel declarations term) &&
         generatedAssertionsSortSafe declarations
           (scriptForError fuel declarations term)) := by
-  generalize hinputs : symEnvNoOpaqueForSoundness (envOf declarations) = inputsOk
-  generalize hsafety : declarationsRendererSafe declarations = safetyOk
-  generalize hsort : declarationsSortSafe declarations = sortOk
-  generalize hsafeInput : declarationsInputSafe declarations = inputOk
-  generalize hdistinct : declarationNamesDistinct declarations = distinctOk
-  generalize hterm : termUsesOpaqueBuiltinForSoundness term = termOpaque
-  cases inputsOk <;> cases safetyOk <;> cases sortOk <;>
-    cases inputOk <;> cases distinctOk <;> cases termOpaque <;>
-    simp [compile?, SupportedDeclarations.check, SupportedTerm.check,
-      Option.isSome_bind, GeneratedOutputContract.check_isSome,
-      hinputs, hsafety, hsort,
-      hsafeInput, hdistinct, hterm]
+  calc
+    (compile? fuel declarations term).isSome =
+        (CertifiedCompilation.compile? .error fuel declarations term).isSome := by
+      unfold compile?
+      generalize hCompilation :
+        CertifiedCompilation.compile? .error fuel declarations term = result
+      cases result <;> rfl
+    _ = (Moist.SMT.Compiler.inputAccepted declarations term &&
+        generatedCommandsSafe declarations
+          (Moist.SMT.Compiler.scriptFor .error fuel declarations term) &&
+        generatedSolverControlSafe
+          (Moist.SMT.Compiler.scriptFor .error fuel declarations term) &&
+        generatedAssertionsRendererSafe
+          (Moist.SMT.Compiler.scriptFor .error fuel declarations term) &&
+        generatedAssertionsSortSafe declarations
+          (Moist.SMT.Compiler.scriptFor .error fuel declarations term)) :=
+      CertifiedCompilation.compile_isSome
+        .error fuel declarations term
+    _ = _ := rfl
 
 theorem hasCompilerPrelude (query : ErrorQuery) :
     Moist.SMT.UPLC.Soundness.hasCompilerPrelude query.script := by
