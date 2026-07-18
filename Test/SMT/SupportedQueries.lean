@@ -296,6 +296,63 @@ def supportedDeclarations : List SymDecl :=
 example : (SupportedDeclarations.check supportedDeclarations).isSome = true := by
   native_decide
 
+/-! The portable declaration boundary must enforce mandatory decoding guards
+itself.  These regressions exercise raw fields because Lean's `SymDecl`
+constructor already prevents constructing the corresponding malformed record;
+ports do not have that proof field. -/
+
+def guardTestName : String := Moist.SMT.sanitize "guard input"
+
+def guardBytesValue : SymVal :=
+  .const (.bytes (.sym guardTestName))
+
+def guardStringValue : SymVal :=
+  .const (.string (.sym guardTestName))
+
+def guardDataValue : SymVal :=
+  .const (.data (.sym guardTestName))
+
+def guardValValue : SymVal :=
+  .dyn (.sym guardTestName)
+
+def guardConstrValue : SymVal :=
+  .constr (.sym guardTestName) []
+
+example : requiredAssumptionsPresent guardTestName .bytes guardBytesValue
+    [.app "bytes_valid" [.sym guardTestName]] = true := by native_decide
+example : requiredAssumptionsPresent guardTestName .bytes guardBytesValue
+    [] = false := by native_decide
+example : requiredAssumptionsPresent guardTestName .bytes guardBytesValue
+    [.app "ustring_valid" [.sym guardTestName]] = false := by native_decide
+
+example : requiredAssumptionsPresent guardTestName .string guardStringValue
+    [.app "ustring_valid" [.sym guardTestName]] = true := by native_decide
+example : requiredAssumptionsPresent guardTestName .string guardStringValue
+    [] = false := by native_decide
+example : requiredAssumptionsPresent guardTestName .string guardStringValue
+    [.app "bytes_valid" [.sym guardTestName]] = false := by native_decide
+
+example : requiredAssumptionsPresent guardTestName .data guardDataValue
+    [.app "data_valid" [.sym guardTestName]] = true := by native_decide
+example : requiredAssumptionsPresent guardTestName .data guardDataValue
+    [] = false := by native_decide
+example : requiredAssumptionsPresent guardTestName .data guardDataValue
+    [.app "val_valid" [.sym guardTestName]] = false := by native_decide
+
+example : requiredAssumptionsPresent guardTestName .val guardValValue
+    [.app "val_valid" [.sym guardTestName]] = true := by native_decide
+example : requiredAssumptionsPresent guardTestName .val guardValValue
+    [] = false := by native_decide
+example : requiredAssumptionsPresent guardTestName .val guardValValue
+    [.app "data_valid" [.sym guardTestName]] = false := by native_decide
+
+example : requiredAssumptionsPresent guardTestName .int guardConstrValue
+    [SExpr.ge (.sym guardTestName) (.int 0)] = true := by native_decide
+example : requiredAssumptionsPresent guardTestName .int guardConstrValue
+    [] = false := by native_decide
+example : requiredAssumptionsPresent guardTestName .int guardConstrValue
+    [SExpr.ge (.sym guardTestName) (.int (-1))] = false := by native_decide
+
 def delimiterInjectionDeclaration : SymDecl :=
   (symInt "x").withAssumptions
     [.sym "true) (assert false) ; renderer injection"]

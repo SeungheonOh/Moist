@@ -570,8 +570,41 @@ mutual
           inputSymValsSafe declarations values
 end
 
+/-- Proof-free, fail-closed syntactic equality for the mandatory-assumption
+grammar emitted by `symDeclRequired?`: unary validity predicates and the
+binary nonnegative-tag guard.  An unfamiliar future requirement is rejected
+until this portable checker and its soundness proof are extended together. -/
+def requiredAssumptionMatches : SExpr → SExpr → Bool
+  | .app actualFunction [.sym actualName],
+      .app expectedFunction [.sym expectedName] =>
+        actualFunction == expectedFunction && actualName == expectedName
+  | .app actualFunction [.sym actualName, .int actualInteger],
+      .app expectedFunction [.sym expectedName, .int expectedInteger] =>
+        actualFunction == expectedFunction &&
+          (actualName == expectedName && actualInteger == expectedInteger)
+  | _, _ => false
+
+/-- Check the mandatory assumptions computed by the single authoritative
+`symDeclRequired?` table.  `none` is rejected, and every required expression
+must occur syntactically in the supplied assumption list. -/
+def requiredAssumptionsPresent (name : String) (sort : Moist.SMT.SSort)
+    (value : SymVal) (assumptions : List SExpr) : Bool :=
+  match symDeclRequired? name sort value with
+  | none => false
+  | some required =>
+      required.all fun expected =>
+        assumptions.any fun actual => requiredAssumptionMatches actual expected
+
+/-- Executable counterpart of the mandatory-assumption part of
+`SymDecl.wellFormed`.  Keeping this check at the production boundary makes the
+input contract reproducible by ports that do not carry Lean proof fields. -/
+def symDeclRequiredAssumptionsPresent (declaration : SymDecl) : Bool :=
+  requiredAssumptionsPresent declaration.name declaration.sort
+    declaration.value declaration.assumptions
+
 /-- Re-check the exact smart-constructor declaration shape computationally,
-then apply the CEK-decodable field restriction to constructor declarations. -/
+including every mandatory validity/nonnegativity assumption, then apply the
+CEK-decodable field restriction to constructor declarations. -/
 def symDeclInputSafe (declarations : List SymDecl)
     (declaration : SymDecl) : Bool :=
   let valueSafe :=
@@ -586,7 +619,8 @@ def symDeclInputSafe (declarations : List SymDecl)
         name == declaration.name && inputSymValsSafe declarations fields
     | _, _ => false
   valueSafe &&
-    declaration.assumptions.all expressionTotalitySafe
+    (symDeclRequiredAssumptionsPresent declaration &&
+      declaration.assumptions.all expressionTotalitySafe)
 
 def declarationsInputSafe (declarations : List SymDecl) : Bool :=
   declarations.all (symDeclInputSafe declarations)

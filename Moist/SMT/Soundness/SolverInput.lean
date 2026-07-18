@@ -1301,10 +1301,64 @@ theorem inputSymEnvSafe_decodes
       exact ⟨.cons headValue tailEnv, by
         simp [symEnvToCek?, hhead, htail]⟩
 
-/-- A syntactically admitted direct `Val` symbol points to a declaration that
-contains the exact mandatory `val_valid` assertion. -/
+/-- A positive result from the proof-free executable assumption matcher is
+exact syntactic equality. -/
+private theorem requiredAssumptionMatches_sound
+    {actual expected : SExpr}
+    (hmatches : requiredAssumptionMatches actual expected = true) :
+    actual = expected := by
+  unfold requiredAssumptionMatches at hmatches
+  split at hmatches <;> simp_all
+
+private theorem any_requiredAssumptionMatches_true_mem
+    (expected : SExpr) (expressions : List SExpr)
+    (hpresent : expressions.any (fun actual =>
+      requiredAssumptionMatches actual expected) = true) :
+    expected ∈ expressions := by
+  rw [List.any_eq_true] at hpresent
+  obtain ⟨actual, hactual, hmatches⟩ := hpresent
+  rw [requiredAssumptionMatches_sound hmatches] at hactual
+  exact hactual
+
+/-- The executable mandatory-assumption checker implies the original
+proof-level declaration invariant.  This is the kernel bridge a non-Lean port
+must reproduce by running the checker before emission. -/
+theorem requiredAssumptionsPresent_sound
+    {name : String} {sort : Moist.SMT.SSort} {value : SymVal}
+    {assumptions : List SExpr}
+    (hpresent : requiredAssumptionsPresent name sort value assumptions = true) :
+    SymDeclWellFormed name sort value assumptions := by
+  cases hrequired : symDeclRequired? name sort value with
+  | none =>
+      simp [requiredAssumptionsPresent, hrequired] at hpresent
+  | some required =>
+      have hall : required.all (fun expected =>
+          assumptions.any fun actual =>
+            requiredAssumptionMatches actual expected) = true := by
+        simpa [requiredAssumptionsPresent, hrequired] using hpresent
+      refine ⟨required, hrequired, ?_⟩
+      intro expected hexpected
+      exact any_requiredAssumptionMatches_true_mem expected assumptions
+        (List.all_eq_true.mp hall expected hexpected)
+
+/-- In particular, the complete declaration-input checker independently
+reconstructs `SymDecl.wellFormed`; decoder soundness need not trust the proof
+field supplied by the declaration's constructor. -/
+theorem symDeclInputSafe_checkedWellFormed
+    {declarations : List SymDecl} {declaration : SymDecl}
+    (hsafe : symDeclInputSafe declarations declaration = true) :
+    SymDeclWellFormed declaration.name declaration.sort declaration.value
+      declaration.assumptions := by
+  unfold symDeclInputSafe at hsafe
+  dsimp only at hsafe
+  simp only [Bool.and_eq_true] at hsafe
+  exact requiredAssumptionsPresent_sound hsafe.2.1
+
+/-- A syntactically admitted direct `Val` symbol points to an executably
+checked declaration containing the exact mandatory `val_valid` assertion. -/
 theorem directValValidityAssumption_mem
     {declarations : List SymDecl} {expression : SExpr}
+    (hdeclarationsSafe : declarationsInputSafe declarations = true)
     (hsafe : inputSymValSafe declarations (.dyn expression) = true) :
     ∃ declaration, declaration ∈ declarations ∧
       (.app "val_valid" [expression] : SExpr) ∈
@@ -1326,9 +1380,25 @@ theorem directValValidityAssumption_mem
             List.mem_of_find?_eq_some hfind
           have hname : declaration.name = name := by
             simpa using List.find?_some hfind
-          have hvalid := SymDecl.valValid_mem_of_sort declaration hsort
-          rw [hname] at hvalid
-          exact ⟨declaration, hmem, hvalid⟩
+          have hdeclarationSafe :
+              symDeclInputSafe declarations declaration = true :=
+            List.all_eq_true.mp
+              (by simpa [declarationsInputSafe] using hdeclarationsSafe)
+              declaration hmem
+          have hcheckedWellFormed :=
+            symDeclInputSafe_checkedWellFormed hdeclarationSafe
+          have hvalid := SymDecl.valValid_mem_of_sort
+            { name := declaration.name
+              sort := declaration.sort
+              value := declaration.value
+              assumptions := declaration.assumptions
+              wellFormed := hcheckedWellFormed }
+            hsort
+          have hvalid' :
+              (.app "val_valid" [.sym declaration.name] : SExpr) ∈
+                declaration.assumptions := hvalid
+          rw [hname] at hvalid'
+          exact ⟨declaration, hmem, hvalid'⟩
   | _ => simp [inputSymValSafe, directValSymbol] at hsafe
 
 private theorem symDeclInputSafe_valueSafeUnlessConstr
@@ -1338,7 +1408,7 @@ private theorem symDeclInputSafe_valueSafeUnlessConstr
     match declaration.value with
     | .constr (.sym _) _ => True
     | value => inputSymValSafe declarations value = true := by
-  rcases declaration with ⟨name, sort, value, assumptions, hwellFormed⟩
+  rcases declaration with ⟨name, sort, value, assumptions, _hwellFormed⟩
   have hsort' : symValSortSafe declarations value = true ∧
       assumptions.all (fun assumption =>
         expressionHasSort declarations assumption .bool) = true := by
@@ -1392,7 +1462,9 @@ tag is symbolic, so nonnegativity comes from the declaration's required
 `tag >= 0` assertion. -/
 theorem inputSymDeclSafe_decodes
     {declarations : List SymDecl} {model : SmtSem.Model}
-    (bridge : SolverInputModel declarations model) (declaration : SymDecl)
+    (bridge : SolverInputModel declarations model)
+    (hdeclarationsSafe : declarationsInputSafe declarations = true)
+    (declaration : SymDecl)
     (hmember : declaration ∈ declarations)
     (hsafe : symDeclInputSafe declarations declaration = true)
     (hsort : symDeclSortSafe declarations declaration = true)
@@ -1409,10 +1481,11 @@ theorem inputSymDeclSafe_decodes
     hsort'.1
   have hproperty := symDeclInputSafe_valueSafeUnlessConstr
     declaration hsafe hsort
+  have hcheckedWellFormed := symDeclInputSafe_checkedWellFormed hsafe
   have directValAssertions : DirectValAssertionsHold declarations model := by
     intro expression hvalueSafe
     obtain ⟨inputDeclaration, hinputMember, hvalidMember⟩ :=
-      directValValidityAssumption_mem hvalueSafe
+      directValValidityAssumption_mem hdeclarationsSafe hvalueSafe
     exact hassumptions inputDeclaration hinputMember _ hvalidMember
   have decodeOrdinary
       (hvalueSafe : inputSymValSafe declarations declaration.value = true) :
@@ -1422,7 +1495,7 @@ theorem inputSymDeclSafe_decodes
   by_cases houter : ∃ tagName fields,
       declaration.value = .constr (.sym tagName) fields
   · rcases houter with ⟨tagName, fields, hvalue⟩
-    rcases declaration with ⟨name, sort, value, assumptions, hwellFormed⟩
+    rcases declaration with ⟨name, sort, value, assumptions, _hwellFormed⟩
     simp only at hvalue
     subst value
     cases sort <;> simp [symDeclInputSafe] at hsafe
@@ -1444,7 +1517,7 @@ theorem inputSymDeclSafe_decodes
               sort := .int
               value := .constr (.sym tagName) fields
               assumptions := assumptions
-              wellFormed := hwellFormed }
+              wellFormed := hcheckedWellFormed }
             rfl rfl rfl
         have htagNonnegative : 0 ≤ tag := by
           apply pcHolds_nonneg htagEval
@@ -1454,7 +1527,7 @@ theorem inputSymDeclSafe_decodes
                 sort := .int
                 value := .constr (.sym tagName) fields
                 assumptions := assumptions
-                wellFormed := hwellFormed }
+                wellFormed := hcheckedWellFormed }
               hmember _ hmandatory
         have htagNotNegative : ¬ tag < 0 := by omega
         exact ⟨Moist.CEK.CekValue.VConstr tag.toNat decodedFields, by
@@ -1468,7 +1541,9 @@ theorem inputSymDeclSafe_decodes
 
 private theorem inputDeclarationsSafe_decodesAux
     {declarations : List SymDecl} {model : SmtSem.Model}
-    (bridge : SolverInputModel declarations model) : ∀ (current : List SymDecl),
+    (bridge : SolverInputModel declarations model)
+    (hdeclarationsSafe : declarationsInputSafe declarations = true) :
+    ∀ (current : List SymDecl),
     current.all (symDeclInputSafe declarations) = true →
     current.all (symDeclSortSafe declarations) = true →
     (∀ declaration, declaration ∈ current → declaration ∈ declarations) →
@@ -1481,10 +1556,10 @@ private theorem inputDeclarationsSafe_decodesAux
   | declaration :: declarations, hsafe, hsort, hsubset, hassumptions => by
       simp only [List.all_cons, Bool.and_eq_true] at hsafe hsort
       obtain ⟨headValue, hhead⟩ := inputSymDeclSafe_decodes bridge
-        declaration (hsubset declaration (by simp)) hsafe.1 hsort.1
-          hassumptions
+        hdeclarationsSafe declaration (hsubset declaration (by simp))
+          hsafe.1 hsort.1 hassumptions
       obtain ⟨tailEnvironment, htail⟩ := inputDeclarationsSafe_decodesAux
-        bridge declarations hsafe.2 hsort.2
+        bridge hdeclarationsSafe declarations hsafe.2 hsort.2
           (fun tailDeclaration htailMem =>
             hsubset tailDeclaration (by simp [htailMem])) hassumptions
       exact ⟨.cons headValue tailEnvironment, by
@@ -1503,7 +1578,7 @@ theorem declarationsInputSafe_decodes
         SmtSem.evalBoolIs model expression true = true) :
     ∃ environment,
       symEnvToCek? model (envOf declarations) = some environment := by
-  exact inputDeclarationsSafe_decodesAux bridge declarations
+  exact inputDeclarationsSafe_decodesAux bridge hsafe declarations
     (by simpa [declarationsInputSafe] using hsafe)
     (by simpa [declarationsSortSafe] using hsort)
     (fun _ hmem => hmem) hassumptions
