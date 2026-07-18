@@ -75,3 +75,6 @@ lean_exe smt_builtin_differential where
 
 lean_exe smt_advanced_raw_differential where
   root := `Test.SMT.AdvancedBuiltinRawDifferential
+
+lean_exe smt_dag_render_differential where
+  root := `Test.SMT.DagRender

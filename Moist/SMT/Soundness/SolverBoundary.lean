@@ -1,4 +1,5 @@
 import Moist.SMT.Soundness.SolverInput
+import Moist.SMT.Render
 
 /-!
 # Solver/model boundary
@@ -278,7 +279,7 @@ theorem sound (query : IntEqQuery)
     (fuel := query.fuel) (ρ := envOf query.inputs.declarations)
     (rhs := .int query.expected) (expected := query.expected)
     (cekEnv_decodes query z3) query.inputs.noOpaque query.program.noOpaque
-  · exact Moist.SMT.Semantics.eval.eq_7 _ _
+  · simp [Moist.SMT.Semantics.eval]
   · apply z3.assertionsTrue
     rw [script, scriptForIntEq_assertions]
     exact List.mem_append_right _ (by simp)

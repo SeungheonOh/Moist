@@ -1,5 +1,4 @@
 import Moist.SMT.Soundness
-import Moist.SMT.DagRender
 
 /-!
 # Checked solver inputs
@@ -102,6 +101,7 @@ exact fixed constants whose SMT and executable interpretations coincide. -/
 private def symbolAtomRendererSafe (name : String) : Bool :=
   declarationNameRendererSafe name ||
     name == "(as seq.empty Bytes)" ||
+    name == "(as seq.empty UString)" ||
     name == "g1_default" ||
     name == "g2_default" ||
     name == "ml_default"
@@ -278,6 +278,7 @@ private def declarationSort? (declarations : List SymDecl)
 mutual
   def expressionSort? (declarations : List SymDecl) : SExpr → Option Moist.SMT.SSort
     | .sym "(as seq.empty Bytes)" => some .bytes
+    | .sym "(as seq.empty UString)" => some .string
     | .sym "(as seq.empty (Seq Int))" => some .bytes
     | .sym "g1_default" => some .g1
     | .sym "g2_default" => some .g2
@@ -1109,6 +1110,12 @@ mutual
           exact ⟨.bytes Moist.SMT.Semantics.bytesEmpty,
             by simp [Moist.SMT.Semantics.eval],
             .bytesVal Moist.SMT.Semantics.bytesEmpty⟩
+        by_cases hustringEmpty : name = "(as seq.empty UString)"
+        · subst name
+          simp [expressionSort?] at hsort
+          subst sort
+          exact ⟨.string "", by simp [Moist.SMT.Semantics.eval],
+            .stringVal ""⟩
         by_cases hemptySeq : name = "(as seq.empty (Seq Int))"
         · subst name
           simp [expressionSort?] at hsort
@@ -1136,7 +1143,8 @@ mutual
             .mlVal "ml_default"⟩
         · have hdeclarationSort :
               declarationSort? declarations name = some sort := by
-            simpa [expressionSort?, hempty, hemptySeq, hg1, hg2, hml]
+            simpa [expressionSort?, hempty, hustringEmpty, hemptySeq, hg1,
+              hg2, hml]
               using hsort
           unfold declarationSort? at hdeclarationSort
           generalize hfind : declarations.find? (fun declaration =>
@@ -1802,6 +1810,11 @@ private theorem symDeclInputSafe_valueSafeUnlessConstr
   case h_6 nameSym =>
     unfold symValSortSafe expressionHasSort at hvalueSort
     have hempty : nameSym ≠ "(as seq.empty Bytes)" := by
+      intro heq
+      subst nameSym
+      change false = true at hvalueSort
+      exact Bool.noConfusion hvalueSort
+    have hustringEmpty : nameSym ≠ "(as seq.empty UString)" := by
       intro heq
       subst nameSym
       change false = true at hvalueSort

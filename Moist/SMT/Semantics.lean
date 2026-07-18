@@ -6,16 +6,23 @@ import Moist.Plutus.Integer
 
 namespace Moist.SMT.Semantics
 
-/-! Executable semantics for the SMT expression vocabulary. -/
+/-! Executable guarded-observation semantics for the SMT expression vocabulary. -/
 
 open Moist.Plutus
 open Moist.Plutus.Term
 
 /-!
 Executable denotational semantics for the first-order SMT expression layer used
-by `Moist.SMT.UPLC`.  This is intentionally a semantics for our small `Expr`
-AST, not a verifier for Z3.  A later Z3 bridge should say that a Z3 model for
-the rendered SMTLib script denotes one of these `Model`s.
+by `Moist.SMT.UPLC`.  This is intentionally a semantics for the compiler's
+guarded observation fragment, not a total interpreter for arbitrary Z3 terms
+and not a verifier for Z3.
+
+Z3 assigns values to out-of-domain datatype selectors, `seq.nth`, and integer
+division by zero.  This evaluator instead returns `none` for those observations
+and uses strong Boolean conjunction/disjunction to mask them only behind the
+guards emitted by the compiler.  Consequently, adequacy with rendered SMT-LIB
+is claimed only for checked compiler output.  `Soundness.SolverBoundary` makes
+the remaining model-decoding and SMT-LIB/Z3 transfer premise explicit.
 -/
 
 mutual
@@ -1393,6 +1400,7 @@ theorem evalApp_isCtor_VCons (sv : SVal) :
 mutual
   def eval (m : Model) : Expr → Option SVal
     | .sym "(as seq.empty Bytes)" => some (.bytes bytesEmpty)
+    | .sym "(as seq.empty UString)" => some (.string "")
     | .sym "(as seq.empty (Seq Int))" => some (.bytes bytesEmpty)
     | .sym "g1_default" => some (.g1 "g1_default")
     | .sym "g2_default" => some (.g2 "g2_default")

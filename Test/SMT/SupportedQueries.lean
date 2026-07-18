@@ -354,6 +354,17 @@ example : expressionRendererSafe (.sym (Moist.SMT.sanitize "x")) = true := by
 example : expressionRendererSafe (.sym "(as seq.empty Bytes)") = true := by
   native_decide
 
+example : expressionRendererSafe (.sym "(as seq.empty UString)") = true := by
+  native_decide
+
+example : expressionSort? [] (.sym "(as seq.empty UString)") ==
+    some .string := by
+  native_decide
+
+example : Moist.SMT.Semantics.eval Moist.SMT.Semantics.Model.empty
+    (.sym "(as seq.empty UString)") = some (.string "") := by
+  simp [Moist.SMT.Semantics.eval]
+
 example : expressionRendererSafe (.sym "(as seq.empty (Seq Int))") = false := by
   native_decide
 

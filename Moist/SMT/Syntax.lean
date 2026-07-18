@@ -73,6 +73,9 @@ def or : Expr → Expr → Expr
   | .bool false, b => b
   | a, b => orRight a b
 
+/-- Convenience constructors for the unrestricted SMT AST.  The UPLC
+compiler does not emit `=>`, native `div`, or native `mod`; checked production
+queries reject unmodeled or partial uses at their fragment boundary. -/
 def imp (a b : Expr) : Expr := .app "=>" [a, b]
 def eq (a b : Expr) : Expr := .app "=" [a, b]
 def ne (a b : Expr) : Expr := not (eq a b)
@@ -99,6 +102,9 @@ def any : List Expr → Expr
 end Expr
 
 inductive Command where
+  /-- Verbatim SMT-LIB, reserved by the production compiler for its fixed
+  reviewed prelude.  Callers constructing raw scripts are outside the checked
+  renderer/model boundary. -/
   | raw : String → Command
   | comment : String → Command
   | setLogic : String → Command
