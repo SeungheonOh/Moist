@@ -719,13 +719,24 @@ def generatedCommandsSafe (declarations : List SymDecl)
     (script : Moist.SMT.Script) : Bool :=
   script.commands.all (generatedCommandSafe declarations)
 
-/-- Production scripts end with exactly the fixed solver tactic followed by a
-model request.  The canonical-script equality in the proof wrapper fixes the
-entire order; this executable tripwire catches accidental generator changes
-before a script reaches a solver. -/
+/-- Solver-control commands are stateful boundaries rather than logical
+assertions.  Keep their classification explicit so the production suffix
+check cannot accidentally admit an earlier query or model request. -/
+def solverControlCommand : Moist.SMT.Command → Bool
+  | .checkSat | .checkSatUsing _ | .getModel | .getValue _ => true
+  | _ => false
+
+/-- Production scripts contain exactly one solver query: the fixed tactic,
+immediately followed by one model request at the end of the command stream.
+No earlier solver-control command is admitted.  The canonical-script equality
+in the proof wrapper fixes the remaining command order; this executable
+tripwire catches accidental generator changes before a script reaches a
+solver. -/
 def generatedSolverControlSafe (script : Moist.SMT.Script) : Bool :=
   match script.commands.reverse with
-  | .getModel :: .checkSatUsing tactic :: _ => tactic == z3QueryTactic
+  | .getModel :: .checkSatUsing tactic :: prefixReversed =>
+      tactic == z3QueryTactic &&
+        prefixReversed.all (fun command => !solverControlCommand command)
   | _ => false
 
 /-- Every logical assertion in a generated script renders through the

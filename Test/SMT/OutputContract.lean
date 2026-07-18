@@ -38,6 +38,22 @@ example : scriptChecked? [] [.assert (.bool true),
 example : scriptChecked? [] [.assert (.bool true), .getModel] = false := by
   native_decide
 
+-- A correct final suffix does not excuse an earlier solver query.
+example : scriptChecked? [] [.assert (.bool true),
+    .checkSatUsing z3QueryTactic, .checkSatUsing z3QueryTactic,
+    .getModel] = false := by
+  native_decide
+
+-- Nor may a script request a model before the one final solver query.
+example : scriptChecked? [] [.assert (.bool true), .getModel,
+    .checkSatUsing z3QueryTactic, .getModel] = false := by
+  native_decide
+
+-- The canonical control suffix remains accepted.
+example : scriptChecked? [] [.assert (.bool true),
+    .checkSatUsing z3QueryTactic, .getModel] = true := by
+  native_decide
+
 -- Generated declarations must correspond to the checked input environment.
 example : scriptChecked? [] [.declareConst "$u$120" .int,
     .assert (.bool true), .checkSatUsing z3QueryTactic, .getModel] = false := by
