@@ -12,11 +12,13 @@ The portable path is ordered as follows:
 1. `Moist.SMT.Syntax` defines sorts, expressions, commands, scripts, and the
    injective external-name encoding.
 2. `Moist.SMT.Optimize` contains executable expression rewrites only.
-3. `Moist.SMT.UPLC` contains the symbolic value/outcome IR, fueled symbolic
-   evaluator, builtin compiler, fixed SMT prelude, and script constructors.
-   It reuses the CEK builtin evaluator for fully static calls, but deliberately
-   does not import the CEK transition machine; the latter belongs to the proof
-   side of the boundary.
+3. `Moist.SMT.Compiler.UPLC` physically separates the executable UPLC compiler
+   into `Expressions`, `Prelude`, `SymbolicValue`, `Compaction`, `Projection`,
+   `Evaluation`, `Declarations`, and `Query` modules.  Their declarations keep
+   the stable `Moist.SMT.UPLC` namespace, and `Moist.SMT.UPLC` is now only the
+   compatibility facade.  The compiler reuses the CEK builtin evaluator for
+   fully static calls, but deliberately does not import the CEK transition
+   machine; the latter belongs to the proof side of the boundary.
 4. `Moist.SMT.Compiler.Validation` contains fail-closed structural validation
    for the supported builtin fragment and public SMT expressions. Its
    executable definitions live in the matching
