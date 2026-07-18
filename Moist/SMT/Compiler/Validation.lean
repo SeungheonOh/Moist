@@ -632,6 +632,60 @@ def declarationsRendererSafe (declarations : List SymDecl) : Bool :=
 
 /-! ## Generated output validation -/
 
+/-- Exact comparison for the two command forms used by the fixed raw
+prelude.  Keeping this deliberately narrow means that a new raw or otherwise
+unstructured command is rejected until the production boundary is reviewed. -/
+def matchesFixedPreludeCommand : Moist.SMT.Command → Moist.SMT.Command → Bool
+  | .raw actual, .raw expected => actual == expected
+  | .declareConst actualName actualSort,
+      .declareConst expectedName expectedSort =>
+      actualName == expectedName && actualSort == expectedSort
+  | _, _ => false
+
+/-- A command belongs byte-for-byte (for raw text) or field-for-field (for the
+opaque default declarations) to the compiler's fixed prelude. -/
+def fixedPreludeCommand (command : Moist.SMT.Command) : Bool :=
+  prelude.any (matchesFixedPreludeCommand command)
+
+/-- Match a generated declaration command against the checked declaration
+environment. -/
+def checkedDeclarationCommand (declarations : List SymDecl)
+    (name : String) (sort : Moist.SMT.SSort) : Bool :=
+  declarations.any fun declaration =>
+    declaration.name == name && declaration.sort == sort
+
+/-- Structural command-stream allowlist for production output.
+
+Expression safety and Boolean sorting are checked separately below so the
+potentially large generated assertion DAG is not traversed a third time.
+Every raw command must be one of the exact fixed prelude commands; every
+declaration must come from the checked input (or be a fixed prelude default),
+and the only admitted solver-control commands are the fixed tactic and final
+model request. -/
+def generatedCommandSafe (declarations : List SymDecl) :
+    Moist.SMT.Command → Bool
+  | command@(.raw _) => fixedPreludeCommand command
+  | command@(.declareConst name sort) =>
+      fixedPreludeCommand command ||
+        checkedDeclarationCommand declarations name sort
+  | .assert _ => true
+  | .checkSatUsing tactic => tactic == z3QueryTactic
+  | .getModel => true
+  | _ => false
+
+def generatedCommandsSafe (declarations : List SymDecl)
+    (script : Moist.SMT.Script) : Bool :=
+  script.commands.all (generatedCommandSafe declarations)
+
+/-- Production scripts end with exactly the fixed solver tactic followed by a
+model request.  The canonical-script equality in the proof wrapper fixes the
+entire order; this executable tripwire catches accidental generator changes
+before a script reaches a solver. -/
+def generatedSolverControlSafe (script : Moist.SMT.Script) : Bool :=
+  match script.commands.reverse with
+  | .getModel :: .checkSatUsing tactic :: _ => tactic == z3QueryTactic
+  | _ => false
+
 /-- Every logical assertion in a generated script renders through the
 reviewed expression grammar.  This checks the typed AST before rendering. -/
 def generatedAssertionsRendererSafe (script : Moist.SMT.Script) : Bool :=

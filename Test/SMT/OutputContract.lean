@@ -20,6 +20,44 @@ private def checked? (declarations : List SymDecl)
   (GeneratedOutputContract.check declarations
     (scriptWith declarations [expression])).isSome
 
+private def scriptChecked? (declarations : List SymDecl)
+    (commands : List Command) : Bool :=
+  (GeneratedOutputContract.check declarations ⟨commands⟩).isSome
+
+-- Raw commands outside the exact reviewed prelude cannot alter solver state.
+example : scriptChecked? [] [.raw "(reset)", .assert (.bool true),
+    .checkSatUsing z3QueryTactic, .getModel] = false := by
+  native_decide
+
+-- Solver tactic text is fixed rather than a caller-controlled raw fragment.
+example : scriptChecked? [] [.assert (.bool true),
+    .checkSatUsing "smt) (reset) (check-sat", .getModel] = false := by
+  native_decide
+
+-- A model request without the canonical preceding solver command is rejected.
+example : scriptChecked? [] [.assert (.bool true), .getModel] = false := by
+  native_decide
+
+-- Generated declarations must correspond to the checked input environment.
+example : scriptChecked? [] [.declareConst "$u$120" .int,
+    .assert (.bool true), .checkSatUsing z3QueryTactic, .getModel] = false := by
+  native_decide
+
+def forbiddenCommandForms : List Command :=
+  [ .comment "hidden"
+  , .setLogic "ALL"
+  , .declareFun "rogue" [] .bool
+  , .defineFun "rogue" [] .bool (.bool true)
+  , .checkSat
+  , .getValue [.bool true]
+  ]
+
+-- Every low-level command constructor outside the reviewed production
+-- vocabulary remains fail closed.
+example : forbiddenCommandForms.all
+    (fun command => !generatedCommandSafe [] command) = true := by
+  native_decide
+
 -- Renderer delimiter injection remains rejected when nested below an
 -- otherwise recognized application head.
 example : checked? []

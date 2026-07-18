@@ -153,6 +153,10 @@ def compile? (fuel : Nat) (declarations : List SymDecl)
         declarationsInputSafe declarations &&
         declarationNamesDistinct declarations &&
         !termUsesOpaqueBuiltinForSoundness term &&
+        generatedCommandsSafe declarations
+          (scriptForBoolTrue fuel declarations term) &&
+        generatedSolverControlSafe
+          (scriptForBoolTrue fuel declarations term) &&
         generatedAssertionsRendererSafe
           (scriptForBoolTrue fuel declarations term) &&
         generatedAssertionsSortSafe declarations
@@ -163,16 +167,12 @@ def compile? (fuel : Nat) (declarations : List SymDecl)
   generalize hsafeInput : declarationsInputSafe declarations = inputOk
   generalize hdistinct : declarationNamesDistinct declarations = distinctOk
   generalize hterm : termUsesOpaqueBuiltinForSoundness term = termOpaque
-  generalize houtputRenderer : generatedAssertionsRendererSafe
-    (scriptForBoolTrue fuel declarations term) = outputRendererOk
-  generalize houtputSort : generatedAssertionsSortSafe declarations
-    (scriptForBoolTrue fuel declarations term) = outputSortOk
   cases inputsOk <;> cases safetyOk <;> cases sortOk <;>
     cases inputOk <;> cases distinctOk <;> cases termOpaque <;>
-    cases outputRendererOk <;> cases outputSortOk <;>
     simp [compile?, SupportedDeclarations.check, SupportedTerm.check,
-      GeneratedOutputContract.check, hinputs, hsafety, hsort, hsafeInput,
-      hdistinct, hterm, houtputRenderer, houtputSort]
+      Option.isSome_bind, GeneratedOutputContract.check_isSome,
+      hinputs, hsafety, hsort,
+      hsafeInput, hdistinct, hterm]
 
 theorem hasCompilerPrelude (query : BoolTrueQuery) :
     Moist.SMT.UPLC.Soundness.hasCompilerPrelude query.script := by
@@ -182,6 +182,14 @@ theorem hasCompilerPrelude (query : BoolTrueQuery) :
 theorem assertionsRendererSafe (query : BoolTrueQuery) :
     generatedAssertionsRendererSafe query.script = true :=
   query.output.rendererSafe
+
+theorem commandsSafe (query : BoolTrueQuery) :
+    generatedCommandsSafe query.inputs.declarations query.script = true :=
+  query.output.commandsSafe
+
+theorem solverControlSafe (query : BoolTrueQuery) :
+    generatedSolverControlSafe query.script = true :=
+  query.output.solverControlSafe
 
 theorem assertionsSortSafe (query : BoolTrueQuery) :
     generatedAssertionsSortSafe query.inputs.declarations query.script = true :=
@@ -262,6 +270,10 @@ def compile? (fuel : Nat) (declarations : List SymDecl)
         declarationsInputSafe declarations &&
         declarationNamesDistinct declarations &&
         !termUsesOpaqueBuiltinForSoundness term &&
+        generatedCommandsSafe declarations
+          (scriptForIntEq fuel declarations term (.int expected)) &&
+        generatedSolverControlSafe
+          (scriptForIntEq fuel declarations term (.int expected)) &&
         generatedAssertionsRendererSafe
           (scriptForIntEq fuel declarations term (.int expected)) &&
         generatedAssertionsSortSafe declarations
@@ -272,16 +284,12 @@ def compile? (fuel : Nat) (declarations : List SymDecl)
   generalize hsafeInput : declarationsInputSafe declarations = inputOk
   generalize hdistinct : declarationNamesDistinct declarations = distinctOk
   generalize hterm : termUsesOpaqueBuiltinForSoundness term = termOpaque
-  generalize houtputRenderer : generatedAssertionsRendererSafe
-    (scriptForIntEq fuel declarations term (.int expected)) = outputRendererOk
-  generalize houtputSort : generatedAssertionsSortSafe declarations
-    (scriptForIntEq fuel declarations term (.int expected)) = outputSortOk
   cases inputsOk <;> cases safetyOk <;> cases sortOk <;>
     cases inputOk <;> cases distinctOk <;> cases termOpaque <;>
-    cases outputRendererOk <;> cases outputSortOk <;>
     simp [compile?, SupportedDeclarations.check, SupportedTerm.check,
-      GeneratedOutputContract.check, hinputs, hsafety, hsort, hsafeInput,
-      hdistinct, hterm, houtputRenderer, houtputSort]
+      Option.isSome_bind, GeneratedOutputContract.check_isSome,
+      hinputs, hsafety, hsort,
+      hsafeInput, hdistinct, hterm]
 
 theorem hasCompilerPrelude (query : IntEqQuery) :
     Moist.SMT.UPLC.Soundness.hasCompilerPrelude query.script := by
@@ -291,6 +299,14 @@ theorem hasCompilerPrelude (query : IntEqQuery) :
 theorem assertionsRendererSafe (query : IntEqQuery) :
     generatedAssertionsRendererSafe query.script = true :=
   query.output.rendererSafe
+
+theorem commandsSafe (query : IntEqQuery) :
+    generatedCommandsSafe query.inputs.declarations query.script = true :=
+  query.output.commandsSafe
+
+theorem solverControlSafe (query : IntEqQuery) :
+    generatedSolverControlSafe query.script = true :=
+  query.output.solverControlSafe
 
 theorem assertionsSortSafe (query : IntEqQuery) :
     generatedAssertionsSortSafe query.inputs.declarations query.script = true :=
@@ -367,6 +383,10 @@ def compile? (fuel : Nat) (declarations : List SymDecl)
         declarationsInputSafe declarations &&
         declarationNamesDistinct declarations &&
         !termUsesOpaqueBuiltinForSoundness term &&
+        generatedCommandsSafe declarations
+          (scriptForError fuel declarations term) &&
+        generatedSolverControlSafe
+          (scriptForError fuel declarations term) &&
         generatedAssertionsRendererSafe
           (scriptForError fuel declarations term) &&
         generatedAssertionsSortSafe declarations
@@ -377,16 +397,12 @@ def compile? (fuel : Nat) (declarations : List SymDecl)
   generalize hsafeInput : declarationsInputSafe declarations = inputOk
   generalize hdistinct : declarationNamesDistinct declarations = distinctOk
   generalize hterm : termUsesOpaqueBuiltinForSoundness term = termOpaque
-  generalize houtputRenderer : generatedAssertionsRendererSafe
-    (scriptForError fuel declarations term) = outputRendererOk
-  generalize houtputSort : generatedAssertionsSortSafe declarations
-    (scriptForError fuel declarations term) = outputSortOk
   cases inputsOk <;> cases safetyOk <;> cases sortOk <;>
     cases inputOk <;> cases distinctOk <;> cases termOpaque <;>
-    cases outputRendererOk <;> cases outputSortOk <;>
     simp [compile?, SupportedDeclarations.check, SupportedTerm.check,
-      GeneratedOutputContract.check, hinputs, hsafety, hsort, hsafeInput,
-      hdistinct, hterm, houtputRenderer, houtputSort]
+      Option.isSome_bind, GeneratedOutputContract.check_isSome,
+      hinputs, hsafety, hsort,
+      hsafeInput, hdistinct, hterm]
 
 theorem hasCompilerPrelude (query : ErrorQuery) :
     Moist.SMT.UPLC.Soundness.hasCompilerPrelude query.script := by
@@ -396,6 +412,14 @@ theorem hasCompilerPrelude (query : ErrorQuery) :
 theorem assertionsRendererSafe (query : ErrorQuery) :
     generatedAssertionsRendererSafe query.script = true :=
   query.output.rendererSafe
+
+theorem commandsSafe (query : ErrorQuery) :
+    generatedCommandsSafe query.inputs.declarations query.script = true :=
+  query.output.commandsSafe
+
+theorem solverControlSafe (query : ErrorQuery) :
+    generatedSolverControlSafe query.script = true :=
+  query.output.solverControlSafe
 
 theorem assertionsSortSafe (query : ErrorQuery) :
     generatedAssertionsSortSafe query.inputs.declarations query.script = true :=
