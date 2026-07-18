@@ -19,6 +19,18 @@ info: 'Moist.SMT.UPLC.scriptWithTactic_assertions' depends on axioms: [propext, 
 #print axioms Moist.SMT.UPLC.scriptWithTactic_assertions
 
 /--
+info: 'Moist.SMT.UPLC.scriptWith_assertionsTrue_iff_fullPrelude' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.scriptWith_assertionsTrue_iff_fullPrelude
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.scriptWith_hasCompilerPrelude' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.scriptWith_hasCompilerPrelude
+
+/--
 info: 'Moist.SMT.Semantics.evalBool?_simplifyBool' depends on axioms: [propext, Quot.sound]
 -/
 #guard_msgs in

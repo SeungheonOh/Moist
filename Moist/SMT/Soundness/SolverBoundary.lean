@@ -9,7 +9,8 @@ proof of their premises.  This module makes the one external boundary
 explicit: a solver integration must decode its model and certify every
 generated assertion under that executable semantics.
 
-The low-level script theorems below establish the fixed prelude syntactically.
+The low-level script theorems below establish the demand-selected prelude
+syntactically.
 The proof-carrying query API rejects terms and declaration environments that
 contain opaque builtins before it emits a production query.  The one remaining
 trusted step is the user-accepted
@@ -34,9 +35,12 @@ pointer identity and therefore belongs to the explicit external boundary. -/
 def IsReferenceRendering (script : Moist.SMT.Script) (text : String) : Prop :=
   text = script.render
 
-/-- A script contains the compiler's complete fixed prelude, in order. -/
+/-- A script contains the exact demand-selected compiler prelude for its own
+assertions, in order.  Tying selection to `script.assertions` prevents an
+unrelated witness from weakening this syntactic boundary invariant. -/
 def hasCompilerPrelude (script : Moist.SMT.Script) : Prop :=
-  ∃ suffix, script.commands = prelude ++ suffix
+  ∃ suffix,
+    script.commands = preludeForAssertions script.assertions ++ suffix
 
 /--
 A decoded solver model at the trusted SMT-LIB boundary.
@@ -93,7 +97,8 @@ theorem scriptWith_hasCompilerPrelude (decls : List SymDecl)
   refine ⟨declCommands decls ++ assumptionCommands decls ++
     assertions.map Moist.SMT.Command.assert ++
       [.checkSatUsing z3QueryTactic, .getModel], ?_⟩
-  rfl
+  rw [scriptWith_assertions]
+  simp [scriptWith, scriptWithTactic, List.append_assoc]
 
 theorem scriptForBoolTrue_hasCompilerPrelude (fuel : Nat)
     (decls : List SymDecl) (t : Term) :

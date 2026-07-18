@@ -386,10 +386,17 @@ mutual
               by simp [bigEval]⟩
         | Apply f a =>
             have hnoSplit := termNoOpaque_apply hno
+            have hcompact : Outcome.ok pc v ∈ compactOutcomes
+                (bindOut (evalSym n ρ f) fun vf =>
+                  bindOut (evalSym n ρ a) fun va => applySym n vf va) := by
+              simpa [evalSym] using hmem
+            obtain ⟨sourcePc, sourceValue, hsourceMem, hsourcePc,
+                hvalueEq, hnoEq⟩ :=
+              compactOutcomes_active_ok hcompact hpc
             have hbind1 := bindOut_path_ok (m := m)
               (xs := evalSym n ρ f)
               (k := fun vf => bindOut (evalSym n ρ a) fun va => applySym n vf va)
-              (hmem := by simpa [evalSym] using hmem) hpc
+              (hmem := hsourceMem) hsourcePc
             rcases hbind1 with
               ⟨pcF, vf, pcRest, hmemF, hmemRest, hpcEq, hpcF, hpcRest⟩
             have hf := evalSym_path_ok_noOpaque (m := m) (fuel := n)
@@ -409,7 +416,13 @@ mutual
               (vf := vf) (va := va) (cvf := cvf) (cva := cva)
               hvf hnof hva hnoa hmemApp hpcApp
             rcases happ with ⟨cv, hv, hnov, happVal⟩
-            exact ⟨cv, hv, hnov,
+            have hv' : symValToCek? m v = some cv := by
+              rw [hvalueEq]
+              exact hv
+            have hnov' : symValNoOpaqueForSoundness v = true := by
+              rw [hnoEq]
+              exact hnov
+            exact ⟨cv, hv', hnov',
               by simp [bigEval, hbigF, hbigA, happVal]⟩
         | Force body =>
             have hnoBody := termNoOpaque_force hno
@@ -2153,46 +2166,60 @@ mutual
               | timeout pc => simp [ok] at hmemOk
           | Apply f a =>
               have hnoSplit := termNoOpaque_apply hno
-              have hbind := bindOut_active_error (m := m)
-                (xs := evalSym n ρ f)
-                (k := fun vf => bindOut (evalSym n ρ a) fun va => applySym n vf va)
-                (hmem := by simpa [evalSym] using hmem) herr
-              rcases hbind with hfunErr | hrest
-              · rcases hfunErr with ⟨pcF, hmemF, hpcF⟩
-                have hfNone := evalSym_active_error_noOpaque_le (m := m)
-                  (fuel := n) (fuel' := n') (ρ := ρ) (env := env) (t := f)
-                  henv hρno hnoSplit.1 hmemF
-                  (by simpa [outcomeErrorActive] using hpcF) hle'
-                simp [Moist.Verified.ExactBigStep.eval, hfNone]
-              · rcases hrest with
-                  ⟨pcF, vf, inner, hmemF, hpcF, hmemInner, herrInner⟩
-                have hf := evalSym_path_ok_noOpaque (m := m) (fuel := n)
-                  (ρ := ρ) (env := env) (t := f)
-                  henv hρno hnoSplit.1 hmemF hpcF
-                rcases hf with ⟨cvf, hvf, hnof, hbigF⟩
-                have hbigF' := bigEval_mono_le hle' hbigF
-                have hbind2 := bindOut_active_error (m := m)
-                  (xs := evalSym n ρ a) (k := fun va => applySym n vf va)
-                  hmemInner herrInner
-                rcases hbind2 with hargErr | happErr
-                · rcases hargErr with ⟨pcA, hmemA, hpcA⟩
-                  have haNone := evalSym_active_error_noOpaque_le (m := m)
-                    (fuel := n) (fuel' := n') (ρ := ρ) (env := env) (t := a)
-                    henv hρno hnoSplit.2 hmemA
-                    (by simpa [outcomeErrorActive] using hpcA) hle'
-                  simp [Moist.Verified.ExactBigStep.eval, hbigF', haNone]
-                · rcases happErr with
-                    ⟨pcA, va, innerApp, hmemA, hpcA, hmemApp, herrApp⟩
-                  have ha := evalSym_path_ok_noOpaque (m := m) (fuel := n)
-                    (ρ := ρ) (env := env) (t := a)
-                    henv hρno hnoSplit.2 hmemA hpcA
-                  rcases ha with ⟨cva, hva, hnoa, hbigA⟩
-                  have hbigA' := bigEval_mono_le hle' hbigA
-                  have happNone := applySym_active_error_noOpaque_le (m := m)
-                    (fuel := n) (fuel' := n') (vf := vf) (va := va)
-                    (cvf := cvf) (cva := cva)
-                    hvf hnof hva hnoa hmemApp herrApp hle'
-                  simp [Moist.Verified.ExactBigStep.eval, hbigF', hbigA', happNone]
+              cases out with
+              | ok pc v => simp [outcomeErrorActive] at herr
+              | timeout pc => simp [outcomeErrorActive] at herr
+              | error pc =>
+                have hpc : pcHolds m pc = true := by
+                  simpa [outcomeErrorActive] using herr
+                have hcompact : Outcome.error pc ∈ compactOutcomes
+                    (bindOut (evalSym n ρ f) fun vf =>
+                      bindOut (evalSym n ρ a) fun va => applySym n vf va) := by
+                  simpa [evalSym] using hmem
+                obtain ⟨sourcePc, hsourceMem, hsourcePc⟩ :=
+                  compactOutcomes_active_error hcompact hpc
+                have hbind := bindOut_active_error (m := m)
+                  (xs := evalSym n ρ f)
+                  (k := fun vf =>
+                    bindOut (evalSym n ρ a) fun va => applySym n vf va)
+                  (hmem := hsourceMem)
+                  (by simpa [outcomeErrorActive] using hsourcePc)
+                rcases hbind with hfunErr | hrest
+                · rcases hfunErr with ⟨pcF, hmemF, hpcF⟩
+                  have hfNone := evalSym_active_error_noOpaque_le (m := m)
+                    (fuel := n) (fuel' := n') (ρ := ρ) (env := env) (t := f)
+                    henv hρno hnoSplit.1 hmemF
+                    (by simpa [outcomeErrorActive] using hpcF) hle'
+                  simp [Moist.Verified.ExactBigStep.eval, hfNone]
+                · rcases hrest with
+                    ⟨pcF, vf, inner, hmemF, hpcF, hmemInner, herrInner⟩
+                  have hf := evalSym_path_ok_noOpaque (m := m) (fuel := n)
+                    (ρ := ρ) (env := env) (t := f)
+                    henv hρno hnoSplit.1 hmemF hpcF
+                  rcases hf with ⟨cvf, hvf, hnof, hbigF⟩
+                  have hbigF' := bigEval_mono_le hle' hbigF
+                  have hbind2 := bindOut_active_error (m := m)
+                    (xs := evalSym n ρ a) (k := fun va => applySym n vf va)
+                    hmemInner herrInner
+                  rcases hbind2 with hargErr | happErr
+                  · rcases hargErr with ⟨pcA, hmemA, hpcA⟩
+                    have haNone := evalSym_active_error_noOpaque_le (m := m)
+                      (fuel := n) (fuel' := n') (ρ := ρ) (env := env) (t := a)
+                      henv hρno hnoSplit.2 hmemA
+                      (by simpa [outcomeErrorActive] using hpcA) hle'
+                    simp [Moist.Verified.ExactBigStep.eval, hbigF', haNone]
+                  · rcases happErr with
+                      ⟨pcA, va, innerApp, hmemA, hpcA, hmemApp, herrApp⟩
+                    have ha := evalSym_path_ok_noOpaque (m := m) (fuel := n)
+                      (ρ := ρ) (env := env) (t := a)
+                      henv hρno hnoSplit.2 hmemA hpcA
+                    rcases ha with ⟨cva, hva, hnoa, hbigA⟩
+                    have hbigA' := bigEval_mono_le hle' hbigA
+                    have happNone := applySym_active_error_noOpaque_le (m := m)
+                      (fuel := n) (fuel' := n') (vf := vf) (va := va)
+                      (cvf := cvf) (cva := cva)
+                      hvf hnof hva hnoa hmemApp herrApp hle'
+                    simp [Moist.Verified.ExactBigStep.eval, hbigF', hbigA', happNone]
           | Force body =>
               have hnoBody := termNoOpaque_force hno
               cases out with

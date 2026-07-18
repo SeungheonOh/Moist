@@ -158,6 +158,14 @@ def errorCount (outs : List Outcome) : Nat :=
 def timeoutCount (outs : List Outcome) : Nat :=
   outs.countP fun | .timeout _ => true | _ => false
 
+/-- Keep application compaction at the production evaluator boundary. -/
+theorem evalSym_apply_compacts (n : Nat) (ρ : List SymVal) (f a : Term) :
+    evalSym (n + 1) ρ (.Apply f a) =
+      compactOutcomes
+        (bindOut (evalSym n ρ f) fun vf =>
+          bindOut (evalSym n ρ a) fun va => applySym n vf va) := by
+  simp [evalSym]
+
 -- The optimization itself has a small, deterministic unit regression: all
 -- encodable successes and all errors/timeouts are represented once.
 private def sampleOutcomes : List Outcome :=
@@ -180,16 +188,46 @@ private def sampleOutcomes : List Outcome :=
 #guard errorCount (compactOutcomes sampleOutcomes) == 1
 #guard timeoutCount (compactOutcomes sampleOutcomes) == 1
 
+/- The native-sort extension must cover every newly supported representation,
+not merely the integer/list cases exercised by insertion sort.  Two paths of
+each kind collapse to one result of that same kind. -/
+private def nativeSampleOutcomes : List Outcome :=
+  [ .ok (.sym "unit-a") (.const .unit)
+  , .ok (.sym "unit-b") (.const .unit)
+  , .ok (.sym "bytes-a") (.const (.bytes (.sym "bytes-x")))
+  , .ok (.sym "bytes-b") (.const (.bytes (.sym "bytes-y")))
+  , .ok (.sym "string-a") (.const (.string (.sym "string-x")))
+  , .ok (.sym "string-b") (.const (.string (.sym "string-y")))
+  , .ok (.sym "data-a") (.const (.data (.sym "data-x")))
+  , .ok (.sym "data-b") (.const (.data (.sym "data-y")))
+  , .ok (.sym "pairs-a") (.const (.pairDataList (.sym "pairs-x")))
+  , .ok (.sym "pairs-b") (.const (.pairDataList (.sym "pairs-y")))
+  , .ok (.sym "array-a") (.const (.array (.sym "array-x")))
+  , .ok (.sym "array-b") (.const (.array (.sym "array-y")))
+  ]
+
+private def outcomeCompactKinds : List Outcome → List CompactKind
+  | [] => []
+  | .ok _ value :: outs =>
+      match compactKind? value with
+      | some kind => kind :: outcomeCompactKinds outs
+      | none => outcomeCompactKinds outs
+  | _ :: outs => outcomeCompactKinds outs
+
+#guard (compactOutcomes nativeSampleOutcomes).length == 6
+#guard outcomeCompactKinds (compactOutcomes nativeSampleOutcomes) ==
+  [.unit, .bytes, .string, .data, .pairDataList, .array]
+
 -- Recursive Boolean and integer results are each joined at their native sort.
 #guard
   let outs := sortedAfterInsertionOutcomes 3
-  outs.length == 3 && successCount outs == 1 &&
-    errorCount outs == 2 && timeoutCount outs == 0
+  outs.length == 2 && successCount outs == 1 &&
+    errorCount outs == 1 && timeoutCount outs == 0
 
 #guard
   let outs := sumAfterInsertionOutcomes 3
-  outs.length == 3 && successCount outs == 1 &&
-    errorCount outs == 2 && timeoutCount outs == 0
+  outs.length == 2 && successCount outs == 1 &&
+    errorCount outs == 1 && timeoutCount outs == 0
 
 -- Syntactically impossible paths disappear before their values can be packed
 -- into nested selector terms.  Live outcomes of every kind are retained.
@@ -231,12 +269,11 @@ theorem evalSym_case_join_compacts (n : Nat) (ρ : List SymVal)
   simp [evalSym]
 
 -- Eight alternatives across four symbolic case joins still have exactly one
--- packed integer success.  Literal-false carried failures disappear before
--- the remaining possible errors reach the compacted join.
+-- packed integer success and one joined possible error.
 #guard
   let outs := caseJoinOutcomes 4 8
-  outs.length == 6 && successCount outs == 1 &&
-    errorCount outs == 5 && timeoutCount outs == 0
+  outs.length == 2 && successCount outs == 1 &&
+    errorCount outs == 1 && timeoutCount outs == 0
 
 private def nilOutcome : Outcome := .ok (.sym "nil-pc") (.const .unit)
 private def consOutcome : Outcome := .ok (.sym "cons-pc") (.const .unit)
@@ -279,6 +316,8 @@ private def certifiedNilOutcomes : List Outcome :=
 #check Moist.SMT.UPLC.Soundness.evalSym_errorCond_sound
 #check Moist.SMT.UPLC.Soundness.evalSym_okBoolTrueCond_sound
 #check Moist.SMT.UPLC.Soundness.compactOutcomes_active_ok
+#check Moist.SMT.UPLC.Soundness.compactDecode_encode_toCek
+#check Moist.SMT.UPLC.Soundness.compactDecode_encode_noOpaque
 #check Moist.SMT.UPLC.Soundness.compactOutcomes_active_error
 #check Moist.SMT.UPLC.Soundness.compactOutcomes_active_timeout
 #check Moist.SMT.UPLC.Soundness.mem_pruneFalseOutcomes_iff_of_active

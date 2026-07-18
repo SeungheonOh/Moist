@@ -21,6 +21,15 @@ open Moist.SMT
 open Moist.SMT.UPLC
 open Test.SMT.Examples (app app1 app2 bool int lazyIf)
 
+private abbrev tyBytes : BuiltinType := .AtomicType .TypeByteString
+private abbrev tyString : BuiltinType := .AtomicType .TypeString
+
+private def bytesLiteral (values : Array UInt8) : Term :=
+  .Constant (.ByteString (ByteArray.mk values), tyBytes)
+
+private def stringLiteral (value : String) : Term :=
+  .Constant (.String value, tyString)
+
 def tagDeclaration : SymDecl := symConstr "general_case_tag"
 
 def integerAlternatives (width : Nat) : List Term :=
@@ -56,6 +65,58 @@ def branchWorkload : Nat → Term
           (int (Int.ofNat (2 * depth + 1))))
         (branchWorkload depth)
 
+/-- Declarations for a higher-order refinement pipeline: each Boolean chooses
+an arithmetic function, and the final integer is the common input. -/
+def higherOrderDeclarations (depth : Nat) : List SymDecl :=
+  (List.range depth).map (fun i => symBool s!"apply_guard_{i}") ++
+    [symInt "apply_input"]
+
+/-- A symbolic function choice.  `Force` cannot compact the two closures, but
+the enclosing application can compact their first-order integer results. -/
+def selectedArithmeticFunction (guardIndex : Nat) : Term :=
+  lazyIf (.Var (guardIndex + 1))
+    (.Lam 0 (app2 .AddInteger (.Var 1) (int 1)))
+    (.Lam 0 (app2 .SubtractInteger (.Var 1) (int 1)))
+
+/-- Repeatedly invoke independently selected functions.  Without application
+result compaction this multiplies the outcome count at every stage. -/
+def higherOrderApplicationPipeline (depth : Nat) : Term :=
+  (List.range depth).foldl
+    (fun current i => app (selectedArithmeticFunction i) current)
+    (.Var (depth + 1))
+
+/- Native byte/string values used to remain as separate outcomes after every
+symbolic branch.  Appending a sequence of independently chosen constants is a
+non-list stress test for that general decision-tree growth. -/
+private def nativeChoiceCondition (i : Nat) : Term :=
+  app2 .LessThanInteger (.Var 1) (int (Int.ofNat i))
+
+private def bytesChoice (i : Nat) : Term :=
+  lazyIf (nativeChoiceCondition i)
+    (bytesLiteral #[1, 2]) (bytesLiteral #[3, 4])
+
+private def stringChoice (i : Nat) : Term :=
+  lazyIf (nativeChoiceCondition i)
+    (stringLiteral "ab") (stringLiteral "cd")
+
+def appendByteChoices : Nat → Term
+  | 0 => bytesLiteral #[]
+  | depth + 1 =>
+      app2 .AppendByteString (appendByteChoices depth) (bytesChoice depth)
+
+def appendStringChoices : Nat → Term
+  | 0 => stringLiteral ""
+  | depth + 1 =>
+      app2 .AppendString (appendStringChoices depth) (stringChoice depth)
+
+def nativeBytesBranchWorkload (depth : Nat) : Term :=
+  lazyIf (app2 .EqualsByteString (appendByteChoices depth) (bytesLiteral #[]))
+    (bool false) (bool true)
+
+def nativeStringBranchWorkload (depth : Nat) : Term :=
+  lazyIf (app2 .EqualsString (appendStringChoices depth) (stringLiteral ""))
+    (bool false) (bool true)
+
 def bytesWorkload : Term :=
   app2 .EqualsByteString
     (app2 .AppendByteString (.Var 1) (.Var 1))
@@ -90,6 +151,16 @@ def uplcBenchmarks : List (String × (Unit → Script)) :=
       scriptForBoolTrue 2400 [symInt "arith_x"] (arithmeticWorkload 100))
   , ("branches-100.smt2", fun _ =>
       scriptForBoolTrue 5000 [symInt "branch_x"] (branchWorkload 100))
+  , ("higher-order-12.smt2", fun _ =>
+      scriptForIntEq 440 (higherOrderDeclarations 12)
+        (higherOrderApplicationPipeline 12)
+        (.sym (sanitize "apply_input")))
+  , ("native-bytes-18.smt2", fun _ =>
+      scriptForBoolTrue 1000 [symInt "native_bytes_x"]
+        (nativeBytesBranchWorkload 18))
+  , ("native-string-18.smt2", fun _ =>
+      scriptForBoolTrue 1000 [symInt "native_string_x"]
+        (nativeStringBranchWorkload 18))
   , ("bytes.smt2", fun _ =>
       scriptForBoolTrue 100 [symBytes "bytes_x"] bytesWorkload)
   , ("string.smt2", fun _ =>
@@ -124,9 +195,24 @@ def benchmarkScripts : List (String × (Unit → Script)) :=
 -- The production assertion accounting and actual-machine endpoint used by
 -- every UPLC-backed entry above remain explicit at the benchmark boundary.
 #check scriptForBoolTrue_assertions
+#check scriptForIntEq_assertions
 #check scriptForError_assertions
 #check Moist.SMT.UPLC.Soundness.BoolTrueQuery.sound
+#check Moist.SMT.UPLC.Soundness.IntEqQuery.sound
 #check Moist.SMT.UPLC.Soundness.ErrorQuery.sound
+
+-- Every application result is first-order here, so the production evaluator
+-- should join the otherwise exponential function-choice paths immediately.
+#guard (evalSym 200 (envOf (higherOrderDeclarations 4))
+  (higherOrderApplicationPipeline 4)).length == 1
+
+-- Eighteen binary choices formerly represented 262,144 separate native
+-- values.  The production evaluator now keeps one merged success throughout
+-- each non-list workload; all statically impossible failures are pruned.
+#guard (evalSym 1000 (envOf [symInt "native_bytes_x"])
+  (nativeBytesBranchWorkload 18)).length == 1
+#guard (evalSym 1000 (envOf [symInt "native_string_x"])
+  (nativeStringBranchWorkload 18)).length == 1
 
 def outputDir : System.FilePath := "Test/generated/smt/general-benchmarks"
 

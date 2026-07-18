@@ -4,9 +4,9 @@ import Moist.SMT.Soundness.ListCertificates
 # Soundness of symbolic outcome compaction
 
 This module proves that every active compacted success, error, or timeout
-comes from an active pre-compaction outcome.  Successful integers, Booleans,
-and list values retain their original SMT sort, avoiding repeated generic-
-datatype projections while preserving exactly the same decoded CEK value.
+comes from an active pre-compaction outcome.  Successful values retain their
+native SMT sort whenever one is available, avoiding repeated generic-datatype
+projections while preserving exactly the same decoded CEK value.
 -/
 
 namespace Moist.SMT.UPLC.Soundness
@@ -31,6 +31,36 @@ theorem compactDecode_encode_toCek {m : SmtSem.Model} {kind : CompactKind}
           rfl
       | dyn d | pair _ _ | constr _ _ | lam _ _ | delay _ _ | builtin _ _ _ =>
           simp [CompactKind.encode?] at h
+  | unit =>
+      cases v with
+      | const c =>
+          cases c <;> simp [CompactKind.encode?, CompactKind.decode] at h ⊢
+      | dyn d | pair _ _ | constr _ _ | lam _ _ | delay _ _ | builtin _ _ _ =>
+          simp [CompactKind.encode?] at h
+  | bytes =>
+      cases v with
+      | const c =>
+          cases c <;> simp [CompactKind.encode?, CompactKind.decode] at h ⊢
+          subst e
+          rfl
+      | dyn d | pair _ _ | constr _ _ | lam _ _ | delay _ _ | builtin _ _ _ =>
+          simp [CompactKind.encode?] at h
+  | string =>
+      cases v with
+      | const c =>
+          cases c <;> simp [CompactKind.encode?, CompactKind.decode] at h ⊢
+          subst e
+          rfl
+      | dyn d | pair _ _ | constr _ _ | lam _ _ | delay _ _ | builtin _ _ _ =>
+          simp [CompactKind.encode?] at h
+  | data =>
+      cases v with
+      | const c =>
+          cases c <;> simp [CompactKind.encode?, CompactKind.decode] at h ⊢
+          subst e
+          rfl
+      | dyn d | pair _ _ | constr _ _ | lam _ _ | delay _ _ | builtin _ _ _ =>
+          simp [CompactKind.encode?] at h
   | constList =>
       cases v with
       | const c =>
@@ -40,6 +70,22 @@ theorem compactDecode_encode_toCek {m : SmtSem.Model} {kind : CompactKind}
       | dyn d | pair _ _ | constr _ _ | lam _ _ | delay _ _ | builtin _ _ _ =>
           simp [CompactKind.encode?] at h
   | dataList =>
+      cases v with
+      | const c =>
+          cases c <;> simp [CompactKind.encode?, CompactKind.decode] at h ⊢
+          subst e
+          rfl
+      | dyn d | pair _ _ | constr _ _ | lam _ _ | delay _ _ | builtin _ _ _ =>
+          simp [CompactKind.encode?] at h
+  | pairDataList =>
+      cases v with
+      | const c =>
+          cases c <;> simp [CompactKind.encode?, CompactKind.decode] at h ⊢
+          subst e
+          rfl
+      | dyn d | pair _ _ | constr _ _ | lam _ _ | delay _ _ | builtin _ _ _ =>
+          simp [CompactKind.encode?] at h
+  | array =>
       cases v with
       | const c =>
           cases c <;> simp [CompactKind.encode?, CompactKind.decode] at h ⊢
@@ -69,7 +115,37 @@ theorem compactDecode_encode_noOpaque {kind : CompactKind} {v : SymVal}
           rfl
       | dyn d | pair _ _ | constr _ _ | lam _ _ | delay _ _ | builtin _ _ _ =>
           simp [CompactKind.encode?] at h
+  | unit =>
+      cases v with
+      | const c =>
+          cases c <;> simp [CompactKind.encode?, CompactKind.decode] at h ⊢
+      | dyn d | pair _ _ | constr _ _ | lam _ _ | delay _ _ | builtin _ _ _ =>
+          simp [CompactKind.encode?] at h
   | integer =>
+      cases v with
+      | const c =>
+          cases c <;> simp [CompactKind.encode?, CompactKind.decode] at h ⊢
+          subst e
+          rfl
+      | dyn d | pair _ _ | constr _ _ | lam _ _ | delay _ _ | builtin _ _ _ =>
+          simp [CompactKind.encode?] at h
+  | bytes =>
+      cases v with
+      | const c =>
+          cases c <;> simp [CompactKind.encode?, CompactKind.decode] at h ⊢
+          subst e
+          rfl
+      | dyn d | pair _ _ | constr _ _ | lam _ _ | delay _ _ | builtin _ _ _ =>
+          simp [CompactKind.encode?] at h
+  | string =>
+      cases v with
+      | const c =>
+          cases c <;> simp [CompactKind.encode?, CompactKind.decode] at h ⊢
+          subst e
+          rfl
+      | dyn d | pair _ _ | constr _ _ | lam _ _ | delay _ _ | builtin _ _ _ =>
+          simp [CompactKind.encode?] at h
+  | data =>
       cases v with
       | const c =>
           cases c <;> simp [CompactKind.encode?, CompactKind.decode] at h ⊢
@@ -86,6 +162,22 @@ theorem compactDecode_encode_noOpaque {kind : CompactKind} {v : SymVal}
       | dyn d | pair _ _ | constr _ _ | lam _ _ | delay _ _ | builtin _ _ _ =>
           simp [CompactKind.encode?] at h
   | dataList =>
+      cases v with
+      | const c =>
+          cases c <;> simp [CompactKind.encode?, CompactKind.decode] at h ⊢
+          subst e
+          rfl
+      | dyn d | pair _ _ | constr _ _ | lam _ _ | delay _ _ | builtin _ _ _ =>
+          simp [CompactKind.encode?] at h
+  | pairDataList =>
+      cases v with
+      | const c =>
+          cases c <;> simp [CompactKind.encode?, CompactKind.decode] at h ⊢
+          subst e
+          rfl
+      | dyn d | pair _ _ | constr _ _ | lam _ _ | delay _ _ | builtin _ _ _ =>
+          simp [CompactKind.encode?] at h
+  | array =>
       cases v with
       | const c =>
           cases c <;> simp [CompactKind.encode?, CompactKind.decode] at h ⊢
@@ -132,7 +224,9 @@ theorem symValToCek_decode_ite_of (kind : CompactKind) {m : SmtSem.Model}
     cases b <;> rfl
   cases kind <;>
     simp only [CompactKind.decode, symValToCek?, symConstToCek?]
-  all_goals rw [hEval]; cases b <;> rfl
+  all_goals first
+    | (rw [hEval]; cases b <;> rfl)
+    | (cases b <;> rfl)
 
 theorem encodedOks_mem {kind : CompactKind} {outs : List Outcome}
     {pc value : SExpr} (h : (pc, value) ∈ encodedOks kind outs) :
@@ -347,8 +441,26 @@ theorem mergedOkOutcome_active {kind : CompactKind} {m : SmtSem.Model}
   | integer =>
       apply genericMergedOkOutcome_active (kind := .integer)
         (by simpa [mergedOkOutcome] using hmem) hpc
+  | unit =>
+      apply genericMergedOkOutcome_active (kind := .unit)
+        (by simpa [mergedOkOutcome] using hmem) hpc
+  | bytes =>
+      apply genericMergedOkOutcome_active (kind := .bytes)
+        (by simpa [mergedOkOutcome] using hmem) hpc
+  | string =>
+      apply genericMergedOkOutcome_active (kind := .string)
+        (by simpa [mergedOkOutcome] using hmem) hpc
+  | data =>
+      apply genericMergedOkOutcome_active (kind := .data)
+        (by simpa [mergedOkOutcome] using hmem) hpc
   | dataList =>
       apply genericMergedOkOutcome_active (kind := .dataList)
+        (by simpa [mergedOkOutcome] using hmem) hpc
+  | pairDataList =>
+      apply genericMergedOkOutcome_active (kind := .pairDataList)
+        (by simpa [mergedOkOutcome] using hmem) hpc
+  | array =>
+      apply genericMergedOkOutcome_active (kind := .array)
         (by simpa [mergedOkOutcome] using hmem) hpc
   | dyn =>
       apply genericMergedOkOutcome_active (kind := .dyn)
@@ -385,16 +497,9 @@ theorem compactedOkOutcomes_active_ok {m : SmtSem.Model} {outs : List Outcome}
       symValNoOpaqueForSoundness v =
         symValNoOpaqueForSoundness sourceValue := by
   rw [compactedOkOutcomes] at hmem
-  rcases List.mem_append.mp hmem with hprefix | hnon
-  · rcases List.mem_append.mp hprefix with hprefix | hdyn
-    · rcases List.mem_append.mp hprefix with hprefix | hdata
-      · rcases List.mem_append.mp hprefix with hprefix | hconst
-        · rcases List.mem_append.mp hprefix with hint | hbool
-          · exact mergedOkOutcome_active hint hpc
-          · exact mergedOkOutcome_active hbool hpc
-        · exact mergedOkOutcome_active hconst hpc
-      · exact mergedOkOutcome_active hdata hpc
-    · exact mergedOkOutcome_active hdyn hpc
+  rcases List.mem_append.mp hmem with hmerged | hnon
+  · rcases List.mem_flatMap.mp hmerged with ⟨kind, _, hkind⟩
+    exact mergedOkOutcome_active hkind hpc
   · exact ⟨pc, v, nonEncodedOks_mem hnon, hpc, rfl, rfl⟩
 
 theorem ok_not_mem_mergedErrorOutcome {outs : List Outcome} {pc : SExpr}

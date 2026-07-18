@@ -413,6 +413,165 @@ def prelude : List Moist.SMT.Command :=
       "(uplc_mod_pow (uplc_mod_inverse base modulus) (- exponent) modulus)))))"
   ]
 
+/-! ## Demand-driven SMT prelude
+
+The historical production renderer emitted every helper above for every
+query.  Most refinement queries use only integer/Boolean operations, yet paid
+the parsing and solver-registration cost of recursive UTF-8, byte-wise,
+list, and modular-arithmetic definitions.
+
+The slices below are dependency-closed families.  `preludeForAssertions`
+selects a family exactly when an assertion mentions one of its exported or
+internal symbols.  The datatype/sort declarations remain unconditional: they
+are small, and literal rendering plus declaration sorts can refer to them
+without an application node in the assertion AST.
+
+Keep the length regression in `Test.SMT.PreludeSlicing` in sync when changing
+the full prelude.  That test also submits every selected family to Z3; the
+basic and advanced builtin differential suites exercise all production
+builtin encodings through this selector.
+-/
+
+private def preludeSlice (start count : Nat) : List Moist.SMT.Command :=
+  (prelude.drop start).take count
+
+/-- Sort aliases, opaque group sorts/defaults, and the mutually recursive
+`Data`/`Val` datatype declaration. -/
+def corePrelude : List Moist.SMT.Command := prelude.take 9
+
+private def validationPrelude : List Moist.SMT.Command := preludeSlice 11 6
+
+private def integerDivisionPrelude : List Moist.SMT.Command :=
+  preludeSlice 9 2 ++ preludeSlice 17 4
+
+private def bytesOrderingPrelude : List Moist.SMT.Command := preludeSlice 21 3
+
+private def listPrelude : List Moist.SMT.Command := preludeSlice 24 5
+
+private def utf8Prelude : List Moist.SMT.Command := preludeSlice 29 10
+
+/-- The Plutus V3 byte operations share power, bit, integer/byte conversion,
+and traversal helpers heavily enough that one dependency-closed family is
+both safer and smaller than the former unconditional prelude. -/
+private def advancedBytesPrelude : List Moist.SMT.Command := preludeSlice 39 38
+
+private def expModPrelude : List Moist.SMT.Command := preludeSlice 77 8
+
+private def validationNames : List String :=
+  [ "bytes_valid_at", "bytes_valid", "unicode_scalar", "ustring_valid_at"
+  , "ustring_valid", "data_valid", "dlist_valid", "dplist_valid"
+  , "val_valid", "vlist_valid", "const_val_valid", "const_vlist_valid"
+  ]
+
+private def integerDivisionNames : List String :=
+  ["same_sign", "abs_int", "uplc_tdiv", "uplc_tmod", "uplc_div", "uplc_mod"]
+
+private def bytesOrderingNames : List String :=
+  ["bytes_lt_at", "bytes_lt", "bytes_le"]
+
+private def listNames : List String :=
+  ["vlist_length", "dlist_length", "vlist_drop", "dlist_drop", "vlist_index"]
+
+private def utf8Names : List String :=
+  [ "utf8_cont", "valid_utf8_at", "valid_utf8", "utf8_encode_scalar"
+  , "uplc_encodeUtf8_at", "uplc_encodeUtf8", "utf8_decode_scalar", "utf8_width"
+  , "uplc_decodeUtf8_at", "uplc_decodeUtf8"
+  ]
+
+private def advancedBytesNames : List String :=
+  [ "uplc_pow_nat", "uplc_pow2", "uplc_byte_bit", "uplc_byte_and"
+  , "uplc_byte_or", "uplc_byte_xor", "uplc_byte_binop", "uplc_bitwise_go"
+  , "uplc_bitwise", "uplc_andByteString", "uplc_orByteString"
+  , "uplc_xorByteString", "uplc_complement_go", "uplc_complementByteString"
+  , "uplc_readBit", "uplc_readBit_defined", "uplc_set_bit"
+  , "uplc_writeBits_defined_go", "uplc_writeBits_go", "uplc_writeBits_defined"
+  , "uplc_writeBits", "uplc_replicateByte", "uplc_replicateByte_defined"
+  , "uplc_bytes_to_int_be_go", "uplc_bytes_to_int_le_go"
+  , "uplc_byteStringToInteger", "uplc_nat_byte_length", "uplc_int_fixed_be_go"
+  , "uplc_reverse_go", "uplc_integerToByteString_defined"
+  , "uplc_integerToByteString", "uplc_shiftByteString", "uplc_rotateByteString"
+  , "uplc_popcount_byte", "uplc_countSetBits_go", "uplc_countSetBits"
+  , "uplc_findFirstSetBit_go", "uplc_findFirstSetBit"
+  ]
+
+private def expModNames : List String :=
+  [ "uplc_gcd", "uplc_inverse_coeff_go", "uplc_normalize_mod"
+  , "uplc_mod_inverse", "uplc_mod_pow_go", "uplc_mod_pow"
+  , "uplc_expModInteger_defined", "uplc_expModInteger"
+  ]
+
+private structure PreludeNeeds where
+  validation : Bool := false
+  integerDivision : Bool := false
+  bytesOrdering : Bool := false
+  list : Bool := false
+  utf8 : Bool := false
+  advancedBytes : Bool := false
+  expMod : Bool := false
+deriving Repr, BEq
+
+namespace PreludeNeeds
+
+private def all : PreludeNeeds :=
+  ⟨true, true, true, true, true, true, true⟩
+
+private def merge (left right : PreludeNeeds) : PreludeNeeds :=
+  { validation := left.validation || right.validation
+    integerDivision := left.integerDivision || right.integerDivision
+    bytesOrdering := left.bytesOrdering || right.bytesOrdering
+    list := left.list || right.list
+    utf8 := left.utf8 || right.utf8
+    advancedBytes := left.advancedBytes || right.advancedBytes
+    expMod := left.expMod || right.expMod }
+
+private def ofName (name : String) : PreludeNeeds :=
+  { validation := validationNames.contains name
+    integerDivision := integerDivisionNames.contains name
+    bytesOrdering := bytesOrderingNames.contains name
+    list := listNames.contains name
+    utf8 := utf8Names.contains name
+    advancedBytes := advancedBytesNames.contains name
+    expMod := expModNames.contains name }
+
+private def direct : SExpr → PreludeNeeds
+  | .sym name | .app name _ => ofName name
+  | _ => {}
+
+private def children : SExpr → List SExpr
+  | .app _ args => args
+  | .ite condition thenExpr elseExpr => [condition, thenExpr, elseExpr]
+  | _ => []
+
+/-- Work-list scan with an explicit visit budget.  Generated expressions are
+runtime DAGs, and a structurally recursive traversal can revisit shared nodes
+exponentially often.  Hitting the generous budget conservatively requests the
+full prelude, so slicing can never trade output completeness for compiler
+latency. -/
+private def scanLoop : Nat → List SExpr → PreludeNeeds → PreludeNeeds
+  | 0, _ :: _, _ => all
+  | _, [], needs => needs
+  | fuel + 1, expression :: work, needs =>
+      scanLoop fuel (children expression ++ work) (merge needs (direct expression))
+
+private def ofExpressions (expressions : List SExpr) : PreludeNeeds :=
+  scanLoop 100000 expressions {}
+
+end PreludeNeeds
+
+/-- The dependency-closed prelude required by a script's logical assertions.
+The selection is syntactic and deterministic; it does not trust Z3 or alter
+the expressions certified by the executable SMT semantics. -/
+def preludeForAssertions (assertions : List SExpr) : List Moist.SMT.Command :=
+  let needs := PreludeNeeds.ofExpressions assertions
+  corePrelude ++
+    (if needs.validation then validationPrelude else []) ++
+    (if needs.integerDivision then integerDivisionPrelude else []) ++
+    (if needs.bytesOrdering then bytesOrderingPrelude else []) ++
+    (if needs.list then listPrelude else []) ++
+    (if needs.utf8 then utf8Prelude else []) ++
+    (if needs.advancedBytes then advancedBytesPrelude else []) ++
+    (if needs.expMod then expModPrelude else [])
+
 /-! ## Certified constant-list lengths
 
 `ChooseList` can avoid generating an impossible alternative when a constant
@@ -662,8 +821,14 @@ rebuilding an exponentially large `List Outcome`. -/
 inductive CompactKind where
   | integer
   | bool
+  | unit
+  | bytes
+  | string
+  | data
   | constList
   | dataList
+  | pairDataList
+  | array
   | dyn
 deriving Repr, BEq
 
@@ -672,16 +837,28 @@ namespace CompactKind
 def encode? : CompactKind → SymVal → Option SExpr
   | .integer, .const (.integer i) => some i
   | .bool, .const (.bool b) => some b
+  | .unit, .const .unit => some .trueE
+  | .bytes, .const (.bytes b) => some b
+  | .string, .const (.string s) => some s
+  | .data, .const (.data d) => some d
   | .constList, .const (.constList xs _) => some xs
   | .dataList, .const (.dataList xs) => some xs
+  | .pairDataList, .const (.pairDataList xs) => some xs
+  | .array, .const (.array xs) => some xs
   | .dyn, .dyn e => some e
   | _, _ => none
 
 def decode : CompactKind → SExpr → SymVal
   | .integer, e => .const (.integer e)
   | .bool, e => .const (.bool e)
+  | .unit, _ => .const .unit
+  | .bytes, e => .const (.bytes e)
+  | .string, e => .const (.string e)
+  | .data, e => .const (.data e)
   | .constList, e => .const (.constList e .unknown)
   | .dataList, e => .const (.dataList e)
+  | .pairDataList, e => .const (.pairDataList e)
+  | .array, e => .const (.array e)
   | .dyn, e => .dyn e
 
 end CompactKind
@@ -689,8 +866,14 @@ end CompactKind
 def compactKind? : SymVal → Option CompactKind
   | .const (.integer _) => some .integer
   | .const (.bool _) => some .bool
+  | .const .unit => some .unit
+  | .const (.bytes _) => some .bytes
+  | .const (.string _) => some .string
+  | .const (.data _) => some .data
   | .const (.constList _ _) => some .constList
   | .const (.dataList _) => some .dataList
+  | .const (.pairDataList _) => some .pairDataList
+  | .const (.array _) => some .array
   | .dyn _ => some .dyn
   | _ => none
 
@@ -772,8 +955,14 @@ def mergedDecode (kind : CompactKind) (e : SExpr) : SymVal :=
   match kind with
   | .bool => .const (.bool e)
   | .integer => .const (.integer e)
+  | .unit => .const .unit
+  | .bytes => .const (.bytes e)
+  | .string => .const (.string e)
+  | .data => .const (.data e)
   | .constList => .const (.constList e .unknown)
   | .dataList => .const (.dataList e)
+  | .pairDataList => .const (.pairDataList e)
+  | .array => .const (.array e)
   | .dyn => .dyn e
 
 def mergedOkOutcome (kind : CompactKind) (outs : List Outcome) : List Outcome :=
@@ -787,12 +976,12 @@ def mergedOkOutcome (kind : CompactKind) (outs : List Outcome) : List Outcome :=
       | none => []
       | some (pc, value) => [.ok pc (mergedDecode kind value)]
 
+def compactKinds : List CompactKind :=
+  [.integer, .bool, .unit, .bytes, .string, .data, .constList, .dataList,
+   .pairDataList, .array, .dyn]
+
 def compactedOkOutcomes (outs : List Outcome) : List Outcome :=
-  mergedOkOutcome .integer outs ++
-    mergedOkOutcome .bool outs ++
-    mergedOkOutcome .constList outs ++
-    mergedOkOutcome .dataList outs ++
-    mergedOkOutcome .dyn outs ++
+  compactKinds.flatMap (fun kind => mergedOkOutcome kind outs) ++
     nonEncodedOks outs
 
 def mergedErrorOutcome (outs : List Outcome) : List Outcome :=
@@ -1072,9 +1261,12 @@ mutual
     | _ + 1, ρ, .Lam _ body => ok (.lam body ρ)
     | _ + 1, ρ, .Delay body => ok (.delay body ρ)
     | n + 1, ρ, .Apply f a =>
-        bindOut (evalSym n ρ f) fun vf =>
-        bindOut (evalSym n ρ a) fun va =>
-        applySym n vf va
+        -- An application is a first-order join after a symbolic function
+        -- choice.  Compact its result before an enclosing application can
+        -- multiply every function branch by every argument branch.
+        compactOutcomes <| bindOut (evalSym n ρ f) fun vf =>
+          bindOut (evalSym n ρ a) fun va =>
+          applySym n vf va
     | n + 1, ρ, .Force t =>
         compactOutcomes <| bindOut (evalSym n ρ t) fun vt =>
           forceSym n vt
@@ -1773,14 +1965,68 @@ this benchmarking helper remain responsible for supplying well-formed Z3
 tactic syntax at the external rendering boundary. -/
 def scriptWithTactic (tactic : String) (decls : List SymDecl)
     (assertions : List SExpr) : Moist.SMT.Script :=
-  ⟨prelude ++ declCommands decls ++ assumptionCommands decls ++
+  let logicalAssertions := decls.flatMap SymDecl.assumptions ++ assertions
+  ⟨preludeForAssertions logicalAssertions ++
+    declCommands decls ++ assumptionCommands decls ++
     assertions.map Moist.SMT.Command.assert ++
       [.checkSatUsing tactic, .getModel]⟩
 
 def scriptWith (decls : List SymDecl) (assertions : List SExpr) : Moist.SMT.Script :=
   scriptWithTactic z3QueryTactic decls assertions
 
-private theorem assertions_prelude :
+/-- Unoptimized reference used to state and benchmark prelude slicing. -/
+def scriptWithFullPrelude (decls : List SymDecl)
+    (assertions : List SExpr) : Moist.SMT.Script :=
+  ⟨prelude ++ declCommands decls ++ assumptionCommands decls ++
+    assertions.map Moist.SMT.Command.assert ++
+      [.checkSatUsing z3QueryTactic, .getModel]⟩
+
+private theorem assertions_corePrelude :
+    corePrelude.filterMap Moist.SMT.Command.assertion? = [] := by rfl
+
+private theorem assertions_validationPrelude :
+    validationPrelude.filterMap Moist.SMT.Command.assertion? = [] := by rfl
+
+private theorem assertions_integerDivisionPrelude :
+    integerDivisionPrelude.filterMap Moist.SMT.Command.assertion? = [] := by rfl
+
+private theorem assertions_bytesOrderingPrelude :
+    bytesOrderingPrelude.filterMap Moist.SMT.Command.assertion? = [] := by rfl
+
+private theorem assertions_listPrelude :
+    listPrelude.filterMap Moist.SMT.Command.assertion? = [] := by rfl
+
+private theorem assertions_utf8Prelude :
+    utf8Prelude.filterMap Moist.SMT.Command.assertion? = [] := by rfl
+
+private theorem assertions_advancedBytesPrelude :
+    advancedBytesPrelude.filterMap Moist.SMT.Command.assertion? = [] := by rfl
+
+private theorem assertions_expModPrelude :
+    expModPrelude.filterMap Moist.SMT.Command.assertion? = [] := by rfl
+
+private theorem assertions_optionalPrelude (enabled : Bool)
+    (commands : List Moist.SMT.Command)
+    (hcommands : commands.filterMap Moist.SMT.Command.assertion? = []) :
+    (if enabled then commands else []).filterMap
+      Moist.SMT.Command.assertion? = [] := by
+  cases enabled <;> simp [hcommands]
+
+private theorem assertions_preludeForAssertions (assertions : List SExpr) :
+    (preludeForAssertions assertions).filterMap
+      Moist.SMT.Command.assertion? = [] := by
+  simp only [preludeForAssertions, List.filterMap_append]
+  rw [assertions_corePrelude,
+    assertions_optionalPrelude _ _ assertions_validationPrelude,
+    assertions_optionalPrelude _ _ assertions_integerDivisionPrelude,
+    assertions_optionalPrelude _ _ assertions_bytesOrderingPrelude,
+    assertions_optionalPrelude _ _ assertions_listPrelude,
+    assertions_optionalPrelude _ _ assertions_utf8Prelude,
+    assertions_optionalPrelude _ _ assertions_advancedBytesPrelude,
+    assertions_optionalPrelude _ _ assertions_expModPrelude]
+  rfl
+
+private theorem assertions_fullPrelude :
     prelude.filterMap Moist.SMT.Command.assertion? = [] := by
   rfl
 
@@ -1820,7 +2066,7 @@ theorem scriptWithTactic_assertions (tactic : String) (decls : List SymDecl)
       decls.flatMap SymDecl.assumptions ++ assertions := by
   simp only [scriptWithTactic, Moist.SMT.Script.assertions,
     List.filterMap_append]
-  rw [assertions_prelude, assertions_declCommands,
+  rw [assertions_preludeForAssertions, assertions_declCommands,
     assertions_assumptionCommands, assertions_assertCommands]
   simp [Moist.SMT.Command.assertion?]
 
@@ -1832,6 +2078,29 @@ theorem scriptWith_assertions (decls : List SymDecl) (assertions : List SExpr) :
     (scriptWith decls assertions).assertions =
       decls.flatMap SymDecl.assumptions ++ assertions := by
   exact scriptWithTactic_assertions z3QueryTactic decls assertions
+
+theorem scriptWithFullPrelude_assertions (decls : List SymDecl)
+    (assertions : List SExpr) :
+    (scriptWithFullPrelude decls assertions).assertions =
+      decls.flatMap SymDecl.assumptions ++ assertions := by
+  simp only [scriptWithFullPrelude, Moist.SMT.Script.assertions,
+    List.filterMap_append]
+  rw [assertions_fullPrelude, assertions_declCommands,
+    assertions_assumptionCommands, assertions_assertCommands]
+  simp [Moist.SMT.Command.assertion?]
+
+/-- Prelude slicing preserves exactly the propositions transferred from a Z3
+model into the executable SMT semantics.  This is the semantic premise used
+by `CertifiedZ3Model`, so the production CEK success and error endpoints see
+no change. -/
+theorem scriptWith_assertionsTrue_iff_fullPrelude (m : Moist.SMT.Semantics.Model)
+    (decls : List SymDecl) (assertions : List SExpr) :
+    (∀ expression, expression ∈ (scriptWith decls assertions).assertions →
+      Moist.SMT.Semantics.evalBoolIs m expression true = true) ↔
+    (∀ expression,
+      expression ∈ (scriptWithFullPrelude decls assertions).assertions →
+        Moist.SMT.Semantics.evalBoolIs m expression true = true) := by
+  rw [scriptWith_assertions, scriptWithFullPrelude_assertions]
 
 /-- Opt-in final normalization for callers supplying arbitrary hand-written
 assertions.  Compiler-generated queries already use the verified smart
