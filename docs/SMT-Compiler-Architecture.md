@@ -12,37 +12,45 @@ The portable path is ordered as follows:
 1. `Moist.SMT.Syntax` defines sorts, expressions, commands, scripts, and the
    injective external-name encoding.
 2. `Moist.SMT.Optimize` contains executable expression rewrites only.
-3. `Moist.SMT.Compiler.UPLC` physically separates the executable UPLC compiler
+3. `Moist.SMT.Compiler.GroundBuiltin` is the single executable adapter for
+   fully static builtin calls. It accepts data-only `Const` arguments in CEK
+   stack order and delegates to the canonical CEK builtin evaluator without
+   duplicating its semantics. Its explicit value/error/deferred result is the
+   small interface a port must reproduce. The proof-only
+   `Moist.SMT.Soundness.GroundBuiltin` module proves that all three adapter
+   results correspond exactly to CEK.
+4. `Moist.SMT.Compiler.UPLC` physically separates the executable UPLC compiler
    into `Expressions`, `Prelude`, `SymbolicValue`, `Compaction`, `Projection`,
    `Evaluation`, `Declarations`, and `Query` modules.  Their declarations keep
    the stable `Moist.SMT.UPLC` namespace, and `Moist.SMT.UPLC` is now only the
-   compatibility facade.  The compiler reuses the CEK builtin evaluator for
-   fully static calls, but deliberately does not import the CEK transition
+   compatibility facade. The evaluation module uses the ground-builtin adapter
+   for fully static calls, but deliberately does not import the CEK transition
    machine; the latter belongs to the proof side of the boundary.
-4. `Moist.SMT.Compiler.Validation` contains fail-closed structural validation
+5. `Moist.SMT.Compiler.Validation` contains fail-closed structural validation
    for the supported builtin fragment and public SMT expressions. Its
    executable definitions live in the matching
    `Moist.SMT.Compiler.Validation` namespace. The proof-only
    `Moist.SMT.Soundness.ValidationCompatibility` module preserves the former
    `Moist.SMT.UPLC.Soundness` spellings for existing Lean proof callers without
    leaking that namespace through the compiler facade.
-5. `Moist.SMT.Compiler.OutputAnalysis` contains the sharing-aware, fused
+6. `Moist.SMT.Compiler.OutputAnalysis` contains the sharing-aware, fused
    renderer/sort analysis used to postvalidate compiler-owned assertions. Its
    bounded cache is an executable optimization only: fingerprints merely
    select candidates, and exact structural equality gates every cache hit.
    Lean's isolated pointer-identity accelerator is optional; a port needs
    only an exact equality decision at this boundary.
-6. `Moist.SMT.Compiler.InputChecked` exposes the proof-free, explicitly named
+7. `Moist.SMT.Compiler.InputChecked` exposes the proof-free, explicitly named
    `*InputChecked?` entry points. They validate caller-controlled input and
-   construct one canonical script. These are low-level first-stage functions,
-   not the production acceptance boundary.
-7. `Moist.SMT.Compiler.Checked` exposes `compile?` and its three specialized
+   construct one canonical script while retaining the bounded
+   prelude-dependency scan. These are low-level first-stage functions, not the
+   production acceptance boundary.
+8. `Moist.SMT.Compiler.Checked` exposes `compile?` and its three specialized
    entry points. It consumes the exact first-stage result and validates
    command forms, solver control, renderer safety, and assertion sorts. Its
    renderer/sort pass is the sharing-aware analysis above; symbolic evaluation
    is not repeated.
-8. `Moist.SMT.Render` is the transparent reference SMT-LIB renderer.
-9. `Moist.SMT.Compiler` is the public portable facade over those modules.
+9. `Moist.SMT.Render` is the transparent reference SMT-LIB renderer.
+10. `Moist.SMT.Compiler` is the public portable facade over those modules.
 
 None of these modules imports the simulated semantics or the soundness proof
 tree. `Moist.SMT.Compiler.Operational` is a separate opt-in facade for the
@@ -139,7 +147,9 @@ A port must preserve all of the following together:
 - declaration order (`Var 1` is the first `SymDecl`, not the last);
 - exact force/arity handling and the distinction between error and symbolic
   fuel timeout;
-- static CEK-backed evaluation when all saturated arguments are literals;
+- static evaluation through the exact ground-builtin adapter when all
+  saturated arguments are literals, preserving CEK stack argument order and
+  keeping CEK error distinct from symbolic deferral;
 - every symbolic type/domain guard and all inactive-branch masking;
 - byte, Unicode scalar, data, list, pair, array, and constructor encodings;
 - demand-prelude dependency families and their canonical declaration order;

@@ -1,4 +1,5 @@
 import Moist.SMT.Soundness.Compaction
+import Moist.SMT.Soundness.GroundBuiltin
 
 namespace Moist.SMT.UPLC.Soundness
 
@@ -428,24 +429,23 @@ theorem evalBuiltinStatic?_ok_sound
       rw [hargs] at hdecoded
       injection hdecoded with hcargs
       subst cargs
-      cases hcek : Moist.CEK.evalBuiltin b (constArgs.map CekValue.VCon) with
-      | none =>
-          simp [hconsts, hcek] at hstatic
+      cases hadapter :
+          Moist.SMT.Compiler.GroundBuiltin.evaluateStackArguments b constArgs with
+      | error =>
+          simp [hconsts, hadapter] at hstatic
           subst outs
           simp [err] at hmem
-      | some cv =>
-          cases cv with
-          | VCon c =>
-              simp [hconsts, hcek] at hstatic
-              subst outs
-              simp [ok] at hmem
-              rcases hmem with ⟨rfl, rfl⟩
-              exact ⟨.VCon c, constLiteral_sound m c,
-                constLiteral_noOpaque c, rfl⟩
-          | VLam body env => simp [hconsts, hcek] at hstatic
-          | VDelay body env => simp [hconsts, hcek] at hstatic
-          | VConstr tag fields => simp [hconsts, hcek] at hstatic
-          | VBuiltin fn bargs expected => simp [hconsts, hcek] at hstatic
+      | deferred => simp [hconsts, hadapter] at hstatic
+      | value c =>
+          have hcek :=
+            (GroundBuiltin.evaluateStackArguments_eq_value_iff
+              b constArgs c).mp hadapter
+          simp [hconsts, hadapter] at hstatic
+          subst outs
+          simp [ok] at hmem
+          rcases hmem with ⟨rfl, rfl⟩
+          exact ⟨.VCon c, constLiteral_sound m c,
+            constLiteral_noOpaque c, hcek⟩
 
 set_option maxHeartbeats 0 in
 theorem evalBuiltinStatic?_error_sound
@@ -464,20 +464,18 @@ theorem evalBuiltinStatic?_error_sound
       rw [hargs] at hdecoded
       injection hdecoded with hcargs
       subst cargs
-      cases hcek : Moist.CEK.evalBuiltin b (constArgs.map CekValue.VCon) with
-      | none => rfl
-      | some cv =>
-          cases cv with
-          | VCon c =>
-              simp [hconsts, hcek] at hstatic
-              subst outs
-              simp [ok] at hmem
-              subst out
-              simp [outcomeErrorActive] at hactive
-          | VLam body env => simp [hconsts, hcek] at hstatic
-          | VDelay body env => simp [hconsts, hcek] at hstatic
-          | VConstr tag fields => simp [hconsts, hcek] at hstatic
-          | VBuiltin fn bargs expected => simp [hconsts, hcek] at hstatic
+      cases hadapter :
+          Moist.SMT.Compiler.GroundBuiltin.evaluateStackArguments b constArgs with
+      | error =>
+          exact (GroundBuiltin.evaluateStackArguments_eq_error_iff
+            b constArgs).mp hadapter
+      | deferred => simp [hconsts, hadapter] at hstatic
+      | value c =>
+          simp [hconsts, hadapter] at hstatic
+          subst outs
+          simp [ok] at hmem
+          subst out
+          simp [outcomeErrorActive] at hactive
 
 /-! The general saturation wrapper is sound for every builtin whose symbolic
 implementation is sound.  These are the only two facts the evaluator

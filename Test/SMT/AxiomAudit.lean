@@ -306,6 +306,24 @@ info: 'Moist.SMT.UPLC.Soundness.evalBuiltinStatic?_error_sound' depends on axiom
 #print axioms Moist.SMT.UPLC.Soundness.evalBuiltinStatic?_error_sound
 
 /--
+info: 'Moist.SMT.UPLC.Soundness.GroundBuiltin.evaluateStackArguments_eq_value_iff' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.GroundBuiltin.evaluateStackArguments_eq_value_iff
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.GroundBuiltin.evaluateStackArguments_eq_error_iff' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.GroundBuiltin.evaluateStackArguments_eq_error_iff
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.GroundBuiltin.evaluateStackArguments_eq_deferred_iff' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.GroundBuiltin.evaluateStackArguments_eq_deferred_iff
+
+/--
 info: 'Moist.SMT.UPLC.Soundness.evalBuiltinSaturated_ok_sound' depends on axioms: [propext, Quot.sound]
 -/
 #guard_msgs in

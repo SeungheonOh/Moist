@@ -1,5 +1,5 @@
 import Moist.SMT.Compiler.UPLC.Projection
-import Moist.CEK.Builtins
+import Moist.SMT.Compiler.GroundBuiltin
 
 /-!
 # UPLC compiler symbolic evaluation
@@ -20,10 +20,11 @@ open Moist.CEK (ArgKind ExpectedArgs expectedArgs)
 `SymConst` records an SMT expression, so being in the `.const` constructor does
 not by itself mean an expression is ground.  This recognizer is deliberately
 strict: it succeeds only for literal syntax emitted from a UPLC constant.
-When every saturated argument is literal, use the executable CEK builtin
-implementation as the single source of truth and re-embed its result.  This
-both avoids unnecessary SMT and prevents the ground case from drifting away
-from CEK while a symbolic encoding is optimized.
+When every saturated argument is literal, use the isolated executable ground
+builtin adapter as the single source of truth and re-embed its result.  The
+adapter delegates to CEK without duplicating builtin semantics.  This both
+avoids unnecessary SMT and prevents the ground case from drifting away from
+CEK while a symbolic encoding is optimized.
 -/
 
 def symValLiteral? : SymVal → Option Const
@@ -46,11 +47,10 @@ def symValLiteral? : SymVal → Option Const
 
 def evalBuiltinStatic? (b : BuiltinFun) (args : List SymVal) : Option (List Outcome) := do
   let constArgs ← args.mapM symValLiteral?
-  let cekArgs := constArgs.map Moist.CEK.CekValue.VCon
-  match Moist.CEK.evalBuiltin b cekArgs with
-  | some (.VCon c) => some (ok (constLiteral c))
-  | some _ => none
-  | none => some err
+  match Moist.SMT.Compiler.GroundBuiltin.evaluateStackArguments b constArgs with
+  | .value c => some (ok (constLiteral c))
+  | .error => some err
+  | .deferred => none
 
 def staticOrSymbolic (b : BuiltinFun) (args : List SymVal)
     (symbolic : Unit → List Outcome) : List Outcome :=
@@ -634,4 +634,3 @@ end
 
 
 end Moist.SMT.UPLC
-
