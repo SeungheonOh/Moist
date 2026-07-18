@@ -323,6 +323,17 @@ private def branchNames : List Outcome → List String
 #guard branchNames (constListBranches none nilOutcome consOutcome) == ["nil-pc", "cons-pc"]
 #guard knownConstListLength (constLiteral (.ConstList [])) == some 0
 
+-- Length hints are untrusted executable cache data.  A fabricated length can
+-- never prune a branch because `knownConstListLength` reconstructs the exact
+-- length from the expression before accepting it.
+#guard knownConstListLength
+  (.const (.constList (.app "VCons" [.app "VInt" [.int 1], .app "VNil" []])
+    (.exact 0))) == none
+#guard knownConstListLength
+  (.const (.constList (.constListLit [.Integer 1]) (.exact 1))) == some 1
+#guard knownConstListLength
+  (.const (.constList (.constListLit [.Integer 1]) (.exact 2))) == none
+
 private def certifiedNilOutcomes : List Outcome :=
   [ .ok (.sym "left")
       (.const (.constList (.constListLit []) (.literal [])))
@@ -330,8 +341,8 @@ private def certifiedNilOutcomes : List Outcome :=
       (.const (.constList (.constListLit []) (.literal [])))
   ]
 
--- Same-length joins retain a certificate for the newly built `ite`, rather
--- than copying forgeable metadata from either input.
+-- Same-length joins retain a cache hint for the newly built `ite`; the hint is
+-- independently reconstructed from both branches before later use.
 #guard
   match mergedOkOutcome .constList certifiedNilOutcomes with
   | [.ok _ value] => knownConstListLength value == some 0

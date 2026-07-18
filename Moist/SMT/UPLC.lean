@@ -876,82 +876,69 @@ def preludeForAssertions (assertions : List SExpr) : List Moist.SMT.Command :=
   PreludeSection.ordered.flatMap fun part =>
     if needs.includes part then part.commands else []
 
-/-! ## Certified constant-list lengths
+/-! ## Proof-free constant-list lengths
 
 `ChooseList` can avoid generating an impossible alternative when a constant
-list's length is statically known.  The cached length is proof-carrying: an
-arbitrary caller can supply an unknown hint, but cannot attach a length to an
-unrelated SMT expression.  Keeping the certificate syntactic also keeps the
-compiler independent of any particular SMT model.
+list's length is statically known.  Hints are ordinary executable data so the
+compiler IR can be ported without dependent proof objects.  Before a hint can
+prune a branch, `knownLength` rechecks it against the expression's exact
+constructor shape.  A fabricated hint therefore degrades to `unknown`.
+
+`Soundness.ListCertificates` proves that every successful structural recheck
+equals the length of any list denoted by the expression.
 -/
 
-inductive ExactConstListLength : SExpr → Nat → Prop where
-  | literal (xs : List Const) :
-      ExactConstListLength (.constListLit xs) xs.length
-  | cons (head : SExpr) {tail : SExpr} {n : Nat}
-      (h : ExactConstListLength tail n) :
-      ExactConstListLength (.app "VCons" [head, tail]) (n + 1)
-  | tail {xs : SExpr} {n : Nat}
-      (h : ExactConstListLength xs (n + 1)) :
-      ExactConstListLength (.app "vtail" [xs]) n
-  | ite (condition : SExpr) {thenExpr elseExpr : SExpr} {n : Nat}
-      (hThen : ExactConstListLength thenExpr n)
-      (hElse : ExactConstListLength elseExpr n) :
-      ExactConstListLength (.ite condition thenExpr elseExpr) n
-
-inductive ConstListLengthHint (expr : SExpr) where
+inductive ConstListLengthHint where
   | unknown
-  | exact (length : Nat) (certificate : ExactConstListLength expr length)
-deriving Repr
-
-instance {expr : SExpr} : BEq (ConstListLengthHint expr) where
-  beq a b :=
-    match a, b with
-    | .unknown, .unknown => true
-    | .exact an _, .exact bn _ => an == bn
-    | _, _ => false
+  | exact (length : Nat)
+deriving Repr, BEq
 
 namespace ConstListLengthHint
 
-def certificate? {expr : SExpr} (hint : ConstListLengthHint expr) :
-    Option { n : Nat // ExactConstListLength expr n } :=
+/-- Reconstruct an exact length only from syntax whose list length is
+independent of the SMT model.  Returning `none` merely disables pruning. -/
+def inferExact? : SExpr → Option Nat
+  | .constListLit xs => some xs.length
+  | .app "VCons" [_, tail] => (inferExact? tail).map (· + 1)
+  | .app "vtail" [xs] =>
+      match inferExact? xs with
+      | some (n + 1) => some n
+      | _ => none
+  | .ite _ thenExpr elseExpr =>
+      match inferExact? thenExpr, inferExact? elseExpr with
+      | some thenLength, some elseLength =>
+          if thenLength == elseLength then some thenLength else none
+      | _, _ => none
+  | _ => none
+
+/-- Accept a cached length only after reconstructing the same length directly
+from the expression.  This is the fail-closed boundary for arbitrary compiler
+IR values. -/
+def knownLength (hint : ConstListLengthHint) (expr : SExpr) : Option Nat :=
   match hint with
   | .unknown => none
-  | .exact n certificate => some ⟨n, certificate⟩
+  | .exact length =>
+      if inferExact? expr == some length then some length else none
 
-def knownLength {expr : SExpr} (hint : ConstListLengthHint expr) : Option Nat :=
-  hint.certificate?.map Subtype.val
+def literal (xs : List Const) : ConstListLengthHint :=
+  .exact xs.length
 
-def literal (xs : List Const) : ConstListLengthHint (.constListLit xs) :=
-  .exact xs.length (.literal xs)
+def cons (_head : SExpr) (hint : ConstListLengthHint) :
+    ConstListLengthHint :=
+  match hint with
+  | .unknown => .unknown
+  | .exact n => .exact (n + 1)
 
-def cons (head : SExpr) {tail : SExpr} (hint : ConstListLengthHint tail) :
-    ConstListLengthHint (.app "VCons" [head, tail]) :=
-  match hint.certificate? with
-  | none => .unknown
-  | some ⟨n, certificate⟩ =>
-      .exact (n + 1) (.cons head certificate)
+def tail (hint : ConstListLengthHint) : ConstListLengthHint :=
+  match hint with
+  | .unknown | .exact 0 => .unknown
+  | .exact (n + 1) => .exact n
 
-def tail {xs : SExpr} (hint : ConstListLengthHint xs) :
-    ConstListLengthHint (.app "vtail" [xs]) :=
-  match hint.certificate? with
-  | none => .unknown
-  | some ⟨0, _⟩ => .unknown
-  | some ⟨n + 1, certificate⟩ =>
-      .exact n (.tail certificate)
-
-def ite (condition : SExpr) {thenExpr elseExpr : SExpr}
-    (thenHint : ConstListLengthHint thenExpr)
-    (elseHint : ConstListLengthHint elseExpr) :
-    ConstListLengthHint (.ite condition thenExpr elseExpr) :=
-  match thenHint.certificate?, elseHint.certificate? with
-  | some ⟨thenLength, thenCertificate⟩,
-      some ⟨elseLength, elseCertificate⟩ =>
-      if h : thenLength = elseLength then
-        .exact thenLength
-          (.ite condition thenCertificate (h ▸ elseCertificate))
-      else
-        .unknown
+def ite (_condition : SExpr)
+    (thenHint elseHint : ConstListLengthHint) : ConstListLengthHint :=
+  match thenHint, elseHint with
+  | .exact thenLength, .exact elseLength =>
+      if thenLength == elseLength then .exact thenLength else .unknown
   | _, _ => .unknown
 
 end ConstListLengthHint
@@ -963,8 +950,8 @@ inductive SymConst where
   | bool : SExpr → SymConst
   | unit : SymConst
   | data : SExpr → SymConst
-  /-- A builtin constant list together with a certified known-length hint. -/
-  | constList : (expr : SExpr) → ConstListLengthHint expr → SymConst
+  /-- A builtin constant list with a proof-free, structurally rechecked hint. -/
+  | constList : SExpr → ConstListLengthHint → SymConst
   | dataList : SExpr → SymConst
   | pairDataList : SExpr → SymConst
   | pairData : SExpr → SExpr → SymConst
@@ -989,7 +976,7 @@ instance : BEq SymConst where
     | .g2 x, .g2 y
     | .ml x, .ml y => x == y
     | .constList x hx, .constList y hy =>
-        x == y && hx.knownLength == hy.knownLength
+        x == y && hx == hy
     | .unit, .unit => true
     | .pairData a b, .pairData c d => a == c && b == d
     | _, _ => false
@@ -1227,7 +1214,7 @@ def mergeEncodedOks : List EncodedOk → Option EncodedOk
 structure EncodedConstListOk where
   pc : SExpr
   value : SExpr
-  hint : ConstListLengthHint value
+  hint : ConstListLengthHint
 deriving Repr
 
 namespace EncodedConstListOk
@@ -1242,9 +1229,9 @@ def encodedConstListOks : List Outcome → List EncodedConstListOk
       ⟨pc, value, hint⟩ :: encodedConstListOks outs
   | _ :: outs => encodedConstListOks outs
 
-/-- Merge constant-list outcomes while joining their proof-carrying length
-certificates.  A certificate survives exactly when both sides have the same
-known length. -/
+/-- Merge constant-list outcomes while joining their cached length hints.  A
+hint survives exactly when both sides report the same length; it is still
+structurally rechecked before it can prune a later `ChooseList`. -/
 def mergeEncodedConstListOks :
     List EncodedConstListOk → Option EncodedConstListOk
   | [] => none
@@ -1372,7 +1359,7 @@ def asConstList : SymVal → Proj SExpr
   | v => valueProj "VList" "unVList" (.app "VNil" []) v
 
 def knownConstListLength : SymVal → Option Nat
-  | .const (.constList _ hint) => hint.knownLength
+  | .const (.constList expr hint) => hint.knownLength expr
   | _ => none
 
 def consConstListValue (head : SExpr) : SymVal → SymVal

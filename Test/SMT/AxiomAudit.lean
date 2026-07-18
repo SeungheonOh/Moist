@@ -235,6 +235,24 @@ info: 'Moist.SMT.UPLC.Soundness.exactConstListLength_eval_length' depends on axi
 #print axioms Moist.SMT.UPLC.Soundness.exactConstListLength_eval_length
 
 /--
+info: 'Moist.SMT.UPLC.ConstListLengthHint.inferExact?' does not depend on any axioms
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.ConstListLengthHint.inferExact?
+
+/--
+info: 'Moist.SMT.UPLC.ConstListLengthHint.knownLength' does not depend on any axioms
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.ConstListLengthHint.knownLength
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.inferExactConstListLength?_sound' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.inferExactConstListLength?_sound
+
+/--
 info: 'Moist.SMT.UPLC.Soundness.constListBranches_complete_for_toCek' depends on axioms: [propext,
  Classical.choice,
  Quot.sound]
