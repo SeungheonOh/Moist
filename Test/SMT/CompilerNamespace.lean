@@ -1,4 +1,5 @@
 import Moist.SMT.Compiler
+import Moist.SMT.Soundness.ValidationCompatibility
 
 /-!
 # Executable compiler namespace boundary

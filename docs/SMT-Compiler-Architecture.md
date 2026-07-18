@@ -20,8 +20,10 @@ The portable path is ordered as follows:
 4. `Moist.SMT.Compiler.Validation` contains fail-closed structural validation
    for the supported builtin fragment and public SMT expressions. Its
    executable definitions live in the matching
-   `Moist.SMT.Compiler.Validation` namespace; compatibility exports preserve
-   the former `Moist.SMT.UPLC.Soundness` spellings for existing Lean callers.
+   `Moist.SMT.Compiler.Validation` namespace.  The proof-only
+   `Moist.SMT.Soundness.ValidationCompatibility` module preserves the former
+   `Moist.SMT.UPLC.Soundness` spellings for existing Lean proof callers without
+   leaking that namespace through the compiler facade.
 5. `Moist.SMT.Compiler.InputChecked` exposes the proof-free, explicitly named
    `*InputChecked?` entry points. They validate caller-controlled input and
    construct one canonical script without running the output contract's

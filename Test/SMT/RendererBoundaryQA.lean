@@ -22,7 +22,7 @@ namespace Test.SMT.RendererBoundaryQA
 
 open Moist.SMT
 open Moist.SMT.UPLC
-open Moist.SMT.UPLC.Soundness
+open Moist.SMT.Compiler.Validation
 
 private def firstLine (text : String) : String :=
   (text.splitOn "\n").head?.getD ""

@@ -1,4 +1,4 @@
-import Moist.SMT.Compiler.Validation
+import Moist.SMT.Soundness.ValidationCompatibility
 import Moist.SMT.Soundness.Compiler
 import Moist.Verified.BigStep
 
