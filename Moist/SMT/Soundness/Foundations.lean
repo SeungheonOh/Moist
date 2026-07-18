@@ -1,5 +1,4 @@
-import Moist.SMT.UPLC
-import Moist.SMT.Semantics
+import Moist.SMT.Soundness.Compiler
 import Moist.Verified.BigStep
 
 namespace Moist.SMT.UPLC.Soundness

@@ -1,4 +1,4 @@
-import Moist.SMT.UPLC
+import Moist.SMT.Compiler
 
 namespace Test.SMT.AdvancedBuiltinRawDifferential
 

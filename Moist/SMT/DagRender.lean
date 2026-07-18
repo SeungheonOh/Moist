@@ -1,4 +1,4 @@
-import Moist.SMT.Basic
+import Moist.SMT.Render
 import Std.Data.HashMap
 import Std.Data.HashSet
 

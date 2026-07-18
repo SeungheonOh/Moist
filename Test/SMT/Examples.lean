@@ -1,5 +1,4 @@
-import Moist.SMT.UPLC
-import Moist.SMT.DagRender
+import Moist.SMT.Compiler.Operational
 
 namespace Test.SMT.Examples
 

@@ -1,4 +1,4 @@
-import Moist.SMT.Basic
+import Moist.SMT.Syntax
 import Moist.CEK.Builtins
 import Moist.Plutus.ByteString
 import Moist.Plutus.DecidableEq
