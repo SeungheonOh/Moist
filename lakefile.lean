@@ -78,3 +78,6 @@ lean_exe smt_advanced_raw_differential where
 
 lean_exe smt_dag_render_differential where
   root := `Test.SMT.DagRender
+
+lean_exe smt_renderer_boundary_qa where
+  root := `Test.SMT.RendererBoundaryQA
