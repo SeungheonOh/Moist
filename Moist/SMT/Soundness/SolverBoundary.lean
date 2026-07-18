@@ -1,4 +1,5 @@
 import Moist.SMT.Soundness.CheckedCompiler
+import Moist.SMT.Soundness
 import Moist.SMT.Render
 
 /-!

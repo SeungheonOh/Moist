@@ -1,4 +1,4 @@
-import Moist.SMT.Soundness
+import Moist.SMT.Soundness.Foundations
 import Moist.SMT.Render
 
 /-!
