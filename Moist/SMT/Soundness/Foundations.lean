@@ -1,3 +1,4 @@
+import Moist.SMT.Compiler.Validation
 import Moist.SMT.Soundness.Compiler
 import Moist.Verified.BigStep
 
@@ -100,79 +101,6 @@ def caseEmptyConstListMissingNilExample : Term :=
 
 def mkConsRejectsRuntimeConstrExample : Term :=
   app (app (forceBuiltin .MkCons) (.Constr 0 [])) (.Constant (.ConstList [], tyListInt))
-
-def builtinOpaqueForSoundness : BuiltinFun → Bool
-  | .Sha2_256 | .Sha3_256 | .Blake2b_256 | .VerifyEd25519Signature
-  | .VerifyEcdsaSecp256k1Signature | .VerifySchnorrSecp256k1Signature
-  | .Bls12_381_G1_add | .Bls12_381_G1_neg | .Bls12_381_G1_scalarMul
-  | .Bls12_381_G1_equal | .Bls12_381_G1_hashToGroup
-  | .Bls12_381_G1_compress | .Bls12_381_G1_uncompress
-  | .Bls12_381_G2_add | .Bls12_381_G2_neg | .Bls12_381_G2_scalarMul
-  | .Bls12_381_G2_equal | .Bls12_381_G2_hashToGroup
-  | .Bls12_381_G2_compress | .Bls12_381_G2_uncompress
-  | .Bls12_381_millerLoop | .Bls12_381_mulMlResult | .Bls12_381_finalVerify
-  | .Keccak_256 | .Blake2b_224
-  | .Ripemd_160
-  | .SerializeData | .InsertCoin | .LookupCoin | .ScaleValue | .UnionValue
-  | .ValueContains | .ValueData | .UnValueData
-  | .Bls12_381_G1_multiScalarMul | .Bls12_381_G2_multiScalarMul => true
-  | _ => false
-
-def builtinAllowedForSoundness (b : BuiltinFun) : Bool :=
-  !builtinOpaqueForSoundness b
-
-mutual
-  def termUsesOpaqueBuiltinForSoundness : Term → Bool
-    | .Var _ => false
-    | .Delay t => termUsesOpaqueBuiltinForSoundness t
-    | .Lam _ body => termUsesOpaqueBuiltinForSoundness body
-    | .Apply f a =>
-        termUsesOpaqueBuiltinForSoundness f || termUsesOpaqueBuiltinForSoundness a
-    | .Constant _ => false
-    | .Force t => termUsesOpaqueBuiltinForSoundness t
-    | .Error => false
-    | .Builtin b => builtinOpaqueForSoundness b
-    | .Constr _ fields => termsUseOpaqueBuiltinForSoundness fields
-    | .Case scrut alts =>
-        termUsesOpaqueBuiltinForSoundness scrut ||
-          termsUseOpaqueBuiltinForSoundness alts
-
-  def termsUseOpaqueBuiltinForSoundness : List Term → Bool
-    | [] => false
-    | t :: ts =>
-        termUsesOpaqueBuiltinForSoundness t ||
-          termsUseOpaqueBuiltinForSoundness ts
-end
-
-def termNoOpaqueBuiltinsForSoundness (t : Term) : Prop :=
-  termUsesOpaqueBuiltinForSoundness t = false
-
-mutual
-  def symValNoOpaqueForSoundness : SymVal → Bool
-    | .const _ => true
-    | .dyn _ => true
-    | .pair a b =>
-        symValNoOpaqueForSoundness a && symValNoOpaqueForSoundness b
-    | .constr _ fields => symValsNoOpaqueForSoundness fields
-    | .lam body ρ =>
-        termUsesOpaqueBuiltinForSoundness body == false &&
-          symEnvNoOpaqueForSoundness ρ
-    | .delay body ρ =>
-        termUsesOpaqueBuiltinForSoundness body == false &&
-          symEnvNoOpaqueForSoundness ρ
-    | .builtin b args _ =>
-        builtinAllowedForSoundness b && symValsNoOpaqueForSoundness args
-
-  def symValsNoOpaqueForSoundness : List SymVal → Bool
-    | [] => true
-    | v :: vs =>
-        symValNoOpaqueForSoundness v && symValsNoOpaqueForSoundness vs
-
-  def symEnvNoOpaqueForSoundness : List SymVal → Bool
-    | [] => true
-    | v :: ρ =>
-        symValNoOpaqueForSoundness v && symEnvNoOpaqueForSoundness ρ
-end
 
 theorem symEnvNoOpaque_lookup {ρ : List SymVal} {k : Nat} {v : SymVal}
     (hρ : symEnvNoOpaqueForSoundness ρ = true)
