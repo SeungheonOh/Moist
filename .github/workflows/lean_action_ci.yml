@@ -11,4 +11,25 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+      - name: Install Z3
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes z3
+          z3 -version
       - uses: leanprover/lean-action@v1
+      - name: Build SMT differential QA
+        run: >-
+          lake build
+          smt_builtin_differential
+          smt_advanced_raw_differential
+          smt_dag_render_differential
+          smt_renderer_boundary_qa
+      - name: Run SMT differential QA
+        timeout-minutes: 30
+        run: |
+          .lake/build/bin/smt_builtin_differential
+          .lake/build/bin/smt_advanced_raw_differential
+          .lake/build/bin/smt_dag_render_differential
+          .lake/build/bin/smt_renderer_boundary_qa
+          lake env lean --run Test/SMT/PreludeSlicing.lean
+          lake env lean --run Test/SMT/Utf8Boundary.lean
