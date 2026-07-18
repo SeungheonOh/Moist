@@ -1,4 +1,4 @@
-import Moist.SMT.Soundness.SolverInput
+import Moist.SMT.Soundness.OutputContract
 import Moist.SMT.Render
 
 /-!
@@ -26,6 +26,11 @@ fragment premise.
 -/
 
 namespace Moist.SMT.UPLC.Soundness
+
+-- Dependent certificates mention the canonical compiler output.  Elaborating
+-- their types is more expensive than running the executable checker but does
+-- not change any runtime or kernel trust setting.
+set_option maxHeartbeats 1000000
 
 open Moist.Plutus.Term
 open Moist.CEK (CekEnv)
@@ -121,18 +126,23 @@ structure BoolTrueQuery where
   fuel : Nat
   inputs : SupportedDeclarations
   program : SupportedTerm
+  /-- `compile?` runs symbolic compilation exactly once.  Solver integrations
+  submit this stored script instead of reconstructing a large decision DAG. -/
+  script : Moist.SMT.Script
+  script_eq :
+    script = scriptForBoolTrue fuel inputs.declarations program.term
+  output : GeneratedOutputContract inputs.declarations script
 
 namespace BoolTrueQuery
-
-def script (query : BoolTrueQuery) : Moist.SMT.Script :=
-  scriptForBoolTrue query.fuel query.inputs.declarations query.program.term
 
 /-- Check both the term and its symbolic declaration environment. -/
 def compile? (fuel : Nat) (declarations : List SymDecl)
     (term : Term) : Option BoolTrueQuery := do
   let inputs ← SupportedDeclarations.check declarations
   let program ← SupportedTerm.check term
-  pure ⟨fuel, inputs, program⟩
+  let script := scriptForBoolTrue fuel inputs.declarations program.term
+  let output ← GeneratedOutputContract.check inputs.declarations script
+  pure ⟨fuel, inputs, program, script, rfl, output⟩
 
 @[simp] theorem compile_isSome (fuel : Nat) (declarations : List SymDecl)
     (term : Term) :
@@ -142,28 +152,47 @@ def compile? (fuel : Nat) (declarations : List SymDecl)
         declarationsSortSafe declarations &&
         declarationsInputSafe declarations &&
         declarationNamesDistinct declarations &&
-        !termUsesOpaqueBuiltinForSoundness term) := by
+        !termUsesOpaqueBuiltinForSoundness term &&
+        generatedAssertionsRendererSafe
+          (scriptForBoolTrue fuel declarations term) &&
+        generatedAssertionsSortSafe declarations
+          (scriptForBoolTrue fuel declarations term)) := by
   generalize hinputs : symEnvNoOpaqueForSoundness (envOf declarations) = inputsOk
   generalize hsafety : declarationsRendererSafe declarations = safetyOk
   generalize hsort : declarationsSortSafe declarations = sortOk
   generalize hsafeInput : declarationsInputSafe declarations = inputOk
   generalize hdistinct : declarationNamesDistinct declarations = distinctOk
   generalize hterm : termUsesOpaqueBuiltinForSoundness term = termOpaque
+  generalize houtputRenderer : generatedAssertionsRendererSafe
+    (scriptForBoolTrue fuel declarations term) = outputRendererOk
+  generalize houtputSort : generatedAssertionsSortSafe declarations
+    (scriptForBoolTrue fuel declarations term) = outputSortOk
   cases inputsOk <;> cases safetyOk <;> cases sortOk <;>
     cases inputOk <;> cases distinctOk <;> cases termOpaque <;>
+    cases outputRendererOk <;> cases outputSortOk <;>
     simp [compile?, SupportedDeclarations.check, SupportedTerm.check,
-      hinputs, hsafety, hsort, hsafeInput, hdistinct, hterm]
+      GeneratedOutputContract.check, hinputs, hsafety, hsort, hsafeInput,
+      hdistinct, hterm, houtputRenderer, houtputSort]
 
 theorem hasCompilerPrelude (query : BoolTrueQuery) :
     Moist.SMT.UPLC.Soundness.hasCompilerPrelude query.script := by
+  rw [query.script_eq]
   exact scriptForBoolTrue_hasCompilerPrelude _ _ _
+
+theorem assertionsRendererSafe (query : BoolTrueQuery) :
+    generatedAssertionsRendererSafe query.script = true :=
+  query.output.rendererSafe
+
+theorem assertionsSortSafe (query : BoolTrueQuery) :
+    generatedAssertionsSortSafe query.inputs.declarations query.script = true :=
+  query.output.sortSafe
 
 private theorem declarationAssertionsIncluded (query : BoolTrueQuery) :
     ∀ expression,
       expression ∈ query.inputs.declarations.flatMap SymDecl.assumptions →
         expression ∈ query.script.assertions := by
   intro expression hmember
-  rw [script, scriptForBoolTrue_assertions]
+  rw [query.script_eq, scriptForBoolTrue_assertions]
   exact List.mem_append_left _ hmember
 
 theorem environmentDecodes (query : BoolTrueQuery)
@@ -194,7 +223,7 @@ theorem sound (query : BoolTrueQuery)
     (fuel := query.fuel) (ρ := envOf query.inputs.declarations)
     (cekEnv_decodes query z3) query.inputs.noOpaque query.program.noOpaque
   apply z3.assertionsTrue
-  rw [script, scriptForBoolTrue_assertions]
+  rw [query.script_eq, scriptForBoolTrue_assertions]
   exact List.mem_append_right _ (by simp)
 
 end BoolTrueQuery
@@ -207,19 +236,22 @@ structure IntEqQuery where
   inputs : SupportedDeclarations
   program : SupportedTerm
   expected : Int
+  script : Moist.SMT.Script
+  script_eq :
+    script = scriptForIntEq fuel inputs.declarations program.term (.int expected)
+  output : GeneratedOutputContract inputs.declarations script
 
 namespace IntEqQuery
-
-def script (query : IntEqQuery) : Moist.SMT.Script :=
-  scriptForIntEq query.fuel query.inputs.declarations query.program.term
-    (.int query.expected)
 
 /-- Check both the term and its symbolic declaration environment. -/
 def compile? (fuel : Nat) (declarations : List SymDecl)
     (term : Term) (expected : Int) : Option IntEqQuery := do
   let inputs ← SupportedDeclarations.check declarations
   let program ← SupportedTerm.check term
-  pure ⟨fuel, inputs, program, expected⟩
+  let script :=
+    scriptForIntEq fuel inputs.declarations program.term (.int expected)
+  let output ← GeneratedOutputContract.check inputs.declarations script
+  pure ⟨fuel, inputs, program, expected, script, rfl, output⟩
 
 @[simp] theorem compile_isSome (fuel : Nat) (declarations : List SymDecl)
     (term : Term) (expected : Int) :
@@ -229,28 +261,47 @@ def compile? (fuel : Nat) (declarations : List SymDecl)
         declarationsSortSafe declarations &&
         declarationsInputSafe declarations &&
         declarationNamesDistinct declarations &&
-        !termUsesOpaqueBuiltinForSoundness term) := by
+        !termUsesOpaqueBuiltinForSoundness term &&
+        generatedAssertionsRendererSafe
+          (scriptForIntEq fuel declarations term (.int expected)) &&
+        generatedAssertionsSortSafe declarations
+          (scriptForIntEq fuel declarations term (.int expected))) := by
   generalize hinputs : symEnvNoOpaqueForSoundness (envOf declarations) = inputsOk
   generalize hsafety : declarationsRendererSafe declarations = safetyOk
   generalize hsort : declarationsSortSafe declarations = sortOk
   generalize hsafeInput : declarationsInputSafe declarations = inputOk
   generalize hdistinct : declarationNamesDistinct declarations = distinctOk
   generalize hterm : termUsesOpaqueBuiltinForSoundness term = termOpaque
+  generalize houtputRenderer : generatedAssertionsRendererSafe
+    (scriptForIntEq fuel declarations term (.int expected)) = outputRendererOk
+  generalize houtputSort : generatedAssertionsSortSafe declarations
+    (scriptForIntEq fuel declarations term (.int expected)) = outputSortOk
   cases inputsOk <;> cases safetyOk <;> cases sortOk <;>
     cases inputOk <;> cases distinctOk <;> cases termOpaque <;>
+    cases outputRendererOk <;> cases outputSortOk <;>
     simp [compile?, SupportedDeclarations.check, SupportedTerm.check,
-      hinputs, hsafety, hsort, hsafeInput, hdistinct, hterm]
+      GeneratedOutputContract.check, hinputs, hsafety, hsort, hsafeInput,
+      hdistinct, hterm, houtputRenderer, houtputSort]
 
 theorem hasCompilerPrelude (query : IntEqQuery) :
     Moist.SMT.UPLC.Soundness.hasCompilerPrelude query.script := by
+  rw [query.script_eq]
   exact scriptForIntEq_hasCompilerPrelude _ _ _ _
+
+theorem assertionsRendererSafe (query : IntEqQuery) :
+    generatedAssertionsRendererSafe query.script = true :=
+  query.output.rendererSafe
+
+theorem assertionsSortSafe (query : IntEqQuery) :
+    generatedAssertionsSortSafe query.inputs.declarations query.script = true :=
+  query.output.sortSafe
 
 private theorem declarationAssertionsIncluded (query : IntEqQuery) :
     ∀ expression,
       expression ∈ query.inputs.declarations.flatMap SymDecl.assumptions →
         expression ∈ query.script.assertions := by
   intro expression hmember
-  rw [script, scriptForIntEq_assertions]
+  rw [query.script_eq, scriptForIntEq_assertions]
   exact List.mem_append_left _ hmember
 
 theorem environmentDecodes (query : IntEqQuery)
@@ -281,7 +332,7 @@ theorem sound (query : IntEqQuery)
     (cekEnv_decodes query z3) query.inputs.noOpaque query.program.noOpaque
   · simp [Moist.SMT.Semantics.eval]
   · apply z3.assertionsTrue
-    rw [script, scriptForIntEq_assertions]
+    rw [query.script_eq, scriptForIntEq_assertions]
     exact List.mem_append_right _ (by simp)
 
 end IntEqQuery
@@ -291,18 +342,21 @@ structure ErrorQuery where
   fuel : Nat
   inputs : SupportedDeclarations
   program : SupportedTerm
+  script : Moist.SMT.Script
+  script_eq :
+    script = scriptForError fuel inputs.declarations program.term
+  output : GeneratedOutputContract inputs.declarations script
 
 namespace ErrorQuery
-
-def script (query : ErrorQuery) : Moist.SMT.Script :=
-  scriptForError query.fuel query.inputs.declarations query.program.term
 
 /-- Check both the term and its symbolic declaration environment. -/
 def compile? (fuel : Nat) (declarations : List SymDecl)
     (term : Term) : Option ErrorQuery := do
   let inputs ← SupportedDeclarations.check declarations
   let program ← SupportedTerm.check term
-  pure ⟨fuel, inputs, program⟩
+  let script := scriptForError fuel inputs.declarations program.term
+  let output ← GeneratedOutputContract.check inputs.declarations script
+  pure ⟨fuel, inputs, program, script, rfl, output⟩
 
 @[simp] theorem compile_isSome (fuel : Nat) (declarations : List SymDecl)
     (term : Term) :
@@ -312,28 +366,47 @@ def compile? (fuel : Nat) (declarations : List SymDecl)
         declarationsSortSafe declarations &&
         declarationsInputSafe declarations &&
         declarationNamesDistinct declarations &&
-        !termUsesOpaqueBuiltinForSoundness term) := by
+        !termUsesOpaqueBuiltinForSoundness term &&
+        generatedAssertionsRendererSafe
+          (scriptForError fuel declarations term) &&
+        generatedAssertionsSortSafe declarations
+          (scriptForError fuel declarations term)) := by
   generalize hinputs : symEnvNoOpaqueForSoundness (envOf declarations) = inputsOk
   generalize hsafety : declarationsRendererSafe declarations = safetyOk
   generalize hsort : declarationsSortSafe declarations = sortOk
   generalize hsafeInput : declarationsInputSafe declarations = inputOk
   generalize hdistinct : declarationNamesDistinct declarations = distinctOk
   generalize hterm : termUsesOpaqueBuiltinForSoundness term = termOpaque
+  generalize houtputRenderer : generatedAssertionsRendererSafe
+    (scriptForError fuel declarations term) = outputRendererOk
+  generalize houtputSort : generatedAssertionsSortSafe declarations
+    (scriptForError fuel declarations term) = outputSortOk
   cases inputsOk <;> cases safetyOk <;> cases sortOk <;>
     cases inputOk <;> cases distinctOk <;> cases termOpaque <;>
+    cases outputRendererOk <;> cases outputSortOk <;>
     simp [compile?, SupportedDeclarations.check, SupportedTerm.check,
-      hinputs, hsafety, hsort, hsafeInput, hdistinct, hterm]
+      GeneratedOutputContract.check, hinputs, hsafety, hsort, hsafeInput,
+      hdistinct, hterm, houtputRenderer, houtputSort]
 
 theorem hasCompilerPrelude (query : ErrorQuery) :
     Moist.SMT.UPLC.Soundness.hasCompilerPrelude query.script := by
+  rw [query.script_eq]
   exact scriptForError_hasCompilerPrelude _ _ _
+
+theorem assertionsRendererSafe (query : ErrorQuery) :
+    generatedAssertionsRendererSafe query.script = true :=
+  query.output.rendererSafe
+
+theorem assertionsSortSafe (query : ErrorQuery) :
+    generatedAssertionsSortSafe query.inputs.declarations query.script = true :=
+  query.output.sortSafe
 
 private theorem declarationAssertionsIncluded (query : ErrorQuery) :
     ∀ expression,
       expression ∈ query.inputs.declarations.flatMap SymDecl.assumptions →
         expression ∈ query.script.assertions := by
   intro expression hmember
-  rw [script, scriptForError_assertions]
+  rw [query.script_eq, scriptForError_assertions]
   exact List.mem_append_left _ hmember
 
 theorem environmentDecodes (query : ErrorQuery)
@@ -362,7 +435,7 @@ theorem sound (query : ErrorQuery)
     (fuel := query.fuel) (ρ := envOf query.inputs.declarations)
     (cekEnv_decodes query z3) query.inputs.noOpaque query.program.noOpaque
   apply z3.assertionsTrue
-  rw [script, scriptForError_assertions]
+  rw [query.script_eq, scriptForError_assertions]
   exact List.mem_append_right _ (by simp)
 
 end ErrorQuery

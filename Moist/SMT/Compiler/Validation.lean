@@ -219,6 +219,25 @@ def applicationSignatures : List ApplicationSignature :=
   , ⟨"uplc_encodeUtf8", [.string], .bytes⟩
   , ⟨"valid_utf8", [.bytes], .bool⟩
   , ⟨"uplc_decodeUtf8", [.bytes], .string⟩
+  , ⟨"uplc_integerToByteString_defined", [.bool, .int, .int], .bool⟩
+  , ⟨"uplc_integerToByteString", [.bool, .int, .int], .bytes⟩
+  , ⟨"uplc_byteStringToInteger", [.bool, .bytes], .int⟩
+  , ⟨"uplc_andByteString", [.bool, .bytes, .bytes], .bytes⟩
+  , ⟨"uplc_orByteString", [.bool, .bytes, .bytes], .bytes⟩
+  , ⟨"uplc_xorByteString", [.bool, .bytes, .bytes], .bytes⟩
+  , ⟨"uplc_complementByteString", [.bytes], .bytes⟩
+  , ⟨"uplc_readBit_defined", [.bytes, .int], .bool⟩
+  , ⟨"uplc_readBit", [.bytes, .int], .bool⟩
+  , ⟨"uplc_writeBits_defined", [.bytes, .valList, .bool], .bool⟩
+  , ⟨"uplc_writeBits", [.bytes, .valList, .bool], .bytes⟩
+  , ⟨"uplc_replicateByte_defined", [.int, .int], .bool⟩
+  , ⟨"uplc_replicateByte", [.int, .int], .bytes⟩
+  , ⟨"uplc_shiftByteString", [.bytes, .int], .bytes⟩
+  , ⟨"uplc_rotateByteString", [.bytes, .int], .bytes⟩
+  , ⟨"uplc_countSetBits", [.bytes], .int⟩
+  , ⟨"uplc_findFirstSetBit", [.bytes], .int⟩
+  , ⟨"uplc_expModInteger_defined", [.int, .int, .int], .bool⟩
+  , ⟨"uplc_expModInteger", [.int, .int, .int], .int⟩
   , ⟨"same_sign", [.int, .int], .bool⟩
   , ⟨"abs_int", [.int], .int⟩
   , ⟨"uplc_tdiv", [.int, .int], .int⟩
@@ -610,5 +629,19 @@ def symDeclRendererSafe (declaration : SymDecl) : Bool :=
 
 def declarationsRendererSafe (declarations : List SymDecl) : Bool :=
   declarations.all symDeclRendererSafe
+
+/-! ## Generated output validation -/
+
+/-- Every logical assertion in a generated script renders through the
+reviewed expression grammar.  This checks the typed AST before rendering. -/
+def generatedAssertionsRendererSafe (script : Moist.SMT.Script) : Bool :=
+  expressionsRendererSafe script.assertions
+
+/-- Every logical assertion in a generated script has the `Bool` sort
+required by SMT-LIB's `assert` command. -/
+def generatedAssertionsSortSafe (declarations : List SymDecl)
+    (script : Moist.SMT.Script) : Bool :=
+  script.assertions.all fun expression =>
+    expressionHasSort declarations expression .bool
 
 end Moist.SMT.UPLC.Soundness

@@ -1,0 +1,67 @@
+import Test.SMT.BasicBuiltinDifferential
+
+/-!
+# Generated-output contract regressions
+
+The production constructors run the generated assertion checker and carry its
+certificate.  These tests exercise fail-closed malformed scripts and the
+complete ground/symbolic builtin differential corpus.
+-/
+
+namespace Test.SMT.OutputContract
+
+open Moist.SMT
+open Moist.SMT.UPLC
+open Moist.SMT.UPLC.Soundness
+open Test.SMT.BasicBuiltinDifferential
+
+private def checked? (declarations : List SymDecl)
+    (expression : SExpr) : Bool :=
+  (GeneratedOutputContract.check declarations
+    (scriptWith declarations [expression])).isSome
+
+-- Renderer delimiter injection remains rejected when nested below an
+-- otherwise recognized application head.
+example : checked? []
+    (.app "and" [.bool true, .sym "x) (assert false) ;"]) = false := by
+  native_decide
+
+-- Renderer-safe text is still rejected when its arity is wrong.
+example : checked? [] (.app "+" [.int 1]) = false := by
+  native_decide
+
+-- Z3 aliases both sequences to `(Seq Int)`, but Lean and CEK distinguish
+-- bytes from strings; cross-sort equality must stay rejected.
+example : checked? []
+    (SExpr.eq (.bytes ByteArray.empty) (.str "")) = false := by
+  native_decide
+
+-- Unknown helper names cannot silently acquire a sort.
+example : checked? [] (.app "uplc_typo" [.int 1]) = false := by
+  native_decide
+
+-- SMT-LIB only permits Boolean assertions.
+example : checked? [] (.int 1) = false := by
+  native_decide
+
+-- Supported advanced helpers belong to the same checked grammar.
+example : checked? []
+    (SExpr.eq
+      (.app "uplc_shiftByteString" [.bytes ByteArray.empty, .int 4])
+      (.bytes ByteArray.empty)) = true := by
+  native_decide
+
+private def allEndpointOutputsAccepted (fuel : Nat) (test : Case) : Bool :=
+  (BoolTrueQuery.compile? fuel test.declarations test.term).isSome &&
+    (IntEqQuery.compile? fuel test.declarations test.term 0).isSome &&
+    (ErrorQuery.compile? fuel test.declarations test.term).isSome
+
+/-- Every ground success/error and symbolic success/type/domain-error case for
+every certified builtin passes all three production output contracts. -/
+def completeBuiltinCorpusAccepted : Bool :=
+  allCases.all (allEndpointOutputsAccepted 120)
+
+example : completeBuiltinCorpusAccepted = true := by
+  native_decide
+
+end Test.SMT.OutputContract
