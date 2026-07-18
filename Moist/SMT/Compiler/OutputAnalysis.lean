@@ -232,7 +232,8 @@ def expressionOutputAnalyses (declarations : List SymDecl)
     (expressions : List SExpr) : List ExpressionOutputAnalysis :=
   (expressionOutputAnalysesAux declarations .empty expressions).1
 
-/-- Fused, sharing-aware Boolean used by the proof-carrying output contract. -/
+/-- Fused, sharing-aware Boolean used by the proof-free production compiler
+and reconstructed as four independent facts by the proof-carrying contract. -/
 def generatedAssertionsOutputSafe (declarations : List SymDecl)
     (script : Moist.SMT.Script) : Bool :=
   (expressionOutputAnalyses declarations script.assertions).all fun analysis =>

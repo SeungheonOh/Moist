@@ -111,6 +111,19 @@ info: 'Moist.SMT.UPLC.Soundness.OutputAnalysis.generatedAssertionsOutputSafe_eq'
   Moist.SMT.UPLC.Soundness.OutputAnalysis.generatedAssertionsOutputSafe_eq
 
 /--
+info: 'Moist.SMT.UPLC.Soundness.GeneratedOutputContract.outputAccepted_eq' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms
+  Moist.SMT.UPLC.Soundness.GeneratedOutputContract.outputAccepted_eq
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.CheckedCompiler.compile_some' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.CheckedCompiler.compile_some
+
+/--
 info: 'Moist.SMT.UPLC.Soundness.GeneratedOutputContract.check_isSome' depends on axioms: [propext, Quot.sound]
 -/
 #guard_msgs in

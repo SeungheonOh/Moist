@@ -1,24 +1,20 @@
 import Moist.SMT.Compiler.Validation
 
 /-!
-# Proof-free input-checked SMT compiler
+# Proof-free input-checked SMT compiler primitive
 
-This module is the portable production entry point.  It contains executable
-checks and returns only the typed SMT script AST; no semantic theorem or
-proof-carrying wrapper is required by callers that merely compile a query.
+This module contains the first stage of the portable compiler.  It checks
+caller-controlled data and returns only the typed SMT script AST; no semantic
+theorem or proof-carrying wrapper is imported.
 
 The unchecked `scriptFor*` functions remain useful low-level primitives.  The
 functions below additionally reject unsupported UPLC builtins, malformed or
 ambiguous declarations, and renderer-unsafe caller input.
 
-Generated assertions are compiler-owned rather than caller-controlled.  They
-are deliberately not subjected here to the output contract's unbounded
-renderer and sort traversals: those walks expand shared symbolic decision DAGs
-and can dominate compilation.  Canonical script construction still performs
-its bounded prelude-dependency scan.  The proof-carrying solver boundary
-validates the exact returned script before exposing its CEK soundness theorem;
-a future construction-time invariant can eliminate that proof-side postcheck
-without changing this API.
+Generated assertions are compiler-owned rather than caller-controlled and are
+deliberately not checked by this low-level stage.  Use `Compiler.compile?` from
+`Moist.SMT.Compiler.Checked` for the production boundary: it applies the
+sharing-aware generated-output analysis to this exact returned script.
 -/
 
 namespace Moist.SMT.Compiler
@@ -61,14 +57,15 @@ def scriptFor (kind : QueryKind) (fuel : Nat)
 /-- Compile after fail-closed validation of all caller-controlled input.
 
 The canonical script is constructed once.  This function intentionally does
-not run the output contract's unbounded renderer and sort traversals over its
-generated assertion DAG; proof-carrying wrappers postcheck this exact stored
-result without invoking `evalSym` a second time.  Script construction retains
-the bounded prelude-dependency scan needed to select declarations.
+not run generated-output validation.  The fully checked compiler consumes
+this exact stored result without invoking `evalSym` a second time.  Script
+construction retains the bounded prelude-dependency scan needed to select
+declarations.
 
 The name is deliberately explicit: success certifies the input boundary, not
-the compiler-owned output AST.  Use the proof-carrying query constructors when
-a `GeneratedOutputContract` and CEK soundness endpoint are required. -/
+the compiler-owned output AST.  Use `Compiler.compile?` for complete
+proof-free validation, or the proof-carrying query constructors when a CEK
+soundness endpoint is required. -/
 def compileInputChecked? (kind : QueryKind) (fuel : Nat)
     (declarations : List SymDecl) (term : Term) : Option Moist.SMT.Script :=
   if inputAccepted declarations term then

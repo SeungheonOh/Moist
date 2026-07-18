@@ -34,11 +34,15 @@ The portable path is ordered as follows:
    only an exact equality decision at this boundary.
 6. `Moist.SMT.Compiler.InputChecked` exposes the proof-free, explicitly named
    `*InputChecked?` entry points. They validate caller-controlled input and
-   construct one canonical script without running the output contract's
-   unbounded renderer and sort traversals over its shared assertion DAG. The
-   compiler's bounded prelude-dependency scan remains part of construction.
-7. `Moist.SMT.Render` is the transparent reference SMT-LIB renderer.
-8. `Moist.SMT.Compiler` is the public portable facade over those modules.
+   construct one canonical script. These are low-level first-stage functions,
+   not the production acceptance boundary.
+7. `Moist.SMT.Compiler.Checked` exposes `compile?` and its three specialized
+   entry points. It consumes the exact first-stage result and validates
+   command forms, solver control, renderer safety, and assertion sorts. Its
+   renderer/sort pass is the sharing-aware analysis above; symbolic evaluation
+   is not repeated.
+8. `Moist.SMT.Render` is the transparent reference SMT-LIB renderer.
+9. `Moist.SMT.Compiler` is the public portable facade over those modules.
 
 None of these modules imports the simulated semantics or the soundness proof
 tree. `Moist.SMT.Compiler.Operational` is a separate opt-in facade for the
@@ -47,11 +51,12 @@ the reference renderer with real Z3, but it is not silently treated as a
 kernel theorem.
 
 `Command.raw`, arbitrary `Expr.app` heads, custom sort strings, and direct
-structure constructors are low-level escape hatches. The proof-free
-`*InputChecked?` functions certify only caller input; they do not certify the
-compiler-owned output AST. Production callers that need the CEK theorem use
-the proof-carrying query constructors, whose explicit postcheck validates the
-same stored script. The compiler itself reserves raw commands for the
+structure constructors are low-level escape hatches. The explicitly named
+`*InputChecked?` functions certify only caller input. Production proof-free
+callers use `Compiler.compile?`, which validates the exact generated output
+AST as well. Callers that need the CEK theorem use the proof-carrying query
+constructors; erasing their certificate is proved equal to that same
+`Compiler.compile?` result. The compiler itself reserves raw commands for the
 reviewed, fixed prelude.
 
 ## Proof and model layers
@@ -75,6 +80,10 @@ The proof side is separate:
   assertion pass preserves sharing with a bounded memo cache;
   `Soundness.OutputAnalysis` proves it exactly equals the transparent
   renderer and sort validators before `OutputContract` stores either fact.
+- `Soundness.CheckedCompiler` proves successful proof-free compilation gives
+  the canonical script plus all input facts and all four output facts. Its
+  proof-carrying result maps exactly to `Compiler.compile?`; it has no separate
+  proof-side compiler or acceptance path.
 - `Soundness.SolverBoundary` ties a checked query to its canonical script and
   consumes a decoded, semantically certified solver model.
 

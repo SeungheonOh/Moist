@@ -157,13 +157,12 @@ def compile? (fuel : Nat) (declarations : List SymDecl)
         simpa [Moist.SMT.Compiler.scriptFor] using compilation.script_eq
       output := compilation.output }
 
-/-- The proof-carrying wrapper stores exactly the portable compiler result
-after the explicit generated-output postcheck. -/
+/-- The proof-carrying wrapper stores exactly the fully checked proof-free
+compiler result. -/
 @[simp] theorem compile_map_script (fuel : Nat)
     (declarations : List SymDecl) (term : Term) :
     (compile? fuel declarations term).map (·.script) =
-      CheckedCompiler.postcheck? declarations
-        (Moist.SMT.Compiler.compileBoolTrueInputChecked? fuel declarations term) := by
+      Moist.SMT.Compiler.compileBoolTrue? fuel declarations term := by
   calc
     (compile? fuel declarations term).map (·.script) =
         (CertifiedCompilation.compile? .boolTrue fuel declarations term).map
@@ -172,8 +171,7 @@ after the explicit generated-output postcheck. -/
       generalize hCompilation :
         CertifiedCompilation.compile? .boolTrue fuel declarations term = result
       cases result <;> rfl
-    _ = CheckedCompiler.postcheck? declarations
-        (Moist.SMT.Compiler.compileInputChecked? .boolTrue fuel declarations term) :=
+    _ = Moist.SMT.Compiler.compile? .boolTrue fuel declarations term :=
       CertifiedCompilation.compile_map_script
         .boolTrue fuel declarations term
     _ = _ := rfl
@@ -313,13 +311,12 @@ def compile? (fuel : Nat) (declarations : List SymDecl)
         simpa [Moist.SMT.Compiler.scriptFor] using compilation.script_eq
       output := compilation.output }
 
-/-- The proof-carrying wrapper stores exactly the portable compiler result
-after the explicit generated-output postcheck. -/
+/-- The proof-carrying wrapper stores exactly the fully checked proof-free
+compiler result. -/
 @[simp] theorem compile_map_script (fuel : Nat)
     (declarations : List SymDecl) (term : Term) (expected : Int) :
     (compile? fuel declarations term expected).map (·.script) =
-      CheckedCompiler.postcheck? declarations
-        (Moist.SMT.Compiler.compileIntEqInputChecked? fuel declarations term expected) := by
+      Moist.SMT.Compiler.compileIntEq? fuel declarations term expected := by
   calc
     (compile? fuel declarations term expected).map (·.script) =
         (CertifiedCompilation.compile? (.intEq expected) fuel declarations term).map
@@ -328,8 +325,7 @@ after the explicit generated-output postcheck. -/
       generalize hCompilation : CertifiedCompilation.compile?
         (.intEq expected) fuel declarations term = result
       cases result <;> rfl
-    _ = CheckedCompiler.postcheck? declarations
-        (Moist.SMT.Compiler.compileInputChecked? (.intEq expected) fuel declarations term) :=
+    _ = Moist.SMT.Compiler.compile? (.intEq expected) fuel declarations term :=
       CertifiedCompilation.compile_map_script
         (.intEq expected) fuel declarations term
     _ = _ := rfl
@@ -467,13 +463,12 @@ def compile? (fuel : Nat) (declarations : List SymDecl)
         simpa [Moist.SMT.Compiler.scriptFor] using compilation.script_eq
       output := compilation.output }
 
-/-- The proof-carrying wrapper stores exactly the portable compiler result
-after the explicit generated-output postcheck. -/
+/-- The proof-carrying wrapper stores exactly the fully checked proof-free
+compiler result. -/
 @[simp] theorem compile_map_script (fuel : Nat)
     (declarations : List SymDecl) (term : Term) :
     (compile? fuel declarations term).map (·.script) =
-      CheckedCompiler.postcheck? declarations
-        (Moist.SMT.Compiler.compileErrorInputChecked? fuel declarations term) := by
+      Moist.SMT.Compiler.compileError? fuel declarations term := by
   calc
     (compile? fuel declarations term).map (·.script) =
         (CertifiedCompilation.compile? .error fuel declarations term).map
@@ -482,8 +477,7 @@ after the explicit generated-output postcheck. -/
       generalize hCompilation :
         CertifiedCompilation.compile? .error fuel declarations term = result
       cases result <;> rfl
-    _ = CheckedCompiler.postcheck? declarations
-        (Moist.SMT.Compiler.compileInputChecked? .error fuel declarations term) :=
+    _ = Moist.SMT.Compiler.compile? .error fuel declarations term :=
       CertifiedCompilation.compile_map_script
         .error fuel declarations term
     _ = _ := rfl

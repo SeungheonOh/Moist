@@ -1,3 +1,4 @@
+import Moist.SMT.Compiler.Checked
 import Moist.SMT.Soundness.OutputAnalysis
 
 /-!
@@ -24,22 +25,40 @@ structure GeneratedOutputContract (declarations : List SymDecl)
 
 namespace GeneratedOutputContract
 
+/-- The proof-free production check is exactly the conjunction of all four
+transparent output-contract facts. -/
+theorem outputAccepted_eq (declarations : List SymDecl)
+    (script : Moist.SMT.Script) :
+    Moist.SMT.Compiler.outputAccepted declarations script =
+      (generatedCommandsSafe declarations script &&
+        generatedSolverControlSafe script &&
+        generatedAssertionsRendererSafe script &&
+        generatedAssertionsSortSafe declarations script) := by
+  rw [Moist.SMT.Compiler.outputAccepted,
+    OutputAnalysis.generatedAssertionsOutputSafe_eq]
+  simp only [Bool.and_assoc]
+
+/-- Turn successful proof-free output validation into all four independent
+kernel facts about the exact same script. -/
+def ofOutputAccepted {declarations : List SymDecl}
+    {script : Moist.SMT.Script}
+    (accepted : Moist.SMT.Compiler.outputAccepted declarations script = true) :
+    GeneratedOutputContract declarations script := by
+  rw [outputAccepted_eq] at accepted
+  simp only [Bool.and_eq_true] at accepted
+  exact
+    { commandsSafe := accepted.1.1.1
+      solverControlSafe := accepted.1.1.2
+      rendererSafe := accepted.1.2
+      sortSafe := accepted.2 }
+
 /-- Fail closed when compiler output leaves the reviewed command, control,
-renderer, or sort fragment. -/
+renderer, or sort fragment.  This proof wrapper delegates acceptance to the
+same executable predicate used by the proof-free compiler. -/
 def check (declarations : List SymDecl) (script : Moist.SMT.Script) :
     Option (GeneratedOutputContract declarations script) :=
-  if hCommands : generatedCommandsSafe declarations script = true then
-    if hControl : generatedSolverControlSafe script = true then
-      if hsafe : generatedAssertionsOutputSafe declarations script = true then
-        have hreference : generatedAssertionsRendererSafe script = true ∧
-            generatedAssertionsSortSafe declarations script = true := by
-          rw [OutputAnalysis.generatedAssertionsOutputSafe_eq] at hsafe
-          exact Bool.and_eq_true_iff.mp hsafe
-        some ⟨hCommands, hControl, hreference.1, hreference.2⟩
-      else
-        none
-    else
-      none
+  if accepted : Moist.SMT.Compiler.outputAccepted declarations script = true then
+    some (ofOutputAccepted accepted)
   else
     none
 
@@ -50,11 +69,10 @@ def check (declarations : List SymDecl) (script : Moist.SMT.Script) :
         generatedSolverControlSafe script &&
         generatedAssertionsRendererSafe script &&
         generatedAssertionsSortSafe declarations script) := by
-  by_cases hCommands : generatedCommandsSafe declarations script = true <;>
-    by_cases hControl : generatedSolverControlSafe script = true <;>
-    by_cases hRenderer : generatedAssertionsRendererSafe script = true <;>
-    by_cases hSort : generatedAssertionsSortSafe declarations script = true <;>
-    simp_all [check, OutputAnalysis.generatedAssertionsOutputSafe_eq]
+  rw [← outputAccepted_eq]
+  by_cases accepted :
+      Moist.SMT.Compiler.outputAccepted declarations script = true <;>
+    simp [check, accepted]
 
 end GeneratedOutputContract
 
