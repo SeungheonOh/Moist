@@ -75,7 +75,7 @@ private theorem expressionSort_app_of_ne_eq
     expressionSort? declarations (.app name arguments) = (do
       let argumentSorts ← expressionSorts? declarations arguments
       applicationResultSort? name argumentSorts) := by
-  rw [expressionSort?.eq_def]
+  rw [Moist.SMT.Compiler.Validation.expressionSort?.eq_def]
   simp [hname]
 
 /-! ## Checked-input decoding

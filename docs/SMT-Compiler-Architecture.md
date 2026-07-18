@@ -18,7 +18,10 @@ The portable path is ordered as follows:
    does not import the CEK transition machine; the latter belongs to the proof
    side of the boundary.
 4. `Moist.SMT.Compiler.Validation` contains fail-closed structural validation
-   for the supported builtin fragment and public SMT expressions.
+   for the supported builtin fragment and public SMT expressions. Its
+   executable definitions live in the matching
+   `Moist.SMT.Compiler.Validation` namespace; compatibility exports preserve
+   the former `Moist.SMT.UPLC.Soundness` spellings for existing Lean callers.
 5. `Moist.SMT.Compiler.InputChecked` exposes the proof-free, explicitly named
    `*InputChecked?` entry points. They validate caller-controlled input and
    construct one canonical script without running the output contract's
@@ -125,8 +128,8 @@ A port must preserve all of the following together:
 - reference rendering of negative integers and recursive literals;
 - injective/safe names, unique declarations, sort checking, and generated
   output validation;
-- computational revalidation of every mandatory decoding assumption that
-  Lean's `SymDecl.wellFormed` proof field carries before erasure; and
+- computational revalidation of every mandatory decoding assumption in the
+  proof-free `SymDecl` record; and
 - the CEK/Z3 differential, raw-prelude differential, renderer differential,
   prelude-family, axiom, and no-hole test gates.
 

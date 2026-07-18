@@ -16,15 +16,16 @@ It deliberately imports neither the executable SMT semantics nor any
 soundness proof. Proof-carrying query wrappers and all semantic justification
 of these checks remain in `Moist.SMT.Soundness.SolverInput`.
 
-The declarations retain their established
-`Moist.SMT.UPLC.Soundness` names for source compatibility. Their module and
-import boundary, rather than a namespace rename, is the portable compiler
-boundary.
+The canonical executable API lives in `Moist.SMT.Compiler.Validation`.
+Compatibility exports at the end of this module keep the former
+`Moist.SMT.UPLC.Soundness` names resolvable without making the proof namespace
+the owner of executable compiler definitions.
 -/
 
-namespace Moist.SMT.UPLC.Soundness
+namespace Moist.SMT.Compiler.Validation
 
 open Moist.Plutus.Term
+open Moist.SMT.UPLC
 
 /-! ## Supported builtin fragment -/
 
@@ -750,5 +751,79 @@ def generatedAssertionsSortSafe (declarations : List SymDecl)
     (script : Moist.SMT.Script) : Bool :=
   script.assertions.all fun expression =>
     expressionHasSort declarations expression .bool
+
+end Moist.SMT.Compiler.Validation
+
+/-! ## Compatibility exports
+
+These names historically lived in `Moist.SMT.UPLC.Soundness`.  Exporting the
+canonical compiler declarations preserves source compatibility for existing
+callers while keeping one executable implementation and one set of generated
+reduction equations.  New code should use `Moist.SMT.Compiler.Validation`.
+-/
+
+namespace Moist.SMT.UPLC.Soundness
+
+export Moist.SMT.Compiler.Validation
+  ( builtinAllowedForSoundness
+    builtinOpaqueForSoundness
+    termUsesOpaqueBuiltinForSoundness
+    termsUseOpaqueBuiltinForSoundness
+    termNoOpaqueBuiltinsForSoundness
+    symValNoOpaqueForSoundness
+    symValsNoOpaqueForSoundness
+    symEnvNoOpaqueForSoundness
+    sanitizedNameTailChar
+    declarationNameRendererSafe
+    simpleSymbolCharRendererSafe
+    simpleSymbolRendererSafe
+    indexedTesterHeads
+    applicationHeadRendererSafe
+    nullaryApplicationHeads
+    symbolAtomRendererSafe
+    expressionRendererSafe
+    expressionsRendererSafe
+    ApplicationSignature
+    applicationSignatures
+    testerSignature?
+    applicationResultSort?
+    declarationSort?
+    expressionSort?
+    expressionSorts?
+    expressionHasSort
+    symConstSortSafe
+    symValSortSafe
+    symValsSortSafe
+    symDeclSortSafe
+    declarationsSortSafe
+    totalApplicationHeads
+    expressionTotalitySafe
+    expressionsTotalitySafe
+    directValSymbol
+    nonnegativeLiteral
+    inputSymConstSafe
+    inputConstSymValSafe
+    inputSymValSafe
+    inputSymValsSafe
+    requiredAssumptionMatches
+    requiredAssumptionsPresent
+    symDeclRequiredAssumptionsPresent
+    symDeclInputSafe
+    declarationsInputSafe
+    declarationNamesDistinct
+    symConstRendererSafe
+    symValRendererSafe
+    symValsRendererSafe
+    symDeclRendererSafe
+    declarationsRendererSafe
+    matchesFixedPreludeCommand
+    fixedPreludeCommand
+    checkedDeclarationCommand
+    generatedCommandSafe
+    generatedCommandsSafe
+    solverControlCommand
+    generatedSolverControlSafe
+    generatedAssertionsRendererSafe
+    generatedAssertionsSortSafe )
 
 end Moist.SMT.UPLC.Soundness

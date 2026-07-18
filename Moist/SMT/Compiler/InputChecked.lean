@@ -25,7 +25,7 @@ namespace Moist.SMT.Compiler
 
 open Moist.Plutus.Term
 open Moist.SMT.UPLC
-open Moist.SMT.UPLC.Soundness
+open Moist.SMT.Compiler.Validation
 
 /-- The three production propositions currently exposed by the symbolic
 compiler.  Integer equality intentionally carries a literal integer rather
