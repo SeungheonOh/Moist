@@ -6,22 +6,99 @@ open Moist.Plutus.Term
 open Moist.Verified.BigStep
 open Moist.CEK (ArgKind ExpectedArgs expectedArgs CekEnv CekValue)
 
+theorem isIntZero_eq_true {expression : SExpr} :
+    expression.isIntZero = true ↔ expression = .int 0 := by
+  cases expression <;> simp [SExpr.isIntZero]
+
+theorem isIntOne_eq_true {expression : SExpr} :
+    expression.isIntOne = true ↔ expression = .int 1 := by
+  cases expression <;> simp [SExpr.isIntOne]
+
+/-- Neutral-element elimination is exact for every model once both operands
+have the integer denotations established by the compiler's `asInt` guards. -/
+theorem eval_intAdd_of {m : SmtSem.Model} {a b : SExpr} {x y : Int}
+    (ha : SmtSem.eval m a = some (.int x))
+    (hb : SmtSem.eval m b = some (.int y)) :
+    SmtSem.eval m (SExpr.intAdd a b) = some (.int (x + y)) := by
+  by_cases ha0 : a.isIntZero = true
+  · rw [isIntZero_eq_true] at ha0
+    subst a
+    simp [Moist.SMT.Semantics.eval] at ha
+    subst x
+    simpa [SExpr.intAdd, SExpr.isIntZero] using hb
+  · by_cases hb0 : b.isIntZero = true
+    · rw [isIntZero_eq_true] at hb0
+      subst b
+      simp [Moist.SMT.Semantics.eval] at hb
+      subst y
+      simpa [SExpr.intAdd, ha0] using ha
+    · simp only [SExpr.intAdd, ha0, hb0, Bool.false_eq_true, ↓reduceIte]
+      exact Moist.SMT.Semantics.eval_add_of ha hb
+
+/-- Subtraction by zero is exact under the same integer projection premise. -/
+theorem eval_intSub_of {m : SmtSem.Model} {a b : SExpr} {x y : Int}
+    (ha : SmtSem.eval m a = some (.int x))
+    (hb : SmtSem.eval m b = some (.int y)) :
+    SmtSem.eval m (SExpr.intSub a b) = some (.int (x - y)) := by
+  by_cases hb0 : b.isIntZero = true
+  · rw [isIntZero_eq_true] at hb0
+    subst b
+    simp [Moist.SMT.Semantics.eval] at hb
+    subst y
+    simpa [SExpr.intSub, SExpr.isIntZero] using ha
+  · simp only [SExpr.intSub, hb0, Bool.false_eq_true, ↓reduceIte]
+    exact Moist.SMT.Semantics.eval_sub_of ha hb
+
+/-- Zero annihilation and one elimination are exact under integer projection. -/
+theorem eval_intMul_of {m : SmtSem.Model} {a b : SExpr} {x y : Int}
+    (ha : SmtSem.eval m a = some (.int x))
+    (hb : SmtSem.eval m b = some (.int y)) :
+    SmtSem.eval m (SExpr.intMul a b) = some (.int (x * y)) := by
+  by_cases ha0 : a.isIntZero = true
+  · rw [isIntZero_eq_true] at ha0
+    subst a
+    simp [Moist.SMT.Semantics.eval] at ha
+    subst x
+    simp [SExpr.intMul, SExpr.isIntZero, Moist.SMT.Semantics.eval]
+  · by_cases hb0 : b.isIntZero = true
+    · rw [isIntZero_eq_true] at hb0
+      subst b
+      simp [Moist.SMT.Semantics.eval] at hb
+      subst y
+      simp only [SExpr.intMul, ha0, Bool.false_eq_true, ↓reduceIte]
+      simp [SExpr.isIntZero, Moist.SMT.Semantics.eval]
+    · by_cases ha1 : a.isIntOne = true
+      · rw [isIntOne_eq_true] at ha1
+        subst a
+        simp [Moist.SMT.Semantics.eval] at ha
+        subst x
+        simpa [SExpr.intMul, hb0] using hb
+      · by_cases hb1 : b.isIntOne = true
+        · rw [isIntOne_eq_true] at hb1
+          subst b
+          simp [Moist.SMT.Semantics.eval] at hb
+          subst y
+          simpa [SExpr.intMul, ha0, ha1] using ha
+        · simp only [SExpr.intMul, ha0, hb0, ha1, hb1,
+            Bool.false_eq_true, ↓reduceIte]
+          exact Moist.SMT.Semantics.eval_mul_of ha hb
+
 set_option maxHeartbeats 0 in
 theorem evalBuiltinSym_AddInteger_eq (b a : SymVal) :
     evalBuiltinSym .AddInteger [b, a] =
-      checkedConst (Proj.map2 SExpr.add (asInt a) (asInt b)) .integer := by
+      checkedConst (Proj.map2 SExpr.intAdd (asInt a) (asInt b)) .integer := by
   rfl
 
 set_option maxHeartbeats 0 in
 theorem evalBuiltinSym_SubtractInteger_eq (b a : SymVal) :
     evalBuiltinSym .SubtractInteger [b, a] =
-      checkedConst (Proj.map2 SExpr.sub (asInt a) (asInt b)) .integer := by
+      checkedConst (Proj.map2 SExpr.intSub (asInt a) (asInt b)) .integer := by
   rfl
 
 set_option maxHeartbeats 0 in
 theorem evalBuiltinSym_MultiplyInteger_eq (b a : SymVal) :
     evalBuiltinSym .MultiplyInteger [b, a] =
-      checkedConst (Proj.map2 SExpr.mul (asInt a) (asInt b)) .integer := by
+      checkedConst (Proj.map2 SExpr.intMul (asInt a) (asInt b)) .integer := by
   rfl
 
 set_option maxHeartbeats 0 in
@@ -63,7 +140,7 @@ theorem evalBuiltinSym_ModInteger_eq (b a : SymVal) :
 set_option maxHeartbeats 0 in
 theorem evalBuiltinSym_EqualsInteger_eq (b a : SymVal) :
     evalBuiltinSym .EqualsInteger [b, a] =
-      checkedBool (Proj.map2 SExpr.eq (asInt a) (asInt b)) := by
+      checkedBool (Proj.map2 SExpr.reflexiveEq (asInt a) (asInt b)) := by
   rfl
 
 set_option maxHeartbeats 0 in
@@ -124,7 +201,7 @@ theorem evalBuiltinSym_IndexByteString_eq (idx bs : SymVal) :
 set_option maxHeartbeats 0 in
 theorem evalBuiltinSym_EqualsByteString_eq (b a : SymVal) :
     evalBuiltinSym .EqualsByteString [b, a] =
-      checkedBool (Proj.map2 SExpr.eq (asBytes a) (asBytes b)) := by
+      checkedBool (Proj.map2 SExpr.reflexiveEq (asBytes a) (asBytes b)) := by
   rfl
 
 set_option maxHeartbeats 0 in
@@ -150,7 +227,7 @@ theorem evalBuiltinSym_AppendString_eq (b a : SymVal) :
 set_option maxHeartbeats 0 in
 theorem evalBuiltinSym_EqualsString_eq (b a : SymVal) :
     evalBuiltinSym .EqualsString [b, a] =
-      checkedBool (Proj.map2 SExpr.eq (asString a) (asString b)) := by
+      checkedBool (Proj.map2 SExpr.reflexiveEq (asString a) (asString b)) := by
   rfl
 
 set_option maxHeartbeats 0 in
@@ -249,7 +326,7 @@ theorem evalBuiltinSym_FindFirstSetBit_eq (bs : SymVal) :
 set_option maxHeartbeats 0 in
 theorem evalBuiltinSym_EqualsData_eq (b a : SymVal) :
     evalBuiltinSym .EqualsData [b, a] =
-      checkedBool (Proj.map2 SExpr.eq (asData a) (asData b)) := by
+      checkedBool (Proj.map2 SExpr.reflexiveEq (asData a) (asData b)) := by
   rfl
 
 set_option maxHeartbeats 0 in
@@ -1043,7 +1120,7 @@ theorem evalBuiltinSym_active_ok_AddInteger : BuiltinOkSound .AddInteger := by
               change Outcome.ok pc v ∈
                 [Outcome.ok (SExpr.and (asInt a).guard (asInt b).guard)
                   (SymVal.const (SymConst.integer
-                    (SExpr.add (asInt a).val (asInt b).val))),
+                    (SExpr.intAdd (asInt a).val (asInt b).val))),
                  Outcome.error (SExpr.not
                   (SExpr.and (asInt a).guard (asInt b).guard))] at hmem
               simp only [List.mem_cons, List.not_mem_nil] at hmem
@@ -1059,10 +1136,10 @@ theorem evalBuiltinSym_active_ok_AddInteger : BuiltinOkSound .AddInteger := by
                 obtain ⟨ib, rfl, heb⟩ := asInt_sound hb hp.2
                 refine ⟨.VCon (.Integer (ia + ib)), ?_, ?_, ?_⟩
                 ·
-                  have hadd := Moist.SMT.Semantics.eval_add_of (m := m)
+                  have hadd := eval_intAdd_of (m := m)
                     (a := (asInt a).val) (b := (asInt b).val)
                     (x := ia) (y := ib) hea heb
-                  change SmtSem.eval m (SExpr.add (asInt a).val (asInt b).val) =
+                  change SmtSem.eval m (SExpr.intAdd (asInt a).val (asInt b).val) =
                     some (Moist.SMT.Semantics.SVal.int (ia + ib)) at hadd
                   simp [symValToCek?, symConstToCek?, hadd]
                 · simp [symValNoOpaqueForSoundness]
@@ -1092,7 +1169,7 @@ theorem evalBuiltinSym_active_ok_SubtractInteger : BuiltinOkSound .SubtractInteg
               change Outcome.ok pc v ∈
                 [Outcome.ok (SExpr.and (asInt a).guard (asInt b).guard)
                   (SymVal.const (SymConst.integer
-                    (SExpr.sub (asInt a).val (asInt b).val))),
+                    (SExpr.intSub (asInt a).val (asInt b).val))),
                  Outcome.error (SExpr.not
                   (SExpr.and (asInt a).guard (asInt b).guard))] at hmem
               simp only [List.mem_cons, List.not_mem_nil] at hmem
@@ -1108,10 +1185,10 @@ theorem evalBuiltinSym_active_ok_SubtractInteger : BuiltinOkSound .SubtractInteg
                 obtain ⟨ib, rfl, heb⟩ := asInt_sound hb hp.2
                 refine ⟨.VCon (.Integer (ia - ib)), ?_, ?_, ?_⟩
                 ·
-                  have hsub := Moist.SMT.Semantics.eval_sub_of (m := m)
+                  have hsub := eval_intSub_of (m := m)
                     (a := (asInt a).val) (b := (asInt b).val)
                     (x := ia) (y := ib) hea heb
-                  change SmtSem.eval m (SExpr.sub (asInt a).val (asInt b).val) =
+                  change SmtSem.eval m (SExpr.intSub (asInt a).val (asInt b).val) =
                     some (Moist.SMT.Semantics.SVal.int (ia - ib)) at hsub
                   simp [symValToCek?, symConstToCek?, hsub]
                 · simp [symValNoOpaqueForSoundness]
@@ -1142,7 +1219,7 @@ theorem evalBuiltinSym_active_ok_MultiplyInteger : BuiltinOkSound .MultiplyInteg
               change Outcome.ok pc v ∈
                 [Outcome.ok (SExpr.and (asInt a).guard (asInt b).guard)
                   (SymVal.const (SymConst.integer
-                    (SExpr.mul (asInt a).val (asInt b).val))),
+                    (SExpr.intMul (asInt a).val (asInt b).val))),
                  Outcome.error (SExpr.not
                   (SExpr.and (asInt a).guard (asInt b).guard))] at hmem
               simp only [List.mem_cons, List.not_mem_nil] at hmem
@@ -1158,10 +1235,10 @@ theorem evalBuiltinSym_active_ok_MultiplyInteger : BuiltinOkSound .MultiplyInteg
                 obtain ⟨ib, rfl, heb⟩ := asInt_sound hb hp.2
                 refine ⟨.VCon (.Integer (ia * ib)), ?_, ?_, ?_⟩
                 ·
-                  have hmul := Moist.SMT.Semantics.eval_mul_of (m := m)
+                  have hmul := eval_intMul_of (m := m)
                     (a := (asInt a).val) (b := (asInt b).val)
                     (x := ia) (y := ib) hea heb
-                  change SmtSem.eval m (SExpr.mul (asInt a).val (asInt b).val) =
+                  change SmtSem.eval m (SExpr.intMul (asInt a).val (asInt b).val) =
                     some (Moist.SMT.Semantics.SVal.int (ia * ib)) at hmul
                   simp [symValToCek?, symConstToCek?, hmul]
                 · simp [symValNoOpaqueForSoundness]
@@ -1414,7 +1491,7 @@ theorem evalBuiltinSym_active_ok_EqualsInteger : BuiltinOkSound .EqualsInteger :
               change Outcome.ok pc v ∈
                 [Outcome.ok (SExpr.and (asInt a).guard (asInt b).guard)
                   (SymVal.const (SymConst.bool
-                    (SExpr.eq (asInt a).val (asInt b).val))),
+                    (SExpr.reflexiveEq (asInt a).val (asInt b).val))),
                  Outcome.error (SExpr.not
                   (SExpr.and (asInt a).guard (asInt b).guard))] at hmem
               simp only [List.mem_cons, List.not_mem_nil] at hmem
@@ -1430,10 +1507,11 @@ theorem evalBuiltinSym_active_ok_EqualsInteger : BuiltinOkSound .EqualsInteger :
                 obtain ⟨ib, rfl, heb⟩ := asInt_sound hb hp.2
                 refine ⟨.VCon (.Bool (ia == ib)), ?_, ?_, ?_⟩
                 ·
-                  have heq := Moist.SMT.Semantics.eval_eq_int_of (m := m)
+                  have heq := eval_reflexiveEq_int_of (m := m)
                     (a := (asInt a).val) (b := (asInt b).val)
                     (x := ia) (y := ib) hea heb
-                  change SmtSem.eval m (SExpr.eq (asInt a).val (asInt b).val) =
+                  change SmtSem.eval m
+                    (SExpr.reflexiveEq (asInt a).val (asInt b).val) =
                     some (Moist.SMT.Semantics.SVal.bool (ia == ib)) at heq
                   simp [symValToCek?, symConstToCek?, heq]
                 · simp [symValNoOpaqueForSoundness]
@@ -1902,7 +1980,7 @@ theorem evalBuiltinSym_active_ok_EqualsByteString : BuiltinOkSound .EqualsByteSt
               change Outcome.ok pc v ∈
                 [Outcome.ok (SExpr.and (asBytes a).guard (asBytes b).guard)
                   (SymVal.const (SymConst.bool
-                    (SExpr.eq (asBytes a).val (asBytes b).val))),
+                    (SExpr.reflexiveEq (asBytes a).val (asBytes b).val))),
                  Outcome.error (SExpr.not
                   (SExpr.and (asBytes a).guard (asBytes b).guard))] at hmem
               simp only [List.mem_cons, List.not_mem_nil] at hmem
@@ -1918,10 +1996,11 @@ theorem evalBuiltinSym_active_ok_EqualsByteString : BuiltinOkSound .EqualsByteSt
                 obtain ⟨bsb, rfl, heb⟩ := asBytes_sound hb hp.2
                 refine ⟨.VCon (.Bool (bsa == bsb)), ?_, ?_, ?_⟩
                 ·
-                  have heq := Moist.SMT.Semantics.eval_eq_bytes_of (m := m)
+                  have heq := eval_reflexiveEq_bytes_of (m := m)
                     (a := (asBytes a).val) (b := (asBytes b).val)
                     (x := bsa) (y := bsb) hea heb
-                  change SmtSem.eval m (SExpr.eq (asBytes a).val (asBytes b).val) =
+                  change SmtSem.eval m
+                    (SExpr.reflexiveEq (asBytes a).val (asBytes b).val) =
                     some (Moist.SMT.Semantics.SVal.bool (bsa == bsb)) at heq
                   simp [symValToCek?, symConstToCek?, heq]
                 · simp [symValNoOpaqueForSoundness]
@@ -2105,7 +2184,7 @@ theorem evalBuiltinSym_active_ok_EqualsString : BuiltinOkSound .EqualsString := 
               change Outcome.ok pc v ∈
                 [Outcome.ok (SExpr.and (asString a).guard (asString b).guard)
                   (SymVal.const (SymConst.bool
-                    (SExpr.eq (asString a).val (asString b).val))),
+                    (SExpr.reflexiveEq (asString a).val (asString b).val))),
                  Outcome.error (SExpr.not
                   (SExpr.and (asString a).guard (asString b).guard))] at hmem
               simp only [List.mem_cons, List.not_mem_nil] at hmem
@@ -2121,10 +2200,11 @@ theorem evalBuiltinSym_active_ok_EqualsString : BuiltinOkSound .EqualsString := 
                 obtain ⟨sb, rfl, heb⟩ := asString_sound hb hp.2
                 refine ⟨.VCon (.Bool (sa == sb)), ?_, ?_, ?_⟩
                 ·
-                  have heq := Moist.SMT.Semantics.eval_eq_string_of (m := m)
+                  have heq := eval_reflexiveEq_string_of (m := m)
                     (a := (asString a).val) (b := (asString b).val)
                     (x := sa) (y := sb) hea heb
-                  change SmtSem.eval m (SExpr.eq (asString a).val (asString b).val) =
+                  change SmtSem.eval m
+                    (SExpr.reflexiveEq (asString a).val (asString b).val) =
                     some (Moist.SMT.Semantics.SVal.bool (sa == sb)) at heq
                   simp [symValToCek?, symConstToCek?, heq]
                 · simp [symValNoOpaqueForSoundness]
@@ -3698,7 +3778,7 @@ theorem evalBuiltinSym_active_ok_EqualsData : BuiltinOkSound .EqualsData := by
               change Outcome.ok pc v ∈
                 [Outcome.ok (SExpr.and (asData a).guard (asData b).guard)
                   (SymVal.const (SymConst.bool
-                    (SExpr.eq (asData a).val (asData b).val))),
+                    (SExpr.reflexiveEq (asData a).val (asData b).val))),
                  Outcome.error (SExpr.not
                   (SExpr.and (asData a).guard (asData b).guard))] at hmem
               simp only [List.mem_cons, List.not_mem_nil] at hmem
@@ -3714,10 +3794,11 @@ theorem evalBuiltinSym_active_ok_EqualsData : BuiltinOkSound .EqualsData := by
                 obtain ⟨db, rfl, heb⟩ := asData_sound hb hp.2
                 refine ⟨.VCon (.Bool (da == db)), ?_, ?_, ?_⟩
                 ·
-                  have heq := Moist.SMT.Semantics.eval_eq_data_of (m := m)
+                  have heq := eval_reflexiveEq_data_of (m := m)
                     (a := (asData a).val) (b := (asData b).val)
                     (x := da) (y := db) hea heb
-                  change SmtSem.eval m (SExpr.eq (asData a).val (asData b).val) =
+                  change SmtSem.eval m
+                    (SExpr.reflexiveEq (asData a).val (asData b).val) =
                     some (Moist.SMT.Semantics.SVal.bool (da == db)) at heq
                   simp [symValToCek?, symConstToCek?, heq]
                 · simp [symValNoOpaqueForSoundness]

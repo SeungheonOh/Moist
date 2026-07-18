@@ -19,6 +19,12 @@ info: 'Moist.SMT.UPLC.scriptWithTactic_assertions' depends on axioms: [propext, 
 #print axioms Moist.SMT.UPLC.scriptWithTactic_assertions
 
 /--
+info: 'Moist.SMT.UPLC.groupedAssertions_true_iff' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.groupedAssertions_true_iff
+
+/--
 info: 'Moist.SMT.UPLC.scriptWith_assertionsTrue_iff_fullPrelude' depends on axioms: [propext, Quot.sound]
 -/
 #guard_msgs in
@@ -61,6 +67,84 @@ info: 'Moist.SMT.Semantics.eval_or_of_bools' depends on axioms: [propext, Quot.s
 #print axioms Moist.SMT.Semantics.eval_or_of_bools
 
 /--
+info: 'Moist.SMT.UPLC.Soundness.eval_intAdd_of' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.eval_intAdd_of
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.eval_intSub_of' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.eval_intSub_of
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.eval_intMul_of' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.eval_intMul_of
+
+/--
+info: 'Moist.SMT.UPLC.SExpr.same?' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.SExpr.same?
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.eval_reflexiveEq_int_of' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.eval_reflexiveEq_int_of
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.eval_reflexiveEq_bytes_of' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.eval_reflexiveEq_bytes_of
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.eval_reflexiveEq_string_of' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.eval_reflexiveEq_string_of
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.eval_reflexiveEq_data_of' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.eval_reflexiveEq_data_of
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.evalBoolIs_anyBalanced_true' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.evalBoolIs_anyBalanced_true
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.evalBoolIs_any_true' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.evalBoolIs_any_true
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.evalBool?_any_eq_referenceLinearAny' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.evalBool?_any_eq_referenceLinearAny
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.evalBoolIs_any_eq_referenceLinearAny' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.evalBoolIs_any_eq_referenceLinearAny
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.evalBoolIs_any_true_of_mem' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.evalBoolIs_any_true_of_mem
+
+/--
 info: 'Moist.SMT.UPLC.Soundness.bindOk_mem' depends on axioms: [propext, Quot.sound]
 -/
 #guard_msgs in
@@ -101,6 +185,24 @@ info: 'Moist.SMT.UPLC.Soundness.mem_pruneFalseOutcomes_iff_of_active' depends on
 -/
 #guard_msgs in
 #print axioms Moist.SMT.UPLC.Soundness.mem_pruneFalseOutcomes_iff_of_active
+
+/--
+info: 'Moist.SMT.UPLC.SExpr.sameAtom_eq_true' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.SExpr.sameAtom_eq_true
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.mergeEncodedOks_active' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.mergeEncodedOks_active
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.mergeEncodedConstListOks_erase' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.mergeEncodedConstListOks_erase
 
 /--
 info: 'Moist.SMT.UPLC.Soundness.compactOutcomes_active_ok' depends on axioms: [propext, Quot.sound]

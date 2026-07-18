@@ -34,6 +34,15 @@ def rawRecursiveSum55 : Expr :=
 #guard (Expr.simplifyBool (.ite (.sym "p") (.bool false) (.bool true)) ==
   .app "not" [.sym "p"])
 
+def repeatedEqualityOperand : Expr :=
+  .app "*" [.app "+" [.sym "x", .int 7], .sym "x"]
+
+-- Equality folding is proof-carrying and deliberately falls back when the
+-- syntax differs; it is not a hash-only or unchecked `BEq` rewrite.
+#guard SExpr.reflexiveEq repeatedEqualityOperand repeatedEqualityOperand == .bool true
+#guard SExpr.reflexiveEq (.sym "lhs") (.sym "rhs") ==
+  SExpr.eq (.sym "lhs") (.sym "rhs")
+
 -- These tempting annihilator rewrites are deliberately absent: with the
 -- partial executable SMT semantics, an ill-typed/undefined operand must stay
 -- undefined rather than becoming a total Boolean constant.
@@ -60,22 +69,34 @@ example : scriptWithSimplified [xInt] [rawRecursiveSum55] =
     "(par-or (then simplify ctx-solver-simplify smt) smt)))"
 
 -- Solver preprocessing is deliberately outside the assertion list.  The
--- kernel checks that the optimized script still submits exactly the symbolic
--- environment assumptions followed by the compiler-generated query.
+-- kernel checks that the optimized script keeps symbolic-environment
+-- assumptions separate and groups caller assertions into one proved-
+-- equivalent conjunction.
 example (decls : List SymDecl) (assertions : List Expr) :
     (scriptWith decls assertions).assertions =
-      decls.flatMap SymDecl.assumptions ++ assertions :=
+      decls.flatMap SymDecl.assumptions ++ groupedAssertions assertions :=
   scriptWith_assertions decls assertions
+
+#guard groupedAssertions ([] : List Expr) == []
+#guard groupedAssertions [.sym "p"] == [.sym "p"]
+#guard (groupedAssertions [.sym "p", .sym "q", .sym "r"]).length == 1
+
+example (model : Semantics.Model) (assertions : List Expr) :
+    (∀ expression, expression ∈ groupedAssertions assertions →
+      Semantics.evalBoolIs model expression true = true) ↔
+    (∀ expression, expression ∈ assertions →
+      Semantics.evalBoolIs model expression true = true) :=
+  groupedAssertions_true_iff model assertions
 
 -- Regression benchmark for the path-exploding recursive query.  Construction-
 -- time smart constructors already reach this compact form; the exact query
 -- normalizer is therefore idempotent on this workload.  The 18 merged paths
 -- use lazy `ite` discriminators so the path and selected value are defined
 -- together under the executable partial SMT semantics.
-#guard exprNodes rawRecursiveSum55 == 1573
-#guard exprNodes rawRecursiveSum55.simplifyBool == 1573
-#guard rawRecursiveSum55.render.length == 5265
-#guard rawRecursiveSum55.simplifyBool.render.length == 5265
+#guard exprNodes rawRecursiveSum55 == 1571
+#guard exprNodes rawRecursiveSum55.simplifyBool == 1571
+#guard rawRecursiveSum55.render.length == 5259
+#guard rawRecursiveSum55.simplifyBool.render.length == 5259
 
 -- The generic preservation theorem and all end-to-end CEK corollaries are
 -- typechecked here at their public interfaces.

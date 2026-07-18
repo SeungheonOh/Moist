@@ -14,6 +14,100 @@ namespace SExpr
 
 abbrev trueE : SExpr := Moist.SMT.Expr.trueE
 abbrev falseE : SExpr := Moist.SMT.Expr.falseE
+
+/- A positive equality result is carried in `Type`, so it survives executable
+matching while its field is still checked by the kernel. -/
+structure EqCert {α : Type} (a b : α) : Type where
+  eq : a = b
+
+/- Lift a proof-producing element matcher to lists.  Keeping this helper
+separate avoids a nested-inductive mutual recursion in the executable code. -/
+def sameListWith
+    (same : (a b : SExpr) → Option (EqCert a b)) :
+    (xs ys : List SExpr) → Option (EqCert xs ys)
+  | [], [] => some ⟨rfl⟩
+  | x :: xs, y :: ys =>
+      match same x y with
+      | none => none
+      | some hxy =>
+          match sameListWith same xs ys with
+          | some hrest => some ⟨by cases hxy.eq; cases hrest.eq; rfl⟩
+          | none => none
+  | _, _ => none
+
+/- Return a kernel-checked certificate when two SMT expressions have exactly
+the same syntax.  Fuel bounds compiler work only: exhaustion merely forgoes
+the optimization.  No lawfulness assumption about `BEq` enters soundness. -/
+def same? : (fuel : Nat) → (a b : SExpr) → Option (EqCert a b)
+  | 0, _, _ => none
+  | _ + 1, .sym x, .sym y =>
+      if h : x = y then some ⟨by cases h; rfl⟩ else none
+  | _ + 1, .int x, .int y =>
+      if h : x = y then some ⟨by cases h; rfl⟩ else none
+  | _ + 1, .bytes x, .bytes y =>
+      if h : x = y then some ⟨by cases h; rfl⟩ else none
+  | _ + 1, .dataLit x, .dataLit y =>
+      if h : x = y then some ⟨by cases h; rfl⟩ else none
+  | _ + 1, .dataListLit x, .dataListLit y =>
+      if h : x = y then some ⟨by cases h; rfl⟩ else none
+  | _ + 1, .dataPairListLit x, .dataPairListLit y =>
+      if h : x = y then some ⟨by cases h; rfl⟩ else none
+  | _ + 1, .constListLit x, .constListLit y =>
+      if h : x = y then some ⟨by cases h; rfl⟩ else none
+  | _ + 1, .bool x, .bool y =>
+      if h : x = y then some ⟨by cases h; rfl⟩ else none
+  | _ + 1, .str x, .str y =>
+      if h : x = y then some ⟨by cases h; rfl⟩ else none
+  | fuel + 1, .app f xs, .app g ys =>
+      if hf : f = g then
+        match sameListWith (same? fuel) xs ys with
+        | some hargs => some ⟨by cases hf; cases hargs.eq; rfl⟩
+        | none => none
+      else none
+  | fuel + 1, .ite c t e, .ite c' t' e' =>
+      match same? fuel c c' with
+      | none => none
+      | some hc =>
+          match same? fuel t t' with
+          | none => none
+          | some ht =>
+              match same? fuel e e' with
+              | some he => some ⟨by cases hc.eq; cases ht.eq; cases he.eq; rfl⟩
+              | none => none
+  | _ + 1, _, _ => none
+
+/--
+Equality specialized for values that are already protected by a successful
+typed projection.  Equal syntax denotes the same projected value, so the
+result can be emitted as `true`; the soundness lemmas below deliberately use
+this only after proving both operands evaluate at the required SMT sort.
+-/
+def reflexiveEqFuel : Nat := 128
+
+def reflexiveEq (a b : SExpr) : SExpr :=
+  match same? reflexiveEqFuel a b with
+  | some _ => trueE
+  | none => Moist.SMT.Expr.eq a b
+
+/-- A conservative, proof-friendly equality test for atomic SMT expressions.
+Returning `false` only misses an optimization; returning `true` is proved to
+mean syntactic equality below. -/
+def sameAtom : SExpr → SExpr → Bool
+  | .sym a, .sym b => decide (a = b)
+  | .int a, .int b => decide (a = b)
+  | .bytes a, .bytes b => decide (a = b)
+  | .dataLit a, .dataLit b => decide (a = b)
+  | .dataListLit a, .dataListLit b => decide (a = b)
+  | .dataPairListLit a, .dataPairListLit b => decide (a = b)
+  | .constListLit a, .constListLit b => decide (a = b)
+  | .bool a, .bool b => decide (a = b)
+  | .str a, .str b => decide (a = b)
+  | _, _ => false
+
+theorem sameAtom_eq_true {a b : SExpr} (h : sameAtom a b = true) :
+    a = b := by
+  cases a <;> cases b <;> simp_all [sameAtom]
+
 def not (a : SExpr) : SExpr := Moist.SMT.Expr.not a
 def and (a b : SExpr) : SExpr := Moist.SMT.Expr.and a b
 def or (a b : SExpr) : SExpr := Moist.SMT.Expr.or a b
@@ -27,7 +121,57 @@ def le (a b : SExpr) : SExpr := Moist.SMT.Expr.le a b
 def gt (a b : SExpr) : SExpr := Moist.SMT.Expr.gt a b
 def ge (a b : SExpr) : SExpr := Moist.SMT.Expr.ge a b
 def all (xs : List SExpr) : SExpr := Moist.SMT.Expr.all xs
-def any (xs : List SExpr) : SExpr := Moist.SMT.Expr.any xs
+
+/-- Combine adjacent Boolean alternatives in one bottom-up balancing round. -/
+def orPairRound : List SExpr → List SExpr
+  | left :: right :: rest => or left right :: orPairRound rest
+  | [single] => [single]
+  | [] => []
+
+theorem orPairRound_length_le :
+    ∀ xs : List SExpr, (orPairRound xs).length ≤ xs.length
+  | [] => by simp [orPairRound]
+  | [single] => by simp [orPairRound]
+  | left :: right :: rest => by
+      simp only [orPairRound, List.length_cons]
+      have hle := orPairRound_length_le rest
+      omega
+
+/-- A logarithmic-expression-depth disjunction.  Unlike balancing selector
+`ite`s, balancing `or` does not duplicate subexpressions. -/
+def anyBalanced : (xs : List SExpr) → SExpr
+  | [] => falseE
+  | [single] => single
+  | left :: right :: rest =>
+      anyBalanced (or left right :: orPairRound rest)
+termination_by xs => xs.length
+decreasing_by
+  simp only [List.length_cons]
+  have hle := orPairRound_length_le rest
+  omega
+
+@[simp] theorem anyBalanced_nil : anyBalanced [] = falseE := by
+  simp [anyBalanced]
+
+@[simp] theorem anyBalanced_singleton (x : SExpr) : anyBalanced [x] = x := by
+  simp [anyBalanced]
+
+@[simp] theorem anyBalanced_pair (x y : SExpr) :
+    anyBalanced [x, y] = or x y := by
+  simp [anyBalanced, orPairRound]
+
+/-- Disjoin a collection without constructing a linear-depth SMT term. -/
+def any (xs : List SExpr) : SExpr := anyBalanced xs
+
+@[simp] theorem any_nil : any [] = falseE := by
+  simp [any]
+
+@[simp] theorem any_singleton (x : SExpr) : any [x] = x := by
+  simp [any]
+
+@[simp] theorem any_pair (x y : SExpr) : any [x, y] = or x y := by
+  simp [any]
+
 def ite (c t e : SExpr) : SExpr := Moist.SMT.Expr.ite c t e
 def isCtor (ctor : String) (e : SExpr) : SExpr := .app ("(_ is " ++ ctor ++ ")") [e]
 def seqEmpty (sort : String) : SExpr := .sym ("(as seq.empty " ++ sort ++ ")")
@@ -37,6 +181,40 @@ def seqLen (a : SExpr) : SExpr := .app "seq.len" [a]
 def seqNth (a i : SExpr) : SExpr := .app "seq.nth" [a, i]
 def seqExtract (a start len : SExpr) : SExpr := .app "seq.extract" [a, start, len]
 def strAppend (a b : SExpr) : SExpr := .app "seq.++" [a, b]
+
+/-! Typed arithmetic smart constructors
+
+These constructors are deliberately separate from the open SMT surface's
+`add`, `sub`, and `mul`.  Removing a neutral element is not valid for an
+arbitrary ill-sorted expression: `(+ true 0)` is undefined in the executable
+semantics whereas `true` is defined.  The symbolic builtin compiler uses the
+smart constructors only after `asInt` has supplied the integer projection and
+its guard.  Their integer-denotation evaluator lemmas live at the soundness
+boundary alongside the corresponding builtin proofs.
+-/
+
+def isIntZero : SExpr → Bool
+  | .int value => value == 0
+  | _ => false
+
+def isIntOne : SExpr → Bool
+  | .int value => value == 1
+  | _ => false
+
+def intAdd (a b : SExpr) : SExpr :=
+  if a.isIntZero then b
+  else if b.isIntZero then a
+  else add a b
+
+def intSub (a b : SExpr) : SExpr :=
+  if b.isIntZero then a else sub a b
+
+def intMul (a b : SExpr) : SExpr :=
+  if a.isIntZero then .int 0
+  else if b.isIntZero then .int 0
+  else if a.isIntOne then b
+  else if b.isIntOne then a
+  else mul a b
 
 end SExpr
 
@@ -422,9 +600,10 @@ list, and modular-arithmetic definitions.
 
 The slices below are dependency-closed families.  `preludeForAssertions`
 selects a family exactly when an assertion mentions one of its exported or
-internal symbols.  The datatype/sort declarations remain unconditional: they
-are small, and literal rendering plus declaration sorts can refer to them
-without an application node in the assertion AST.
+internal symbols.  Base sorts are selected as well: integer/Boolean-only
+refinements need no custom SMT sort, byte and string formulas need only their
+respective aliases, while datatype operations conservatively retain the full
+core declaration block.
 
 Keep the length regression in `Test.SMT.PreludeSlicing` in sync when changing
 the full prelude.  That test also submits every selected family to Z3; the
@@ -439,7 +618,18 @@ private def preludeSlice (start count : Nat) : List Moist.SMT.Command :=
 `Data`/`Val` datatype declaration. -/
 def corePrelude : List Moist.SMT.Command := prelude.take 9
 
-private def validationPrelude : List Moist.SMT.Command := preludeSlice 11 6
+private def bytesCorePrelude : List Moist.SMT.Command := preludeSlice 0 1
+
+private def stringCorePrelude : List Moist.SMT.Command := preludeSlice 1 1
+
+private def bytesValidationPrelude : List Moist.SMT.Command :=
+  preludeSlice 11 2
+
+private def stringValidationPrelude : List Moist.SMT.Command :=
+  preludeSlice 13 3
+
+private def dataValidationPrelude : List Moist.SMT.Command :=
+  preludeSlice 16 1
 
 private def integerDivisionPrelude : List Moist.SMT.Command :=
   preludeSlice 9 2 ++ preludeSlice 17 4
@@ -457,9 +647,14 @@ private def advancedBytesPrelude : List Moist.SMT.Command := preludeSlice 39 38
 
 private def expModPrelude : List Moist.SMT.Command := preludeSlice 77 8
 
-private def validationNames : List String :=
-  [ "bytes_valid_at", "bytes_valid", "unicode_scalar", "ustring_valid_at"
-  , "ustring_valid", "data_valid", "dlist_valid", "dplist_valid"
+private def bytesValidationNames : List String :=
+  ["bytes_valid_at", "bytes_valid"]
+
+private def stringValidationNames : List String :=
+  ["unicode_scalar", "ustring_valid_at", "ustring_valid"]
+
+private def dataValidationNames : List String :=
+  [ "data_valid", "dlist_valid", "dplist_valid"
   , "val_valid", "vlist_valid", "const_val_valid", "const_vlist_valid"
   ]
 
@@ -501,7 +696,12 @@ private def expModNames : List String :=
   ]
 
 private structure PreludeNeeds where
-  validation : Bool := false
+  bytesCore : Bool := false
+  stringCore : Bool := false
+  fullCore : Bool := false
+  bytesValidation : Bool := false
+  stringValidation : Bool := false
+  dataValidation : Bool := false
   integerDivision : Bool := false
   bytesOrdering : Bool := false
   list : Bool := false
@@ -513,10 +713,26 @@ deriving Repr, BEq
 namespace PreludeNeeds
 
 private def all : PreludeNeeds :=
-  ⟨true, true, true, true, true, true, true⟩
+  { bytesCore := true
+    stringCore := true
+    fullCore := true
+    bytesValidation := true
+    stringValidation := true
+    dataValidation := true
+    integerDivision := true
+    bytesOrdering := true
+    list := true
+    utf8 := true
+    advancedBytes := true
+    expMod := true }
 
 private def merge (left right : PreludeNeeds) : PreludeNeeds :=
-  { validation := left.validation || right.validation
+  { bytesCore := left.bytesCore || right.bytesCore
+    stringCore := left.stringCore || right.stringCore
+    fullCore := left.fullCore || right.fullCore
+    bytesValidation := left.bytesValidation || right.bytesValidation
+    stringValidation := left.stringValidation || right.stringValidation
+    dataValidation := left.dataValidation || right.dataValidation
     integerDivision := left.integerDivision || right.integerDivision
     bytesOrdering := left.bytesOrdering || right.bytesOrdering
     list := left.list || right.list
@@ -525,17 +741,49 @@ private def merge (left right : PreludeNeeds) : PreludeNeeds :=
     expMod := left.expMod || right.expMod }
 
 private def ofName (name : String) : PreludeNeeds :=
-  { validation := validationNames.contains name
-    integerDivision := integerDivisionNames.contains name
-    bytesOrdering := bytesOrderingNames.contains name
-    list := listNames.contains name
-    utf8 := utf8Names.contains name
-    advancedBytes := advancedBytesNames.contains name
-    expMod := expModNames.contains name }
+  let bytesValidation := bytesValidationNames.contains name
+  let stringValidation := stringValidationNames.contains name
+  let dataValidation := dataValidationNames.contains name
+  let integerDivision := integerDivisionNames.contains name
+  let bytesOrdering := bytesOrderingNames.contains name
+  let list := listNames.contains name
+  let utf8 := utf8Names.contains name
+  let advancedBytes := advancedBytesNames.contains name
+  let expMod := expModNames.contains name
+  { bytesCore := bytesValidation || bytesOrdering || utf8
+    stringCore := stringValidation || utf8
+    fullCore := dataValidation || list || advancedBytes
+    bytesValidation := bytesValidation || dataValidation
+    stringValidation := stringValidation || dataValidation
+    dataValidation
+    integerDivision
+    bytesOrdering
+    list
+    utf8
+    advancedBytes
+    expMod }
+
+private def corelessNames : List String :=
+  [ "not", "and", "or", "=>", "=", "+", "-", "*", "div", "mod"
+  , "<", "<=", ">", ">=", "seq.++", "seq.unit", "seq.len", "seq.nth"
+  , "seq.extract"
+  ]
+
+private def ofUnclassifiedName (name : String) : PreludeNeeds :=
+  let named := ofName name
+  if named != {} then named
+  else if corelessNames.contains name || name.startsWith "$u$" then {}
+  else { fullCore := true }
 
 private def direct : SExpr → PreludeNeeds
-  | .sym name | .app name _ => ofName name
-  | _ => {}
+  | .sym "(as seq.empty Bytes)" => { bytesCore := true }
+  | .sym "(as seq.empty UString)" => { stringCore := true }
+  | .sym name | .app name _ => ofUnclassifiedName name
+  | .bytes _ => { bytesCore := true }
+  | .str _ => { stringCore := true }
+  | .dataLit _ | .dataListLit _ | .dataPairListLit _ | .constListLit _ =>
+      { fullCore := true }
+  | .int _ | .bool _ | .ite _ _ _ => {}
 
 private def children : SExpr → List SExpr
   | .app _ args => args
@@ -558,13 +806,22 @@ private def ofExpressions (expressions : List SExpr) : PreludeNeeds :=
 
 end PreludeNeeds
 
+private def selectedCorePrelude (needs : PreludeNeeds) :
+    List Moist.SMT.Command :=
+  if needs.fullCore then corePrelude
+  else
+    (if needs.bytesCore then bytesCorePrelude else []) ++
+      (if needs.stringCore then stringCorePrelude else [])
+
 /-- The dependency-closed prelude required by a script's logical assertions.
 The selection is syntactic and deterministic; it does not trust Z3 or alter
 the expressions certified by the executable SMT semantics. -/
 def preludeForAssertions (assertions : List SExpr) : List Moist.SMT.Command :=
   let needs := PreludeNeeds.ofExpressions assertions
-  corePrelude ++
-    (if needs.validation then validationPrelude else []) ++
+  selectedCorePrelude needs ++
+    (if needs.bytesValidation then bytesValidationPrelude else []) ++
+    (if needs.stringValidation then stringValidationPrelude else []) ++
+    (if needs.dataValidation then dataValidationPrelude else []) ++
     (if needs.integerDivision then integerDivisionPrelude else []) ++
     (if needs.bytesOrdering then bytesOrderingPrelude else []) ++
     (if needs.list then listPrelude else []) ++
@@ -913,9 +1170,12 @@ def mergeEncodedOks : List EncodedOk → Option EncodedOk
       | some (restPc, restValue) =>
           -- Keep the merged path and value on the same lazy discriminator.
           -- This avoids observing underspecified values in inactive selector
-          -- branches in the executable SMT semantics.
+          -- branches in the executable SMT semantics.  If both branches are
+          -- the same atomic expression, retain it directly: selecting between
+          -- identical values only grows the SMT decision tree.
           some (SExpr.ite pc SExpr.trueE restPc,
-            SExpr.ite pc value restValue)
+            if SExpr.sameAtom value restValue then value
+            else SExpr.ite pc value restValue)
 
 structure EncodedConstListOk where
   pc : SExpr
@@ -945,11 +1205,18 @@ def mergeEncodedConstListOks :
       match mergeEncodedConstListOks oks with
       | none => some ok
       | some rest =>
-          some {
-            pc := SExpr.ite ok.pc SExpr.trueE rest.pc
-            value := .ite ok.pc ok.value rest.value
-            hint := .ite ok.pc ok.hint rest.hint
-          }
+          if SExpr.sameAtom ok.value rest.value then
+            some {
+              pc := SExpr.ite ok.pc SExpr.trueE rest.pc
+              value := ok.value
+              hint := ok.hint
+            }
+          else
+            some {
+              pc := SExpr.ite ok.pc SExpr.trueE rest.pc
+              value := .ite ok.pc ok.value rest.value
+              hint := .ite ok.pc ok.hint rest.hint
+            }
 
 def mergedDecode (kind : CompactKind) (e : SExpr) : SymVal :=
   match kind with
@@ -1504,11 +1771,11 @@ mutual
 
   def evalBuiltinSym : BuiltinFun → List SymVal → List Outcome
     | .AddInteger, [b, a] =>
-        checkedConst (Proj.map2 SExpr.add (asInt a) (asInt b)) .integer
+        checkedConst (Proj.map2 SExpr.intAdd (asInt a) (asInt b)) .integer
     | .SubtractInteger, [b, a] =>
-        checkedConst (Proj.map2 SExpr.sub (asInt a) (asInt b)) .integer
+        checkedConst (Proj.map2 SExpr.intSub (asInt a) (asInt b)) .integer
     | .MultiplyInteger, [b, a] =>
-        checkedConst (Proj.map2 SExpr.mul (asInt a) (asInt b)) .integer
+        checkedConst (Proj.map2 SExpr.intMul (asInt a) (asInt b)) .integer
     | .DivideInteger, [b, a] =>
         let p := Proj.map2 (fun a b => (a, b)) (asInt a) (asInt b)
         checked2 p fun (a, b) =>
@@ -1529,7 +1796,8 @@ mutual
         checked2 p fun (a, b) =>
           [.ok (divisionGuard b) (.const (.integer (.app "uplc_mod" [a, b]))),
            .error (SExpr.not (divisionGuard b))]
-    | .EqualsInteger, [b, a] => checkedBool (Proj.map2 SExpr.eq (asInt a) (asInt b))
+    | .EqualsInteger, [b, a] =>
+        checkedBool (Proj.map2 SExpr.reflexiveEq (asInt a) (asInt b))
     | .LessThanInteger, [b, a] => checkedBool (Proj.map2 SExpr.lt (asInt a) (asInt b))
     | .LessThanEqualsInteger, [b, a] => checkedBool (Proj.map2 SExpr.le (asInt a) (asInt b))
 
@@ -1552,7 +1820,8 @@ mutual
         checked2 p fun (bs, idx) =>
           let inRange := SExpr.and (SExpr.ge idx (.int 0)) (SExpr.lt idx (SExpr.seqLen bs))
           [.ok inRange (.const (.integer (SExpr.seqNth bs idx))), .error (SExpr.not inRange)]
-    | .EqualsByteString, [b, a] => checkedBool (Proj.map2 SExpr.eq (asBytes a) (asBytes b))
+    | .EqualsByteString, [b, a] =>
+        checkedBool (Proj.map2 SExpr.reflexiveEq (asBytes a) (asBytes b))
     | .LessThanByteString, [b, a] => checkedBool (Proj.map2 (fun a b => .app "bytes_lt" [a, b]) (asBytes a) (asBytes b))
     | .LessThanEqualsByteString, [b, a] => checkedBool (Proj.map2 (fun a b => .app "bytes_le" [a, b]) (asBytes a) (asBytes b))
 
@@ -1562,7 +1831,8 @@ mutual
     | .VerifyEd25519Signature, _ => timeout
 
     | .AppendString, [b, a] => checkedConst (Proj.map2 SExpr.strAppend (asString a) (asString b)) .string
-    | .EqualsString, [b, a] => checkedBool (Proj.map2 SExpr.eq (asString a) (asString b))
+    | .EqualsString, [b, a] =>
+        checkedBool (Proj.map2 SExpr.reflexiveEq (asString a) (asString b))
     | .EncodeUtf8, [s] => checkedConst ((asString s).map fun x => .app "uplc_encodeUtf8" [x]) .bytes
     | .DecodeUtf8, [bs] =>
         checked2 (asBytes bs) fun b =>
@@ -1677,7 +1947,8 @@ mutual
         checked2 d fun d =>
           let is := SExpr.isCtor "DB" d
           [.ok is (.const (.bytes (.app "dataBytes" [d]))), .error (SExpr.not is)]
-    | .EqualsData, [b, a] => checkedBool (Proj.map2 SExpr.eq (asData a) (asData b))
+    | .EqualsData, [b, a] =>
+        checkedBool (Proj.map2 SExpr.reflexiveEq (asData a) (asData b))
     | .MkPairData, [b, a] => checked1 (Proj.map2 (fun a b => (a, b)) (asData a) (asData b)) (fun (a, b) => .const (.pairData a b))
     | .MkNilData, [u] =>
         let g := unitGuard u
@@ -1922,6 +2193,69 @@ def declCommands (decls : List SymDecl) : List Moist.SMT.Command :=
 def assumptionCommands (decls : List SymDecl) : List Moist.SMT.Command :=
   decls.flatMap fun d => d.assumptions.map Moist.SMT.Command.assert
 
+/-! ## Assertion grouping
+
+Refinement contexts commonly contribute hundreds of assertions which share
+large subexpressions.  Keeping each assertion in a separate SMT command hides
+that sharing from the per-command DAG renderer.  Group caller assertions into
+one conjunction while leaving declaration assumptions separate (the latter
+are used individually to decode the solver environment).
+
+The singleton case is definitionally unchanged, so the three production CEK
+queries still expose their exact generated condition. -/
+
+def assertionConjunction : List SExpr → SExpr
+  | [] => SExpr.trueE
+  | expression :: expressions =>
+      SExpr.and expression (assertionConjunction expressions)
+
+def groupedAssertions : List SExpr → List SExpr
+  | [] => []
+  | [expression] => [expression]
+  | expression :: next :: expressions =>
+      [assertionConjunction (expression :: next :: expressions)]
+
+def groupedAssertionCommands (assertions : List SExpr) :
+    List Moist.SMT.Command :=
+  (groupedAssertions assertions).map Moist.SMT.Command.assert
+
+theorem evalBoolIs_assertionConjunction_true
+    (model : Moist.SMT.Semantics.Model) (expressions : List SExpr) :
+    Moist.SMT.Semantics.evalBoolIs model
+        (assertionConjunction expressions) true = true ↔
+      ∀ expression, expression ∈ expressions →
+        Moist.SMT.Semantics.evalBoolIs model expression true = true := by
+  induction expressions with
+  | nil =>
+      simp [assertionConjunction, SExpr.trueE, Moist.SMT.Expr.trueE,
+        Moist.SMT.Semantics.evalBoolIs, Moist.SMT.Semantics.evalBool?,
+        Moist.SMT.Semantics.eval]
+  | cons expression expressions inductionHypothesis =>
+      change
+        Moist.SMT.Semantics.evalBoolIs model
+            (Moist.SMT.Expr.and expression
+              (assertionConjunction expressions)) true = true ↔ _
+      rw [
+        Moist.SMT.Semantics.evalBoolIs_and_true,
+        inductionHypothesis]
+      simp only [List.mem_cons, forall_eq_or_imp]
+
+theorem groupedAssertions_true_iff
+    (model : Moist.SMT.Semantics.Model) (assertions : List SExpr) :
+    (∀ expression, expression ∈ groupedAssertions assertions →
+      Moist.SMT.Semantics.evalBoolIs model expression true = true) ↔
+    (∀ expression, expression ∈ assertions →
+      Moist.SMT.Semantics.evalBoolIs model expression true = true) := by
+  cases assertions with
+  | nil => simp [groupedAssertions]
+  | cons expression expressions =>
+      cases expressions with
+      | nil => simp [groupedAssertions]
+      | cons next expressions =>
+          simp only [groupedAssertions, List.mem_singleton, forall_eq]
+          exact evalBoolIs_assertionConjunction_true model
+            (expression :: next :: expressions)
+
 def okBoolTrueCond (outs : List Outcome) : SExpr :=
   SExpr.any <| outs.filterMap fun
     | .ok pc v =>
@@ -1965,10 +2299,11 @@ this benchmarking helper remain responsible for supplying well-formed Z3
 tactic syntax at the external rendering boundary. -/
 def scriptWithTactic (tactic : String) (decls : List SymDecl)
     (assertions : List SExpr) : Moist.SMT.Script :=
-  let logicalAssertions := decls.flatMap SymDecl.assumptions ++ assertions
+  let logicalAssertions :=
+    decls.flatMap SymDecl.assumptions ++ groupedAssertions assertions
   ⟨preludeForAssertions logicalAssertions ++
     declCommands decls ++ assumptionCommands decls ++
-    assertions.map Moist.SMT.Command.assert ++
+    groupedAssertionCommands assertions ++
       [.checkSatUsing tactic, .getModel]⟩
 
 def scriptWith (decls : List SymDecl) (assertions : List SExpr) : Moist.SMT.Script :=
@@ -1984,8 +2319,20 @@ def scriptWithFullPrelude (decls : List SymDecl)
 private theorem assertions_corePrelude :
     corePrelude.filterMap Moist.SMT.Command.assertion? = [] := by rfl
 
-private theorem assertions_validationPrelude :
-    validationPrelude.filterMap Moist.SMT.Command.assertion? = [] := by rfl
+private theorem assertions_bytesCorePrelude :
+    bytesCorePrelude.filterMap Moist.SMT.Command.assertion? = [] := by rfl
+
+private theorem assertions_stringCorePrelude :
+    stringCorePrelude.filterMap Moist.SMT.Command.assertion? = [] := by rfl
+
+private theorem assertions_bytesValidationPrelude :
+    bytesValidationPrelude.filterMap Moist.SMT.Command.assertion? = [] := by rfl
+
+private theorem assertions_stringValidationPrelude :
+    stringValidationPrelude.filterMap Moist.SMT.Command.assertion? = [] := by rfl
+
+private theorem assertions_dataValidationPrelude :
+    dataValidationPrelude.filterMap Moist.SMT.Command.assertion? = [] := by rfl
 
 private theorem assertions_integerDivisionPrelude :
     integerDivisionPrelude.filterMap Moist.SMT.Command.assertion? = [] := by rfl
@@ -2012,12 +2359,25 @@ private theorem assertions_optionalPrelude (enabled : Bool)
       Moist.SMT.Command.assertion? = [] := by
   cases enabled <;> simp [hcommands]
 
+private theorem assertions_selectedCorePrelude (needs : PreludeNeeds) :
+    (selectedCorePrelude needs).filterMap
+      Moist.SMT.Command.assertion? = [] := by
+  unfold selectedCorePrelude
+  split
+  · exact assertions_corePrelude
+  · simp only [List.filterMap_append]
+    rw [assertions_optionalPrelude _ _ assertions_bytesCorePrelude,
+      assertions_optionalPrelude _ _ assertions_stringCorePrelude]
+    rfl
+
 private theorem assertions_preludeForAssertions (assertions : List SExpr) :
     (preludeForAssertions assertions).filterMap
       Moist.SMT.Command.assertion? = [] := by
   simp only [preludeForAssertions, List.filterMap_append]
-  rw [assertions_corePrelude,
-    assertions_optionalPrelude _ _ assertions_validationPrelude,
+  rw [assertions_selectedCorePrelude,
+    assertions_optionalPrelude _ _ assertions_bytesValidationPrelude,
+    assertions_optionalPrelude _ _ assertions_stringValidationPrelude,
+    assertions_optionalPrelude _ _ assertions_dataValidationPrelude,
     assertions_optionalPrelude _ _ assertions_integerDivisionPrelude,
     assertions_optionalPrelude _ _ assertions_bytesOrderingPrelude,
     assertions_optionalPrelude _ _ assertions_listPrelude,
@@ -2063,11 +2423,12 @@ the separately documented SMT-LIB rendering boundary. -/
 theorem scriptWithTactic_assertions (tactic : String) (decls : List SymDecl)
     (assertions : List SExpr) :
     (scriptWithTactic tactic decls assertions).assertions =
-      decls.flatMap SymDecl.assumptions ++ assertions := by
+      decls.flatMap SymDecl.assumptions ++ groupedAssertions assertions := by
   simp only [scriptWithTactic, Moist.SMT.Script.assertions,
     List.filterMap_append]
   rw [assertions_preludeForAssertions, assertions_declCommands,
-    assertions_assumptionCommands, assertions_assertCommands]
+    assertions_assumptionCommands]
+  simp only [groupedAssertionCommands, assertions_assertCommands]
   simp [Moist.SMT.Command.assertion?]
 
 /-- Purely syntactic accounting for typed assertion commands.  This theorem
@@ -2076,7 +2437,7 @@ assertions, or that raw prelude commands have any particular semantics; those
 facts belong to `Soundness.CertifiedZ3Model`. -/
 theorem scriptWith_assertions (decls : List SymDecl) (assertions : List SExpr) :
     (scriptWith decls assertions).assertions =
-      decls.flatMap SymDecl.assumptions ++ assertions := by
+      decls.flatMap SymDecl.assumptions ++ groupedAssertions assertions := by
   exact scriptWithTactic_assertions z3QueryTactic decls assertions
 
 theorem scriptWithFullPrelude_assertions (decls : List SymDecl)
@@ -2089,10 +2450,10 @@ theorem scriptWithFullPrelude_assertions (decls : List SymDecl)
     assertions_assumptionCommands, assertions_assertCommands]
   simp [Moist.SMT.Command.assertion?]
 
-/-- Prelude slicing preserves exactly the propositions transferred from a Z3
-model into the executable SMT semantics.  This is the semantic premise used
-by `CertifiedZ3Model`, so the production CEK success and error endpoints see
-no change. -/
+/-- Demand-selected prelude commands and caller-assertion grouping preserve
+exactly the propositions transferred from a Z3 model into the executable SMT
+semantics.  This is the semantic premise used by `CertifiedZ3Model`, so the
+production CEK success and error endpoints see no change. -/
 theorem scriptWith_assertionsTrue_iff_fullPrelude (m : Moist.SMT.Semantics.Model)
     (decls : List SymDecl) (assertions : List SExpr) :
     (∀ expression, expression ∈ (scriptWith decls assertions).assertions →
@@ -2101,6 +2462,21 @@ theorem scriptWith_assertionsTrue_iff_fullPrelude (m : Moist.SMT.Semantics.Model
       expression ∈ (scriptWithFullPrelude decls assertions).assertions →
         Moist.SMT.Semantics.evalBoolIs m expression true = true) := by
   rw [scriptWith_assertions, scriptWithFullPrelude_assertions]
+  constructor
+  · intro h expression hmember
+    rcases List.mem_append.mp hmember with hassumption | hassertion
+    · exact h expression (List.mem_append_left _ hassumption)
+    · apply (groupedAssertions_true_iff m assertions).mp
+        (fun grouped hgrouped =>
+          h grouped (List.mem_append_right _ hgrouped))
+      exact hassertion
+  · intro h expression hmember
+    rcases List.mem_append.mp hmember with hassumption | hgrouped
+    · exact h expression (List.mem_append_left _ hassumption)
+    · apply (groupedAssertions_true_iff m assertions).mpr
+        (fun assertion hassertion =>
+          h assertion (List.mem_append_right _ hassertion))
+      exact hgrouped
 
 /-- Opt-in final normalization for callers supplying arbitrary hand-written
 assertions.  Compiler-generated queries already use the verified smart
@@ -2127,19 +2503,19 @@ theorem scriptForBoolTrue_assertions (fuel : Nat) (decls : List SymDecl) (t : Te
     (scriptForBoolTrue fuel decls t).assertions =
       decls.flatMap SymDecl.assumptions ++
         [okBoolTrueCond (evalSym fuel (envOf decls) t)] := by
-  simp [scriptForBoolTrue, scriptWith_assertions]
+  simp [scriptForBoolTrue, scriptWith_assertions, groupedAssertions]
 
 theorem scriptForIntEq_assertions (fuel : Nat) (decls : List SymDecl)
     (t : Term) (rhs : SExpr) :
     (scriptForIntEq fuel decls t rhs).assertions =
       decls.flatMap SymDecl.assumptions ++
         [okIntEqCond (evalSym fuel (envOf decls) t) rhs] := by
-  simp [scriptForIntEq, scriptWith_assertions]
+  simp [scriptForIntEq, scriptWith_assertions, groupedAssertions]
 
 theorem scriptForError_assertions (fuel : Nat) (decls : List SymDecl) (t : Term) :
     (scriptForError fuel decls t).assertions =
       decls.flatMap SymDecl.assumptions ++
         [errorCond (evalSym fuel (envOf decls) t)] := by
-  simp [scriptForError, scriptWith_assertions]
+  simp [scriptForError, scriptWith_assertions, groupedAssertions]
 
 end Moist.SMT.UPLC

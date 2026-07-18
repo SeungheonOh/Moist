@@ -188,6 +188,41 @@ private def sampleOutcomes : List Outcome :=
 #guard errorCount (compactOutcomes sampleOutcomes) == 1
 #guard timeoutCount (compactOutcomes sampleOutcomes) == 1
 
+/- Identical atomic values do not need a value-selector tree.  The path still
+records both alternatives, but the merged value remains the literal itself.
+This is the exact shape produced by conditionals whose branches compute the
+same first-order result. -/
+private def identicalIntegerOutcomes : List Outcome :=
+  [ .ok (.sym "same-left") (.const (.integer (.int 7)))
+  , .ok (.sym "same-right") (.const (.integer (.int 7)))
+  ]
+
+#guard SExpr.sameAtom (.int 7) (.int 7)
+#guard !SExpr.sameAtom (.int 7) (.int 8)
+#guard
+  match mergedOkOutcome .integer identicalIntegerOutcomes with
+  | [.ok _ (.const (.integer (.int 7)))] => true
+  | _ => false
+
+private def expressionDepth : SExpr → Nat
+  | .app _ args =>
+      args.foldl (fun depth arg => max depth (expressionDepth arg + 1)) 1
+  | .ite condition thenExpr elseExpr =>
+      max (expressionDepth condition)
+        (max (expressionDepth thenExpr) (expressionDepth elseExpr)) + 1
+  | _ => 1
+
+private def manySymbolicErrors (count : Nat) : List Outcome :=
+  (List.range count).map fun i => .error (.sym s!"error_path_{i}")
+
+-- Wide disjunctions are balanced at every compiler call site.  This protects
+-- both the renderer and Z3 from a linear recursion spine without adding SMT
+-- operator nodes.
+#guard
+  match compactOutcomes (manySymbolicErrors 256) with
+  | [.error pc] => expressionDepth pc ≤ 10
+  | _ => false
+
 /- The native-sort extension must cover every newly supported representation,
 not merely the integer/list cases exercised by insertion sort.  Two paths of
 each kind collapse to one result of that same kind. -/
@@ -316,10 +351,20 @@ private def certifiedNilOutcomes : List Outcome :=
 #check Moist.SMT.UPLC.Soundness.evalSym_errorCond_sound
 #check Moist.SMT.UPLC.Soundness.evalSym_okBoolTrueCond_sound
 #check Moist.SMT.UPLC.Soundness.compactOutcomes_active_ok
+#check Moist.SMT.UPLC.SExpr.sameAtom_eq_true
+#check Moist.SMT.UPLC.Soundness.mergeEncodedOks_active
 #check Moist.SMT.UPLC.Soundness.compactDecode_encode_toCek
 #check Moist.SMT.UPLC.Soundness.compactDecode_encode_noOpaque
 #check Moist.SMT.UPLC.Soundness.compactOutcomes_active_error
 #check Moist.SMT.UPLC.Soundness.compactOutcomes_active_timeout
+#check Moist.SMT.UPLC.Soundness.evalBoolIs_any_true
+#check Moist.SMT.UPLC.Soundness.evalBoolIs_any_true_of_mem
+#check
+  Moist.SMT.UPLC.Soundness.evalBoolIs_any_true_iff_referenceLinearAny_true_of_bools
+#check Moist.SMT.UPLC.Soundness.evalBool?_any_eq_referenceLinearAny
+#check Moist.SMT.UPLC.Soundness.evalBoolIs_any_eq_referenceLinearAny
+#check
+  Moist.SMT.UPLC.Soundness.evalBoolIs_any_true_iff_referenceLinearAny_true
 #check Moist.SMT.UPLC.Soundness.mem_pruneFalseOutcomes_iff_of_active
 #check Moist.SMT.UPLC.Soundness.constListBranches_sublist
 #check Moist.SMT.UPLC.Soundness.exactConstListLength_eval_length

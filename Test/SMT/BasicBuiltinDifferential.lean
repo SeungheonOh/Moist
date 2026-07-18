@@ -1,4 +1,4 @@
-import Moist.SMT.Soundness.SolverBoundary
+import Test.SMT.SupportedQueries
 
 /-!
 # Basic builtin SMT/CEK differential regression
@@ -1327,6 +1327,12 @@ private def checkCoverage : IO Unit := do
       "an advanced differential builtin is no longer in the proved fragment"
   unless advancedBuiltins.eraseDups.length == advancedBuiltins.length do
     throw <| IO.userError "advanced builtin coverage contains a duplicate"
+  let exercisedBuiltins := basicBuiltins ++ advancedBuiltins
+  let certifiedBuiltins := Test.SMT.SupportedQueries.certifiedBuiltins
+  unless certifiedBuiltins.all exercisedBuiltins.contains &&
+      exercisedBuiltins.all certifiedBuiltins.contains do
+    throw <| IO.userError
+      "ground/symbolic differential coverage is not exactly the certified builtin set"
   for test in symbolicBuiltinCases ++ symbolicBuiltinErrorCases do
     unless compiledCaseMentionsItsInput 120 test do
       throw <| IO.userError

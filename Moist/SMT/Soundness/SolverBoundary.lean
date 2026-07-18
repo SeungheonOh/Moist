@@ -95,7 +95,7 @@ theorem scriptWith_hasCompilerPrelude (decls : List SymDecl)
     (assertions : List SExpr) :
     hasCompilerPrelude (scriptWith decls assertions) := by
   refine ⟨declCommands decls ++ assumptionCommands decls ++
-    assertions.map Moist.SMT.Command.assert ++
+    groupedAssertionCommands assertions ++
       [.checkSatUsing z3QueryTactic, .getModel], ?_⟩
   rw [scriptWith_assertions]
   simp [scriptWith, scriptWithTactic, List.append_assoc]

@@ -315,7 +315,7 @@ theorem evalBuiltinSym_active_error_AddInteger :
               change out ∈
                 [Outcome.ok (SExpr.and (asInt aSym).guard (asInt bSym).guard)
                   (SymVal.const (SymConst.integer
-                    (SExpr.add (asInt aSym).val (asInt bSym).val))),
+                    (SExpr.intAdd (asInt aSym).val (asInt bSym).val))),
                  Outcome.error (SExpr.not
                   (SExpr.and (asInt aSym).guard (asInt bSym).guard))] at hmem
               simp only [List.mem_cons, List.not_mem_nil] at hmem
@@ -377,7 +377,7 @@ theorem evalBuiltinSym_active_error_SubtractInteger :
               change out ∈
                 [Outcome.ok (SExpr.and (asInt aSym).guard (asInt bSym).guard)
                   (SymVal.const (SymConst.integer
-                    (SExpr.sub (asInt aSym).val (asInt bSym).val))),
+                    (SExpr.intSub (asInt aSym).val (asInt bSym).val))),
                  Outcome.error (SExpr.not
                   (SExpr.and (asInt aSym).guard (asInt bSym).guard))] at hmem
               simp only [List.mem_cons, List.not_mem_nil] at hmem
@@ -440,7 +440,7 @@ theorem evalBuiltinSym_active_error_MultiplyInteger :
               change out ∈
                 [Outcome.ok (SExpr.and (asInt aSym).guard (asInt bSym).guard)
                   (SymVal.const (SymConst.integer
-                    (SExpr.mul (asInt aSym).val (asInt bSym).val))),
+                    (SExpr.intMul (asInt aSym).val (asInt bSym).val))),
                  Outcome.error (SExpr.not
                   (SExpr.and (asInt aSym).guard (asInt bSym).guard))] at hmem
               simp only [List.mem_cons, List.not_mem_nil] at hmem
@@ -772,7 +772,7 @@ theorem evalBuiltinSym_active_error_EqualsInteger :
               change out ∈
                 [Outcome.ok (SExpr.and (asInt aSym).guard (asInt bSym).guard)
                   (SymVal.const (SymConst.bool
-                    (SExpr.eq (asInt aSym).val (asInt bSym).val))),
+                    (SExpr.reflexiveEq (asInt aSym).val (asInt bSym).val))),
                  Outcome.error (SExpr.not
                   (SExpr.and (asInt aSym).guard (asInt bSym).guard))] at hmem
               simp only [List.mem_cons, List.not_mem_nil] at hmem
@@ -1349,7 +1349,7 @@ theorem evalBuiltinSym_active_error_EqualsByteString :
               change out ∈
                 [Outcome.ok (SExpr.and (asBytes aSym).guard (asBytes bSym).guard)
                   (SymVal.const (SymConst.bool
-                    (SExpr.eq (asBytes aSym).val (asBytes bSym).val))),
+                    (SExpr.reflexiveEq (asBytes aSym).val (asBytes bSym).val))),
                  Outcome.error (SExpr.not
                   (SExpr.and (asBytes aSym).guard (asBytes bSym).guard))] at hmem
               simp only [List.mem_cons, List.not_mem_nil] at hmem
@@ -1603,7 +1603,7 @@ theorem evalBuiltinSym_active_error_EqualsString :
               change out ∈
                 [Outcome.ok (SExpr.and (asString aSym).guard (asString bSym).guard)
                   (SymVal.const (SymConst.bool
-                    (SExpr.eq (asString aSym).val (asString bSym).val))),
+                    (SExpr.reflexiveEq (asString aSym).val (asString bSym).val))),
                  Outcome.error (SExpr.not
                   (SExpr.and (asString aSym).guard (asString bSym).guard))] at hmem
               simp only [List.mem_cons, List.not_mem_nil] at hmem
@@ -3841,7 +3841,7 @@ theorem evalBuiltinSym_active_error_EqualsData :
               change out ∈
                 [Outcome.ok (SExpr.and (asData aSym).guard (asData bSym).guard)
                   (SymVal.const (SymConst.bool
-                    (SExpr.eq (asData aSym).val (asData bSym).val))),
+                    (SExpr.reflexiveEq (asData aSym).val (asData bSym).val))),
                  Outcome.error (SExpr.not
                   (SExpr.and (asData aSym).guard (asData bSym).guard))] at hmem
               simp only [List.mem_cons, List.not_mem_nil] at hmem

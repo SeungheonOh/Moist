@@ -27,18 +27,29 @@ private def equalsIntegerAddExample : Term :=
 
 #guard prelude.length == 85
 #guard corePrelude.length == 9
-#guard (preludeForAssertions []).length == 9
+#guard (preludeForAssertions []).length == 0
+#guard (preludeForAssertions [.bool true]).length == 0
+#guard (preludeForAssertions (symInt "x").assumptions).length == 0
+#guard (preludeForAssertions (symBool "x").assumptions).length == 0
+#guard (preludeForAssertions (symConstr "tag").assumptions).length == 0
+#guard (preludeForAssertions (symBytes "x").assumptions).length == 3
+#guard (preludeForAssertions (symString "x").assumptions).length == 4
+#guard (preludeForAssertions (symData "x").assumptions).length == 15
+#guard (preludeForAssertions (symVal "x").assumptions).length == 15
+#guard (preludeForAssertions [.bytes (ByteArray.mk #[1])]).length == 1
+#guard (preludeForAssertions [.str "x"]).length == 1
 #guard (preludeForAssertions
-  [.app "bytes_valid" [.bytes (ByteArray.mk #[])]]).length == 15
-#guard (preludeForAssertions [.app "uplc_div" [.int 7, .int 2]]).length == 15
+  [.app "bytes_valid" [.bytes (ByteArray.mk #[])]]).length == 3
+#guard (preludeForAssertions [.app "uplc_div" [.int 7, .int 2]]).length == 6
 #guard (preludeForAssertions
   [.app "bytes_le" [.bytes (ByteArray.mk #[]),
-    .bytes (ByteArray.mk #[])]]).length == 12
+    .bytes (ByteArray.mk #[])]]).length == 4
 #guard (preludeForAssertions [.app "vlist_length" [.app "VNil" []]]).length == 14
-#guard (preludeForAssertions [.app "uplc_encodeUtf8" [.str "x"]]).length == 19
+#guard (preludeForAssertions [.app "uplc_encodeUtf8" [.str "x"]]).length == 12
 #guard (preludeForAssertions
   [.app "uplc_countSetBits" [.bytes (ByteArray.mk #[1])]]).length == 47
-#guard (preludeForAssertions [.app "uplc_expModInteger" [.int 2, .int 3, .int 5]]).length == 17
+#guard (preludeForAssertions
+  [.app "uplc_expModInteger" [.int 2, .int 3, .int 5]]).length == 8
 -- Exhausting the bounded work-list scan is conservative: it restores the
 -- complete prelude instead of risking a missing dependency.
 #guard (preludeForAssertions (List.replicate 100001 (.bool true))).length ==
@@ -67,8 +78,11 @@ example (m : Semantics.Model) (decls : List SymDecl)
 #check Moist.SMT.UPLC.Soundness.ErrorQuery.sound
 
 private def smokeFormulas : List (String × SExpr) :=
-  [ ("core", .bool true)
-  , ("validation", .app "bytes_valid" [.bytes (ByteArray.mk #[0, 255])])
+  [ ("coreless-bool", .bool true)
+  , ("bytes-validation", .app "bytes_valid"
+      [.bytes (ByteArray.mk #[0, 255])])
+  , ("string-validation", .app "ustring_valid" [.str "A"])
+  , ("data-validation", .app "data_valid" [.dataLit (.I 1)])
   , ("integer-division", SExpr.eq (.app "uplc_div" [.int 7, .int 2]) (.int 3))
   , ("bytes-ordering", .app "bytes_le"
       [.bytes (ByteArray.mk #[1]), .bytes (ByteArray.mk #[1, 2])])

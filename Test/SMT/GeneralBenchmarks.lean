@@ -47,6 +47,12 @@ def caseChain : Nat → Nat → Term → Term
 def caseWorkload (depth width : Nat) : Term :=
   caseChain depth width (.Case (.Var 1) (integerAlternatives width))
 
+/-- A wide constructor case whose every alternative is a runtime error.
+This stresses the general error-path and tag-coverage disjunctions rather than
+any list-specific encoding. -/
+def caseErrorWorkload (width : Nat) : Term :=
+  .Case (.Var 1) (List.replicate width .Error)
+
 /-- A long symbolic arithmetic pipeline, without list-specific operations. -/
 def arithmeticWorkload (rounds : Nat) : Term :=
   let result := (List.range rounds).foldl (fun accumulator i =>
@@ -64,6 +70,22 @@ def branchWorkload : Nat → Term
           (app2 .AddInteger (.Var 1) (int (Int.ofNat depth)))
           (int (Int.ofNat (2 * depth + 1))))
         (branchWorkload depth)
+
+/- A general duplicate-result workload.  Independent symbolic branches all
+select the same integer, then feed ordinary arithmetic.  Keeping a redundant
+`ite guard 7 7` for every choice makes both construction and the rendered
+solver term grow without adding information. -/
+def sameValueDeclarations (depth : Nat) : List SymDecl :=
+  (List.range depth).map fun i => symBool s!"same_value_guard_{i}"
+
+def sameValueChoice (index : Nat) : Term :=
+  lazyIf (.Var (index + 1)) (int 7) (int 7)
+
+def sameValueSum (depth : Nat) : Term :=
+  (List.range depth).foldl
+    (fun accumulator index =>
+      app2 .AddInteger accumulator (sameValueChoice index))
+    (int 0)
 
 /-- Declarations for a higher-order refinement pipeline: each Boolean chooses
 an arithmetic function, and the final integer is the common input. -/
@@ -147,10 +169,15 @@ def uplcBenchmarks : List (String × (Unit → Script)) :=
       (caseWorkload 3 16))
   , ("case-100x8.smt2", fun _ => scriptForBoolTrue 4200 [tagDeclaration]
       (caseWorkload 100 8))
+  , ("case-errors-1024.smt2", fun _ =>
+      scriptForError 80 [tagDeclaration] (caseErrorWorkload 1024))
   , ("arithmetic-100.smt2", fun _ =>
       scriptForBoolTrue 2400 [symInt "arith_x"] (arithmeticWorkload 100))
   , ("branches-100.smt2", fun _ =>
       scriptForBoolTrue 5000 [symInt "branch_x"] (branchWorkload 100))
+  , ("same-value-500.smt2", fun _ =>
+      scriptForIntEq 20100 (sameValueDeclarations 500) (sameValueSum 500)
+        (.int (Int.ofNat (7 * 500))))
   , ("higher-order-12.smt2", fun _ =>
       scriptForIntEq 440 (higherOrderDeclarations 12)
         (higherOrderApplicationPipeline 12)
@@ -187,6 +214,7 @@ def repeatedRefinements (count : Nat) : Script :=
 def genericBenchmarks : List (String × (Unit → Script)) :=
   [ ("refinements-100.smt2", fun _ => repeatedRefinements 100)
   , ("refinements-500.smt2", fun _ => repeatedRefinements 500)
+  , ("refinements-5000.smt2", fun _ => repeatedRefinements 5000)
   ]
 
 def benchmarkScripts : List (String × (Unit → Script)) :=
@@ -206,6 +234,20 @@ def benchmarkScripts : List (String × (Unit → Script)) :=
 #guard (evalSym 200 (envOf (higherOrderDeclarations 4))
   (higherOrderApplicationPipeline 4)).length == 1
 
+-- The wide failing case is represented by one balanced error outcome and is
+-- covered by the same public error-to-CEK endpoint as other product queries.
+#guard
+  match evalSym 80 (envOf [tagDeclaration]) (caseErrorWorkload 128) with
+  | [.error _] => true
+  | _ => false
+
+-- The production evaluator retains the disjunction of active paths while the
+-- common result stays a single literal throughout the arithmetic pipeline.
+#guard
+  match evalSym 300 (envOf (sameValueDeclarations 8)) (sameValueSum 8) with
+  | [.ok _ (.const (.integer (.int 56)))] => true
+  | _ => false
+
 -- Eighteen binary choices formerly represented 262,144 separate native
 -- values.  The production evaluator now keeps one merged success throughout
 -- each non-list workload; all statically impossible failures are pruned.
@@ -213,6 +255,12 @@ def benchmarkScripts : List (String × (Unit → Script)) :=
   (nativeBytesBranchWorkload 18)).length == 1
 #guard (evalSym 1000 (envOf [symInt "native_string_x"])
   (nativeStringBranchWorkload 18)).length == 1
+
+-- Caller refinements are one semantic conjunction, exposing their shared
+-- polynomial to the per-command DAG renderer.  Declaration assumptions stay
+-- separate so production model decoding can consume each one directly.
+#guard (repeatedRefinements 500).assertions.length == 1
+#check groupedAssertions_true_iff
 
 def outputDir : System.FilePath := "Test/generated/smt/general-benchmarks"
 

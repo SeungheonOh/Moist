@@ -20,7 +20,7 @@ def formerTactic : String :=
 
 example (tactic : String) (decls : List SymDecl) (assertions : List SExpr) :
     (scriptWithTactic tactic decls assertions).assertions =
-      decls.flatMap SymDecl.assumptions ++ assertions :=
+      decls.flatMap SymDecl.assumptions ++ groupedAssertions assertions :=
   scriptWithTactic_assertions tactic decls assertions
 
 example (decls : List SymDecl) (assertions : List SExpr) :

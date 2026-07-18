@@ -290,8 +290,9 @@ theorem mergeEncodedConstListOks_erase (oks : List EncodedConstListOk) :
               mergeEncodedOks (oks.map EncodedConstListOk.erase) =
                 some rest.erase := by
             simpa [hm] using ih.symm
-          simp [mergeEncodedConstListOks, hm, mergeEncodedOks, hmErase,
-            EncodedConstListOk.erase]
+          cases hs : SExpr.sameAtom ok.value rest.value <;>
+            simp [mergeEncodedConstListOks, hm, mergeEncodedOks, hmErase,
+              EncodedConstListOk.erase, hs]
 
 theorem nonEncodedOks_mem {outs : List Outcome} {out : Outcome}
     (h : out ∈ nonEncodedOks outs) : out ∈ outs := by
@@ -379,15 +380,28 @@ theorem mergeEncodedOks_active (kind : CompactKind) {m : SmtSem.Model}
                             hpcEval
                       obtain ⟨p, e, hmem, hp, he⟩ := ih hm htail
                       refine ⟨p, e, by simp [hmem], hp, ?_⟩
-                      rw [symValToCek_decode_ite_of kind hc]
-                      exact he
+                      cases hs : SExpr.sameAtom headValue tailValue with
+                      | false =>
+                          simp only [Bool.false_eq_true, ↓reduceIte]
+                          rw [symValToCek_decode_ite_of kind hc]
+                          exact he
+                      | true =>
+                          have hvalue : headValue = tailValue :=
+                            SExpr.sameAtom_eq_true hs
+                          simp only [↓reduceIte]
+                          rw [hvalue]
+                          exact he
                   | true =>
                       have hp : pcHolds m headPc = true := by
                         simp [pcHolds, Moist.SMT.Semantics.evalBoolIs,
                           Moist.SMT.Semantics.evalBool?, hc]
                       refine ⟨headPc, headValue, by simp, hp, ?_⟩
-                      rw [symValToCek_decode_ite_of kind hc]
-                      simp
+                      cases hs : SExpr.sameAtom headValue tailValue with
+                      | false =>
+                          simp only [Bool.false_eq_true, ↓reduceIte]
+                          rw [symValToCek_decode_ite_of kind hc]
+                          simp
+                      | true => simp
               | int i | string i | bytes i | data i | dataList i
               | dataPairList i | val i | valList i | g1 i | g2 i | ml i =>
                   rw [Moist.SMT.Semantics.eval_ite_exact, hc] at hpcEval

@@ -15,7 +15,9 @@ abbrev Val := Moist.SMT.Semantics.Val
 abbrev SVal := Moist.SMT.Semantics.SVal
 abbrev Model := Moist.SMT.Semantics.Model
 abbrev eval := Moist.SMT.Semantics.eval
+abbrev evalBool? := Moist.SMT.Semantics.evalBool?
 abbrev evalBoolIs := Moist.SMT.Semantics.evalBoolIs
+abbrev strongOr := Moist.SMT.Semantics.strongOr
 end SmtSem
 
 abbrev tyBytes : BuiltinType := .AtomicType .TypeByteString
@@ -685,24 +687,81 @@ theorem evalBoolIs_foldl_or_true {m : SmtSem.Model} :
       · rcases htail with ⟨y, hy, htrue⟩
         exact Or.inr ⟨y, by simp [hy], htrue⟩
 
-theorem evalBoolIs_any_true {m : SmtSem.Model} {xs : List SExpr}
-    (h : SmtSem.evalBoolIs m (SExpr.any xs) true = true) :
+/-- The former left-linear compiler construction, retained only as the
+reference specification for the balancing proof. -/
+def referenceLinearAny (xs : List SExpr) : SExpr :=
+  Moist.SMT.Expr.any xs
+
+theorem evalBoolIs_referenceLinearAny_true {m : SmtSem.Model}
+    {xs : List SExpr}
+    (h : SmtSem.evalBoolIs m (referenceLinearAny xs) true = true) :
     ∃ x, x ∈ xs ∧ SmtSem.evalBoolIs m x true = true := by
   cases xs with
   | nil =>
-      simp [SExpr.any, Moist.SMT.Expr.any] at h
+      simp [referenceLinearAny, Moist.SMT.Expr.any] at h
   | cons x xs =>
       cases xs with
       | nil =>
-          exact ⟨x, by simp, by simpa [SExpr.any, Moist.SMT.Expr.any] using h⟩
+          exact ⟨x, by simp,
+            by simpa [referenceLinearAny, Moist.SMT.Expr.any] using h⟩
       | cons y ys =>
           have hfold := evalBoolIs_foldl_or_true (m := m)
             (xs := y :: ys) (acc := x)
-            (by simpa [SExpr.any, Moist.SMT.Expr.any] using h)
+            (by simpa [referenceLinearAny, Moist.SMT.Expr.any] using h)
           rcases hfold with hx | htail
           · exact ⟨x, by simp, hx⟩
           · rcases htail with ⟨z, hz, hztrue⟩
             exact ⟨z, by simp [hz], hztrue⟩
+
+private theorem evalBoolIs_orPairRound_true {m : SmtSem.Model} :
+    ∀ {xs : List SExpr} {merged : SExpr},
+      merged ∈ SExpr.orPairRound xs →
+      SmtSem.evalBoolIs m merged true = true →
+      ∃ source, source ∈ xs ∧
+        SmtSem.evalBoolIs m source true = true
+  | [], merged, hmem, _ => by
+      simp [SExpr.orPairRound] at hmem
+  | [single], merged, hmem, htrue => by
+      simp only [SExpr.orPairRound, List.mem_cons, List.not_mem_nil,
+        or_false] at hmem
+      subst merged
+      exact ⟨single, by simp, htrue⟩
+  | left :: right :: rest, merged, hmem, htrue => by
+      simp only [SExpr.orPairRound, List.mem_cons] at hmem
+      rcases hmem with hpair | hrest
+      · subst merged
+        rcases Moist.SMT.Semantics.evalBoolIs_or_true m left right htrue with
+          hleft | hright
+        · exact ⟨left, by simp, hleft⟩
+        · exact ⟨right, by simp, hright⟩
+      · obtain ⟨source, hsource, hsourceTrue⟩ :=
+          evalBoolIs_orPairRound_true hrest htrue
+        exact ⟨source, by simp [hsource], hsourceTrue⟩
+
+/-- A true balanced disjunction is witnessed by one of its original leaves.
+This is the semantic preservation fact used by compiler disjunctions. -/
+theorem evalBoolIs_anyBalanced_true {m : SmtSem.Model} {xs : List SExpr}
+    (h : SmtSem.evalBoolIs m (SExpr.anyBalanced xs) true = true) :
+    ∃ x, x ∈ xs ∧ SmtSem.evalBoolIs m x true = true := by
+  fun_induction SExpr.anyBalanced xs
+  case case1 =>
+    simp [SmtSem.evalBoolIs, SExpr.falseE,
+      Moist.SMT.Semantics.evalBoolIs,
+      Moist.SMT.Semantics.evalBool?, Moist.SMT.Semantics.eval,
+      Moist.SMT.Expr.falseE] at h
+  case case2 single =>
+    exact ⟨single, by simp, h⟩
+  case case3 left right rest ih =>
+    obtain ⟨middle, hmiddle, hmiddleTrue⟩ := ih h
+    have hmiddleRound :
+        middle ∈ SExpr.orPairRound (left :: right :: rest) := by
+      simpa only [SExpr.orPairRound] using hmiddle
+    exact evalBoolIs_orPairRound_true hmiddleRound hmiddleTrue
+
+theorem evalBoolIs_any_true {m : SmtSem.Model} {xs : List SExpr}
+    (h : SmtSem.evalBoolIs m (SExpr.any xs) true = true) :
+    ∃ x, x ∈ xs ∧ SmtSem.evalBoolIs m x true = true := by
+  exact evalBoolIs_anyBalanced_true (by simpa [SExpr.any] using h)
 
 def unsupportedCaseGuard (e : SExpr) : SExpr :=
   SExpr.any [
@@ -1204,23 +1263,167 @@ theorem evalBoolIs_foldl_or_true_of_mem {m : SmtSem.Model} {x : SExpr} :
           (xs := ys) (acc := SExpr.or acc y) hacc' hxys hxtrue
           (by intro z hz; exact hall z (by simp [hz]))
 
-theorem evalBoolIs_any_true_of_mem {m : SmtSem.Model} {x : SExpr} {xs : List SExpr}
+@[simp] private theorem strongOr_false_left (x : Option Bool) :
+    SmtSem.strongOr (some false) x = x := by
+  cases x with
+  | none => rfl
+  | some b => cases b <;> rfl
+
+@[simp] private theorem strongOr_false_right (x : Option Bool) :
+    SmtSem.strongOr x (some false) = x := by
+  cases x with
+  | none => rfl
+  | some b => cases b <;> rfl
+
+@[simp] private theorem strongOr_true_left (x : Option Bool) :
+    SmtSem.strongOr (some true) x = some true := by
+  cases x with
+  | none => rfl
+  | some b => cases b <;> rfl
+
+@[simp] private theorem strongOr_true_right (x : Option Bool) :
+    SmtSem.strongOr x (some true) = some true := by
+  cases x with
+  | none => rfl
+  | some b => cases b <;> rfl
+
+private theorem strongOr_assoc (a b c : Option Bool) :
+    SmtSem.strongOr (SmtSem.strongOr a b) c =
+      SmtSem.strongOr a (SmtSem.strongOr b c) := by
+  cases a <;> cases b <;> cases c <;>
+    (try cases ‹Bool›) <;> (try cases ‹Bool›) <;>
+      (try cases ‹Bool›) <;> rfl
+
+@[simp] private theorem evalBool?_bool
+    (m : SmtSem.Model) (b : Bool) :
+    SmtSem.evalBool? m (.bool b) = some b := by
+  simp [SmtSem.evalBool?, Moist.SMT.Semantics.evalBool?,
+    Moist.SMT.Semantics.eval]
+
+private theorem evalBool?_orRight_strong
+    (m : SmtSem.Model) (a b : SExpr) :
+    SmtSem.evalBool? m (Moist.SMT.Expr.orRight a b) =
+      SmtSem.strongOr (SmtSem.evalBool? m a) (SmtSem.evalBool? m b) := by
+  cases b <;> simp only [Moist.SMT.Expr.orRight]
+  all_goals try cases ‹Bool›
+  all_goals first
+    | exact Moist.SMT.Semantics.evalBool?_app_or_strong _ _ _
+    | simp [Moist.SMT.Expr.trueE, SmtSem.strongOr]
+
+private theorem evalBool?_or_strong (m : SmtSem.Model) (a b : SExpr) :
+    SmtSem.evalBool? m (SExpr.or a b) =
+      SmtSem.strongOr (SmtSem.evalBool? m a) (SmtSem.evalBool? m b) := by
+  cases a <;> simp only [SExpr.or, Moist.SMT.Expr.or]
+  all_goals try cases ‹Bool›
+  all_goals first
+    | exact evalBool?_orRight_strong _ _ _
+    | simp [Moist.SMT.Expr.trueE, SmtSem.strongOr]
+
+private def semanticAny (m : SmtSem.Model) (xs : List SExpr) : Option Bool :=
+  xs.foldr (fun expression rest =>
+    SmtSem.strongOr (SmtSem.evalBool? m expression) rest) (some false)
+
+@[simp] private theorem semanticAny_nil (m : SmtSem.Model) :
+    semanticAny m [] = some false := rfl
+
+@[simp] private theorem semanticAny_cons
+    (m : SmtSem.Model) (x : SExpr) (xs : List SExpr) :
+    semanticAny m (x :: xs) =
+      SmtSem.strongOr (SmtSem.evalBool? m x) (semanticAny m xs) := rfl
+
+private theorem semanticAny_orPairRound (m : SmtSem.Model) :
+    ∀ xs : List SExpr,
+      semanticAny m (SExpr.orPairRound xs) = semanticAny m xs
+  | [] => rfl
+  | [single] => rfl
+  | left :: right :: rest => by
+      change SmtSem.strongOr (SmtSem.evalBool? m (SExpr.or left right))
+          (semanticAny m (SExpr.orPairRound rest)) =
+        SmtSem.strongOr (SmtSem.evalBool? m left)
+          (SmtSem.strongOr (SmtSem.evalBool? m right) (semanticAny m rest))
+      rw [evalBool?_or_strong, semanticAny_orPairRound m rest]
+      exact strongOr_assoc _ _ _
+
+/-- The balanced compiler disjunction denotes a right-associated strong
+three-valued disjunction of exactly its input leaves. -/
+private theorem evalBool?_anyBalanced_eq_semanticAny (m : SmtSem.Model) :
+    ∀ xs : List SExpr,
+      SmtSem.evalBool? m (SExpr.anyBalanced xs) = semanticAny m xs := by
+  intro xs
+  fun_induction SExpr.anyBalanced xs
+  case case1 =>
+    simp [SExpr.falseE, Moist.SMT.Expr.falseE]
+  case case2 single =>
+    exact (strongOr_false_right (SmtSem.evalBool? m single)).symm
+  case case3 left right rest ih =>
+    rw [ih]
+    exact semanticAny_orPairRound m (left :: right :: rest)
+
+private theorem evalBool?_foldl_or_eq_semanticAny
+    (m : SmtSem.Model) :
+    ∀ (xs : List SExpr) (acc : SExpr),
+      SmtSem.evalBool? m (xs.foldl SExpr.or acc) =
+        SmtSem.strongOr (SmtSem.evalBool? m acc) (semanticAny m xs)
+  | [], acc => (strongOr_false_right (SmtSem.evalBool? m acc)).symm
+  | x :: xs, acc => by
+      simp only [List.foldl_cons]
+      rw [evalBool?_foldl_or_eq_semanticAny m xs (SExpr.or acc x),
+        evalBool?_or_strong]
+      rw [semanticAny_cons]
+      exact strongOr_assoc _ _ _
+
+private theorem evalBool?_referenceLinearAny_eq_semanticAny
+    (m : SmtSem.Model) (xs : List SExpr) :
+    SmtSem.evalBool? m (referenceLinearAny xs) = semanticAny m xs := by
+  cases xs with
+  | nil =>
+      simp [referenceLinearAny, Moist.SMT.Expr.any,
+        Moist.SMT.Expr.falseE]
+  | cons x xs =>
+      cases xs with
+      | nil => exact (strongOr_false_right (SmtSem.evalBool? m x)).symm
+      | cons y ys =>
+          simpa [referenceLinearAny, Moist.SMT.Expr.any] using
+            (evalBool?_foldl_or_eq_semanticAny m (y :: ys) x)
+
+/-- Balancing is unconditionally semantics-preserving, including for partial
+leaf observations: both constructions have exactly the same strong
+three-valued Boolean result. -/
+theorem evalBool?_any_eq_referenceLinearAny
+    (m : SmtSem.Model) (xs : List SExpr) :
+    SmtSem.evalBool? m (SExpr.any xs) =
+      SmtSem.evalBool? m (referenceLinearAny xs) := by
+  rw [SExpr.any, evalBool?_anyBalanced_eq_semanticAny,
+    evalBool?_referenceLinearAny_eq_semanticAny]
+
+theorem evalBoolIs_any_eq_referenceLinearAny
+    (m : SmtSem.Model) (xs : List SExpr) (expected : Bool) :
+    SmtSem.evalBoolIs m (SExpr.any xs) expected =
+      SmtSem.evalBoolIs m (referenceLinearAny xs) expected := by
+  have h := evalBool?_any_eq_referenceLinearAny m xs
+  exact congrArg (fun observed : Option Bool =>
+    match observed with
+    | some actual => actual == expected
+    | none => false) h
+
+private theorem evalBoolIs_referenceLinearAny_true_of_mem
+    {m : SmtSem.Model}
+    {x : SExpr} {xs : List SExpr}
     (hmem : x ∈ xs)
     (hx : SmtSem.eval m x = some (.bool true))
     (hall : ∀ y, y ∈ xs → ∃ b, SmtSem.eval m y = some (.bool b)) :
-    SmtSem.evalBoolIs m (SExpr.any xs) true = true := by
+    SmtSem.evalBoolIs m (referenceLinearAny xs) true = true := by
   cases xs with
-  | nil =>
-      simp at hmem
+  | nil => simp at hmem
   | cons y ys =>
       cases ys with
       | nil =>
           simp at hmem
           subst x
-          simpa [SExpr.any, Moist.SMT.Expr.any] using
+          simpa [referenceLinearAny, Moist.SMT.Expr.any] using
             (Moist.SMT.Semantics.evalBoolIs_true_eq m y).mpr hx
       | cons z zs =>
-          simp [SExpr.any, Moist.SMT.Expr.any]
+          simp [referenceLinearAny, Moist.SMT.Expr.any]
           simp at hmem
           rcases hmem with hxy | hxrest
           · subst x
@@ -1233,6 +1436,29 @@ theorem evalBoolIs_any_true_of_mem {m : SmtSem.Model} {x : SExpr} {xs : List SEx
             exact evalBoolIs_foldl_or_true_of_mem (m := m) (x := x)
               (xs := z :: zs) (acc := y) hyBool hxmemTail hx
               (by intro w hw; exact hall w (by simp [hw]))
+
+theorem evalBoolIs_any_true_of_mem {m : SmtSem.Model}
+    {x : SExpr} {xs : List SExpr}
+    (hmem : x ∈ xs)
+    (hx : SmtSem.eval m x = some (.bool true))
+    (hall : ∀ y, y ∈ xs → ∃ b, SmtSem.eval m y = some (.bool b)) :
+    SmtSem.evalBoolIs m (SExpr.any xs) true = true := by
+  rw [evalBoolIs_any_eq_referenceLinearAny]
+  exact evalBoolIs_referenceLinearAny_true_of_mem hmem hx hall
+
+theorem evalBoolIs_any_true_iff_referenceLinearAny_true
+    {m : SmtSem.Model} {xs : List SExpr} :
+    SmtSem.evalBoolIs m (SExpr.any xs) true = true ↔
+      SmtSem.evalBoolIs m (referenceLinearAny xs) true = true := by
+  rw [evalBoolIs_any_eq_referenceLinearAny]
+
+/-- Compatibility corollary for clients that already carry Boolean-totality. -/
+theorem evalBoolIs_any_true_iff_referenceLinearAny_true_of_bools
+    {m : SmtSem.Model} {xs : List SExpr}
+    (_hall : ∀ y, y ∈ xs → ∃ b, SmtSem.eval m y = some (.bool b)) :
+    SmtSem.evalBoolIs m (SExpr.any xs) true = true ↔
+      SmtSem.evalBoolIs m (referenceLinearAny xs) true = true :=
+  evalBoolIs_any_true_iff_referenceLinearAny_true
 
 theorem eval_eq_int_bool {m : SmtSem.Model} {tagExpr : SExpr}
     {tagInt : Int} {i : Nat}
@@ -4853,5 +5079,127 @@ theorem unitGuard_complete {m : SmtSem.Model} {u : SymVal}
   | builtin b args ea =>
       simp [symValToCek?] at hu
       cases hargs : symValListToCekList? m args <;> simp [hargs] at hu
+
+/-! ### Proof-carrying reflexive equality folding
+
+These lemmas are intentionally conditional on successful evaluation at the
+expected sort.  `SExpr.reflexiveEq` is used only behind the corresponding
+typed projection guard, and these hypotheses are exactly what the builtin
+simulation proof obtains from an active successful path.
+-/
+
+private theorem byteArray_beq_self (bs : ByteArray) : (bs == bs) = true := by
+  change (bs.data == bs.data) = true
+  exact beq_self_eq_true bs.data
+
+mutual
+  private theorem data_beq_self :
+      (d : Moist.Plutus.Data) → Moist.Plutus.eqData d d = true
+    | .Constr i fields => by
+        change (i == i && Moist.Plutus.eqDataList fields fields) = true
+        rw [dataList_beq_self fields]
+        simp
+    | .Map entries => dataMap_beq_self entries
+    | .List xs => dataList_beq_self xs
+    | .I i => by
+        change (i == i) = true
+        simp
+    | .B bs => byteArray_beq_self bs
+
+  private theorem dataList_beq_self :
+      (xs : List Moist.Plutus.Data) →
+        Moist.Plutus.eqDataList xs xs = true
+    | [] => rfl
+    | x :: xs => by
+        change (Moist.Plutus.eqData x x &&
+          Moist.Plutus.eqDataList xs xs) = true
+        rw [data_beq_self x, dataList_beq_self xs]
+        rfl
+
+  private theorem dataMap_beq_self :
+      (xs : List (Moist.Plutus.Data × Moist.Plutus.Data)) →
+        Moist.Plutus.eqDataMap xs xs = true
+    | [] => rfl
+    | (x, y) :: xs => by
+        change (Moist.Plutus.eqData x x && Moist.Plutus.eqData y y &&
+          Moist.Plutus.eqDataMap xs xs) = true
+        rw [data_beq_self x, data_beq_self y, dataMap_beq_self xs]
+        rfl
+end
+
+private theorem eval_reflexiveEq_of_eq_eval {m : SmtSem.Model}
+    {a b : SExpr} {result : Bool}
+    (heq : SmtSem.eval m (SExpr.eq a b) = some (.bool result))
+    (hrefl : a = b → result = true) :
+    SmtSem.eval m (SExpr.reflexiveEq a b) = some (.bool result) := by
+  cases hcert : SExpr.same? SExpr.reflexiveEqFuel a b with
+  | none =>
+    rw [SExpr.reflexiveEq, hcert]
+    exact heq
+  | some cert =>
+    have hresult := hrefl cert.eq
+    subst result
+    simp only [SExpr.reflexiveEq, hcert]
+    simp [SExpr.trueE, Moist.SMT.Expr.trueE, Moist.SMT.Semantics.eval]
+
+theorem eval_reflexiveEq_int_of {m : SmtSem.Model} {a b : SExpr} {x y : Int}
+    (ha : SmtSem.eval m a = some (.int x))
+    (hb : SmtSem.eval m b = some (.int y)) :
+    SmtSem.eval m (SExpr.reflexiveEq a b) = some (.bool (x == y)) := by
+  apply eval_reflexiveEq_of_eq_eval
+    (Moist.SMT.Semantics.eval_eq_int_of ha hb)
+  intro hab
+  subst b
+  rw [ha] at hb
+  injection hb with hval
+  injection hval with hxy
+  subst y
+  simp
+
+theorem eval_reflexiveEq_bytes_of {m : SmtSem.Model} {a b : SExpr}
+    {x y : ByteArray}
+    (ha : SmtSem.eval m a = some (.bytes x))
+    (hb : SmtSem.eval m b = some (.bytes y)) :
+    SmtSem.eval m (SExpr.reflexiveEq a b) = some (.bool (x == y)) := by
+  apply eval_reflexiveEq_of_eq_eval
+    (Moist.SMT.Semantics.eval_eq_bytes_of ha hb)
+  intro hab
+  subst b
+  rw [ha] at hb
+  injection hb with hval
+  injection hval with hxy
+  subst y
+  exact byteArray_beq_self x
+
+theorem eval_reflexiveEq_string_of {m : SmtSem.Model} {a b : SExpr}
+    {x y : String}
+    (ha : SmtSem.eval m a = some (.string x))
+    (hb : SmtSem.eval m b = some (.string y)) :
+    SmtSem.eval m (SExpr.reflexiveEq a b) = some (.bool (x == y)) := by
+  apply eval_reflexiveEq_of_eq_eval
+    (Moist.SMT.Semantics.eval_eq_string_of ha hb)
+  intro hab
+  subst b
+  rw [ha] at hb
+  injection hb with hval
+  injection hval with hxy
+  subst y
+  simp
+
+theorem eval_reflexiveEq_data_of {m : SmtSem.Model} {a b : SExpr}
+    {x y : Moist.Plutus.Data}
+    (ha : SmtSem.eval m a = some (.data x))
+    (hb : SmtSem.eval m b = some (.data y)) :
+    SmtSem.eval m (SExpr.reflexiveEq a b) = some (.bool (x == y)) := by
+  apply eval_reflexiveEq_of_eq_eval
+    (Moist.SMT.Semantics.eval_eq_data_of ha hb)
+  intro hab
+  subst b
+  rw [ha] at hb
+  injection hb with hval
+  injection hval with hxy
+  subst y
+  change Moist.Plutus.eqData x x = true
+  exact data_beq_self x
 
 end Moist.SMT.UPLC.Soundness
