@@ -43,15 +43,25 @@ end SExpr
 
 namespace SymDecl
 
+/-- Proof-level meaning of the mandatory-assumption table.  The executable
+compiler record deliberately does not carry this proposition; the checked
+input boundary reconstructs it from its Boolean validator. -/
+def WellFormed (name : String) (sort : Moist.SMT.SSort)
+    (value : SymVal) (assumptions : List SExpr) : Prop :=
+  ∃ required, symDeclRequired? name sort value = some required ∧
+    ∀ e, e ∈ required → e ∈ assumptions
+
 /-- The declaration invariant exposes the nonnegative-tag assertion required
 by an integer declaration whose value is a symbolic constructor. -/
 theorem constrTagNonnegative_mem (declaration : SymDecl)
+    (hwellFormed : WellFormed declaration.name declaration.sort
+      declaration.value declaration.assumptions)
     {tag : String} {fields : List SymVal}
     (hsort : declaration.sort = .int)
     (hvalue : declaration.value = .constr (.sym tag) fields)
     (hname : tag = declaration.name) :
     SExpr.ge (.sym tag) (.int 0) ∈ declaration.assumptions := by
-  rcases declaration with ⟨name, sort, value, assumptions, hwellFormed⟩
+  rcases declaration with ⟨name, sort, value, assumptions⟩
   simp only at hsort hvalue hname ⊢
   subst sort
   subst value
@@ -64,10 +74,12 @@ theorem constrTagNonnegative_mem (declaration : SymDecl)
 /-- Every declaration at SMT sort `Val` carries the exact validity assertion
 needed to decode its model value into a CEK value. -/
 theorem valValid_mem_of_sort (declaration : SymDecl)
+    (hwellFormed : WellFormed declaration.name declaration.sort
+      declaration.value declaration.assumptions)
     (hsort : declaration.sort = .val) :
     (.app "val_valid" [.sym declaration.name] : SExpr) ∈
       declaration.assumptions := by
-  rcases declaration with ⟨name, sort, value, assumptions, hwellFormed⟩
+  rcases declaration with ⟨name, sort, value, assumptions⟩
   simp only at hsort ⊢
   subst sort
   rcases hwellFormed with ⟨required, hrequired, hcontains⟩

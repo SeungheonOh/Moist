@@ -1327,7 +1327,7 @@ theorem requiredAssumptionsPresent_sound
     {name : String} {sort : Moist.SMT.SSort} {value : SymVal}
     {assumptions : List SExpr}
     (hpresent : requiredAssumptionsPresent name sort value assumptions = true) :
-    SymDeclWellFormed name sort value assumptions := by
+    SymDecl.WellFormed name sort value assumptions := by
   cases hrequired : symDeclRequired? name sort value with
   | none =>
       simp [requiredAssumptionsPresent, hrequired] at hpresent
@@ -1341,13 +1341,13 @@ theorem requiredAssumptionsPresent_sound
       exact any_requiredAssumptionMatches_true_mem expected assumptions
         (List.all_eq_true.mp hall expected hexpected)
 
-/-- In particular, the complete declaration-input checker independently
-reconstructs `SymDecl.wellFormed`; decoder soundness need not trust the proof
-field supplied by the declaration's constructor. -/
+/-- In particular, the complete declaration-input checker reconstructs the
+proof-level declaration invariant from the same Boolean gate used by portable
+compiler callers. -/
 theorem symDeclInputSafe_checkedWellFormed
     {declarations : List SymDecl} {declaration : SymDecl}
     (hsafe : symDeclInputSafe declarations declaration = true) :
-    SymDeclWellFormed declaration.name declaration.sort declaration.value
+    SymDecl.WellFormed declaration.name declaration.sort declaration.value
       declaration.assumptions := by
   unfold symDeclInputSafe at hsafe
   dsimp only at hsafe
@@ -1387,13 +1387,8 @@ theorem directValValidityAssumption_mem
               declaration hmem
           have hcheckedWellFormed :=
             symDeclInputSafe_checkedWellFormed hdeclarationSafe
-          have hvalid := SymDecl.valValid_mem_of_sort
-            { name := declaration.name
-              sort := declaration.sort
-              value := declaration.value
-              assumptions := declaration.assumptions
-              wellFormed := hcheckedWellFormed }
-            hsort
+          have hvalid := SymDecl.valValid_mem_of_sort declaration
+            hcheckedWellFormed hsort
           have hvalid' :
               (.app "val_valid" [.sym declaration.name] : SExpr) ∈
                 declaration.assumptions := hvalid
@@ -1408,7 +1403,7 @@ private theorem symDeclInputSafe_valueSafeUnlessConstr
     match declaration.value with
     | .constr (.sym _) _ => True
     | value => inputSymValSafe declarations value = true := by
-  rcases declaration with ⟨name, sort, value, assumptions, _hwellFormed⟩
+  rcases declaration with ⟨name, sort, value, assumptions⟩
   have hsort' : symValSortSafe declarations value = true ∧
       assumptions.all (fun assumption =>
         expressionHasSort declarations assumption .bool) = true := by
@@ -1495,7 +1490,7 @@ theorem inputSymDeclSafe_decodes
   by_cases houter : ∃ tagName fields,
       declaration.value = .constr (.sym tagName) fields
   · rcases houter with ⟨tagName, fields, hvalue⟩
-    rcases declaration with ⟨name, sort, value, assumptions, _hwellFormed⟩
+    rcases declaration with ⟨name, sort, value, assumptions⟩
     simp only at hvalue
     subst value
     cases sort <;> simp [symDeclInputSafe] at hsafe
@@ -1516,8 +1511,8 @@ theorem inputSymDeclSafe_decodes
             { name := tagName
               sort := .int
               value := .constr (.sym tagName) fields
-              assumptions := assumptions
-              wellFormed := hcheckedWellFormed }
+              assumptions := assumptions }
+            hcheckedWellFormed
             rfl rfl rfl
         have htagNonnegative : 0 ≤ tag := by
           apply pcHolds_nonneg htagEval
@@ -1526,8 +1521,7 @@ theorem inputSymDeclSafe_decodes
               { name := tagName
                 sort := .int
                 value := .constr (.sym tagName) fields
-                assumptions := assumptions
-                wellFormed := hcheckedWellFormed }
+                assumptions := assumptions }
               hmember _ hmandatory
         have htagNotNegative : ¬ tag < 0 := by omega
         exact ⟨Moist.CEK.CekValue.VConstr tag.toNat decodedFields, by

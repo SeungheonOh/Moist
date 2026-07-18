@@ -2144,71 +2144,58 @@ def symDeclRequired? (name : String) (sort : Moist.SMT.SSort)
       if n == name then some [SExpr.ge (.sym n) (.int 0)] else none
   | _, _ => none
 
-/-- A symbolic declaration has a sort/value shape produced by one of the
-public smart constructors and contains every validity assumption needed to
-decode a Z3 value into CEK. -/
-def SymDeclWellFormed (name : String) (sort : Moist.SMT.SSort)
-    (value : SymVal) (assumptions : List SExpr) : Prop :=
-  ∃ required, symDeclRequired? name sort value = some required ∧
-    ∀ e, e ∈ required → e ∈ assumptions
+/-- Proof-free symbolic input declaration.
 
+The production boundary validates the relationship between these four fields
+computationally.  Keeping this record free of erased Lean evidence makes its
+runtime representation and trust boundary directly portable to other
+languages. -/
 structure SymDecl where
   name : String
   sort : Moist.SMT.SSort
   value : SymVal
   assumptions : List SExpr := []
-  wellFormed : SymDeclWellFormed name sort value assumptions
 deriving Repr
 
 namespace SymDecl
 
-/-- Add user constraints without changing the certified declaration
-sort/value shape or removing mandatory decoding assumptions. -/
+/-- Add user constraints without removing existing mandatory assumptions.
+The complete declaration is revalidated by the production input gate. -/
 def withAssumptions (d : SymDecl) (extra : List SExpr) : SymDecl :=
   { name := d.name
     sort := d.sort
     value := d.value
-    assumptions := d.assumptions ++ extra
-    wellFormed := by
-      rcases d.wellFormed with ⟨required, hrequired, hmem⟩
-      exact ⟨required, hrequired, fun e he => List.mem_append_left _ (hmem e he)⟩ }
+    assumptions := d.assumptions ++ extra }
 
 end SymDecl
 
 def symInt (name : String) : SymDecl :=
   let n := Moist.SMT.sanitize name
-  ⟨n, .int, .const (.integer (.sym n)), [], by
-    exact ⟨[], by simp [symDeclRequired?], by simp⟩⟩
+  ⟨n, .int, .const (.integer (.sym n)), []⟩
 
 def symBool (name : String) : SymDecl :=
   let n := Moist.SMT.sanitize name
-  ⟨n, .bool, .const (.bool (.sym n)), [], by
-    exact ⟨[], by simp [symDeclRequired?], by simp⟩⟩
+  ⟨n, .bool, .const (.bool (.sym n)), []⟩
 
 def symBytes (name : String) : SymDecl :=
   let n := Moist.SMT.sanitize name
-  ⟨n, .bytes, .const (.bytes (.sym n)), [.app "bytes_valid" [.sym n]], by
-    exact ⟨[.app "bytes_valid" [.sym n]], by simp [symDeclRequired?], by simp⟩⟩
+  ⟨n, .bytes, .const (.bytes (.sym n)), [.app "bytes_valid" [.sym n]]⟩
 
 def symString (name : String) : SymDecl :=
   let n := Moist.SMT.sanitize name
-  ⟨n, .string, .const (.string (.sym n)), [.app "ustring_valid" [.sym n]], by
-    exact ⟨[.app "ustring_valid" [.sym n]], by simp [symDeclRequired?], by simp⟩⟩
+  ⟨n, .string, .const (.string (.sym n)), [.app "ustring_valid" [.sym n]]⟩
 
 def symData (name : String) : SymDecl :=
   let n := Moist.SMT.sanitize name
-  ⟨n, .data, .const (.data (.sym n)), [.app "data_valid" [.sym n]], by
-    exact ⟨[.app "data_valid" [.sym n]], by simp [symDeclRequired?], by simp⟩⟩
+  ⟨n, .data, .const (.data (.sym n)), [.app "data_valid" [.sym n]]⟩
 
 def symVal (name : String) : SymDecl :=
   let n := Moist.SMT.sanitize name
-  ⟨n, .val, .dyn (.sym n), [.app "val_valid" [.sym n]], by
-    exact ⟨[.app "val_valid" [.sym n]], by simp [symDeclRequired?], by simp⟩⟩
+  ⟨n, .val, .dyn (.sym n), [.app "val_valid" [.sym n]]⟩
 
 def symConstr (name : String) (fields : List SymVal := []) : SymDecl :=
   let n := Moist.SMT.sanitize name
-  ⟨n, .int, .constr (.sym n) fields, [SExpr.ge (.sym n) (.int 0)], by
-    exact ⟨[SExpr.ge (.sym n) (.int 0)], by simp [symDeclRequired?], by simp⟩⟩
+  ⟨n, .int, .constr (.sym n) fields, [SExpr.ge (.sym n) (.int 0)]⟩
 
 /-- Build the symbolic environment in declaration order.  UPLC variables are
 one-based, so `Var 1` denotes the first declaration, `Var 2` the second, and

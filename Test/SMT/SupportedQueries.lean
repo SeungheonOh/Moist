@@ -275,7 +275,7 @@ def nestedOpaqueTerm : Term :=
 example : (BoolTrueQuery.compile? 20 [] nestedOpaqueTerm).isSome = false := by
   native_decide
 
-/-- `SymDecl.wellFormed` controls SMT sort/validity assumptions, but constructor
+/-- Mandatory-assumption validation controls declaration shape, but constructor
 fields may still contain higher-order opaque values.  This regression proves
 that the independent production-fragment check is necessary and effective. -/
 def wellFormedButOpaqueDeclaration : SymDecl :=
@@ -297,9 +297,8 @@ example : (SupportedDeclarations.check supportedDeclarations).isSome = true := b
   native_decide
 
 /-! The portable declaration boundary must enforce mandatory decoding guards
-itself.  These regressions exercise raw fields because Lean's `SymDecl`
-constructor already prevents constructing the corresponding malformed record;
-ports do not have that proof field. -/
+itself.  These regressions exercise the proof-free checker used by both Lean
+and foreign-language ports. -/
 
 def guardTestName : String := Moist.SMT.sanitize "guard input"
 
@@ -317,6 +316,10 @@ def guardValValue : SymVal :=
 
 def guardConstrValue : SymVal :=
   .constr (.sym guardTestName) []
+
+def declarationWithoutRequiredGuard (sort : Moist.SMT.SSort)
+    (value : SymVal) : SymDecl :=
+  { name := guardTestName, sort, value, assumptions := [] }
 
 example : requiredAssumptionsPresent guardTestName .bytes guardBytesValue
     [.app "bytes_valid" [.sym guardTestName]] = true := by native_decide
@@ -352,6 +355,34 @@ example : requiredAssumptionsPresent guardTestName .int guardConstrValue
     [] = false := by native_decide
 example : requiredAssumptionsPresent guardTestName .int guardConstrValue
     [SExpr.ge (.sym guardTestName) (.int (-1))] = false := by native_decide
+
+-- The proof-free record cannot bypass the production gate: every declaration
+-- family whose CEK decoder needs a guard is rejected when that guard is
+-- omitted from the actual input record.
+example :
+    (SupportedDeclarations.check
+      [declarationWithoutRequiredGuard .bytes guardBytesValue]).isSome = false := by
+  native_decide
+
+example :
+    (SupportedDeclarations.check
+      [declarationWithoutRequiredGuard .string guardStringValue]).isSome = false := by
+  native_decide
+
+example :
+    (SupportedDeclarations.check
+      [declarationWithoutRequiredGuard .data guardDataValue]).isSome = false := by
+  native_decide
+
+example :
+    (SupportedDeclarations.check
+      [declarationWithoutRequiredGuard .val guardValValue]).isSome = false := by
+  native_decide
+
+example :
+    (SupportedDeclarations.check
+      [declarationWithoutRequiredGuard .int guardConstrValue]).isSome = false := by
+  native_decide
 
 def delimiterInjectionDeclaration : SymDecl :=
   (symInt "x").withAssumptions

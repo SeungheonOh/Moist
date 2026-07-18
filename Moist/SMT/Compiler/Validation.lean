@@ -595,9 +595,9 @@ def requiredAssumptionsPresent (name : String) (sort : Moist.SMT.SSort)
       required.all fun expected =>
         assumptions.any fun actual => requiredAssumptionMatches actual expected
 
-/-- Executable counterpart of the mandatory-assumption part of
-`SymDecl.wellFormed`.  Keeping this check at the production boundary makes the
-input contract reproducible by ports that do not carry Lean proof fields. -/
+/-- Executable mandatory-assumption check.  Keeping this at the production
+boundary makes the input contract identical for Lean and foreign-language
+ports; no erased proof field is involved. -/
 def symDeclRequiredAssumptionsPresent (declaration : SymDecl) : Bool :=
   requiredAssumptionsPresent declaration.name declaration.sort
     declaration.value declaration.assumptions

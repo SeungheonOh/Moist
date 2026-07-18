@@ -48,12 +48,20 @@ example : (SupportedDeclarations.check composedDeclarations).isSome = true := by
 example :
     SExpr.ge (.sym constructorDeclaration.name) (.int 0) ∈
       constructorDeclaration.assumptions := by
-  exact SymDecl.constrTagNonnegative_mem constructorDeclaration rfl rfl rfl
+  apply SymDecl.constrTagNonnegative_mem constructorDeclaration
+  · exact symDeclInputSafe_checkedWellFormed
+      (declarations := composedDeclarations) (by native_decide)
+  · rfl
+  · rfl
+  · rfl
 
 example :
     (.app "val_valid" [.sym directValDeclaration.name] : SExpr) ∈
       directValDeclaration.assumptions := by
-  exact SymDecl.valValid_mem_of_sort directValDeclaration rfl
+  apply SymDecl.valValid_mem_of_sort directValDeclaration
+  · exact symDeclInputSafe_checkedWellFormed
+      (declarations := composedDeclarations) (by native_decide)
+  · rfl
 
 example : (scriptWith composedDeclarations []).assertions =
     composedDeclarations.flatMap SymDecl.assumptions := by

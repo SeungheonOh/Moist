@@ -38,11 +38,9 @@ deriving Repr, BEq
 
 /-- Validate all caller-controlled input before symbolic evaluation.
 
-This is the single executable input gate.  The mandatory decoding assumptions
-carried in Lean by `SymDecl.wellFormed` belong to the computational
-`declarationsInputSafe` check, so strengthening that reflection is inherited
-here without changing the public API.  A foreign-language port must preserve
-that check rather than relying on an erased proof field. -/
+This is the single executable input gate.  Mandatory decoding assumptions
+belong to the computational `declarationsInputSafe` check; `SymDecl` itself is
+a proof-free record.  A foreign-language port must preserve this validation. -/
 def inputAccepted (declarations : List SymDecl) (term : Term) : Bool :=
   symEnvNoOpaqueForSoundness (envOf declarations) &&
     declarationsRendererSafe declarations &&
