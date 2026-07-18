@@ -205,10 +205,14 @@ Lean-side symbolic domain and are eliminated by fueled symbolic evaluation befor
 the final query is emitted.
 -/
 
-def prelude : List Moist.SMT.Command :=
-  [ .raw "(define-sort Bytes () (Seq Int))"
-  , .raw "(define-sort UString () (Seq Int))"
-  , .raw "(declare-sort G1 0)"
+private def bytesCorePrelude : List Moist.SMT.Command :=
+  [.raw "(define-sort Bytes () (Seq Int))"]
+
+private def stringCorePrelude : List Moist.SMT.Command :=
+  [.raw "(define-sort UString () (Seq Int))"]
+
+private def datatypeCorePrelude : List Moist.SMT.Command :=
+  [ .raw "(declare-sort G1 0)"
   , .raw "(declare-sort G2 0)"
   , .raw "(declare-sort MlResult 0)"
   , .declareConst "g1_default" .g1
@@ -240,14 +244,26 @@ def prelude : List Moist.SMT.Command :=
       "    (VMlResult (unVMlResult MlResult))\n" ++
       "    (VConstr (vConstrTag Int) (vConstrFields ValList)))\n" ++
       "   ((VNil) (VCons (vhead Val) (vtail ValList)))))"
-  , .raw "(define-fun same_sign ((a Int) (b Int)) Bool (= (>= a 0) (>= b 0)))"
+  ]
+
+private def integerDivisionSupportPrelude : List Moist.SMT.Command :=
+  [ .raw "(define-fun same_sign ((a Int) (b Int)) Bool (= (>= a 0) (>= b 0)))"
   , .raw "(define-fun abs_int ((a Int)) Int (ite (< a 0) (- 0 a) a))"
-  , .raw "(define-fun-rec bytes_valid_at ((bs Bytes) (i Int)) Bool (ite (>= i (seq.len bs)) true (and (>= (seq.nth bs i) 0) (<= (seq.nth bs i) 255) (bytes_valid_at bs (+ i 1)))))"
+  ]
+
+private def bytesValidationPrelude : List Moist.SMT.Command :=
+  [ .raw "(define-fun-rec bytes_valid_at ((bs Bytes) (i Int)) Bool (ite (>= i (seq.len bs)) true (and (>= (seq.nth bs i) 0) (<= (seq.nth bs i) 255) (bytes_valid_at bs (+ i 1)))))"
   , .raw "(define-fun bytes_valid ((bs Bytes)) Bool (bytes_valid_at bs 0))"
-  , .raw "(define-fun unicode_scalar ((cp Int)) Bool (and (<= 0 cp) (<= cp 1114111) (or (< cp 55296) (> cp 57343))))"
+  ]
+
+private def stringValidationPrelude : List Moist.SMT.Command :=
+  [ .raw "(define-fun unicode_scalar ((cp Int)) Bool (and (<= 0 cp) (<= cp 1114111) (or (< cp 55296) (> cp 57343))))"
   , .raw "(define-fun-rec ustring_valid_at ((s UString) (i Int)) Bool (ite (>= i (seq.len s)) true (and (unicode_scalar (seq.nth s i)) (ustring_valid_at s (+ i 1)))))"
   , .raw "(define-fun ustring_valid ((s UString)) Bool (ustring_valid_at s 0))"
-  , .raw <|
+  ]
+
+private def dataValidationPrelude : List Moist.SMT.Command :=
+  [ .raw <|
       "(define-funs-rec\n" ++
       "  ((data_valid ((d Data)) Bool)\n" ++
       "   (dlist_valid ((xs DataList)) Bool)\n" ++
@@ -296,19 +312,31 @@ def prelude : List Moist.SMT.Command :=
       "       ((_ is VG2) v)\n" ++
       "       ((_ is VMlResult) v))\n" ++
       "   (or ((_ is VNil) xs) (and ((_ is VCons) xs) (const_val_valid (vhead xs)) (const_vlist_valid (vtail xs))))))"
-  , .raw "(define-fun uplc_tdiv ((a Int) (b Int)) Int (ite (same_sign a b) (div (abs_int a) (abs_int b)) (- 0 (div (abs_int a) (abs_int b)))))"
+  ]
+
+private def integerDivisionBodyPrelude : List Moist.SMT.Command :=
+  [ .raw "(define-fun uplc_tdiv ((a Int) (b Int)) Int (ite (same_sign a b) (div (abs_int a) (abs_int b)) (- 0 (div (abs_int a) (abs_int b)))))"
   , .raw "(define-fun uplc_tmod ((a Int) (b Int)) Int (- a (* b (uplc_tdiv a b))))"
   , .raw "(define-fun uplc_div ((a Int) (b Int)) Int (let ((q (uplc_tdiv a b)) (r (uplc_tmod a b))) (ite (or (= r 0) (same_sign a b)) q (- q 1))))"
   , .raw "(define-fun uplc_mod ((a Int) (b Int)) Int (- a (* b (uplc_div a b))))"
-  , .raw "(define-fun-rec bytes_lt_at ((a Bytes) (b Bytes) (i Int) (n Int)) Bool (ite (>= i n) (< (seq.len a) (seq.len b)) (ite (< (seq.nth a i) (seq.nth b i)) true (ite (> (seq.nth a i) (seq.nth b i)) false (bytes_lt_at a b (+ i 1) n)))))"
+  ]
+
+private def bytesOrderingPrelude : List Moist.SMT.Command :=
+  [ .raw "(define-fun-rec bytes_lt_at ((a Bytes) (b Bytes) (i Int) (n Int)) Bool (ite (>= i n) (< (seq.len a) (seq.len b)) (ite (< (seq.nth a i) (seq.nth b i)) true (ite (> (seq.nth a i) (seq.nth b i)) false (bytes_lt_at a b (+ i 1) n)))))"
   , .raw "(define-fun bytes_lt ((a Bytes) (b Bytes)) Bool (bytes_lt_at a b 0 (ite (< (seq.len a) (seq.len b)) (seq.len a) (seq.len b))))"
   , .raw "(define-fun bytes_le ((a Bytes) (b Bytes)) Bool (or (= a b) (bytes_lt a b)))"
-  , .raw "(define-fun-rec vlist_length ((xs ValList)) Int (ite ((_ is VNil) xs) 0 (+ 1 (vlist_length (vtail xs)))))"
+  ]
+
+private def listPrelude : List Moist.SMT.Command :=
+  [ .raw "(define-fun-rec vlist_length ((xs ValList)) Int (ite ((_ is VNil) xs) 0 (+ 1 (vlist_length (vtail xs)))))"
   , .raw "(define-fun-rec dlist_length ((xs DataList)) Int (ite ((_ is DNil) xs) 0 (+ 1 (dlist_length (dtail xs)))))"
   , .raw "(define-fun-rec vlist_drop ((n Int) (xs ValList)) ValList (ite (or (<= n 0) ((_ is VNil) xs)) xs (vlist_drop (- n 1) (vtail xs))))"
   , .raw "(define-fun-rec dlist_drop ((n Int) (xs DataList)) DataList (ite (or (<= n 0) ((_ is DNil) xs)) xs (dlist_drop (- n 1) (dtail xs))))"
   , .raw "(define-fun-rec vlist_index ((n Int) (xs ValList)) Val (ite (<= n 0) (vhead xs) (vlist_index (- n 1) (vtail xs))))"
-  , .raw "(define-fun utf8_cont ((b Int)) Bool (and (<= 128 b) (<= b 191)))"
+  ]
+
+private def utf8Prelude : List Moist.SMT.Command :=
+  [ .raw "(define-fun utf8_cont ((b Int)) Bool (and (<= 128 b) (<= b 191)))"
   , .raw <|
       "(define-fun-rec valid_utf8_at ((bs Bytes) (i Int)) Bool\n" ++
       "  (ite (>= i (seq.len bs)) true\n" ++
@@ -370,7 +398,13 @@ def prelude : List Moist.SMT.Command :=
       "    (seq.++ (seq.unit (utf8_decode_scalar bs i))\n" ++
       "      (uplc_decodeUtf8_at bs (+ i (utf8_width (seq.nth bs i)))))))"
   , .raw "(define-fun uplc_decodeUtf8 ((bs Bytes)) UString (uplc_decodeUtf8_at bs 0))"
-  , .raw "(define-fun-rec uplc_pow_nat ((base Int) (exponent Int)) Int (ite (<= exponent 0) 1 (* base (uplc_pow_nat base (- exponent 1)))))"
+  ]
+
+/-- The Plutus V3 byte operations share power, bit, integer/byte conversion,
+and traversal helpers heavily enough that one dependency-closed family is
+both safer and smaller than the former unconditional prelude. -/
+private def advancedBytesPrelude : List Moist.SMT.Command :=
+  [ .raw "(define-fun-rec uplc_pow_nat ((base Int) (exponent Int)) Int (ite (<= exponent 0) 1 (* base (uplc_pow_nat base (- exponent 1)))))"
   , .raw "(define-fun uplc_pow2 ((exponent Int)) Int (uplc_pow_nat 2 exponent))"
   , .raw "(define-fun uplc_byte_bit ((byte Int) (bit Int)) Int (mod (div byte (uplc_pow2 bit)) 2))"
   , .raw <|
@@ -537,7 +571,10 @@ def prelude : List Moist.SMT.Command :=
   , .raw <|
       "(define-fun uplc_findFirstSetBit ((bs Bytes)) Int " ++
       "(uplc_findFirstSetBit_go bs 0 (* (seq.len bs) 8)))"
-  , .raw <|
+  ]
+
+private def expModPrelude : List Moist.SMT.Command :=
+  [ .raw <|
       "(define-fun-rec uplc_gcd ((a Int) (b Int)) Int " ++
       "(ite (= b 0) a (uplc_gcd b (mod a b))))"
   , .raw <|
@@ -577,12 +614,14 @@ query.  Most refinement queries use only integer/Boolean operations, yet paid
 the parsing and solver-registration cost of recursive UTF-8, byte-wise,
 list, and modular-arithmetic definitions.
 
-The slices below are dependency-closed families.  `preludeForAssertions`
-selects a family exactly when an assertion mentions one of its exported or
-internal symbols.  Base sorts are selected as well: integer/Boolean-only
-refinements need no custom SMT sort, byte and string formulas need only their
-respective aliases, while datatype operations conservatively retain the full
-core declaration block.
+The named sections below replace positional slicing of one monolithic list.
+`prelude` and `preludeForAssertions` both traverse the same canonical section
+order, so adding or moving a helper cannot silently shift every later family.
+The dependency selector requests a section exactly when an assertion mentions
+one of its exported or internal symbols.  Base sorts are selected as well:
+integer/Boolean-only refinements need no custom SMT sort, byte and string
+formulas need only their respective aliases, while datatype operations
+conservatively retain the full core declaration block.
 
 Keep the length regression in `Test.SMT.PreludeSlicing` in sync when changing
 the full prelude.  That test also submits every selected family to Z3; the
@@ -590,41 +629,68 @@ basic and advanced builtin differential suites exercise all production
 builtin encodings through this selector.
 -/
 
-def preludeSlice (start count : Nat) : List Moist.SMT.Command :=
-  (prelude.drop start).take count
+inductive PreludeSection where
+  | bytesCore
+  | stringCore
+  | datatypeCore
+  | integerDivisionSupport
+  | bytesValidation
+  | stringValidation
+  | dataValidation
+  | integerDivisionBody
+  | bytesOrdering
+  | list
+  | utf8
+  | advancedBytes
+  | expMod
+deriving Repr, BEq
+
+namespace PreludeSection
+
+def commands : PreludeSection → List Moist.SMT.Command
+  | .bytesCore => bytesCorePrelude
+  | .stringCore => stringCorePrelude
+  | .datatypeCore => datatypeCorePrelude
+  | .integerDivisionSupport => integerDivisionSupportPrelude
+  | .bytesValidation => bytesValidationPrelude
+  | .stringValidation => stringValidationPrelude
+  | .dataValidation => dataValidationPrelude
+  | .integerDivisionBody => integerDivisionBodyPrelude
+  | .bytesOrdering => bytesOrderingPrelude
+  | .list => listPrelude
+  | .utf8 => utf8Prelude
+  | .advancedBytes => advancedBytesPrelude
+  | .expMod => expModPrelude
+
+/-- The one reviewed declaration order used by both full and selected
+preludes.  A section may refer only to an earlier section or to itself. -/
+def ordered : List PreludeSection :=
+  [ .bytesCore
+  , .stringCore
+  , .datatypeCore
+  , .integerDivisionSupport
+  , .bytesValidation
+  , .stringValidation
+  , .dataValidation
+  , .integerDivisionBody
+  , .bytesOrdering
+  , .list
+  , .utf8
+  , .advancedBytes
+  , .expMod
+  ]
+
+end PreludeSection
 
 /-- Sort aliases, opaque group sorts/defaults, and the mutually recursive
 `Data`/`Val` datatype declaration. -/
-def corePrelude : List Moist.SMT.Command := prelude.take 9
+def corePrelude : List Moist.SMT.Command :=
+  bytesCorePrelude ++ stringCorePrelude ++ datatypeCorePrelude
 
-def bytesCorePrelude : List Moist.SMT.Command := preludeSlice 0 1
-
-def stringCorePrelude : List Moist.SMT.Command := preludeSlice 1 1
-
-def bytesValidationPrelude : List Moist.SMT.Command :=
-  preludeSlice 11 2
-
-def stringValidationPrelude : List Moist.SMT.Command :=
-  preludeSlice 13 3
-
-def dataValidationPrelude : List Moist.SMT.Command :=
-  preludeSlice 16 1
-
-def integerDivisionPrelude : List Moist.SMT.Command :=
-  preludeSlice 9 2 ++ preludeSlice 17 4
-
-def bytesOrderingPrelude : List Moist.SMT.Command := preludeSlice 21 3
-
-def listPrelude : List Moist.SMT.Command := preludeSlice 24 5
-
-def utf8Prelude : List Moist.SMT.Command := preludeSlice 29 10
-
-/-- The Plutus V3 byte operations share power, bit, integer/byte conversion,
-and traversal helpers heavily enough that one dependency-closed family is
-both safer and smaller than the former unconditional prelude. -/
-def advancedBytesPrelude : List Moist.SMT.Command := preludeSlice 39 38
-
-def expModPrelude : List Moist.SMT.Command := preludeSlice 77 8
+/-- The full prelude is assembled from the same named sections and order as
+the demand-selected prelude. -/
+def prelude : List Moist.SMT.Command :=
+  PreludeSection.ordered.flatMap PreludeSection.commands
 
 private def bytesValidationNames : List String :=
   ["bytes_valid_at", "bytes_valid"]
@@ -674,6 +740,27 @@ private def expModNames : List String :=
   , "uplc_expModInteger_defined", "uplc_expModInteger"
   ]
 
+private def datatypeConstructors : List String :=
+  [ "DConstr", "DMap", "DList", "DI", "DB", "DNil", "DCons", "DPNil"
+  , "DPCons", "VInt", "VBytes", "VString", "VBool", "VUnit", "VList"
+  , "VDataList", "VPairDataList", "VPair", "VPairData", "VData", "VArray"
+  , "VG1", "VG2", "VMlResult", "VConstr", "VNil", "VCons"
+  ]
+
+private def datatypeCoreNames : List String :=
+  datatypeConstructors ++
+    [ "dataConstrTag", "dataConstrFields", "dataMapEntries", "dataListItems"
+    , "dataInt", "dataBytes", "dhead", "dtail", "dpKey", "dpValue", "dpTail"
+    , "unVInt", "unVBytes", "unVString", "unVBool", "unVList"
+    , "unVDataList", "unVPairDataList", "vfst", "vsnd", "pdfst", "pdsnd"
+    , "unVData", "unVArray", "unVG1", "unVG2", "unVMlResult"
+    , "vConstrTag", "vConstrFields", "vhead", "vtail"
+    , "g1_default", "g2_default", "ml_default"
+    ]
+
+private def isDatatypeTester (name : String) : Bool :=
+  datatypeConstructors.any fun constructor =>
+    name == "(_ is " ++ constructor ++ ")"
 structure PreludeNeeds where
   bytesCore : Bool := false
   stringCore : Bool := false
@@ -719,6 +806,23 @@ private def merge (left right : PreludeNeeds) : PreludeNeeds :=
     advancedBytes := left.advancedBytes || right.advancedBytes
     expMod := left.expMod || right.expMod }
 
+/-- Translate logical dependencies into the physical sections they require.
+Keeping this mapping beside `PreludeNeeds` makes dependency closure explicit;
+the emission path itself only walks `PreludeSection.ordered`. -/
+def includes (needs : PreludeNeeds) : PreludeSection → Bool
+  | .bytesCore => needs.bytesCore || needs.fullCore
+  | .stringCore => needs.stringCore || needs.fullCore
+  | .datatypeCore => needs.fullCore
+  | .integerDivisionSupport | .integerDivisionBody => needs.integerDivision
+  | .bytesValidation => needs.bytesValidation
+  | .stringValidation => needs.stringValidation
+  | .dataValidation => needs.dataValidation
+  | .bytesOrdering => needs.bytesOrdering
+  | .list => needs.list
+  | .utf8 => needs.utf8
+  | .advancedBytes => needs.advancedBytes
+  | .expMod => needs.expMod
+
 private def ofName (name : String) : PreludeNeeds :=
   let bytesValidation := bytesValidationNames.contains name
   let stringValidation := stringValidationNames.contains name
@@ -752,7 +856,9 @@ private def ofUnclassifiedName (name : String) : PreludeNeeds :=
   let named := ofName name
   if named != {} then named
   else if corelessNames.contains name || name.startsWith "$u$" then {}
-  else { fullCore := true }
+  else if datatypeCoreNames.contains name || isDatatypeTester name then
+    { fullCore := true }
+  else all
 
 private def direct : SExpr → PreludeNeeds
   | .sym "(as seq.empty Bytes)" => { bytesCore := true }
@@ -785,28 +891,13 @@ def ofExpressions (expressions : List SExpr) : PreludeNeeds :=
 
 end PreludeNeeds
 
-def selectedCorePrelude (needs : PreludeNeeds) :
-    List Moist.SMT.Command :=
-  if needs.fullCore then corePrelude
-  else
-    (if needs.bytesCore then bytesCorePrelude else []) ++
-      (if needs.stringCore then stringCorePrelude else [])
-
 /-- The dependency-closed prelude required by a script's logical assertions.
 The selection is syntactic and deterministic; it does not trust Z3 or alter
 the expressions certified by the executable SMT semantics. -/
 def preludeForAssertions (assertions : List SExpr) : List Moist.SMT.Command :=
   let needs := PreludeNeeds.ofExpressions assertions
-  selectedCorePrelude needs ++
-    (if needs.bytesValidation then bytesValidationPrelude else []) ++
-    (if needs.stringValidation then stringValidationPrelude else []) ++
-    (if needs.dataValidation then dataValidationPrelude else []) ++
-    (if needs.integerDivision then integerDivisionPrelude else []) ++
-    (if needs.bytesOrdering then bytesOrderingPrelude else []) ++
-    (if needs.list then listPrelude else []) ++
-    (if needs.utf8 then utf8Prelude else []) ++
-    (if needs.advancedBytes then advancedBytesPrelude else []) ++
-    (if needs.expMod then expModPrelude else [])
+  PreludeSection.ordered.flatMap fun part =>
+    if needs.includes part then part.commands else []
 
 /-! ## Certified constant-list lengths
 

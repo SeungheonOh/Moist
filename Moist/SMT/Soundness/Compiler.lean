@@ -118,41 +118,9 @@ theorem groupedAssertions_true_iff
           exact evalBoolIs_assertionConjunction_true model
             (expression :: next :: expressions)
 
-private theorem assertions_corePrelude :
-    corePrelude.filterMap Moist.SMT.Command.assertion? = [] := by rfl
-
-private theorem assertions_bytesCorePrelude :
-    bytesCorePrelude.filterMap Moist.SMT.Command.assertion? = [] := by rfl
-
-private theorem assertions_stringCorePrelude :
-    stringCorePrelude.filterMap Moist.SMT.Command.assertion? = [] := by rfl
-
-private theorem assertions_bytesValidationPrelude :
-    bytesValidationPrelude.filterMap Moist.SMT.Command.assertion? = [] := by rfl
-
-private theorem assertions_stringValidationPrelude :
-    stringValidationPrelude.filterMap Moist.SMT.Command.assertion? = [] := by rfl
-
-private theorem assertions_dataValidationPrelude :
-    dataValidationPrelude.filterMap Moist.SMT.Command.assertion? = [] := by rfl
-
-private theorem assertions_integerDivisionPrelude :
-    integerDivisionPrelude.filterMap Moist.SMT.Command.assertion? = [] := by rfl
-
-private theorem assertions_bytesOrderingPrelude :
-    bytesOrderingPrelude.filterMap Moist.SMT.Command.assertion? = [] := by rfl
-
-private theorem assertions_listPrelude :
-    listPrelude.filterMap Moist.SMT.Command.assertion? = [] := by rfl
-
-private theorem assertions_utf8Prelude :
-    utf8Prelude.filterMap Moist.SMT.Command.assertion? = [] := by rfl
-
-private theorem assertions_advancedBytesPrelude :
-    advancedBytesPrelude.filterMap Moist.SMT.Command.assertion? = [] := by rfl
-
-private theorem assertions_expModPrelude :
-    expModPrelude.filterMap Moist.SMT.Command.assertion? = [] := by rfl
+private theorem assertions_preludeSection (part : PreludeSection) :
+    part.commands.filterMap Moist.SMT.Command.assertion? = [] := by
+  cases part <;> rfl
 
 private theorem assertions_optionalPrelude (enabled : Bool)
     (commands : List Moist.SMT.Command)
@@ -161,32 +129,22 @@ private theorem assertions_optionalPrelude (enabled : Bool)
       Moist.SMT.Command.assertion? = [] := by
   cases enabled <;> simp [hcommands]
 
-private theorem assertions_selectedCorePrelude (needs : PreludeNeeds) :
-    (selectedCorePrelude needs).filterMap
-      Moist.SMT.Command.assertion? = [] := by
-  unfold selectedCorePrelude
-  split
-  · exact assertions_corePrelude
-  · simp only [List.filterMap_append]
-    rw [assertions_optionalPrelude _ _ assertions_bytesCorePrelude,
-      assertions_optionalPrelude _ _ assertions_stringCorePrelude]
-    rfl
+private theorem assertions_selectedPreludeSections (needs : PreludeNeeds)
+    (sections : List PreludeSection) :
+    (sections.flatMap fun part =>
+      if needs.includes part then part.commands else []).filterMap
+        Moist.SMT.Command.assertion? = [] := by
+  induction sections with
+  | nil => rfl
+  | cons part sections ih =>
+      simp only [List.flatMap_cons, List.filterMap_append]
+      rw [assertions_optionalPrelude _ _ (assertions_preludeSection part), ih]
+      rfl
 
 private theorem assertions_preludeForAssertions (assertions : List SExpr) :
     (preludeForAssertions assertions).filterMap
       Moist.SMT.Command.assertion? = [] := by
-  simp only [preludeForAssertions, List.filterMap_append]
-  rw [assertions_selectedCorePrelude,
-    assertions_optionalPrelude _ _ assertions_bytesValidationPrelude,
-    assertions_optionalPrelude _ _ assertions_stringValidationPrelude,
-    assertions_optionalPrelude _ _ assertions_dataValidationPrelude,
-    assertions_optionalPrelude _ _ assertions_integerDivisionPrelude,
-    assertions_optionalPrelude _ _ assertions_bytesOrderingPrelude,
-    assertions_optionalPrelude _ _ assertions_listPrelude,
-    assertions_optionalPrelude _ _ assertions_utf8Prelude,
-    assertions_optionalPrelude _ _ assertions_advancedBytesPrelude,
-    assertions_optionalPrelude _ _ assertions_expModPrelude]
-  rfl
+  exact assertions_selectedPreludeSections _ _
 
 private theorem assertions_fullPrelude :
     prelude.filterMap Moist.SMT.Command.assertion? = [] := by
