@@ -203,5 +203,5 @@
 (define-fun uplc_expModInteger ((base Int) (exponent Int) (modulus Int)) Int (ite (= modulus 1) 0 (ite (= exponent 0) 1 (ite (> exponent 0) (uplc_mod_pow base exponent modulus) (uplc_mod_pow (uplc_mod_inverse base modulus) (- exponent) modulus)))))
 (declare-const $u$120 Int)
 (assert (= 10 (+ 5 $u$120)))
-(check-sat-using (par-or (then simplify ctx-solver-simplify smt) smt))
+(check-sat-using (or-else (try-for (then simplify propagate-values smt) 1000) (par-or (then simplify ctx-solver-simplify smt) smt)))
 (get-model)

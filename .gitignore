@@ -5,3 +5,5 @@
 *.olean
 /ffi/.zig-cache
 /ffi/zig-out
+/Test/generated/smt/list-benchmarks/
+/Test/generated/smt/general-benchmarks/

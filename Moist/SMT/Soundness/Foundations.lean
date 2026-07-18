@@ -587,6 +587,20 @@ theorem bindOk_mem {pc : SExpr} {v : SymVal} {k : SymVal → List Outcome}
   cases pc <;> simp [bindOk] at h ⊢
   all_goals first | exact h | (rename_i b; cases b <;> simp_all)
 
+/-- Every retained carried error has exactly its source path. -/
+theorem carryError_mem {outerPc : SExpr} {out : Outcome}
+    (h : out ∈ carryError outerPc) :
+    out = Outcome.error outerPc := by
+  cases outerPc <;> simp [carryError] at h ⊢
+  all_goals first | exact h | (rename_i b; cases b <;> simp_all)
+
+/-- Every retained carried timeout has exactly its source path. -/
+theorem carryTimeout_mem {outerPc : SExpr} {out : Outcome}
+    (h : out ∈ carryTimeout outerPc) :
+    out = Outcome.timeout outerPc := by
+  cases outerPc <;> simp [carryTimeout] at h ⊢
+  all_goals first | exact h | (rename_i b; cases b <;> simp_all)
+
 theorem ok_mem_singleton {pc : SExpr} {v sv : SymVal} :
     Outcome.ok pc sv ∈ ok v → pc = SExpr.trueE ∧ sv = v := by
   intro h
@@ -2717,11 +2731,11 @@ theorem bindOut_active_ok {m : SmtSem.Model} {xs : List Outcome} {k : SymVal →
       have hg := outcomeOkSym_guard hok
       exact ⟨pc, v, inner, houter, hg.1, hinner, hg.2⟩
   | error pc =>
-      simp at hout
+      have hout' := carryError_mem hout
       subst out
       simp [outcomeOkSym?] at hok
   | timeout pc =>
-      simp at hout
+      have hout' := carryTimeout_mem hout
       subst out
       simp [outcomeOkSym?] at hok
 
@@ -2740,11 +2754,12 @@ theorem bindOut_active_error {m : SmtSem.Model} {xs : List Outcome} {k : SymVal 
       have hg := outcomeErrorActive_guard herr
       exact Or.inr ⟨pc, v, inner, houter, hg.1, hinner, hg.2⟩
   | error pc =>
-      simp at hout
+      have hout' := carryError_mem hout
       subst out
-      exact Or.inl ⟨pc, houter, by simpa [outcomeErrorActive, pcHolds] using herr⟩
+      exact Or.inl ⟨pc, houter,
+        by simpa [outcomeErrorActive] using herr⟩
   | timeout pc =>
-      simp at hout
+      have hout' := carryTimeout_mem hout
       subst out
       simp [outcomeErrorActive] at herr
 
@@ -2771,9 +2786,11 @@ theorem bindOut_path_ok {m : SmtSem.Model} {xs : List Outcome} {k : SymVal → L
       | error innerPc => simp [Outcome.guard] at hguard
       | timeout innerPc => simp [Outcome.guard] at hguard
   | error outerPc =>
-      simp [Outcome.guard] at hout
+      have hout' := carryError_mem hout
+      simp at hout'
   | timeout outerPc =>
-      simp [Outcome.guard] at hout
+      have hout' := carryTimeout_mem hout
+      simp at hout'
 
 set_option linter.unusedSimpArgs false in
 theorem bindOut_path_error {m : SmtSem.Model} {xs : List Outcome} {k : SymVal → List Outcome}
@@ -2799,11 +2816,13 @@ theorem bindOut_path_error {m : SmtSem.Model} {xs : List Outcome} {k : SymVal �
           exact Or.inr ⟨outerPc, outerV, innerPc, houter, hinner, rfl, hp.1, hp.2⟩
       | timeout innerPc => simp [Outcome.guard] at hguard
   | error outerPc =>
-      simp [Outcome.guard] at hout
+      have hpath := carryError_mem hout
+      simp at hpath
       subst pc
       exact Or.inl ⟨houter, hpc⟩
   | timeout outerPc =>
-      simp [Outcome.guard] at hout
+      have hout' := carryTimeout_mem hout
+      simp at hout'
 
 set_option linter.unusedSimpArgs false in
 theorem checked2_path_ok {α} {m : SmtSem.Model} {p : Proj α}

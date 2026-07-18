@@ -461,6 +461,26 @@ theorem timeout_not_mem_mergedErrorOutcome {outs : List Outcome} {pc : SExpr} :
   unfold mergedErrorOutcome
   split <;> simp
 
+/-- A syntactically false path is inactive in the executable partial SMT
+semantics, so every active outcome survives dead-path pruning exactly. -/
+theorem mem_pruneFalseOutcomes_iff_of_active {m : SmtSem.Model}
+    {outs : List Outcome} {out : Outcome}
+    (hactive : pcHolds m out.pc = true) :
+    out ∈ pruneFalseOutcomes outs ↔ out ∈ outs := by
+  have hnotFalse : Expr.isFalse out.pc = false := by
+    cases hfalse : Expr.isFalse out.pc with
+    | false => rfl
+    | true =>
+        rw [Moist.SMT.Semantics.isFalse_eq_true] at hfalse
+        rw [hfalse] at hactive
+        simp [pcHolds, SmtSem.evalBoolIs, Moist.SMT.Semantics.evalBoolIs,
+          Moist.SMT.Semantics.evalBool?, Moist.SMT.Semantics.eval] at hactive
+  simp [pruneFalseOutcomes, hnotFalse]
+
+theorem mem_of_mem_pruneFalseOutcomes {outs : List Outcome} {out : Outcome}
+    (hmem : out ∈ pruneFalseOutcomes outs) : out ∈ outs := by
+  exact (List.mem_filter.mp hmem).1
+
 theorem compactOutcomes_active_ok {m : SmtSem.Model} {outs : List Outcome}
     {pc : SExpr} {v : SymVal}
     (hmem : Outcome.ok pc v ∈ compactOutcomes outs)
@@ -474,7 +494,12 @@ theorem compactOutcomes_active_ok {m : SmtSem.Model} {outs : List Outcome}
   rw [compactOutcomes] at hmem
   rcases List.mem_append.mp hmem with hprefix | htimeout
   · rcases List.mem_append.mp hprefix with hok | herr
-    · exact compactedOkOutcomes_active_ok hok hpc
+    · obtain ⟨sourcePc, sourceValue, hsourceMem, hsourcePc,
+          hsourceValue, hsourceOpaque⟩ :=
+        compactedOkOutcomes_active_ok hok hpc
+      exact ⟨sourcePc, sourceValue,
+        mem_of_mem_pruneFalseOutcomes hsourceMem, hsourcePc,
+        hsourceValue, hsourceOpaque⟩
     · exact False.elim (ok_not_mem_mergedErrorOutcome herr)
   · exact False.elim (ok_not_mem_mergedTimeoutOutcome htimeout)
 
@@ -489,14 +514,15 @@ theorem compactOutcomes_active_error {m : SmtSem.Model} {outs : List Outcome}
   · rcases List.mem_append.mp hprefix with hok | herr
     · exact False.elim (error_not_mem_compactedOkOutcomes hok)
     · unfold mergedErrorOutcome at herr
-      cases hp : errorPcs outs with
+      cases hp : errorPcs (pruneFalseOutcomes outs) with
       | nil => simp [hp] at herr
       | cons p ps =>
           simp [hp] at herr
           subst pc
           obtain ⟨sourcePc, hsourceMem, hsourceActive⟩ :=
             evalBoolIs_any_true (m := m) (by simpa [pcHolds] using hpc)
-          exact ⟨sourcePc, errorPcs_mem (by simpa [hp] using hsourceMem),
+          exact ⟨sourcePc, mem_of_mem_pruneFalseOutcomes
+              (errorPcs_mem (by simpa [hp] using hsourceMem)),
             by simpa [pcHolds] using hsourceActive⟩
   · exact False.elim (error_not_mem_mergedTimeoutOutcome htimeout)
 
@@ -513,14 +539,15 @@ theorem compactOutcomes_active_timeout {m : SmtSem.Model} {outs : List Outcome}
     · exact False.elim (timeout_not_mem_compactedOkOutcomes hok)
     · exact False.elim (timeout_not_mem_mergedErrorOutcome herr)
   · unfold mergedTimeoutOutcome at htimeout
-    cases hp : timeoutPcs outs with
+    cases hp : timeoutPcs (pruneFalseOutcomes outs) with
     | nil => simp [hp] at htimeout
     | cons p ps =>
         simp [hp] at htimeout
         subst pc
         obtain ⟨sourcePc, hsourceMem, hsourceActive⟩ :=
           evalBoolIs_any_true (m := m) (by simpa [pcHolds] using hpc)
-        exact ⟨sourcePc, timeoutPcs_mem (by simpa [hp] using hsourceMem),
+        exact ⟨sourcePc, mem_of_mem_pruneFalseOutcomes
+            (timeoutPcs_mem (by simpa [hp] using hsourceMem)),
           by simpa [pcHolds] using hsourceActive⟩
 
 end Moist.SMT.UPLC.Soundness

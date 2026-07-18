@@ -13,6 +13,12 @@ info: 'Moist.SMT.UPLC.scriptWith_assertions' depends on axioms: [propext, Quot.s
 #print axioms Moist.SMT.UPLC.scriptWith_assertions
 
 /--
+info: 'Moist.SMT.UPLC.scriptWithTactic_assertions' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.scriptWithTactic_assertions
+
+/--
 info: 'Moist.SMT.Semantics.evalBool?_simplifyBool' depends on axioms: [propext, Quot.sound]
 -/
 #guard_msgs in
@@ -47,6 +53,42 @@ info: 'Moist.SMT.UPLC.Soundness.bindOk_mem' depends on axioms: [propext, Quot.so
 -/
 #guard_msgs in
 #print axioms Moist.SMT.UPLC.Soundness.bindOk_mem
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.carryError_mem' depends on axioms: [propext]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.carryError_mem
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.carryTimeout_mem' depends on axioms: [propext]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.carryTimeout_mem
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.bindOut_anyOkOutcome_eq_unpruned' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.bindOut_anyOkOutcome_eq_unpruned
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.bindOut_anyErrorOutcome_eq_unpruned' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.bindOut_anyErrorOutcome_eq_unpruned
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.bindOut_anyTimeoutOutcome_eq_unpruned' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.bindOut_anyTimeoutOutcome_eq_unpruned
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.mem_pruneFalseOutcomes_iff_of_active' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.mem_pruneFalseOutcomes_iff_of_active
 
 /--
 info: 'Moist.SMT.UPLC.Soundness.compactOutcomes_active_ok' depends on axioms: [propext, Quot.sound]

@@ -470,10 +470,16 @@ mutual
               by simp [bigEval, hbigFields]⟩
         | Case scrut alts =>
             have hnoSplit := termNoOpaque_case hno
+            have hcompact : Outcome.ok pc v ∈ compactOutcomes
+                (bindOut (evalSym n ρ scrut) fun v => caseSym n ρ v alts) := by
+              simpa [evalSym] using hmem
+            obtain ⟨sourcePc, sourceValue, hsourceMem, hsourcePc,
+                hvalueEq, hnoEq⟩ :=
+              compactOutcomes_active_ok hcompact hpc
             have hbind := bindOut_path_ok (m := m)
               (xs := evalSym n ρ scrut)
               (k := fun v => caseSym n ρ v alts)
-              (hmem := by simpa [evalSym] using hmem) hpc
+              (hmem := hsourceMem) hsourcePc
             rcases hbind with
               ⟨pcScrut, vScrut, pcCase, hmemScrut, hmemCase,
                 hpcEq, hpcScrut, hpcCase⟩
@@ -486,7 +492,13 @@ mutual
               (cscrut := cvScrut)
               henv hρno hnoSplit.2 hvScrut hnoScrut hmemCase hpcCase
             rcases hcase with ⟨cv, hv, hnov, hcaseVal⟩
-            exact ⟨cv, hv, hnov,
+            have hv' : symValToCek? m v = some cv := by
+              rw [hvalueEq]
+              exact hv
+            have hnov' : symValNoOpaqueForSoundness v = true := by
+              rw [hnoEq]
+              exact hnov
+            exact ⟨cv, hv', hnov',
               by
                 cases cvScrut <;>
                   simpa [bigEval, hbigScrut, Bool.and_eq_true] using hcaseVal⟩
@@ -2243,29 +2255,43 @@ mutual
                 cases inner <;> simp [ok, outcomeErrorActive] at hmemFinal herrFinal
           | Case scrut alts =>
               have hnoSplit := termNoOpaque_case hno
-              have hbind := bindOut_active_error (m := m)
-                (xs := evalSym n ρ scrut)
-                (k := fun v => caseSym n ρ v alts)
-                (hmem := by simpa [evalSym] using hmem) herr
-              rcases hbind with hscrutErr | hcaseErr
-              · rcases hscrutErr with ⟨pcScrut, hmemScrut, hpcScrut⟩
-                have hscrutNone := evalSym_active_error_noOpaque_le (m := m)
-                  (fuel := n) (fuel' := n') (ρ := ρ) (env := env) (t := scrut)
-                  henv hρno hnoSplit.1 hmemScrut
-                  (by simpa [outcomeErrorActive] using hpcScrut) hle'
-                simp [Moist.Verified.ExactBigStep.eval, hscrutNone]
-              · rcases hcaseErr with
-                  ⟨pcScrut, vScrut, inner, hmemScrut, hpcScrut, hmemCase, herrCase⟩
-                have hscrut := evalSym_path_ok_noOpaque (m := m) (fuel := n)
-                  (ρ := ρ) (env := env) (t := scrut)
-                  henv hρno hnoSplit.1 hmemScrut hpcScrut
-                rcases hscrut with ⟨cvScrut, hvScrut, hnoScrut, hbigScrut⟩
-                have hbigScrut' := bigEval_mono_le hle' hbigScrut
-                have hcaseNone := caseSym_active_error_noOpaque_le (m := m)
-                  (fuel := n) (fuel' := n') (ρ := ρ) (env := env)
-                  (scrut := vScrut) (alts := alts) (cscrut := cvScrut)
-                  henv hρno hnoSplit.2 hvScrut hnoScrut hmemCase herrCase hle'
-                cases cvScrut <;> simpa [Moist.Verified.ExactBigStep.eval, hbigScrut', caseExactResult] using hcaseNone
+              cases out with
+              | ok pc v => simp [outcomeErrorActive] at herr
+              | timeout pc => simp [outcomeErrorActive] at herr
+              | error pc =>
+                have hpc : pcHolds m pc = true := by
+                  simpa [outcomeErrorActive] using herr
+                have hcompact : Outcome.error pc ∈ compactOutcomes
+                    (bindOut (evalSym n ρ scrut) fun v => caseSym n ρ v alts) := by
+                  simpa [evalSym] using hmem
+                obtain ⟨sourcePc, hsourceMem, hsourcePc⟩ :=
+                  compactOutcomes_active_error hcompact hpc
+                have hbind := bindOut_active_error (m := m)
+                  (xs := evalSym n ρ scrut)
+                  (k := fun v => caseSym n ρ v alts)
+                  (hmem := hsourceMem)
+                  (by simpa [outcomeErrorActive] using hsourcePc)
+                rcases hbind with hscrutErr | hcaseErr
+                · rcases hscrutErr with ⟨pcScrut, hmemScrut, hpcScrut⟩
+                  have hscrutNone := evalSym_active_error_noOpaque_le (m := m)
+                    (fuel := n) (fuel' := n') (ρ := ρ) (env := env) (t := scrut)
+                    henv hρno hnoSplit.1 hmemScrut
+                    (by simpa [outcomeErrorActive] using hpcScrut) hle'
+                  simp [Moist.Verified.ExactBigStep.eval, hscrutNone]
+                · rcases hcaseErr with
+                    ⟨pcScrut, vScrut, inner, hmemScrut, hpcScrut, hmemCase, herrCase⟩
+                  have hscrut := evalSym_path_ok_noOpaque (m := m) (fuel := n)
+                    (ρ := ρ) (env := env) (t := scrut)
+                    henv hρno hnoSplit.1 hmemScrut hpcScrut
+                  rcases hscrut with ⟨cvScrut, hvScrut, hnoScrut, hbigScrut⟩
+                  have hbigScrut' := bigEval_mono_le hle' hbigScrut
+                  have hcaseNone := caseSym_active_error_noOpaque_le (m := m)
+                    (fuel := n) (fuel' := n') (ρ := ρ) (env := env)
+                    (scrut := vScrut) (alts := alts) (cscrut := cvScrut)
+                    henv hρno hnoSplit.2 hvScrut hnoScrut hmemCase herrCase hle'
+                  cases cvScrut <;>
+                    simpa [Moist.Verified.ExactBigStep.eval, hbigScrut', caseExactResult]
+                      using hcaseNone
           | Error =>
               simp [Moist.Verified.ExactBigStep.eval]
 

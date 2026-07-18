@@ -48,13 +48,27 @@ theorem outcomesCovered_bindOut {m : SmtSem.Model} {outs : List Outcome}
   rcases houts with ⟨out, hout, hactive⟩
   cases out with
   | error pc =>
-      exact ⟨Outcome.error pc,
-        by simp only [bindOut, List.mem_flatMap]; exact ⟨Outcome.error pc, hout, by simp⟩,
-        hactive⟩
+      by_cases hfalse : pc = .bool false
+      · subst pc
+        simp [outcomeActive, Outcome.pc, Moist.SMT.Semantics.evalBoolIs,
+          Moist.SMT.Semantics.evalBool?, Moist.SMT.Semantics.eval] at hactive
+      · have hinner : Outcome.error pc ∈ carryError pc := by
+          cases pc <;> simp [carryError] at hfalse ⊢
+        exact ⟨Outcome.error pc,
+          by simp only [bindOut, List.mem_flatMap];
+             exact ⟨Outcome.error pc, hout, hinner⟩,
+          hactive⟩
   | timeout pc =>
-      exact ⟨Outcome.timeout pc,
-        by simp only [bindOut, List.mem_flatMap]; exact ⟨Outcome.timeout pc, hout, by simp⟩,
-        hactive⟩
+      by_cases hfalse : pc = .bool false
+      · subst pc
+        simp [outcomeActive, Outcome.pc, Moist.SMT.Semantics.evalBoolIs,
+          Moist.SMT.Semantics.evalBool?, Moist.SMT.Semantics.eval] at hactive
+      · have hinner : Outcome.timeout pc ∈ carryTimeout pc := by
+          cases pc <;> simp [carryTimeout] at hfalse ⊢
+        exact ⟨Outcome.timeout pc,
+          by simp only [bindOut, List.mem_flatMap];
+             exact ⟨Outcome.timeout pc, hout, hinner⟩,
+          hactive⟩
   | ok pc v =>
       have hbound := outcomesCovered_bindOk (m := m) (pc := pc) (v := v)
         (k := k) hactive (hk v)

@@ -126,12 +126,12 @@ def sortIdempotenceCounterexampleScript (n : Nat) : Script :=
   scriptWith decls
     [boolTrueCondition (sortFuel n + 120) decls (boolNot sameTwice)]
 
-def benchmarkScripts (n : Nat) : List (String × Script) :=
-  [ (s!"sorted-input-{n}.smt2", sortedInputScript n)
-  , (s!"insertion-sort-sorted-{n}.smt2", sortSortednessCounterexampleScript n)
-  , (s!"insert-preserves-sorted-{n}.smt2", insertSortednessCounterexampleScript n)
-  , (s!"insertion-sort-sum-{n}.smt2", sortSumCounterexampleScript n)
-  , (s!"insertion-sort-idempotent-{n}.smt2", sortIdempotenceCounterexampleScript n)
+def benchmarkScripts (n : Nat) : List (String × (Unit → Script)) :=
+  [ (s!"sorted-input-{n}.smt2", fun _ => sortedInputScript n)
+  , (s!"insertion-sort-sorted-{n}.smt2", fun _ => sortSortednessCounterexampleScript n)
+  , (s!"insert-preserves-sorted-{n}.smt2", fun _ => insertSortednessCounterexampleScript n)
+  , (s!"insertion-sort-sum-{n}.smt2", fun _ => sortSumCounterexampleScript n)
+  , (s!"insertion-sort-idempotent-{n}.smt2", fun _ => sortIdempotenceCounterexampleScript n)
   ]
 
 -- Every asserted benchmark condition is a CEK-level Boolean witness term;
@@ -144,8 +144,9 @@ def outputDir : System.FilePath := "Test/generated/smt/list-benchmarks"
 unsafe def writeBenchmarks (sizes : List Nat) : IO Unit := do
   IO.FS.createDirAll outputDir
   for n in sizes do
-    for (name, script) in benchmarkScripts n do
+    for (name, makeScript) in benchmarkScripts n do
       let start ← IO.monoMsNow
+      let script := makeScript ()
       let rendered := script.renderDag
       IO.FS.writeFile (outputDir / name) rendered
       let stop ← IO.monoMsNow

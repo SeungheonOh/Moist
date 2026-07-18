@@ -202,5 +202,5 @@
 (define-fun uplc_expModInteger_defined ((base Int) (exponent Int) (modulus Int)) Bool (and (> modulus 0) (or (= modulus 1) (or (>= exponent 0) (= (uplc_gcd (uplc_normalize_mod base modulus) modulus) 1)))))
 (define-fun uplc_expModInteger ((base Int) (exponent Int) (modulus Int)) Int (ite (= modulus 1) 0 (ite (= exponent 0) 1 (ite (> exponent 0) (uplc_mod_pow base exponent modulus) (uplc_mod_pow (uplc_mod_inverse base modulus) (- exponent) modulus)))))
 (assert (let ((|moist.dag.0| (not ((_ is VNil) VNil)))) (or |moist.dag.0| (not |moist.dag.0|))))
-(check-sat-using (par-or (then simplify ctx-solver-simplify smt) smt))
+(check-sat-using (or-else (try-for (then simplify propagate-values smt) 1000) (par-or (then simplify ctx-solver-simplify smt) smt)))
 (get-model)

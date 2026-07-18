@@ -568,6 +568,16 @@ def ok (v : SymVal) : List Outcome := [.ok SExpr.trueE v]
 def err : List Outcome := [.error SExpr.trueE]
 def timeout : List Outcome := [.timeout SExpr.trueE]
 
+/-- Retain an error unless its path is syntactically impossible. -/
+def carryError : SExpr → List Outcome
+  | .bool false => []
+  | pc => [.error pc]
+
+/-- Retain a timeout unless its path is syntactically impossible. -/
+def carryTimeout : SExpr → List Outcome
+  | .bool false => []
+  | pc => [.timeout pc]
+
 def bindOk (pc : SExpr) (v : SymVal) (k : SymVal → List Outcome) : List Outcome :=
   match pc with
   -- A continuation below a syntactically impossible path cannot contribute an
@@ -579,8 +589,11 @@ def bindOk (pc : SExpr) (v : SymVal) (k : SymVal → List Outcome) : List Outcom
 def bindOut (xs : List Outcome) (k : SymVal → List Outcome) : List Outcome :=
   xs.flatMap fun
     | .ok pc v => bindOk pc v k
-    | .error pc => [.error pc]
-    | .timeout pc => [.timeout pc]
+    -- Errors and timeouts under a syntactically false path are unreachable.
+    -- Carry reachable failures directly; no continuation or guard-map work is
+    -- needed because their path condition is already complete.
+    | .error pc => carryError pc
+    | .timeout pc => carryTimeout pc
 
 def mapPc (g : SExpr) (xs : List Outcome) : List Outcome :=
   xs.map (Outcome.guard g)
@@ -792,11 +805,19 @@ def mergedTimeoutOutcome (outs : List Outcome) : List Outcome :=
   | [] => []
   | pcs => [.timeout (SExpr.any pcs)]
 
+/-- Remove outcomes whose path condition is syntactically false before a join.
+Such an outcome can never be active in any SMT model, while retaining its
+value would make `mergeEncodedOks` embed that dead value into an `ite` branch. -/
+def pruneFalseOutcomes (outs : List Outcome) : List Outcome :=
+  outs.filter fun out => !out.pc.isFalse
+
 /-- Collapse redundant first-order branches while retaining every higher-order
-branch.  This is applied at `Force`, the join point for compiled lazy `if`s. -/
+branch.  This is applied at both semantic join points: `Force` for compiled
+lazy `if`s and `Case` for constructor/tag alternatives. -/
 def compactOutcomes (outs : List Outcome) : List Outcome :=
-  compactedOkOutcomes outs ++
-    mergedErrorOutcome outs ++ mergedTimeoutOutcome outs
+  let live := pruneFalseOutcomes outs
+  compactedOkOutcomes live ++
+    mergedErrorOutcome live ++ mergedTimeoutOutcome live
 
 structure Proj (α : Type) where
   guard : SExpr
@@ -1063,8 +1084,11 @@ mutual
           | .constr (.int (-1)) vs => ok (.constr (.int (Int.ofNat tag)) vs)
           | _ => err
     | n + 1, ρ, .Case scrut alts =>
-        bindOut (evalSym n ρ scrut) fun v =>
-        caseSym n ρ v alts
+        -- `Case` is a semantic join point just like forcing a lazy branch.
+        -- Compact first-order alternatives before a surrounding continuation
+        -- can duplicate once for every constructor/tag alternative.
+        compactOutcomes <| bindOut (evalSym n ρ scrut) fun v =>
+          caseSym n ρ v alts
     | _ + 1, _, .Error => err
   termination_by n _ t => (n, (1, sizeOf t))
 
@@ -1730,18 +1754,31 @@ def timeoutCond (outs : List Outcome) : SExpr :=
     | .timeout pc => some pc
     | _ => none
 
-/-- Run Z3's context-aware datatype simplification and its direct SMT search
-as a two-way portfolio.  Symbolic list queries vary sharply: model-producing
-queries often favor the former while counterexample queries favor the latter.
-This changes only solver strategy; assertions and returned models retain their
-ordinary SMT meaning. -/
-def z3QueryTactic : String :=
-  "(par-or (then simplify ctx-solver-simplify smt) smt)"
+/-- Try a propagation-heavy refinement pass for at most one second, then fall
+back to the former two-way portfolio of context-aware and direct SMT search.
+The bounded fast path solves common arithmetic/control-flow obligations with
+roughly half the solver memory, while the fallback retains the more robust
+behavior needed by hard datatype equalities.
 
-def scriptWith (decls : List SymDecl) (assertions : List SExpr) : Moist.SMT.Script :=
+This changes only solver strategy.  `scriptWithTactic_assertions` below proves
+that the tactic string cannot add, remove, or rewrite a logical assertion, and
+the production CEK endpoints consume exactly that assertion list. -/
+def z3QueryTactic : String :=
+  "(or-else (try-for (then simplify propagate-values smt) 1000) " ++
+    "(par-or (then simplify ctx-solver-simplify smt) smt))"
+
+/-- Construct the typed command sequence with a caller-supplied solver tactic.
+The product compiler uses only the fixed, reviewed `z3QueryTactic`; callers of
+this benchmarking helper remain responsible for supplying well-formed Z3
+tactic syntax at the external rendering boundary. -/
+def scriptWithTactic (tactic : String) (decls : List SymDecl)
+    (assertions : List SExpr) : Moist.SMT.Script :=
   ⟨prelude ++ declCommands decls ++ assumptionCommands decls ++
     assertions.map Moist.SMT.Command.assert ++
-      [.checkSatUsing z3QueryTactic, .getModel]⟩
+      [.checkSatUsing tactic, .getModel]⟩
+
+def scriptWith (decls : List SymDecl) (assertions : List SExpr) : Moist.SMT.Script :=
+  scriptWithTactic z3QueryTactic decls assertions
 
 private theorem assertions_prelude :
     prelude.filterMap Moist.SMT.Command.assertion? = [] := by
@@ -1773,6 +1810,20 @@ private theorem assertions_assumptionCommands (decls : List SymDecl) :
         decl.assumptions ++ decls.flatMap SymDecl.assumptions
       rw [List.filterMap_append, assertions_assertCommands, ih]
 
+/-- Solver-control commands are assertion-neutral in the typed `Script` AST
+for every tactic string.  This is the kernel-checked preservation theorem for
+solver-strategy changes; it deliberately does not certify raw tactic syntax or
+the separately documented SMT-LIB rendering boundary. -/
+theorem scriptWithTactic_assertions (tactic : String) (decls : List SymDecl)
+    (assertions : List SExpr) :
+    (scriptWithTactic tactic decls assertions).assertions =
+      decls.flatMap SymDecl.assumptions ++ assertions := by
+  simp only [scriptWithTactic, Moist.SMT.Script.assertions,
+    List.filterMap_append]
+  rw [assertions_prelude, assertions_declCommands,
+    assertions_assumptionCommands, assertions_assertCommands]
+  simp [Moist.SMT.Command.assertion?]
+
 /-- Purely syntactic accounting for typed assertion commands.  This theorem
 does not claim that Z3 returned a model, that the model satisfies the
 assertions, or that raw prelude commands have any particular semantics; those
@@ -1780,10 +1831,7 @@ facts belong to `Soundness.CertifiedZ3Model`. -/
 theorem scriptWith_assertions (decls : List SymDecl) (assertions : List SExpr) :
     (scriptWith decls assertions).assertions =
       decls.flatMap SymDecl.assumptions ++ assertions := by
-  simp only [scriptWith, Moist.SMT.Script.assertions, List.filterMap_append]
-  rw [assertions_prelude, assertions_declCommands,
-    assertions_assumptionCommands, assertions_assertCommands]
-  simp [Moist.SMT.Command.assertion?]
+  exact scriptWithTactic_assertions z3QueryTactic decls assertions
 
 /-- Opt-in final normalization for callers supplying arbitrary hand-written
 assertions.  Compiler-generated queries already use the verified smart

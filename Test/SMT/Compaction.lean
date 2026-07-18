@@ -183,13 +183,60 @@ private def sampleOutcomes : List Outcome :=
 -- Recursive Boolean and integer results are each joined at their native sort.
 #guard
   let outs := sortedAfterInsertionOutcomes 3
-  outs.length == 9 && successCount outs == 2 &&
-    errorCount outs == 6 && timeoutCount outs == 1
+  outs.length == 3 && successCount outs == 1 &&
+    errorCount outs == 2 && timeoutCount outs == 0
 
 #guard
   let outs := sumAfterInsertionOutcomes 3
-  outs.length == 10 && successCount outs == 2 &&
-    errorCount outs == 6 && timeoutCount outs == 2
+  outs.length == 3 && successCount outs == 1 &&
+    errorCount outs == 2 && timeoutCount outs == 0
+
+-- Syntactically impossible paths disappear before their values can be packed
+-- into nested selector terms.  Live outcomes of every kind are retained.
+#guard
+  match pruneFalseOutcomes
+      [.ok (.bool false) (.const (.integer (.sym "dead"))),
+       .ok (.sym "live") (.const (.integer (.sym "value"))),
+       .error (.bool false), .error (.sym "error"),
+       .timeout (.bool false), .timeout (.sym "timeout")] with
+  | [.ok (.sym "live") (.const (.integer (.sym "value"))),
+      .error (.sym "error"), .timeout (.sym "timeout")] => true
+  | _ => false
+
+/-! `Case` is the other general UPLC join point.  A symbolic constructor can
+select every alternative, so using several independent cases in a surrounding
+computation used to multiply equivalent first-order outcomes. -/
+
+private def caseJoinIntAlts (width : Nat) : List Term :=
+  (List.range width).map fun i => int (Int.ofNat i)
+
+private def caseJoinInt (width : Nat) : Term :=
+  .Case (.Var 1) (caseJoinIntAlts width)
+
+private def caseJoinSum : Nat → Nat → Term
+  | 0, _ => int 0
+  | count + 1, width =>
+      app2 .AddInteger (caseJoinInt width) (caseJoinSum count width)
+
+private def caseJoinOutcomes (count width : Nat) : List Outcome :=
+  evalSym (80 + 20 * count) (envOf [symConstr "case_join_tag"])
+    (caseJoinSum count width)
+
+/-- Keep the optimizer at the production `Case` join itself. -/
+theorem evalSym_case_join_compacts (n : Nat) (ρ : List SymVal)
+    (scrut : Term) (alts : List Term) :
+    evalSym (n + 1) ρ (.Case scrut alts) =
+      compactOutcomes
+        (bindOut (evalSym n ρ scrut) fun v => caseSym n ρ v alts) := by
+  simp [evalSym]
+
+-- Eight alternatives across four symbolic case joins still have exactly one
+-- packed integer success.  Literal-false carried failures disappear before
+-- the remaining possible errors reach the compacted join.
+#guard
+  let outs := caseJoinOutcomes 4 8
+  outs.length == 6 && successCount outs == 1 &&
+    errorCount outs == 5 && timeoutCount outs == 0
 
 private def nilOutcome : Outcome := .ok (.sym "nil-pc") (.const .unit)
 private def consOutcome : Outcome := .ok (.sym "cons-pc") (.const .unit)
@@ -219,19 +266,22 @@ private def certifiedNilOutcomes : List Outcome :=
   | _ => false
 
 -- End-to-end regression beyond the former six-element practical limit.  Each
--- successful representation is packed once; only the linearly many
--- outer call-site errors and the single exhausted symbolic-recursion path
--- remain as separate outcome kinds.
+-- successful representation is packed once, and all possible runtime errors
+-- are represented by one merged outcome; impossible carried failures and
+-- timeouts are absent.
 #guard
   let outs := insertionSortOutcomes 7
-  outs.length == 11 && successCount outs == 2 &&
-    errorCount outs == 8 && timeoutCount outs == 1
+  outs.length == 2 && successCount outs == 1 &&
+    errorCount outs == 1 && timeoutCount outs == 0
 
 -- These are the public kernel-checked CEK endpoints exercised by generated
 -- success and error assertions.
 #check Moist.SMT.UPLC.Soundness.evalSym_errorCond_sound
 #check Moist.SMT.UPLC.Soundness.evalSym_okBoolTrueCond_sound
+#check Moist.SMT.UPLC.Soundness.compactOutcomes_active_ok
+#check Moist.SMT.UPLC.Soundness.compactOutcomes_active_error
 #check Moist.SMT.UPLC.Soundness.compactOutcomes_active_timeout
+#check Moist.SMT.UPLC.Soundness.mem_pruneFalseOutcomes_iff_of_active
 #check Moist.SMT.UPLC.Soundness.constListBranches_sublist
 #check Moist.SMT.UPLC.Soundness.exactConstListLength_eval_length
 #check Moist.SMT.UPLC.Soundness.constListBranches_complete_for_toCek
