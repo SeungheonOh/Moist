@@ -28,25 +28,33 @@ open Moist.Plutus.Term
 
 /-! ## Supported builtin fragment -/
 
-def builtinOpaqueForSoundness : BuiltinFun → Bool
-  | .Sha2_256 | .Sha3_256 | .Blake2b_256 | .VerifyEd25519Signature
-  | .VerifyEcdsaSecp256k1Signature | .VerifySchnorrSecp256k1Signature
-  | .Bls12_381_G1_add | .Bls12_381_G1_neg | .Bls12_381_G1_scalarMul
-  | .Bls12_381_G1_equal | .Bls12_381_G1_hashToGroup
-  | .Bls12_381_G1_compress | .Bls12_381_G1_uncompress
-  | .Bls12_381_G2_add | .Bls12_381_G2_neg | .Bls12_381_G2_scalarMul
-  | .Bls12_381_G2_equal | .Bls12_381_G2_hashToGroup
-  | .Bls12_381_G2_compress | .Bls12_381_G2_uncompress
-  | .Bls12_381_millerLoop | .Bls12_381_mulMlResult | .Bls12_381_finalVerify
-  | .Keccak_256 | .Blake2b_224
-  | .Ripemd_160
-  | .SerializeData | .InsertCoin | .LookupCoin | .ScaleValue | .UnionValue
-  | .ValueContains | .ValueData | .UnValueData
-  | .Bls12_381_G1_multiScalarMul | .Bls12_381_G2_multiScalarMul => true
+/-- The exact builtin allow-list backed by symbolic encodings and proof
+dispatchers.  This is intentionally a whitelist: extending `BuiltinFun`
+cannot silently make a new operation available through the portable checker
+before its compiler case, semantics, and soundness proofs exist. -/
+def builtinAllowedForSoundness : BuiltinFun → Bool
+  | .AddInteger | .SubtractInteger | .MultiplyInteger
+  | .DivideInteger | .QuotientInteger | .RemainderInteger | .ModInteger
+  | .EqualsInteger | .LessThanInteger | .LessThanEqualsInteger
+  | .AppendByteString | .ConsByteString | .SliceByteString
+  | .LengthOfByteString | .IndexByteString | .EqualsByteString
+  | .LessThanByteString | .LessThanEqualsByteString
+  | .AppendString | .EqualsString | .EncodeUtf8 | .DecodeUtf8
+  | .IfThenElse | .ChooseUnit | .Trace | .FstPair | .SndPair
+  | .ChooseList | .MkCons | .HeadList | .TailList | .NullList
+  | .ChooseData | .ConstrData | .MapData | .ListData | .IData | .BData
+  | .UnConstrData | .UnMapData | .UnListData | .UnIData | .UnBData
+  | .EqualsData | .MkPairData | .MkNilData | .MkNilPairData
+  | .IntegerToByteString | .ByteStringToInteger
+  | .AndByteString | .OrByteString | .XorByteString
+  | .ComplementByteString | .ReadBit | .WriteBits | .ReplicateByte
+  | .ShiftByteString | .RotateByteString | .CountSetBits
+  | .FindFirstSetBit | .ExpModInteger
+  | .DropList | .IndexArray | .LengthOfArray | .ListToArray => true
   | _ => false
 
-def builtinAllowedForSoundness (b : BuiltinFun) : Bool :=
-  !builtinOpaqueForSoundness b
+def builtinOpaqueForSoundness (b : BuiltinFun) : Bool :=
+  !builtinAllowedForSoundness b
 
 mutual
   def termUsesOpaqueBuiltinForSoundness : Term → Bool

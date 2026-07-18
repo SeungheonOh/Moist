@@ -1,6 +1,5 @@
 import Moist.SMT.Optimize
 import Moist.CEK.Builtins
-import Moist.CEK.Machine
 import Moist.Plutus.DecidableEq
 
 namespace Moist.SMT.UPLC
@@ -1288,19 +1287,12 @@ def mergeEncodedConstListOks :
               hint := .ite ok.pc ok.hint rest.hint
             }
 
+/-- Decode the merged representation with the same single dispatcher used by
+the compaction certificate.  Keeping one implementation prevents the
+executable join and its proof-facing decoder from drifting apart when a new
+native compact kind is added. -/
 def mergedDecode (kind : CompactKind) (e : SExpr) : SymVal :=
-  match kind with
-  | .bool => .const (.bool e)
-  | .integer => .const (.integer e)
-  | .unit => .const .unit
-  | .bytes => .const (.bytes e)
-  | .string => .const (.string e)
-  | .data => .const (.data e)
-  | .constList => .const (.constList e .unknown)
-  | .dataList => .const (.dataList e)
-  | .pairDataList => .const (.pairDataList e)
-  | .array => .const (.array e)
-  | .dyn => .dyn e
+  kind.decode e
 
 def mergedOkOutcome (kind : CompactKind) (outs : List Outcome) : List Outcome :=
   match kind with
@@ -2218,6 +2210,10 @@ def symConstr (name : String) (fields : List SymVal := []) : SymDecl :=
   ⟨n, .int, .constr (.sym n) fields, [SExpr.ge (.sym n) (.int 0)], by
     exact ⟨[SExpr.ge (.sym n) (.int 0)], by simp [symDeclRequired?], by simp⟩⟩
 
+/-- Build the symbolic environment in declaration order.  UPLC variables are
+one-based, so `Var 1` denotes the first declaration, `Var 2` the second, and
+so on; callers must not reverse this list as they would a stack of nested
+lambda binders. -/
 def envOf (decls : List SymDecl) : List SymVal :=
   decls.map SymDecl.value
 

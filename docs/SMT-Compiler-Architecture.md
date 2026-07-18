@@ -14,6 +14,9 @@ The portable path is ordered as follows:
 2. `Moist.SMT.Optimize` contains executable expression rewrites only.
 3. `Moist.SMT.UPLC` contains the symbolic value/outcome IR, fueled symbolic
    evaluator, builtin compiler, fixed SMT prelude, and script constructors.
+   It reuses the CEK builtin evaluator for fully static calls, but deliberately
+   does not import the CEK transition machine; the latter belongs to the proof
+   side of the boundary.
 4. `Moist.SMT.Compiler.Validation` contains fail-closed structural validation
    for the supported builtin fragment and public SMT expressions.
 5. `Moist.SMT.Render` is the transparent reference SMT-LIB renderer.
@@ -99,6 +102,7 @@ of the result-to-CEK argument is kernel checked.
 A port must preserve all of the following together:
 
 - source-order versus CEK-stack-order builtin arguments;
+- declaration order (`Var 1` is the first `SymDecl`, not the last);
 - exact force/arity handling and the distinction between error and symbolic
   fuel timeout;
 - static CEK-backed evaluation when all saturated arguments are literals;

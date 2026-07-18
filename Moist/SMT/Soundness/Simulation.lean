@@ -16,7 +16,7 @@ builtin semantics. -/
 theorem allowedBuiltin_not_opaque {b : BuiltinFun}
     (hallowed : builtinAllowedForSoundness b = true)
     (hopaque : builtinOpaqueForSoundness b = true) : False := by
-  simp [builtinAllowedForSoundness, hopaque] at hallowed
+  simp [builtinOpaqueForSoundness, hallowed] at hopaque
 
 def noOkSoundOfOpaque {b : BuiltinFun}
     (hallowed : builtinAllowedForSoundness b = true)
@@ -359,7 +359,7 @@ mutual
             rcases hmem with ⟨rfl, rfl⟩
             have hbAllowed : builtinAllowedForSoundness b = true := by
               simpa [termNoOpaqueBuiltinsForSoundness, termUsesOpaqueBuiltinForSoundness,
-                builtinAllowedForSoundness] using hno
+                builtinOpaqueForSoundness] using hno
             exact ⟨.VBuiltin b [] (expectedArgs b),
               by simp [symValToCek?, symValListToCekList?],
               by simp [symValNoOpaqueForSoundness, hbAllowed, symValsNoOpaqueForSoundness],
