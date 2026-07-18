@@ -1,4 +1,5 @@
 import Moist.SMT.Soundness.SolverBoundary
+import Moist.SMT.Compiler.ExpressionIdentity
 
 /-!
 The optimizer and the CEK endpoints for the supported (no-opaque-builtin)
@@ -95,6 +96,25 @@ info: 'Moist.SMT.UPLC.SExpr.same?_eq_true' depends on axioms: [propext, Quot.sou
 -/
 #guard_msgs in
 #print axioms Moist.SMT.UPLC.SExpr.same?_eq_true
+
+/--
+info: 'Moist.SMT.Compiler.ExpressionIdentity.decEq' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.Compiler.ExpressionIdentity.decEq
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.OutputAnalysis.generatedAssertionsOutputSafe_eq' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms
+  Moist.SMT.UPLC.Soundness.OutputAnalysis.generatedAssertionsOutputSafe_eq
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.GeneratedOutputContract.check_isSome' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.GeneratedOutputContract.check_isSome
 
 /--
 info: 'Moist.SMT.UPLC.Soundness.eval_reflexiveEq_int_of' depends on axioms: [propext, Classical.choice, Quot.sound]

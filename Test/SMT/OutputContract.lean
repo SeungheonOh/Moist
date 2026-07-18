@@ -1,4 +1,5 @@
 import Test.SMT.BasicBuiltinDifferential
+import Moist.SMT.Compiler.OutputAnalysis
 
 /-!
 # Generated-output contract regressions
@@ -13,6 +14,7 @@ namespace Test.SMT.OutputContract
 open Moist.SMT
 open Moist.SMT.UPLC
 open Moist.SMT.UPLC.Soundness
+open Moist.SMT.Compiler.OutputAnalysis
 open Test.SMT.BasicBuiltinDifferential
 
 private def checked? (declarations : List SymDecl)
@@ -96,6 +98,29 @@ example : checked? [] (.app "uplc_typo" [.int 1]) = false := by
 
 -- SMT-LIB only permits Boolean assertions.
 example : checked? [] (.int 1) = false := by
+  native_decide
+
+/- Fingerprints are only cache filters.  These expressions have the same
+depth-two fingerprint, but the hidden leaf changes the application from a
+well-sorted Boolean to an ill-sorted term.  The exact-identity gate must
+reject the candidate instead of reusing the first analysis. -/
+private def fingerprintCollisionBool : SExpr :=
+  .app "not" [.app "not" [.app "not" [.bool true]]]
+
+private def fingerprintCollisionInt : SExpr :=
+  .app "not" [.app "not" [.app "not" [.int 0]]]
+
+example : (expressionOutputFingerprint 2 fingerprintCollisionBool ==
+    expressionOutputFingerprint 2 fingerprintCollisionInt) = true := by
+  native_decide
+
+example : expressionOutputEq fingerprintCollisionBool
+    fingerprintCollisionInt = false := by
+  native_decide
+
+example : generatedAssertionsOutputSafe []
+    ⟨[.assert fingerprintCollisionBool, .assert fingerprintCollisionInt]⟩ =
+      false := by
   native_decide
 
 -- Supported advanced helpers belong to the same checked grammar.

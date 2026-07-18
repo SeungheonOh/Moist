@@ -1,34 +1,20 @@
-import Moist.SMT.Soundness.SolverInput
+import Moist.SMT.Soundness.OutputAnalysis
 
 /-!
 # Generated SMT output contract
 
-`SupportedDeclarations` checks every expression supplied by a caller.  The
-symbolic evaluator constructs a second, substantially larger expression: the
-actual query assertion.  The executable checks live with the portable
-compiler in `Moist.SMT.Compiler.Validation`; this module adds their
-proof-carrying certificate for the public solver boundary.
-
-The contract is deliberately about the typed `Script` AST before either the
-transparent renderer or the pointer-based DAG renderer runs.  A successful
-check certifies that the command stream contains only the fixed raw prelude,
-checked declarations, assertions, the fixed solver tactic, and the final
-model request.  It also certifies that every logical assertion belongs to the
-reviewed renderer grammar and has SMT sort `Bool` under exactly the query
-declarations.
-
-This is not a replacement for symbolic-execution soundness.  Datatype
-selectors and several UPLC operations are intentionally partial in the Lean
-observation semantics and total-but-unspecified outside their domains in Z3.
-Their path-sensitive guards are covered by the simulation proofs; a
-context-free syntax checker cannot establish that stronger property.
+This is the small proof-carrying boundary consumed by the checked compiler.
+The executable output analysis lives under `Moist.SMT.Compiler`; its exact
+equivalence to the transparent renderer and sort validators is proved in
+`Moist.SMT.Soundness.OutputAnalysis`.
 -/
 
 namespace Moist.SMT.UPLC.Soundness
 
-/-- Proof-carrying result of validating generated output.  Every field is an
-equation computed from the exact stored script and checked by the Lean kernel;
-no solver result or admitted proposition is stored here. -/
+open Moist.SMT.Compiler.OutputAnalysis
+
+/-- Kernel-checked facts about the exact generated script.  All four
+independent checks remain visible at the public boundary. -/
 structure GeneratedOutputContract (declarations : List SymDecl)
     (script : Moist.SMT.Script) : Type where
   commandsSafe : generatedCommandsSafe declarations script = true
@@ -38,17 +24,18 @@ structure GeneratedOutputContract (declarations : List SymDecl)
 
 namespace GeneratedOutputContract
 
-/-- Fail closed when compiler output leaves the reviewed, well-sorted
-expression fragment. -/
+/-- Fail closed when compiler output leaves the reviewed command, control,
+renderer, or sort fragment. -/
 def check (declarations : List SymDecl) (script : Moist.SMT.Script) :
     Option (GeneratedOutputContract declarations script) :=
   if hCommands : generatedCommandsSafe declarations script = true then
     if hControl : generatedSolverControlSafe script = true then
-      if hRenderer : generatedAssertionsRendererSafe script = true then
-        if hSort : generatedAssertionsSortSafe declarations script = true then
-          some ⟨hCommands, hControl, hRenderer, hSort⟩
-        else
-          none
+      if hsafe : generatedAssertionsOutputSafe declarations script = true then
+        have hreference : generatedAssertionsRendererSafe script = true ∧
+            generatedAssertionsSortSafe declarations script = true := by
+          rw [OutputAnalysis.generatedAssertionsOutputSafe_eq] at hsafe
+          exact Bool.and_eq_true_iff.mp hsafe
+        some ⟨hCommands, hControl, hreference.1, hreference.2⟩
       else
         none
     else
@@ -67,7 +54,7 @@ def check (declarations : List SymDecl) (script : Moist.SMT.Script) :
     by_cases hControl : generatedSolverControlSafe script = true <;>
     by_cases hRenderer : generatedAssertionsRendererSafe script = true <;>
     by_cases hSort : generatedAssertionsSortSafe declarations script = true <;>
-    simp_all [check]
+    simp_all [check, OutputAnalysis.generatedAssertionsOutputSafe_eq]
 
 end GeneratedOutputContract
 

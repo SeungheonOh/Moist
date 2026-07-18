@@ -20,17 +20,23 @@ The portable path is ordered as follows:
 4. `Moist.SMT.Compiler.Validation` contains fail-closed structural validation
    for the supported builtin fragment and public SMT expressions. Its
    executable definitions live in the matching
-   `Moist.SMT.Compiler.Validation` namespace.  The proof-only
+   `Moist.SMT.Compiler.Validation` namespace. The proof-only
    `Moist.SMT.Soundness.ValidationCompatibility` module preserves the former
    `Moist.SMT.UPLC.Soundness` spellings for existing Lean proof callers without
    leaking that namespace through the compiler facade.
-5. `Moist.SMT.Compiler.InputChecked` exposes the proof-free, explicitly named
+5. `Moist.SMT.Compiler.OutputAnalysis` contains the sharing-aware, fused
+   renderer/sort analysis used to postvalidate compiler-owned assertions. Its
+   bounded cache is an executable optimization only: fingerprints merely
+   select candidates, and exact structural equality gates every cache hit.
+   Lean's isolated pointer-identity accelerator is optional; a port needs
+   only an exact equality decision at this boundary.
+6. `Moist.SMT.Compiler.InputChecked` exposes the proof-free, explicitly named
    `*InputChecked?` entry points. They validate caller-controlled input and
    construct one canonical script without running the output contract's
    unbounded renderer and sort traversals over its shared assertion DAG. The
    compiler's bounded prelude-dependency scan remains part of construction.
-6. `Moist.SMT.Render` is the transparent reference SMT-LIB renderer.
-7. `Moist.SMT.Compiler` is the public portable facade over those modules.
+7. `Moist.SMT.Render` is the transparent reference SMT-LIB renderer.
+8. `Moist.SMT.Compiler` is the public portable facade over those modules.
 
 None of these modules imports the simulated semantics or the soundness proof
 tree. `Moist.SMT.Compiler.Operational` is a separate opt-in facade for the
@@ -63,9 +69,10 @@ The proof side is separate:
   environment.
 - the generated-output contract checks the compiler's command allowlist,
   solver-control suffix, assertion renderer grammar, and assertion sorts,
-  rather than checking only caller-supplied declarations. Its current pure
-  structural assertion checks can expand shared decision DAGs; moving that
-  invariant to construction time remains future work, not a solved cost.
+  rather than checking only caller-supplied declarations. The executable
+  assertion pass preserves sharing with a bounded memo cache;
+  `Soundness.OutputAnalysis` proves it exactly equals the transparent
+  renderer and sort validators before `OutputContract` stores either fact.
 - `Soundness.SolverBoundary` ties a checked query to its canonical script and
   consumes a decoded, semantically certified solver model.
 
@@ -130,6 +137,8 @@ A port must preserve all of the following together:
 - reference rendering of negative integers and recursive literals;
 - injective/safe names, unique declarations, sort checking, and generated
   output validation;
+- exact expression equality before reusing any cached output analysis (a
+  pointer shortcut is optional and must not be the logical equality test);
 - computational revalidation of every mandatory decoding assumption in the
   proof-free `SymDecl` record; and
 - the CEK/Z3 differential, raw-prelude differential, renderer differential,

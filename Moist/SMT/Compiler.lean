@@ -1,4 +1,5 @@
 import Moist.SMT.Compiler.InputChecked
+import Moist.SMT.Compiler.OutputAnalysis
 import Moist.SMT.Render
 
 /-!
