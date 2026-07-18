@@ -16,6 +16,66 @@ open Moist.Plutus.Term
 
 namespace SExpr
 
+private theorem sameListWith_eq_true
+    (same : SExpr → SExpr → Bool)
+    (hsame : ∀ left right, same left right = true → left = right) :
+    ∀ left right,
+      sameListWith same left right = true → left = right
+  | [], [], _ => rfl
+  | left :: lefts, right :: rights, equal => by
+      simp only [sameListWith, Bool.and_eq_true] at equal
+      cases hsame left right equal.1
+      cases sameListWith_eq_true same hsame lefts rights equal.2
+      rfl
+  | [], _ :: _, equal
+  | _ :: _, [], equal => by
+      simp [sameListWith] at equal
+
+/-- The proof-free executable equality check can enable reflexive folding only
+for expressions with exactly the same syntax.  Fuel exhaustion returns
+`false`, so it can only miss an optimization. -/
+theorem same?_eq_true : ∀ fuel left right,
+    same? fuel left right = true → left = right
+  | 0, _, _, equal => by simp [same?] at equal
+  | _ + 1, .sym left, right, equal
+  | _ + 1, .int left, right, equal
+  | _ + 1, .bytes left, right, equal
+  | _ + 1, .dataLit left, right, equal
+  | _ + 1, .dataListLit left, right, equal
+  | _ + 1, .dataPairListLit left, right, equal
+  | _ + 1, .constListLit left, right, equal
+  | _ + 1, .bool left, right, equal
+  | _ + 1, .str left, right, equal => by
+      cases right <;> simp_all [same?]
+  | fuel + 1, .app leftName leftArgs, right, equal => by
+      cases right with
+      | app rightName rightArgs =>
+          simp only [same?, Bool.and_eq_true, decide_eq_true_eq] at equal
+          cases equal.1
+          cases sameListWith_eq_true (same? fuel)
+            (fun left right => same?_eq_true fuel left right)
+            leftArgs rightArgs equal.2
+          rfl
+      | sym name | int name | bytes name | dataLit name | dataListLit name
+      | dataPairListLit name | constListLit name | bool name | str name =>
+          exact Bool.noConfusion equal
+      | ite condition thenBranch elseBranch => exact Bool.noConfusion equal
+  | fuel + 1, .ite leftCondition leftThen leftElse, right, equal => by
+      cases right with
+      | ite rightCondition rightThen rightElse =>
+          change (same? fuel leftCondition rightCondition &&
+            same? fuel leftThen rightThen &&
+            same? fuel leftElse rightElse) = true at equal
+          simp only [Bool.and_eq_true] at equal
+          cases same?_eq_true fuel leftCondition rightCondition equal.1.1
+          cases same?_eq_true fuel leftThen rightThen equal.1.2
+          cases same?_eq_true fuel leftElse rightElse equal.2
+          rfl
+      | sym name | int name | bytes name | dataLit name | dataListLit name
+      | dataPairListLit name | constListLit name | bool name | str name =>
+          exact Bool.noConfusion equal
+      | app name arguments => exact Bool.noConfusion equal
+
 theorem sameAtom_eq_true {a b : SExpr} (h : sameAtom a b = true) :
     a = b := by
   cases a <;> cases b <;> simp_all [sameAtom]

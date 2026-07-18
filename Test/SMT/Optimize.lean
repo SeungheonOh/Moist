@@ -37,8 +37,9 @@ def rawRecursiveSum55 : Expr :=
 def repeatedEqualityOperand : Expr :=
   .app "*" [.app "+" [.sym "x", .int 7], .sym "x"]
 
--- Equality folding is proof-carrying and deliberately falls back when the
--- syntax differs; it is not a hash-only or unchecked `BEq` rewrite.
+-- Equality folding uses a proof-free Boolean syntax check and deliberately
+-- falls back when syntax differs.  `SExpr.same?_eq_true` proves that every
+-- positive check is genuine equality; it is not a hash-only rewrite.
 #guard SExpr.reflexiveEq repeatedEqualityOperand repeatedEqualityOperand == .bool true
 #guard SExpr.reflexiveEq (.sym "lhs") (.sym "rhs") ==
   SExpr.eq (.sym "lhs") (.sym "rhs")

@@ -91,6 +91,12 @@ info: 'Moist.SMT.UPLC.SExpr.same?' depends on axioms: [propext, Quot.sound]
 #print axioms Moist.SMT.UPLC.SExpr.same?
 
 /--
+info: 'Moist.SMT.UPLC.SExpr.same?_eq_true' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.SExpr.same?_eq_true
+
+/--
 info: 'Moist.SMT.UPLC.Soundness.eval_reflexiveEq_int_of' depends on axioms: [propext, Classical.choice, Quot.sound]
 -/
 #guard_msgs in

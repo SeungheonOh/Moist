@@ -15,66 +15,45 @@ namespace SExpr
 abbrev trueE : SExpr := Moist.SMT.Expr.trueE
 abbrev falseE : SExpr := Moist.SMT.Expr.falseE
 
-/- A positive equality result is carried in `Type`, so it survives executable
-matching while its field is still checked by the kernel. -/
-structure EqCert {α : Type} (a b : α) : Type where
-  eq : a = b
-
-/- Lift a proof-producing element matcher to lists.  Keeping this helper
-separate avoids a nested-inductive mutual recursion in the executable code. -/
+/- Lift a proof-free element matcher to lists.  The soundness-side theorem
+proves that a positive result from the complete Boolean check below implies
+exact syntactic equality. -/
 def sameListWith
-    (same : (a b : SExpr) → Option (EqCert a b)) :
-    (xs ys : List SExpr) → Option (EqCert xs ys)
-  | [], [] => some ⟨rfl⟩
-  | x :: xs, y :: ys =>
-      match same x y with
-      | none => none
-      | some hxy =>
-          match sameListWith same xs ys with
-          | some hrest => some ⟨by cases hxy.eq; cases hrest.eq; rfl⟩
-          | none => none
-  | _, _ => none
+    (same : SExpr → SExpr → Bool) :
+    List SExpr → List SExpr → Bool
+  | [], [] => true
+  | x :: xs, y :: ys => same x y && sameListWith same xs ys
+  | _, _ => false
 
-/- Return a kernel-checked certificate when two SMT expressions have exactly
-the same syntax.  Fuel bounds compiler work only: exhaustion merely forgoes
-the optimization.  No lawfulness assumption about `BEq` enters soundness. -/
-def same? : (fuel : Nat) → (a b : SExpr) → Option (EqCert a b)
-  | 0, _, _ => none
+/- Return `true` only when two SMT expressions have exactly the same syntax.
+Fuel bounds compiler work only: exhaustion merely forgoes the optimization.
+The executable compiler carries no dependent equality proof; the implication
+from `true` to equality is established in `Soundness.Compiler`. -/
+def same? : (fuel : Nat) → (a b : SExpr) → Bool
+  | 0, _, _ => false
   | _ + 1, .sym x, .sym y =>
-      if h : x = y then some ⟨by cases h; rfl⟩ else none
+      decide (x = y)
   | _ + 1, .int x, .int y =>
-      if h : x = y then some ⟨by cases h; rfl⟩ else none
+      decide (x = y)
   | _ + 1, .bytes x, .bytes y =>
-      if h : x = y then some ⟨by cases h; rfl⟩ else none
+      decide (x = y)
   | _ + 1, .dataLit x, .dataLit y =>
-      if h : x = y then some ⟨by cases h; rfl⟩ else none
+      decide (x = y)
   | _ + 1, .dataListLit x, .dataListLit y =>
-      if h : x = y then some ⟨by cases h; rfl⟩ else none
+      decide (x = y)
   | _ + 1, .dataPairListLit x, .dataPairListLit y =>
-      if h : x = y then some ⟨by cases h; rfl⟩ else none
+      decide (x = y)
   | _ + 1, .constListLit x, .constListLit y =>
-      if h : x = y then some ⟨by cases h; rfl⟩ else none
+      decide (x = y)
   | _ + 1, .bool x, .bool y =>
-      if h : x = y then some ⟨by cases h; rfl⟩ else none
+      decide (x = y)
   | _ + 1, .str x, .str y =>
-      if h : x = y then some ⟨by cases h; rfl⟩ else none
+      decide (x = y)
   | fuel + 1, .app f xs, .app g ys =>
-      if hf : f = g then
-        match sameListWith (same? fuel) xs ys with
-        | some hargs => some ⟨by cases hf; cases hargs.eq; rfl⟩
-        | none => none
-      else none
+      decide (f = g) && sameListWith (same? fuel) xs ys
   | fuel + 1, .ite c t e, .ite c' t' e' =>
-      match same? fuel c c' with
-      | none => none
-      | some hc =>
-          match same? fuel t t' with
-          | none => none
-          | some ht =>
-              match same? fuel e e' with
-              | some he => some ⟨by cases hc.eq; cases ht.eq; cases he.eq; rfl⟩
-              | none => none
-  | _ + 1, _, _ => none
+      same? fuel c c' && same? fuel t t' && same? fuel e e'
+  | _ + 1, _, _ => false
 
 /--
 Equality specialized for values that are already protected by a successful
@@ -86,9 +65,8 @@ both operands evaluate at the required SMT sort.
 def reflexiveEqFuel : Nat := 128
 
 def reflexiveEq (a b : SExpr) : SExpr :=
-  match same? reflexiveEqFuel a b with
-  | some _ => trueE
-  | none => Moist.SMT.Expr.eq a b
+  if same? reflexiveEqFuel a b then trueE
+  else Moist.SMT.Expr.eq a b
 
 /-- A conservative, proof-friendly equality test for atomic SMT expressions.
 Returning `false` only misses an optimization; returning `true` is proved to

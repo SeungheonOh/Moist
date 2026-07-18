@@ -5007,7 +5007,7 @@ theorem unitGuard_complete {m : SmtSem.Model} {u : SymVal}
       simp [symValToCek?] at hu
       cases hargs : symValListToCekList? m args <;> simp [hargs] at hu
 
-/-! ### Proof-carrying reflexive equality folding
+/-! ### Proof-free reflexive equality folding
 
 These lemmas are intentionally conditional on successful evaluation at the
 expected sort.  `SExpr.reflexiveEq` is used only behind the corresponding
@@ -5059,14 +5059,15 @@ private theorem eval_reflexiveEq_of_eq_eval {m : SmtSem.Model}
     (heq : SmtSem.eval m (SExpr.eq a b) = some (.bool result))
     (hrefl : a = b → result = true) :
     SmtSem.eval m (SExpr.reflexiveEq a b) = some (.bool result) := by
-  cases hcert : SExpr.same? SExpr.reflexiveEqFuel a b with
-  | none =>
-    rw [SExpr.reflexiveEq, hcert]
+  cases hsame : SExpr.same? SExpr.reflexiveEqFuel a b with
+  | false =>
+    rw [SExpr.reflexiveEq, hsame]
     exact heq
-  | some cert =>
-    have hresult := hrefl cert.eq
+  | true =>
+    have hab := SExpr.same?_eq_true SExpr.reflexiveEqFuel a b hsame
+    have hresult := hrefl hab
     subst result
-    simp only [SExpr.reflexiveEq, hcert]
+    simp only [SExpr.reflexiveEq, hsame]
     simp [SExpr.trueE, Moist.SMT.Expr.trueE, Moist.SMT.Semantics.eval]
 
 theorem eval_reflexiveEq_int_of {m : SmtSem.Model} {a b : SExpr} {x y : Int}
