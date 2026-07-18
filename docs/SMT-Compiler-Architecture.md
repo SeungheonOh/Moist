@@ -58,6 +58,14 @@ pointer-sharing DAG renderer. That renderer is `unsafe`; it is tested against
 the reference renderer with real Z3, but it is not silently treated as a
 kernel theorem.
 
+Proof-only propositions and legacy proof names are owned by
+`Moist.SMT.Soundness.ValidationCompatibility`; executable validation remains
+in `Moist.SMT.Compiler.Validation`. Within the UPLC compiler, projection and
+declaration modules depend directly on the symbolic-value layer rather than
+pulling evaluation or compaction in transitively. This keeps the executable
+dependency graph usable as a porting map rather than merely a source-code
+layout.
+
 `Command.raw`, arbitrary `Expr.app` heads, custom sort strings, and direct
 structure constructors are low-level escape hatches. The explicitly named
 `*InputChecked?` functions certify only caller input. Production proof-free

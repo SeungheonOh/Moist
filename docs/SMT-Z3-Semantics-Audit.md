@@ -10,7 +10,10 @@ SMT-LIB parser has been formalized in Lean.
 - Lean 4.24.0
 - Z3 4.13.3, 64 bit
 - the transparent renderer in `Moist.SMT.Render`
-- the fixed prelude and symbolic compiler in `Moist.SMT.UPLC`
+- the fixed prelude and physically separated compiler modules in
+  `Moist.SMT.Compiler.UPLC`
+- the proof-free, input-and-output checked API in `Moist.SMT.Compiler.Checked`
+- the exact static-folding adapter in `Moist.SMT.Compiler.GroundBuiltin`
 - the guarded observation semantics in `Moist.SMT.Semantics`
 - the proof-carrying solver boundary in
   `Moist.SMT.Soundness.SolverBoundary`
@@ -29,6 +32,12 @@ The error theorem additionally proves that the error-aware evaluator returns
 `.error` at every larger fuel. It therefore cannot be discharged by symbolic
 or concrete fuel exhaustion.
 
+The executable compiler does not import the semantics or soundness trees.
+Static saturated calls cross one data-only boundary into the canonical CEK
+builtin evaluator. Separate iff theorems characterize all three adapter
+results—identical constant, actual CEK error, or successful nonconstant
+deferral—over every builtin and literal argument list.
+
 ## Operations reviewed against Z3
 
 | Area | Lean observation | Z3 behavior and compiler restriction |
@@ -44,6 +53,12 @@ or concrete fuel exhaustion.
 | Advanced byte builtins | ground meaning delegated to the CEK builtin evaluator | raw recursive helpers were compared with CEK across endian, width, bit, shift, rotate, replication, and list-index cases |
 | Modular exponentiation | CEK success/domain behavior | the helper's result is observed only when its `_defined` predicate holds |
 
+The manual table audit matched all 115 ordinary application signatures (114
+distinct heads because `seq.++` has separate Bytes and UString signatures)
+and all 27 datatype tester heads to an executable `Semantics.evalApp` or
+`evalIsCtor` branch. No signature accepted by the production sort checker was
+missing from the modeled semantics.
+
 `Bytes` and `UString` deliberately share Z3's underlying `(Seq Int)` sort for
 performance. They do not share a Lean semantic sort. The production sort
 checker rejects cross-sort equality and application even when Z3 would accept
@@ -51,9 +66,12 @@ the aliases as the same underlying sort.
 
 ## Generated SMT-LIB controls
 
-Checked production queries store the canonical script once and carry a kernel
-equality tying it to the relevant compiler constructor. Before returning a
-query, the generated-output contract verifies:
+`Compiler.compile?` stores one canonical script and checks both its input and
+that exact generated output without rerunning symbolic evaluation. The
+proof-carrying compiler is proved to erase to precisely this proof-free result,
+and checked queries carry a kernel equality tying it to the relevant compiler
+constructor. Before returning a production script, the generated-output
+contract verifies:
 
 - every raw command is an exact member of the fixed reviewed prelude;
 - every declaration command belongs to the checked declaration environment or
@@ -67,6 +85,10 @@ then remain rejected by the expression signature checker and by Z3. Prelude
 families are named, dependency-closed sections rather than numeric slices.
 The full assembled prelude remains byte-for-byte identical to the reviewed
 85-command baseline.
+
+The explicitly named `*InputChecked?` functions remain low-level first-stage
+APIs. They do not claim output validation; production callers use
+`Compiler.compile?` or one of its Bool/Int/Error specializations.
 
 ## Differential gates
 
@@ -117,6 +139,10 @@ The complete proof build also prints the axiom dependencies of the public
 Bool, Int, and Error endpoints. They use only Lean's standard logical
 principles (`propext`, `Classical.choice`, and `Quot.sound`), with no project
 axiom, `sorryAx`, or admitted theorem.
+
+CI builds the checked-compiler, output-contract, complete builtin-policy,
+ground-adapter, namespace-layering, and axiom-audit modules in addition to
+running every real-Z3 differential executable.
 
 ## Exact remaining trust boundary
 

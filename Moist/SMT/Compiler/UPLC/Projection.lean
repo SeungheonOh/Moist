@@ -1,5 +1,5 @@
-import Moist.SMT.Compiler.UPLC.Compaction
-import Moist.CEK.Builtins
+import Moist.SMT.Compiler.UPLC.SymbolicValue
+import Moist.Plutus.Term
 
 /-!
 # UPLC compiler projections and literals
@@ -186,4 +186,3 @@ def constLiteral : Const → SymVal
 
 
 end Moist.SMT.UPLC
-

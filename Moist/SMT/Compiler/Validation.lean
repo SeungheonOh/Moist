@@ -17,9 +17,8 @@ soundness proof. Proof-carrying query wrappers and all semantic justification
 of these checks remain in `Moist.SMT.Soundness.SolverInput`.
 
 The canonical executable API lives in `Moist.SMT.Compiler.Validation`.
-Compatibility exports at the end of this module keep the former
-`Moist.SMT.UPLC.Soundness` names resolvable without making the proof namespace
-the owner of executable compiler definitions.
+Legacy proof names and proof-only predicates live separately in
+`Moist.SMT.Soundness.ValidationCompatibility`.
 -/
 
 namespace Moist.SMT.Compiler.Validation
@@ -79,9 +78,6 @@ mutual
         termUsesOpaqueBuiltinForSoundness t ||
           termsUseOpaqueBuiltinForSoundness ts
 end
-
-def termNoOpaqueBuiltinsForSoundness (t : Term) : Prop :=
-  termUsesOpaqueBuiltinForSoundness t = false
 
 mutual
   def symValNoOpaqueForSoundness : SymVal → Bool

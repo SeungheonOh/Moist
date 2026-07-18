@@ -11,12 +11,13 @@ or depend on a soundness namespace.
 
 namespace Moist.SMT.UPLC.Soundness
 
+open Moist.Plutus.Term
+
 export Moist.SMT.Compiler.Validation
   ( builtinAllowedForSoundness
     builtinOpaqueForSoundness
     termUsesOpaqueBuiltinForSoundness
     termsUseOpaqueBuiltinForSoundness
-    termNoOpaqueBuiltinsForSoundness
     symValNoOpaqueForSoundness
     symValsNoOpaqueForSoundness
     symEnvNoOpaqueForSoundness
@@ -72,5 +73,11 @@ export Moist.SMT.Compiler.Validation
     generatedSolverControlSafe
     generatedAssertionsRendererSafe
     generatedAssertionsSortSafe )
+
+/-- Proof-facing spelling of the executable term-fragment check.  Keeping the
+proposition here prevents the proof-free compiler module from owning semantic
+proof vocabulary while preserving the established soundness API. -/
+def termNoOpaqueBuiltinsForSoundness (term : Term) : Prop :=
+  termUsesOpaqueBuiltinForSoundness term = false
 
 end Moist.SMT.UPLC.Soundness

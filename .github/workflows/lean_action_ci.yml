@@ -24,6 +24,12 @@ jobs:
           smt_advanced_raw_differential
           smt_dag_render_differential
           smt_renderer_boundary_qa
+          Test.SMT.AxiomAudit
+          Test.SMT.CheckedCompiler
+          Test.SMT.CompilerNamespace
+          Test.SMT.GroundBuiltinBoundary
+          Test.SMT.OutputContract
+          Test.SMT.SupportedQueries
       - name: Run SMT differential QA
         timeout-minutes: 30
         run: |

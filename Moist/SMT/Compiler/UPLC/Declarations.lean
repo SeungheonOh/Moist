@@ -1,4 +1,4 @@
-import Moist.SMT.Compiler.UPLC.Projection
+import Moist.SMT.Compiler.UPLC.SymbolicValue
 
 /-!
 # UPLC compiler declarations
@@ -96,4 +96,3 @@ def assumptionCommands (decls : List SymDecl) : List Moist.SMT.Command :=
 
 
 end Moist.SMT.UPLC
-

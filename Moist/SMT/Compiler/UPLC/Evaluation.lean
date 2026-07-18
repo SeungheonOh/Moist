@@ -1,4 +1,5 @@
 import Moist.SMT.Compiler.UPLC.Projection
+import Moist.SMT.Compiler.UPLC.Compaction
 import Moist.SMT.Compiler.GroundBuiltin
 
 /-!
