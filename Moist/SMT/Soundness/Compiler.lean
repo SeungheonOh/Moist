@@ -1,4 +1,4 @@
-import Moist.SMT.UPLC
+import Moist.SMT.Compiler.InputChecked
 import Moist.SMT.Soundness.Optimize
 
 /-!
@@ -310,23 +310,104 @@ theorem scriptWith_assertionsTrue_iff_fullPrelude (m : Moist.SMT.Semantics.Model
           h assertion (List.mem_append_right _ hassertion))
       exact hgrouped
 
+/-- Exact assertion accounting for the standalone UPLC assertion
+satisfiability query. -/
+theorem scriptForAssertionsSatisfiable_assertions
+    (decls : List SymDecl) (assertions : List UplcAssertion) :
+    (scriptForAssertionsSatisfiable decls assertions).assertions =
+      decls.flatMap SymDecl.assumptions ++
+        groupedAssertions (uplcAssertionConditions decls assertions) := by
+  exact scriptWith_assertions _ _
+
+/-- Exact assertion accounting for a Boolean target restricted by UPLC
+assertions.  Grouping is explicit so the solver-boundary proof must recover
+each original predicate through `groupedAssertions_true_iff`. -/
+theorem scriptForBoolTrueWithAssertions_assertions (fuel : Nat)
+    (decls : List SymDecl) (assertions : List UplcAssertion) (t : Term) :
+    (scriptForBoolTrueWithAssertions fuel decls assertions t).assertions =
+      decls.flatMap SymDecl.assumptions ++ groupedAssertions
+        (uplcAssertionConditions decls assertions ++
+          [okBoolTrueCond (evalSym fuel (envOf decls) t)]) := by
+  exact scriptWith_assertions _ _
+
+/-- Exact assertion accounting for an integer target restricted by UPLC
+assertions. -/
+theorem scriptForIntEqWithAssertions_assertions (fuel : Nat)
+    (decls : List SymDecl) (assertions : List UplcAssertion)
+    (t : Term) (rhs : SExpr) :
+    (scriptForIntEqWithAssertions fuel decls assertions t rhs).assertions =
+      decls.flatMap SymDecl.assumptions ++ groupedAssertions
+        (uplcAssertionConditions decls assertions ++
+          [okIntEqCond (evalSym fuel (envOf decls) t) rhs]) := by
+  exact scriptWith_assertions _ _
+
+/-- Exact assertion accounting for an error target restricted by UPLC
+assertions. -/
+theorem scriptForErrorWithAssertions_assertions (fuel : Nat)
+    (decls : List SymDecl) (assertions : List UplcAssertion) (t : Term) :
+    (scriptForErrorWithAssertions fuel decls assertions t).assertions =
+      decls.flatMap SymDecl.assumptions ++ groupedAssertions
+        (uplcAssertionConditions decls assertions ++
+          [errorCond (evalSym fuel (envOf decls) t)]) := by
+  exact scriptWith_assertions _ _
+
+/-- Generic exact accounting used by the proof-carrying asserted-query
+boundary. -/
+theorem scriptForWithAssertions_assertions
+    (kind : Moist.SMT.Compiler.QueryKind) (fuel : Nat)
+    (decls : List SymDecl) (assertions : List UplcAssertion) (t : Term) :
+    (Moist.SMT.Compiler.scriptForWithAssertions
+      kind fuel decls assertions t).assertions =
+      decls.flatMap SymDecl.assumptions ++ groupedAssertions
+        (uplcAssertionConditions decls assertions ++
+          [Moist.SMT.Compiler.queryCondition kind
+            (evalSym fuel (envOf decls) t)]) := by
+  exact scriptWith_assertions _ _
+
+/-- The coupled compiler reuses conditions operationally but produces the
+same canonical non-vacuity script as the standalone constructor. -/
+@[simp] theorem scriptsForWithAssertions_satisfiability
+    (kind : Moist.SMT.Compiler.QueryKind) (fuel : Nat)
+    (decls : List SymDecl) (assertions : List UplcAssertion) (t : Term) :
+    (Moist.SMT.Compiler.scriptsForWithAssertions
+      kind fuel decls assertions t).satisfiability =
+      scriptForAssertionsSatisfiable decls assertions := by
+  rfl
+
+/-- The target half of the coupled compiler is exactly the existing canonical
+asserted target script. -/
+@[simp] theorem scriptsForWithAssertions_target
+    (kind : Moist.SMT.Compiler.QueryKind) (fuel : Nat)
+    (decls : List SymDecl) (assertions : List UplcAssertion) (t : Term) :
+    (Moist.SMT.Compiler.scriptsForWithAssertions
+      kind fuel decls assertions t).target =
+      Moist.SMT.Compiler.scriptForWithAssertions
+        kind fuel decls assertions t := by
+  rfl
+
 theorem scriptForBoolTrue_assertions (fuel : Nat) (decls : List SymDecl) (t : Term) :
     (scriptForBoolTrue fuel decls t).assertions =
       decls.flatMap SymDecl.assumptions ++
         [okBoolTrueCond (evalSym fuel (envOf decls) t)] := by
-  simp [scriptForBoolTrue, scriptWith_assertions, groupedAssertions]
+  rw [scriptForBoolTrue,
+    scriptForBoolTrueWithAssertions_assertions]
+  rfl
 
 theorem scriptForIntEq_assertions (fuel : Nat) (decls : List SymDecl)
     (t : Term) (rhs : SExpr) :
     (scriptForIntEq fuel decls t rhs).assertions =
       decls.flatMap SymDecl.assumptions ++
         [okIntEqCond (evalSym fuel (envOf decls) t) rhs] := by
-  simp [scriptForIntEq, scriptWith_assertions, groupedAssertions]
+  rw [scriptForIntEq,
+    scriptForIntEqWithAssertions_assertions]
+  rfl
 
 theorem scriptForError_assertions (fuel : Nat) (decls : List SymDecl) (t : Term) :
     (scriptForError fuel decls t).assertions =
       decls.flatMap SymDecl.assumptions ++
         [errorCond (evalSym fuel (envOf decls) t)] := by
-  simp [scriptForError, scriptWith_assertions, groupedAssertions]
+  rw [scriptForError,
+    scriptForErrorWithAssertions_assertions]
+  rfl
 
 end Moist.SMT.UPLC

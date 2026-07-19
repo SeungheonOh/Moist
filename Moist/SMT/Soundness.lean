@@ -10,15 +10,14 @@ should normally use the CEK-facing theorems in this file.
 The SMT-LIB/Z3 model bridge is intentionally outside this module.  Given a
 decoded internal model and environment, these theorems guarantee:
 
-* a satisfiable Boolean-success assertion makes the actual CEK machine halt
-  with `true`; and
-* a satisfiable integer-equality assertion makes the actual CEK machine halt
-  with that same integer; and
-* a satisfiable error assertion is not a fuel timeout: the error-aware
-  evaluator returns an actual runtime error, and the CEK machine reaches its
+* every active successful symbolic result decodes to the identical value
+  reached by the actual CEK transition system;
+* Boolean and integer specializations reach their exact requested constants;
+* a general success query reaches some CEK value; and
+* an error query is not a fuel timeout: the actual CEK machine reaches its
   `.error` state in finitely many transitions.
 
-All three results require the explicitly supported (non-opaque-builtin) fragment.
+All results require the explicitly supported (non-opaque-builtin) fragment.
 -/
 
 namespace Moist.SMT.UPLC.Soundness

@@ -81,3 +81,6 @@ lean_exe smt_dag_render_differential where
 
 lean_exe smt_renderer_boundary_qa where
   root := `Test.SMT.RendererBoundaryQA
+
+lean_exe smt_uplc_assertions where
+  root := `Test.SMT.UplcAssertionsZ3

@@ -1,4 +1,4 @@
-import Moist.SMT.Soundness.SolverBoundary
+import Moist.SMT.Soundness.ResultQueries
 import Moist.SMT.Compiler.ExpressionIdentity
 
 /-!
@@ -424,6 +424,30 @@ info: 'Moist.SMT.UPLC.Soundness.evalSym_okBoolTrueCond_sound' depends on axioms:
 #print axioms Moist.SMT.UPLC.Soundness.evalSym_okBoolTrueCond_sound
 
 /--
+info: 'Moist.SMT.UPLC.Soundness.okCond_eval_true_mem' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.okCond_eval_true_mem
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.evalSym_okCond_sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.evalSym_okCond_sound
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.okBoolFalseCond_eval_true_mem' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.okBoolFalseCond_eval_true_mem
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.evalSym_okBoolEqCond_sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.evalSym_okBoolEqCond_sound
+
+/--
 info: 'Moist.SMT.UPLC.Soundness.okIntEqCond_eval_true_mem' depends on axioms: [propext, Quot.sound]
 -/
 #guard_msgs in
@@ -520,3 +544,264 @@ info: 'Moist.SMT.UPLC.Soundness.ErrorQuery.sound' depends on axioms: [propext, C
 -/
 #guard_msgs in
 #print axioms Moist.SMT.UPLC.Soundness.ErrorQuery.sound
+
+/--
+info: 'Moist.SMT.UPLC.scriptForWithAssertions_assertions' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.scriptForWithAssertions_assertions
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.CertifiedAssertedCompilation.compile_map_script' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms
+  Moist.SMT.UPLC.Soundness.CertifiedAssertedCompilation.compile_map_script
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.CertifiedAssertionSetCompilation.compile_map_script' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms
+  Moist.SMT.UPLC.Soundness.CertifiedAssertionSetCompilation.compile_map_script
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.AssertedQuery.sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.AssertedQuery.sound
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.resultExpectation_condition_sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms
+  Moist.SMT.UPLC.Soundness.resultExpectation_condition_sound
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.AssertedQuery.compileUplcQuery_map_script' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms
+  Moist.SMT.UPLC.Soundness.AssertedQuery.compileUplcQuery_map_script
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.AssertedQuery.compileUplcQuery_sound' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+-/
+#guard_msgs in
+#print axioms
+  Moist.SMT.UPLC.Soundness.AssertedQuery.compileUplcQuery_sound
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.uplcAssertion_condition_sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.uplcAssertion_condition_sound
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.AssertionSatisfiabilityQuery.sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.AssertionSatisfiabilityQuery.sound
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.CertifiedAssertionQueriesCompilation.compile_map_scripts' depends on axioms: [propext,
+ Quot.sound]
+-/
+#guard_msgs in
+#print axioms
+  Moist.SMT.UPLC.Soundness.CertifiedAssertionQueriesCompilation.compile_map_scripts
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.AssertionQueryBundle.compile_map_scripts' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.AssertionQueryBundle.compile_map_scripts
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.AssertionQueryBundle.compileUplcQuery_map_scripts' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms
+  Moist.SMT.UPLC.Soundness.AssertionQueryBundle.compileUplcQuery_map_scripts
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.AssertionQueryBundle.compileUplcQuery_target_sound' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+-/
+#guard_msgs in
+#print axioms
+  Moist.SMT.UPLC.Soundness.AssertionQueryBundle.compileUplcQuery_target_sound
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.ResultQuery.compile_map_script' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.ResultQuery.compile_map_script
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.ResultQuery.sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.ResultQuery.sound
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.ResultQuery.compile_sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.ResultQuery.compile_sound
+
+/--
+info: 'Moist.SMT.UPLC.AssertedTerm.erase_resultSatisfiesWith' does not depend on any axioms
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.AssertedTerm.erase_resultSatisfiesWith
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.AssertionQueryBundle.sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.Soundness.AssertionQueryBundle.sound
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.AssertedQuery.compileAssertedTerm_sound' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+-/
+#guard_msgs in
+#print axioms
+  Moist.SMT.UPLC.Soundness.AssertedQuery.compileAssertedTerm_sound
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.AssertedQuery.compileAssertedTerm_map_script' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms
+  Moist.SMT.UPLC.Soundness.AssertedQuery.compileAssertedTerm_map_script
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.AssertedQuery.compileResultProgram_map_script' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms
+  Moist.SMT.UPLC.Soundness.AssertedQuery.compileResultProgram_map_script
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.AssertedQuery.compileResultProgram_sound' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+-/
+#guard_msgs in
+#print axioms
+  Moist.SMT.UPLC.Soundness.AssertedQuery.compileResultProgram_sound
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.ResultQuery.compileResultProgram_map_script' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms
+  Moist.SMT.UPLC.Soundness.ResultQuery.compileResultProgram_map_script
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.ResultQuery.compileResultProgram_sound' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+-/
+#guard_msgs in
+#print axioms
+  Moist.SMT.UPLC.Soundness.ResultQuery.compileResultProgram_sound
+
+/--
+info: 'Moist.SMT.UPLC.UplcQueryTarget.resolve_usesOpaque_of_source' depends on axioms: [propext]
+-/
+#guard_msgs in
+#print axioms
+  Moist.SMT.UPLC.UplcQueryTarget.resolve_usesOpaque_of_source
+
+/--
+info: 'Moist.SMT.UPLC.AssertedTerm.erase_appliedResultSatisfiesWith' does not depend on any axioms
+-/
+#guard_msgs in
+#print axioms
+  Moist.SMT.UPLC.AssertedTerm.erase_appliedResultSatisfiesWith
+
+/--
+info: 'Moist.SMT.UPLC.UplcQuery.erase_assertingAll' does not depend on any axioms
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.UplcQuery.erase_assertingAll
+
+/--
+info: 'Moist.SMT.UPLC.AssertedTerm.erase_requiringParameterChecked?_of_some' depends on axioms: [propext]
+-/
+#guard_msgs in
+#print axioms
+  Moist.SMT.UPLC.AssertedTerm.erase_requiringParameterChecked?_of_some
+
+/--
+info: 'Moist.SMT.UPLC.AssertedTerm.erase_appliedToDeclarationsWith' does not depend on any axioms
+-/
+#guard_msgs in
+#print axioms
+  Moist.SMT.UPLC.AssertedTerm.erase_appliedToDeclarationsWith
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.AssertionQueryBundle.compileAssertedTerm_map_scripts' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms
+  Moist.SMT.UPLC.Soundness.AssertionQueryBundle.compileAssertedTerm_map_scripts
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.AssertionQueryBundle.compileResultProgram_map_scripts' depends on axioms: [propext,
+ Quot.sound]
+-/
+#guard_msgs in
+#print axioms
+  Moist.SMT.UPLC.Soundness.AssertionQueryBundle.compileResultProgram_map_scripts
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.AssertionQueryBundle.compileAssertedTerm_target_sound' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+-/
+#guard_msgs in
+#print axioms
+  Moist.SMT.UPLC.Soundness.AssertionQueryBundle.compileAssertedTerm_target_sound
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.AssertedQuery.compileUplcQuery_source_noOpaque' depends on axioms: [propext, Quot.sound]
+-/
+#guard_msgs in
+#print axioms
+  Moist.SMT.UPLC.Soundness.AssertedQuery.compileUplcQuery_source_noOpaque
+
+/--
+info: 'Moist.SMT.UPLC.Soundness.AssertionQueryBundle.compileResultProgram_target_sound' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+-/
+#guard_msgs in
+#print axioms
+  Moist.SMT.UPLC.Soundness.AssertionQueryBundle.compileResultProgram_target_sound
+
+/--
+info: 'Moist.SMT.UPLC.AssertedTerm.erase_appliedWith' does not depend on any axioms
+-/
+#guard_msgs in
+#print axioms Moist.SMT.UPLC.AssertedTerm.erase_appliedWith
+
+/--
+info: 'Moist.Plutus.Term.Term.erase_withParameterAssertion' does not depend on any axioms
+-/
+#guard_msgs in
+#print axioms Moist.Plutus.Term.Term.erase_withParameterAssertion
+
+/--
+info: 'Moist.Plutus.Term.Term.erase_queryingResultWith' does not depend on any axioms
+-/
+#guard_msgs in
+#print axioms Moist.Plutus.Term.Term.erase_queryingResultWith

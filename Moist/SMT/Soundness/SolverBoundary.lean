@@ -21,7 +21,7 @@ operational DAG rendering; decode the actual Z3 model; and transfer every
 assertion into `Semantics.eval`.  The pointer-based DAG renderer is `unsafe`,
 so its equivalence to the reference renderer deliberately remains in that
 external boundary rather than being disguised as a kernel theorem.  Once the
-semantic certificate is available, all three supported compiler queries
+semantic certificate is available, every supported compiler query
 compose directly with the CEK theorems below, without a caller-supplied
 fragment premise.
 -/

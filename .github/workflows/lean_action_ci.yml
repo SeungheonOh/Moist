@@ -24,12 +24,14 @@ jobs:
           smt_advanced_raw_differential
           smt_dag_render_differential
           smt_renderer_boundary_qa
+          smt_uplc_assertions
           Test.SMT.AxiomAudit
           Test.SMT.CheckedCompiler
           Test.SMT.CompilerNamespace
           Test.SMT.GroundBuiltinBoundary
           Test.SMT.OutputContract
           Test.SMT.SupportedQueries
+          Test.SMT.UplcAssertions
       - name: Run SMT differential QA
         timeout-minutes: 30
         run: |
@@ -37,5 +39,6 @@ jobs:
           .lake/build/bin/smt_advanced_raw_differential
           .lake/build/bin/smt_dag_render_differential
           .lake/build/bin/smt_renderer_boundary_qa
+          .lake/build/bin/smt_uplc_assertions
           lake env lean --run Test/SMT/PreludeSlicing.lean
           lake env lean --run Test/SMT/Utf8Boundary.lean
