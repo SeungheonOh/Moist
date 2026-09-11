@@ -406,6 +406,11 @@ private def constListToInts : List Const → Option (List Int)
     some (i :: tail)
   | _ => none
 
+def constListToData : List Const → Option (List Data)
+  | [] => some []
+  | .Data datum :: rest => return datum :: (← constListToData rest)
+  | _ => none
+
 /-! ## Two-Stage Builtin Evaluation
 
 Stage 1: `evalBuiltinConst` — pure computation on `List Const`, returns `Option Const`.
@@ -471,14 +476,17 @@ def evalBuiltinConst (b : BuiltinFun) (args : List Const) : Option Const :=
   -- Data constructors
   | .ConstrData, [.ConstDataList fields, .Integer tag] =>
     some (.Data (.Constr tag fields))
+  | .ConstrData, [.ConstList fields, .Integer tag] =>
+    return .Data (.Constr tag (← constListToData fields))
   | .IData, [.Integer i] => some (.Data (.I i))
   | .BData, [.ByteString bs] => some (.Data (.B bs))
   | .ListData, [.ConstDataList ds] => some (.Data (.List ds))
+  | .ListData, [.ConstList fields] => return .Data (.List (← constListToData fields))
   | .MapData, [.ConstPairDataList ps] => some (.Data (.Map ps))
 
   -- Data destructors
   | .UnConstrData, [.Data (.Constr tag fields)] =>
-    some (.PairData (Data.I tag, Data.List fields))
+    some (.Pair (.Integer tag, .ConstDataList fields))
   | .UnIData, [.Data (.I i)] => some (.Integer i)
   | .UnBData, [.Data (.B bs)] => some (.ByteString bs)
   | .UnListData, [.Data (.List ds)] => some (.ConstDataList ds)

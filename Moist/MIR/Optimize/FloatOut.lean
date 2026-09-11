@@ -1,6 +1,7 @@
 import Moist.MIR.Expr
 import Moist.MIR.Analysis
 import Moist.MIR.Optimize.Purity
+import Moist.MIR.Optimize.Safety
 
 namespace Moist.MIR
 
@@ -39,28 +40,29 @@ The pass works **bottom-up**: sub-expressions are processed first so that
 deeply nested bindings bubble outward one level at a time across repeated
 applications of the pass.
 
-At each `Lam x body` or `Fix f body` node whose body is a
-`Let binds innerBody`:
+At each `Lam x body`, or valid `Fix f (Lam x body)`, whose inner body
+is a `Let binds innerBody`:
 
 1. **Partition** bindings into a *float set* and a *stay set*.
 2. A binding `(v, rhs)` **floats** when ALL of the following hold:
    - `isPure rhs` -- impure bindings must stay in place.
-   - The Lam/Fix binder (`x` or `f`) is NOT in `freeVars rhs`.
+   - Neither crossed binder (`x`, and also `f` for Fix) is in `freeVars rhs`.
    - None of the *stay* variables encountered so far appear in
      `freeVars rhs` (sequential scoping rule).
 3. Otherwise the binding **stays**.
 4. Reconstruct the expression:
-   - Wrap the Lam/Fix with the floated bindings on the outside.
+   - Wrap the Lam/Fix with the floated bindings on the outside, retaining
+     the mandatory outer lambda of a Fix body.
    - Keep the stayed bindings inside the Lam/Fix body.
    - If one of the two sets is empty, skip the corresponding Let wrapper.
 
 ### What we float out of Case alternatives
 
-Pure bindings inside case alternatives are floated before the Case node.
-Case alternatives in this IR do not bind variables (matching is done via
-`equalsInteger` on tags with field access via `headList`/`tailList`), so
-any pure binding whose free variables are all in the outer scope can
-safely be evaluated unconditionally.
+Pure bindings at the head of case alternatives are floated before the Case
+node. Case introduces no implicit named binders: alternatives receive fields
+through application, with explicit lambdas introducing their parameters.
+Lambda traversal checks parameter dependencies before exposing a binding at
+an alternative's head. Globally unique binders prevent cross-alternative capture.
 
 The cost is evaluating a pure expression even when the branch is not taken.
 The benefit is that duplicate computations across branches (e.g.
@@ -145,12 +147,12 @@ A binding floats when:
 3. No previously-stayed variable is free in the RHS.
 
 Bindings are processed left-to-right to respect sequential scoping. -/
-private def partitionBindings (binder : VarId) (binds : List (VarId × Expr × Bool))
+private def partitionBindings (binders : List VarId) (binds : List (VarId × Expr × Bool))
     : List (VarId × Expr × Bool) × List (VarId × Expr × Bool) :=
   let (floatRev, stayRev, _) := binds.foldl (init := ([], [], VarSet.empty))
     fun (floatAcc, stayAcc, stayVars) (x, rhs, er) =>
       let rhsFV := freeVars rhs
-      if isPure rhs && !rhsFV.contains binder && !stayVars.data.any (rhsFV.contains ·) then
+      if isPure rhs && !binders.any rhsFV.contains && !stayVars.data.any (rhsFV.contains ·) then
         ((x, rhs, er) :: floatAcc, stayAcc, stayVars)
       else
         (floatAcc, (x, rhs, er) :: stayAcc, stayVars.insert x)
@@ -166,9 +168,8 @@ private def mkLet (binds : List (VarId × Expr × Bool)) (body : Expr) : Expr :=
 /-- Partition let bindings for floating out of a case alternative.
 
 A binding floats when:
-1. Its RHS is pure (guaranteed to succeed — partial builtin apps
-   and total saturated builtins are pure, fallible saturated builtins
-   are not).
+1. Its RHS satisfies the conservative isPure predicate, guaranteeing
+   successful nonlogging evaluation. Applications are not classified as pure.
 2. No previously-stayed variable is free in the RHS.
 
 Same as `partitionBindings` but without a binder check, since Case
@@ -214,8 +215,8 @@ together with a flag indicating whether any binding was moved.
 
 See the module-level documentation for a full description of the algorithm,
 invariants, and worked examples. -/
-partial def floatOut : Expr → Expr × Bool :=
-  go
+partial def floatOut (expression : Expr) : Expr × Bool :=
+  go (uniqueOptimizationBinders expression)
 where
   /-- Process a list of expressions, collecting the changed flag. -/
   goList (es : List Expr) : List Expr × Bool :=
@@ -236,11 +237,11 @@ where
   /-- Try to float bindings out of a Lam or Fix node.
   `binder` is the variable bound by the Lam/Fix.
   `mkWrapper` reconstructs the Lam/Fix given a new body. -/
-  tryFloat (binder : VarId) (mkWrapper : Expr → Expr) (body : Expr) : Expr × Bool :=
+  tryFloat (binders : List VarId) (mkWrapper : Expr → Expr) (body : Expr) : Expr × Bool :=
     let (body', bodyChanged) := go body
     match body' with
     | .Let binds innerBody =>
-      let (floatBinds, stayBinds) := partitionBindings binder binds
+      let (floatBinds, stayBinds) := partitionBindings binders binds
       if floatBinds.isEmpty then
         (mkWrapper body', bodyChanged)
       else
@@ -255,8 +256,12 @@ where
     | .Builtin b    => (.Builtin b, false)
     | .Error        => (.Error, false)
 
-    | .Lam x body   => tryFloat x (.Lam x) body
-    | .Fix f body   => tryFloat f (.Fix f) body
+    | .Lam x body   => tryFloat [x] (.Lam x) body
+    | .Fix f (.Lam parameter body) =>
+      tryFloat [f, parameter] (fun inner => .Fix f (.Lam parameter inner)) body
+    | .Fix f body =>
+      let (body', changed) := go body
+      (.Fix f body', changed)
 
     | .App f x =>
       let (f', c1) := go f

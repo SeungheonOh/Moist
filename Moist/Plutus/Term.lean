@@ -294,8 +294,9 @@ def constType : Const → BuiltinType
   | Const.Bool _               => BuiltinType.AtomicType AtomicType.TypeBool
   | Const.ConstList _          => BuiltinType.TypeOperator (TypeOperator.TypeList (BuiltinType.AtomicType AtomicType.TypeData))
   | Const.ConstDataList _      => BuiltinType.TypeOperator (TypeOperator.TypeList (BuiltinType.AtomicType AtomicType.TypeData))
-  | Const.ConstPairDataList _  => BuiltinType.TypeOperator (TypeOperator.TypePair (BuiltinType.AtomicType AtomicType.TypeData) (BuiltinType.AtomicType AtomicType.TypeData))
-  | Const.Pair _               => BuiltinType.TypeOperator (TypeOperator.TypePair (BuiltinType.AtomicType AtomicType.TypeData) (BuiltinType.AtomicType AtomicType.TypeData))
+  | Const.ConstPairDataList _  => .TypeOperator (.TypeList (.TypeOperator
+      (.TypePair (.AtomicType .TypeData) (.AtomicType .TypeData))))
+  | Const.Pair (first, second) => .TypeOperator (.TypePair (constType first) (constType second))
   | Const.PairData _           => BuiltinType.TypeOperator (TypeOperator.TypePair (BuiltinType.AtomicType AtomicType.TypeData) (BuiltinType.AtomicType AtomicType.TypeData)) -- This is wrong : ( fix .
   | Const.Data _               => BuiltinType.AtomicType AtomicType.TypeData
   | Const.ConstArray _         => BuiltinType.TypeOperator (TypeOperator.TypeArray (BuiltinType.AtomicType AtomicType.TypeData))

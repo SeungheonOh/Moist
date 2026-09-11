@@ -1,27 +1,22 @@
 import Moist.Verified.Definitions
 
-/-! # Budget Exhaustion Axiom
+/-! # Unresolved, unsound budget-exhaustion axiom
 
-On Cardano, the CEK machine runs under a finite execution budget (CPU and memory).
-Every evaluation either halts with a value, errors with explicit failure, or killed when
-the budget runs out (reported as an error). True divergence is not a physically realizable
-outcome.
+WARNING: this axiom is false for the unbounded Reaches relation. The CEK step
+function has no budget-exhaustion transition; a finite ledger execution budget
+does not justify the proposition below. Test.MIR.Opt.BudgetModel independently
+proves its negation using a closed self-application cycle.
 
-The unbounded `step : State → State` used throughout the proof infrastructure does
-not model this budget. We bridge the gap with a single axiom: if a state never
-halts, it reaches error. This is sound for any execution context with a finite
-budget, which includes all Cardano validator executions. -/
+The declaration remains for proof-API compatibility pending removal or a genuine
+semantic proof repair. Any theorem depending on it is not a sound certificate.
+See docs/MIR-Optimization-Audit.md for the affected theorem chain. -/
 
 namespace Moist.Verified
 
 open Moist.CEK (State)
 
-/-- **Budget exhaustion axiom**: a CEK state that never halts must reach error.
-
-This models the Cardano execution budget: every on-chain evaluation has a finite
-CPU/memory budget. An execution that neither halts with a value nor encounters a
-runtime error will eventually exhaust its budget, which the ledger treats as an
-error. -/
+/-- Unsound legacy axiom: non-halting does not imply an explicit CEK error.
+Do not use this declaration to certify optimization correctness. -/
 axiom budget_exhaustion : ∀ (s : State),
     (∀ v, ¬Equivalence.Reaches s (.halt v)) → Equivalence.Reaches s .error
 

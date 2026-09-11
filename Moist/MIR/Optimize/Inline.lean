@@ -2,6 +2,7 @@ import Moist.MIR.Expr
 import Moist.MIR.Analysis
 import Moist.MIR.Optimize.Purity
 import Moist.MIR.Canonicalize
+import Moist.MIR.Optimize.Safety
 
 namespace Moist.MIR
 
@@ -26,8 +27,8 @@ occurrences fall under a `Fix` node.
 | Value/pure, large      | 1           | in Fix     | Keep (recursion = unbounded)    |
 | Value/pure, large      | >= 2        | --         | Keep (avoids code bloat)        |
 | Impure non-value       | 0           | --         | Keep (DCE handles dead code)    |
-| Impure non-value       | 1           | strict     | Inline (single evaluation)      |
-| Impure non-value       | 1           | deferred   | Keep (see below)                |
+| Impure non-value       | 1           | first evaluation | Inline (preserves evaluation order) |
+| Impure non-value       | 1           | later/deferred | Keep (see below)                |
 | Impure non-value       | >= 2        | --         | Keep (avoids re-evaluation)     |
 
 ## Deferred Position Rule
@@ -36,14 +37,20 @@ Under strict evaluation, a let binding `let v = rhs in body` always
 evaluates `rhs` before `body`. Inlining `v` moves the evaluation of
 `rhs` to wherever `v` appears in `body`. For non-value expressions
 (which have evaluation effects — they may error), this is only safe
-when the occurrence is in **strict position**: it will definitely be
-evaluated, exactly once, in the same evaluation context.
+when the occurrence is at the **evaluation frontier**: it is evaluated exactly
+once without crossing a potentially effectful predecessor.
 
 Deferred positions where inlining non-values is unsafe:
 - **Lam body**: evaluation moves from once-at-binding to per-call.
 - **Fix body**: evaluation could happen an unbounded number of times.
 - **Delay body**: evaluation moves from eager to lazy (only on Force).
 - **Case alternative**: evaluation conditional on branch selection.
+
+Strictness alone is insufficient: moving a single use past a different
+application, force, or case can reorder traces, failures, and divergence.
+`firstEvaluationUse` permits movement only past expressions that `isPure`
+proves safe. `inlinePassWithCanon` establishes binder hygiene and reserves
+fresh identifiers; the recursive `inlinePass` worker requires these invariants.
 
 For **value** RHS expressions (Lam, Delay, Fix), only the Fix boundary
 matters (to prevent unbounded code growth from recursion). Values have
@@ -163,19 +170,19 @@ def occursUnderFix (v : VarId) (e : Expr) : Bool :=
 /-! ## Inlining Decision -/
 
 /-- Determine whether to inline a `let v = rhs in ...` binding given the
-occurrence count, Fix boundary status (for values), and deferred position
-status (for impure non-values). Returns `true` when inlining is profitable
-and semantics-preserving.
+occurrence count, Fix boundary status (for values), and movement restriction
+(for impure non-values). The caller computes the restriction from the
+occurrence's deferred status and evaluation frontier.
 
 - `underFix`: the variable occurs inside a `Fix` body (used for values and
   pure non-values to prevent unbounded code growth from recursion).
 - `inDeferred`: the variable occurs inside a Lam/Fix/Delay body or Case
-  alternative (used for impure non-values to prevent moving effectful
-  computations into positions where evaluation is not guaranteed).
+  alternative, or is not at the first evaluation position. It prevents moving
+  effectful computations past other effects or into deferred positions.
 
-Pure non-values (e.g. partial application of a total builtin like
-`addInteger x`) follow the value rules: they have no evaluation effects,
-so moving them into Lam/Delay/Case is safe. Only Fix matters (code bloat).
+Pure non-values (e.g. a constructor with only pure fields) follow the value
+rules: they have no evaluation effects, so moving them into Lam/Delay/Case
+is safe. Applications are not classified as pure. Fix also constrains code growth.
 
 See the module-level decision table for the full specification. -/
 def shouldInline (rhs : Expr) (occurrences : Nat) (underFix : Bool)
@@ -256,7 +263,8 @@ def inlineLetGo : List (VarId × Expr × Bool) → List (VarId × Expr × Bool) 
     let underFix := occursUnderFix v body ||
       rest.any (fun (_, e, _) => occursUnderFix v e)
     let inDeferred := occursInDeferred v body ||
-      rest.any (fun (_, e, _) => occursInDeferred v e)
+      rest.any (fun (_, e, _) => occursInDeferred v e) ||
+      !firstEvaluationUse v (.Let rest body)
     if shouldInline rhs occ underFix inDeferred then do
       let body' ← subst v rhs body
       let ⟨rest', hlen⟩ ← substInBindings v rhs rest
@@ -333,7 +341,9 @@ mutual
   termination_by bs => sizeOf bs
 end
 
-def inlinePassWithCanon (e : Expr) : FreshM (Expr × Bool) :=
-  inlinePass (canonicalize e)
+def inlinePassWithCanon (e : Expr) : FreshM (Expr × Bool) := do
+  let prepared := if wellScoped e then e else canonicalize e
+  reserveFreshFor prepared
+  inlinePass prepared
 
 end Moist.MIR

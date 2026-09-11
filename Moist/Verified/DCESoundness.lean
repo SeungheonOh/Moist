@@ -349,7 +349,7 @@ private theorem mirCtxRefines_let_er_normalize
 /-- Dead-let elimination at `MIRCtxRefines` level. Uses
     `dead_let_mirRefines` + closedness preservation through the expanded
     body. -/
-private theorem dead_let_mirCtxRefines {x : VarId} {e body : Expr}
+theorem dead_let_mirCtxRefines {x : VarId} {e body : Expr}
     (hunused : (freeVars body).contains x = false)
     (hsafe : Moist.MIR.isPure e = true) :
     MIRCtxRefines (.Let [(x, e, false)] body) body := by

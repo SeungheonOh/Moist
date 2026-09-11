@@ -820,14 +820,14 @@ private theorem freeVarsLet_substLet_tight (v : VarId) (rhs : Expr)
         have h_form1 : (substLet v rhs (freeVars rhs) ((x, rhs_h, er) :: rest) body s).1.1 =
             ((freshVar x.hint (subst v rhs rhs_h s).2).1, (subst v rhs rhs_h s).1, er) ::
             (substLet v rhs (freeVars rhs)
-              (renameBinds x (freshVar x.hint (subst v rhs rhs_h s).2).1 rest)
-              (rename x (freshVar x.hint (subst v rhs rhs_h s).2).1 body)
+              (renameLet x (freshVar x.hint (subst v rhs rhs_h s).2).1 rest body).1
+              (renameLet x (freshVar x.hint (subst v rhs rhs_h s).2).1 rest body).2
               (freshVar x.hint (subst v rhs rhs_h s).2).2).1.1 := by
           simp only [substLet, hne, hfv, if_true, bind, pure]; rfl
         have h_form2 : (substLet v rhs (freeVars rhs) ((x, rhs_h, er) :: rest) body s).1.2 =
             (substLet v rhs (freeVars rhs)
-              (renameBinds x (freshVar x.hint (subst v rhs rhs_h s).2).1 rest)
-              (rename x (freshVar x.hint (subst v rhs rhs_h s).2).1 body)
+              (renameLet x (freshVar x.hint (subst v rhs rhs_h s).2).1 rest body).1
+              (renameLet x (freshVar x.hint (subst v rhs rhs_h s).2).1 rest body).2
               (freshVar x.hint (subst v rhs rhs_h s).2).2).1.2 := by
           simp only [substLet, hne, hfv, if_true, bind, pure]; rfl
         rw [h_form1, h_form2, Moist.MIR.freeVarsLet.eq_2] at hw
@@ -841,14 +841,14 @@ private theorem freeVarsLet_substLet_tight (v : VarId) (rhs : Expr)
             cases h' : ((freshVar x.hint (subst v rhs rhs_h s).2).1 == w); rfl
             rw [erase_contains_beq_false _ _ w h'] at h; exact Bool.noConfusion h
           rcases freeVarsLet_substLet_tight v rhs
-              (renameBinds x (freshVar x.hint (subst v rhs rhs_h s).2).1 rest)
-              (rename x (freshVar x.hint (subst v rhs rhs_h s).2).1 body)
+              (renameLet x (freshVar x.hint (subst v rhs rhs_h s).2).1 rest body).1
+              (renameLet x (freshVar x.hint (subst v rhs rhs_h s).2).1 rest body).2
               (freshVar x.hint (subst v rhs rhs_h s).2).2 w hw_inner with h' | h'
           · have hw_rl := contains_of_contains_erase h'
             have hne_vw : (v == w) = false := by
               cases h'' : (v == w); rfl
               rw [erase_contains_beq_false _ v w h''] at h'; exact Bool.noConfusion h'
-            rcases freeVarsLet_renameBinds_bound_core x
+            rcases freeVarsLet_rename_bound_core x
                 (freshVar x.hint (subst v rhs rhs_h s).2).1 rest body w hw_rl with h_orig | h_eq
             · exact Or.inl (erase_contains_ne_of_contains
                 (contains_union_right _ _ _ h_orig) hne_vw)
@@ -1092,7 +1092,8 @@ private theorem inlineLetGo_fv_bound
         (Moist.MIR.occursUnderFix v body ||
           rest.any (fun (_, e, _) => Moist.MIR.occursUnderFix v e))
         (Moist.MIR.occursInDeferred v body ||
-          rest.any (fun (_, e, _) => Moist.MIR.occursInDeferred v e))) = true
+          rest.any (fun (_, e, _) => Moist.MIR.occursInDeferred v e) ||
+          !Moist.MIR.firstEvaluationUse v (.Let rest body))) = true
     · -- Inline case
       simp only [hinline, ↓reduceIte] at hw
       -- body' = (subst v rhs body s).1
@@ -1124,7 +1125,8 @@ private theorem inlineLetGo_fv_bound
           (Moist.MIR.occursUnderFix v body ||
             rest.any (fun (_, e, _) => Moist.MIR.occursUnderFix v e))
           (Moist.MIR.occursInDeferred v body ||
-            rest.any (fun (_, e, _) => Moist.MIR.occursInDeferred v e))) = false := by
+            rest.any (fun (_, e, _) => Moist.MIR.occursInDeferred v e) ||
+            !Moist.MIR.firstEvaluationUse v (.Let rest body))) = false := by
         cases h : shouldInline rhs _ _ _ with | true => exact absurd h hinline | false => rfl
       simp only [hinline', Bool.false_eq_true, ↓reduceIte] at hw
       -- IH: freeVars result ⊆ freeVarsLet (((v,rhs,er)::acc).rev ++ rest) body
@@ -1588,7 +1590,8 @@ private theorem inlineLetGo_nc (fv : VarSet)
         (Moist.MIR.occursUnderFix v body ||
           rest.any (fun (_, e, _) => Moist.MIR.occursUnderFix v e))
         (Moist.MIR.occursInDeferred v body ||
-          rest.any (fun (_, e, _) => Moist.MIR.occursInDeferred v e))) = true
+          rest.any (fun (_, e, _) => Moist.MIR.occursInDeferred v e) ||
+          !Moist.MIR.firstEvaluationUse v (.Let rest body))) = true
     · -- Inline case: substitute rhs for v in body and rest
       simp only [hinline, ↓reduceIte]
       have h_nr_rest_all : ∀ b ∈ rest, noCaptureFrom (freeVars rhs) b.2.1 = true :=
@@ -1618,7 +1621,8 @@ private theorem inlineLetGo_nc (fv : VarSet)
           (Moist.MIR.occursUnderFix v body ||
             rest.any (fun (_, e, _) => Moist.MIR.occursUnderFix v e))
           (Moist.MIR.occursInDeferred v body ||
-            rest.any (fun (_, e, _) => Moist.MIR.occursInDeferred v e))) = false := by
+            rest.any (fun (_, e, _) => Moist.MIR.occursInDeferred v e) ||
+            !Moist.MIR.firstEvaluationUse v (.Let rest body))) = false := by
         cases h : shouldInline rhs _ _ _ with | true => exact absurd h hinline | false => rfl
       simp only [hinline', Bool.false_eq_true, ↓reduceIte]
       exact inlineLetGo_nc fv rest ((v, rhs, er) :: acc) body changed s h_body

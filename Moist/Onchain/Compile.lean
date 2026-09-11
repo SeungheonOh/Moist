@@ -6,10 +6,23 @@ import Moist.MIR.Expr
 import Moist.MIR.Optimize
 import Moist.MIR.Optimize.PreLower
 import Moist.MIR.Lower
+import Moist.MIR.Compile
 import Moist.MIR.Pretty
 import Moist.Onchain.Attribute
 import Moist.Onchain.ToExpr
 import Moist.Onchain.Translate
+
+register_option moist.optimize.packApplications : Bool := {
+  defValue := true
+  descr := "Pack safe final application spines to reduce CPU and memory" }
+
+register_option moist.optimize.shareBuiltinStates : Bool := {
+  defValue := false
+  descr := "Share closed builtin states; profile-dependent CPU/memory trade-off" }
+
+register_option moist.optimize.poolConstants : Bool := {
+  defValue := false
+  descr := "Pool repeated large constants for script size, potentially increasing execution cost" }
 
 namespace Moist.Onchain
 
@@ -18,6 +31,13 @@ open Moist.MIR (optimizeExpr optimizeDebugBeta optimizeTraceExpr preLowerInlineE
 
 -- Use a local alias to avoid ambiguity with Lean.Term
 private abbrev UPLCTerm := Moist.Plutus.Term.Term
+
+private def optimizationOptions : CoreM Moist.MIR.Advanced.Options := do
+  let options ← getOptions
+  return {
+    packApplications := moist.optimize.packApplications.get options
+    shareBuiltinStates := moist.optimize.shareBuiltinStates.get options
+    poolConstants := moist.optimize.poolConstants.get options }
 
 /-! # compile! Term Elaborator
 
@@ -38,6 +58,7 @@ def myFunUPLC : Term := compile! myFun
 /-- Run the full compilation pipeline on a named constant.
     Returns the UPLC Term or an error message. -/
 def compileToUPLC (name : Name) (optFresh : Nat := 1000) (lowerFresh : Nat := 5000)
+    (options : Moist.MIR.Advanced.Options := {})
     : MetaM (Except String UPLCTerm) := do
   let env ← getEnv
   -- 1. Get definition body
@@ -50,29 +71,23 @@ def compileToUPLC (name : Name) (optFresh : Nat := 1000) (lowerFresh : Nat := 50
     translateDefByName name val
   catch e =>
     return .error s!"translation error: {← e.toMessageData.toString}"
-  -- 3. Optimize MIR
-  let opt := optimizeExpr mir optFresh
-  -- 4. Pre-lower inline (substitute atoms, single-use, dead-pure)
-  let prelow := preLowerInlineExpr opt lowerFresh
-  -- 5. Lower MIR → UPLC
-  return lowerExpr prelow (lowerFresh + 1000)
+  return Moist.MIR.compileOptimized mir optFresh lowerFresh options
 
 def compileExprToUPLC (expr : Lean.Expr) (optFresh : Nat := 1000) (lowerFresh : Nat := 5000)
+    (options : Moist.MIR.Advanced.Options := {})
     : MetaM (Except String UPLCTerm) := do
   let mir ← try
     translateDef expr
   catch e =>
     return .error s!"translation error: {← e.toMessageData.toString}"
-  let opt := optimizeExpr mir optFresh
-  let prelow := preLowerInlineExpr opt lowerFresh
-  return lowerExpr prelow (lowerFresh + 1000)
+  return Moist.MIR.compileOptimized mir optFresh lowerFresh options
 
 private def compileConstToUPLCOrThrow (name : Name) (requireOnchain : Bool := true) : MetaM UPLCTerm := do
   let env ← getEnv
   if requireOnchain then
     unless onchainAttr.hasTag env name do
       throwError "{name} is not marked @[onchain]"
-  let result ← compileToUPLC name
+  let result ← compileToUPLC name (options := ← optimizationOptions)
   match result with
   | .ok term => pure term
   | .error e => throwError "compilation of {name} failed: {e}"
@@ -117,7 +132,7 @@ private def compileTargetToUPLC (stx : Syntax) (requireOnchain : Bool := true) :
 private def compileTermSyntaxToUPLCOrThrow (stx : Syntax) : TermElabM UPLCTerm := do
   let expr ← Term.elabTerm stx none
   let expr ← instantiateMVars expr
-  let result ← compileExprToUPLC expr
+  let result ← compileExprToUPLC expr (options := ← optimizationOptions)
   match result with
   | .ok term => pure term
   | .error e => throwError "compilation failed: {e}"
@@ -191,8 +206,7 @@ elab "#show_optimized_mir" id:ident : command => do
     Elab.Command.liftTermElabM (translateDefByName name val)
   catch e =>
     logTranslationErrorAtDef name e
-  let opt := optimizeExpr mir 1000
-  let prelow := preLowerInlineExpr opt 5000
+  let prelow := Moist.MIR.prepareForLowering mir
   logInfo m!"MIR for {name}:\n{toString prelow}"
 
 /-- Debug elaborator: shows MIR after beta reduction + re-ANF (before simplify). -/
@@ -231,13 +245,19 @@ elab "#show_opt_trace" id:ident : command => do
     Elab.Command.liftTermElabM (translateDefByName name val)
   catch e =>
     logTranslationErrorAtDef name e
-  let steps := optimizeTraceExpr mir 1000
+  let staticArguments := Moist.MIR.Advanced.staticArguments mir
+  let steps := optimizeTraceExpr staticArguments 1000
   -- Build JSON steps array: Input + trace steps + PreLowerInline
   let mut allSteps : Array Json := #[.mkObj [
     ("pass", .str "Input MIR"),
     ("expr", .str (toString mir)),
     ("changed", .bool false)
   ]]
+  allSteps := allSteps.push (.mkObj [
+    ("pass", .str "Invariant recursive arguments"),
+    ("expr", .str (toString staticArguments)),
+    ("changed", .bool (!staticArguments.alphaEq mir))
+  ])
   for s in steps do
     allSteps := allSteps.push (.mkObj [
       ("pass", .str s.pass),
@@ -245,11 +265,17 @@ elab "#show_opt_trace" id:ident : command => do
       ("changed", .bool s.changed)
     ])
   if let some last := steps.back? then
-    let prelow := preLowerInlineExpr last.expr 5000
+    let prelow := Moist.MIR.Advanced.preLower (preLowerInlineExpr last.expr 5000)
     allSteps := allSteps.push (.mkObj [
-      ("pass", .str "PreLowerInline"),
+      ("pass", .str "Checked pre-lowering"),
       ("expr", .str (toString prelow)),
-      ("changed", .bool true)
+      ("changed", .bool (!prelow.alphaEq last.expr))
+    ])
+    let structural := Moist.MIR.Advanced.structural prelow
+    allSteps := allSteps.push (.mkObj [
+      ("pass", .str "Structural deconstruction"),
+      ("expr", .str (toString structural)),
+      ("changed", .bool (!structural.alphaEq prelow))
     ])
   let props : Json := .mkObj [("steps", .arr allSteps)]
   Elab.Command.liftCoreM <|

@@ -217,7 +217,7 @@ private theorem constr_ret_done_halts (ρ : CekEnv) (tag : Nat)
         .compute (.constrField tag (v :: done) ts ρ :: s) ρ t from rfl,
         steps_trans, hKt, hKrest]⟩
 
-private theorem constr_halts_of_all_halt (ρ : CekEnv) (tag : Nat) (terms : List Term)
+theorem constr_halts_of_all_halt (ρ : CekEnv) (tag : Nat) (terms : List Term)
     (hhalts : ∀ t, t ∈ terms → ∃ v, Reaches (.compute [] ρ t) (.halt v)) :
     ∃ v, Reaches (.compute [] ρ (.Constr tag terms)) (.halt v) := by
   match terms with
@@ -304,13 +304,13 @@ mutual
             simp [steps, step, hea, ExpectedArgs.head, ExpectedArgs.tail]⟩
         | argV =>
           exfalso; rw [hea] at hhead; simp [ExpectedArgs.head] at hhead
-          exact absurd hhead (by native_decide)
+          exact absurd hhead (by decide)
       | one k =>
         cases k with
         | argQ => exfalso; exact no_builtin_one_argQ b hea
         | argV =>
           exfalso; rw [hea] at hhead; simp [ExpectedArgs.head] at hhead
-          exact absurd hhead (by native_decide)
+          exact absurd hhead (by decide)
     -- Force (Force (Builtin b)): double type-force
     | .Force (.Force (.Builtin b)) =>
       simp [lowerTotal] at hlower; subst hlower
@@ -335,13 +335,13 @@ mutual
                 simp [steps, step, hea, hrest, ExpectedArgs.head, ExpectedArgs.tail]⟩
             | argV =>
               exfalso; rw [hrest] at hfc'; simp [ExpectedArgs.head] at hfc'
-              exact absurd hfc' (by native_decide)
+              exact absurd hfc' (by decide)
           | one k2 =>
             cases k2 with
             | argQ => exfalso; rw [hrest] at hea; exact no_builtin_more_argQ_one_argQ b hea
             | argV =>
               exfalso; rw [hrest] at hfc'; simp [ExpectedArgs.head] at hfc'
-              exact absurd hfc' (by native_decide)
+              exact absurd hfc' (by decide)
         | argV => rw [hea] at hfc'; simp at hfc'
       | one _ => rw [hea] at hfc'; simp at hfc'
     -- Force of other forms: excluded by isPure/isForceable = false

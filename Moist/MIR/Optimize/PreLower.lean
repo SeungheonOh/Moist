@@ -1,6 +1,7 @@
 import Moist.MIR.Expr
 import Moist.MIR.Analysis
 import Moist.MIR.Optimize.Purity
+import Moist.MIR.Optimize.Safety
 
 namespace Moist.MIR
 
@@ -19,8 +20,8 @@ For each `let v = rhs in rest; body`:
 | Atom (Var/Lit/Builtin) | any  | --       | Substitute (zero cost, no effects)  |
 | Pure                   | 0    | --       | Drop (dead binding)                 |
 | Value/pure             | 1    | any      | Substitute (no evaluation effects)  |
-| Impure non-value       | 1    | strict   | Substitute (single evaluation)      |
-| Impure non-value       | 1    | deferred | Keep (would change eval semantics)  |
+| Impure non-value       | 1    | first evaluation | Substitute (same order)      |
+| Impure non-value       | 1    | later/deferred   | Keep (preserve effects)      |
 | Otherwise              | ≥ 2  | --       | Keep                                |
 
 ## Beta Reduction
@@ -30,15 +31,27 @@ once in `body` and the substitution is safe:
 - Zero use + pure arg: `arg` is dropped (pure, no observable effect).
 - Zero use + impure arg: kept as-is (must preserve evaluation of `arg`).
 - Single use + value arg: always safe (values have no evaluation effects).
-- Single use + non-value arg in strict position: safe.
-- Single use + non-value arg in deferred position: kept as-is (would move
-  impure computation from eager to deferred evaluation).
+- Single use + non-value arg at the first evaluation position: safe.
+- Single use + non-value arg after a potentially effectful expression or
+  in a deferred position: kept as-is to preserve errors and trace order.
+
+The recursive worker assumes unique binders and an adequate fresh supply.
+Use `preLowerInlineExpr` for arbitrary lexically scoped input; it establishes
+both conditions before substitution.
+
+Correctly forced unsaturated builtin states with total arguments are also
+safe to move or discard. This removes ANF call-state bindings without moving
+effects or dropping a saturated call's runtime type validation. General purity
+and its proof contract are unchanged.
 -/
 
 /-- Flatten degenerate empty-binding Lets that arise from substitution. -/
 private def flattenLet : Expr → Expr
   | .Let [] body => flattenLet body
   | e => e
+
+def isTotalPreLowerValue (expression : Expr) : Bool :=
+  isPure expression || (builtinRemainder expression).isSome
 
 /-- Count occurrences of `v` in the remaining bindings and body,
     which is the scope where `v` is live. -/
@@ -73,11 +86,10 @@ where
     | .Lam param body =>
       let uses := countOccurrences param body
       if uses <= 1 then
-        if uses == 0 && !isPure x then
+        if uses == 0 && !isTotalPreLowerValue x then
           -- Zero uses, impure arg: can't drop, keep the application
           return .App f x
-        else if uses == 1 && !x.isValue && !isPure x && occursInDeferred param body then
-          -- Impure non-value arg in deferred position: would change eval semantics
+        else if uses == 1 && !x.isValue && !isTotalPreLowerValue x && !firstEvaluationUse param body then
           return .App f x
         else
           let result ← subst param x body
@@ -102,11 +114,10 @@ where
         let restBody ← subst v rhs' (.Let rest body)
         go [] acc (flattenLet restBody)
       -- Zero uses, pure RHS: drop dead binding
-      else if uses == 0 && isPure rhs' then
+      else if uses == 0 && isTotalPreLowerValue rhs' then
         go rest acc body
-      -- Single use: substitute if safe (values/pure always, impure only in strict position)
       else if uses == 1 then
-        if rhs'.isValue || isPure rhs' || !occursInDeferred v (.Let rest body) then
+        if rhs'.isValue || isTotalPreLowerValue rhs' || firstEvaluationUse v (.Let rest body) then
           let restBody ← subst v rhs' (.Let rest body)
           go [] acc (flattenLet restBody)
         else
@@ -117,6 +128,7 @@ where
 
 /-- Run the pre-lowering inline pass with a given fresh variable start. -/
 def preLowerInlineExpr (e : Expr) (freshStart : Nat := 5000) : Expr :=
-  runFresh (preLowerInline e) freshStart
+  let prepared := uniqueOptimizationBinders e
+  runFresh (preLowerInline prepared) (max freshStart (maxUidExpr prepared + 1))
 
 end Moist.MIR

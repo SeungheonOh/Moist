@@ -502,7 +502,7 @@ mutual
       simp [Expr.nodes_rename old new_ e, Expr.nodesList_rename old new_ rest]
   termination_by sizeOf es
 
-  theorem Expr.nodesBinds_renameLet (old new_ : VarId)
+  @[simp] theorem Expr.nodesBinds_renameLet (old new_ : VarId)
       (binds : List (VarId × Expr × Bool)) (body : Expr) :
       Expr.nodesBinds (renameLet old new_ binds body).1 = Expr.nodesBinds binds ∧
       (renameLet old new_ binds body).2.nodes = body.nodes := by
@@ -598,9 +598,8 @@ mutual
         pure ((x, rhs', er) :: rest, body)
       else if replFV.contains x then do
         let x' ← freshVar x.hint
-        let rest' := renameBinds x x' rest
-        let body' := rename x x' body
-        substLet v repl replFV rest' body' >>= fun (r, b) =>
+        let renamed := renameLet x x' rest body
+        substLet v repl replFV renamed.1 renamed.2 >>= fun (r, b) =>
         pure ((x', rhs', er) :: r, b)
       else
         substLet v repl replFV rest body >>= fun (r, b) =>

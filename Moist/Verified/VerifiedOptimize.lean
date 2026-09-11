@@ -5,7 +5,10 @@ import Moist.Verified.InlineSoundness
 /-! # Verified Optimization Pipeline
 
 Composes ANF normalization, dead code elimination, and inlining into a
-single optimization pass with an end-to-end soundness proof.
+single optimization pass. The refinement theorem uses only Lean's standard
+logical axioms; Inline's evaluation-frontier proof removes the former false
+budget-exhaustion dependency. It does not cover the other production passes
+or establish equivalence to the native execution pipeline.
 
     verifiedOptimize = anfNormalize ; dce ; inlinePassWithCanon
 -/

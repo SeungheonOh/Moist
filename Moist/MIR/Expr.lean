@@ -126,17 +126,17 @@ instance : Inhabited Expr where
 /-- Alpha-equivalence check. Two expressions are alpha-equivalent when they
 differ only in the choice of bound variable names. We maintain a pair of
 mappings (left-VarId → depth, right-VarId → depth) to align binders. -/
-private abbrev AlphaEnv := List (Nat × Nat)
+private abbrev AlphaEnv := List (VarId × Nat)
 
-private def alphaLookup (env : AlphaEnv) (uid : Nat) : Option Nat :=
+private def alphaLookup (env : AlphaEnv) (identifier : VarId) : Option Nat :=
   match env with
   | [] => none
-  | (k, d) :: rest => if k == uid then some d else alphaLookup rest uid
+  | (key, depth) :: rest => if key == identifier then some depth else alphaLookup rest identifier
 
 mutual
   private partial def alphaEqCore (envL envR : AlphaEnv) (depth : Nat) : Expr → Expr → Bool
     | .Var a, .Var b =>
-      match alphaLookup envL a.uid, alphaLookup envR b.uid with
+      match alphaLookup envL a, alphaLookup envR b with
       | some da, some db => da == db
       | none, none => a == b  -- both free
       | _, _ => false
@@ -147,9 +147,9 @@ mutual
     | .Force e1, .Force e2 => alphaEqCore envL envR depth e1 e2
     | .Delay e1, .Delay e2 => alphaEqCore envL envR depth e1 e2
     | .Lam v1 e1, .Lam v2 e2 =>
-      alphaEqCore ((v1.uid, depth) :: envL) ((v2.uid, depth) :: envR) (depth + 1) e1 e2
+      alphaEqCore ((v1, depth) :: envL) ((v2, depth) :: envR) (depth + 1) e1 e2
     | .Fix v1 e1, .Fix v2 e2 =>
-      alphaEqCore ((v1.uid, depth) :: envL) ((v2.uid, depth) :: envR) (depth + 1) e1 e2
+      alphaEqCore ((v1, depth) :: envL) ((v2, depth) :: envR) (depth + 1) e1 e2
     | .Let bs1 body1, .Let bs2 body2 =>
       alphaEqBinds envL envR depth bs1 bs2 body1 body2
     | .Constr t1 es1, .Constr t2 es2 =>
@@ -169,7 +169,7 @@ mutual
     | [], [], body1, body2 => alphaEqCore eL eR d body1 body2
     | (v1, rhs1, s1) :: rest1, (v2, rhs2, s2) :: rest2, body1, body2 =>
       s1 == s2 && alphaEqCore eL eR d rhs1 rhs2 &&
-      alphaEqBinds ((v1.uid, d) :: eL) ((v2.uid, d) :: eR) (d + 1) rest1 rest2 body1 body2
+      alphaEqBinds ((v1, d) :: eL) ((v2, d) :: eR) (d + 1) rest1 rest2 body1 body2
     | _, _, _, _ => false
 end
 

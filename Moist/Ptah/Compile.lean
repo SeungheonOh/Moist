@@ -9,6 +9,7 @@ import Moist.Plutus.PrettyHuman
 import Moist.MIR.Optimize
 import Moist.MIR.Optimize.PreLower
 import Moist.MIR.Lower
+import Moist.MIR.Compile
 import Moist.MIR.Pretty
 
 namespace Moist.Ptah
@@ -20,11 +21,10 @@ def toMIR (t : Term a) (freshStart : Nat := 0) : Moist.MIR.Expr :=
 
 def compile (t : Term a)
     (optFresh : Nat := 1000) (lowerFresh : Nat := 5000)
+    (options : Moist.MIR.Advanced.Options := {})
     : Except String Moist.Plutus.Term.Program := do
   let mir := toMIR t
-  let opt := optimizeExpr mir optFresh
-  let prelow := preLowerInlineExpr opt lowerFresh
-  let uplc ← lowerExpr prelow (lowerFresh + 1000)
+  let uplc ← Moist.MIR.compileOptimized mir optFresh lowerFresh options
   pure (.Program (.Version 1 1 0) uplc)
 
 def compileUnoptimized (t : Term a)
@@ -62,8 +62,7 @@ def showUPLCRaw (t : Term a) : String :=
 
 def showMIROptimized (t : Term a) : String :=
   let mir := toMIR t
-  let opt := optimizeExpr mir 1000
-  let prelow := preLowerInlineExpr opt 5000
+  let prelow := Moist.MIR.prepareForLowering mir
   toString prelow
 
 def showHex (t : Term a) : String :=

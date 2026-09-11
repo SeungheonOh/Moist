@@ -9,11 +9,20 @@ import Moist.Verified.InlineSoundness.SubstCommute
 import Moist.Verified.InlineSoundness.OccBridge
 import Moist.Verified.InlineSoundness.WellScoped
 import Moist.Verified.InlineSoundness.Preservation
+import Moist.Verified.InlineSoundness.FrontierError
 
 /-! # Soundness of MIR Inlining Pass
 
-Proves `inline_soundness : MIRCtxRefines e (inlinePass e s).1.1` for every
-MIR expression `e` and every fresh-variable state `s`.
+Proves `inline_refines : MIRCtxRefines e (inlinePassWithCanon e s).1.1` for
+every MIR expression `e` and fresh-variable state `s`. The recursive worker's
+`inline_soundness_aux` theorem requires `wellScoped e = true`.
+
+The impure branch retains the production evaluation-frontier guard. `Totality`,
+`EvaluationPath`, and `FrontierError` prove that its pure predecessors terminate,
+its occurrence survives lowering, and substitution preserves RHS errors even
+under nested bindings. The whole-pass theorem does not use the false legacy
+`budget_exhaustion` axiom. Its contract is contextual halting/error refinement
+through `lowerTotalExpr`, not a certificate for the native execution pipeline.
 
 ## Overview
 
@@ -45,8 +54,8 @@ This file is sorry-free. All preservation obligations are delegated to
   `wellScoped` and preservable through substitution.
 * **`substInBindings_cross_nc`** — cross-binding NC preservation.
 * **`inlinePass_pairwiseNC_cross`** — PairwiseNC preservation through
-  the full inline pass (depends on `freeVars_nonincreasing` and
-  `inlinePass_nc`, which are sorry'd in Preservation.lean). -/
+  the full inline pass, using the proved `freeVars_nonincreasing` and
+  `inlinePass_nc` preservation lemmas. -/
 
 namespace Moist.Verified.MIR
 
@@ -246,7 +255,7 @@ private theorem inlineBindings_cons_eq (v : VarId) (rhs : Expr) (er : Bool)
 
 /-- If two MIR expressions have the same lowering in every environment,
     they are `MIRCtxRefines`-equivalent (both directions). -/
-private theorem mirCtxRefines_of_lowerEq {m₁ m₂ : Expr}
+theorem mirCtxRefines_of_lowerEq {m₁ m₂ : Expr}
     (h : ∀ env, lowerTotalExpr env m₁ = lowerTotalExpr env m₂) :
     MIRCtxRefines m₁ m₂ := by
   intro env
@@ -268,7 +277,18 @@ def InlineGate (v : VarId) (rhs body : Expr)
     (Moist.MIR.occursUnderFix v body ||
       rest.any (fun (_, e, _) => Moist.MIR.occursUnderFix v e))
     (Moist.MIR.occursInDeferred v body ||
-      rest.any (fun (_, e, _) => Moist.MIR.occursInDeferred v e))
+      rest.any (fun (_, e, _) => Moist.MIR.occursInDeferred v e) ||
+      !Moist.MIR.firstEvaluationUse v (.Let rest body))
+
+theorem InlineGate_impure_frontier (binder : VarId) (rhs body : Expr)
+    (rest : List (VarId × Expr × Bool))
+    (notAtomic : rhs.isAtom = false) (notValue : rhs.isValue = false)
+    (notPure : Moist.MIR.isPure rhs = false)
+    (accepted : InlineGate binder rhs body rest = true) :
+    Moist.MIR.firstEvaluationUse binder (.Let rest body) = true := by
+  cases frontier : Moist.MIR.firstEvaluationUse binder (.Let rest body) with
+  | true => rfl
+  | false => simp [InlineGate, shouldInline, notAtomic, notValue, notPure, frontier] at accepted
 
 /-- Core substitution-inline sub-theorem (unified form). For every
     `let ((v, rhs, er) :: rest) in body`, the split-substitution form
@@ -366,7 +386,8 @@ theorem substInBindings_body_inline_mirCtxRefines (v : VarId) (rhs body : Expr)
         let uf := Moist.MIR.occursUnderFix v body ||
           rest.any (fun (_, e, _) => Moist.MIR.occursUnderFix v e)
         let id := Moist.MIR.occursInDeferred v body ||
-          rest.any (fun (_, e, _) => Moist.MIR.occursInDeferred v e)
+          rest.any (fun (_, e, _) => Moist.MIR.occursInDeferred v e) ||
+          !Moist.MIR.firstEvaluationUse v (.Let rest body)
         change shouldInline rhs occ uf id = true at hgate
         unfold shouldInline at hgate
         split at hgate
@@ -383,97 +404,56 @@ theorem substInBindings_body_inline_mirCtxRefines (v : VarId) (rhs body : Expr)
           · exact uplc_beta_constant_ctxRefines hclosed_rest
           · exact uplc_beta_builtin_ctxRefines hclosed_rest
         · split at hgate
-          · -- Branch B: value/pure — case split on occ=1 availability
-            by_cases hocc_uf : (occ == 1 && !uf) = true
-            · rw [Bool.and_eq_true] at hocc_uf
-              have hocc : occ = 1 := by
-                have := hocc_uf.1; simp [BEq.beq] at this; exact this
-              by_cases hid : id = false
-              · exact uplc_beta_impure_strict_openRefines hclosed_rest hclosed_rhs
-                  (Moist.Verified.InlineSoundness.OccBridge.lowerTotalLet_strictSingleOcc_of_inlineGate
-                    v env rest body t_rest ht_rest hocc hid distinct_binders)
-              · -- occ=1, occurrence in deferred position
-                have h_single := Moist.Verified.InlineSoundness.OccBridge.lowerTotalLet_singleOcc_of_occ_one
-                  v env rest body t_rest ht_rest hocc distinct_binders
-                by_cases hpure : (Moist.MIR.isPure rhs) = true
-                · exact uplc_beta_single_pure_openRefines hclosed_rest hclosed_rhs h_single
-                    (fun ρ hwf π =>
-                      Moist.Verified.DeadLet.dead_let_pure_stack_poly env
-                        (Moist.MIR.expandFix rhs)
-                        (Moist.Verified.Purity.isPure_expandFix rhs hpure)
-                        ht_rhs hwf π)
-                · -- isValue but not isPure: must be Fix f (Lam x inner).
-                  -- Extract Fix shape from ht_rhs (lowerTotal on non-Lam Fix = none → contradiction)
-                  rename_i hval_or
-                  have hval : Moist.MIR.Expr.isValue rhs = true := by
-                    rcases Bool.or_eq_true_iff.mp hval_or with h | h
-                    · exact h
-                    · exact absurd h hpure
-                  have h_canon : ∃ body_l, t_rhs = Moist.MIR.fixLamWrapUplc body_l := by
-                    cases rhs with
-                    | Var _ | Lit _ | Builtin _ => simp [Moist.MIR.Expr.isAtom] at *
-                    | Lam _ _ | Delay _ => simp [Moist.MIR.isPure] at hpure
-                    | Fix f_id fix_body =>
-                      cases fix_body with
-                      | Lam x_id inner =>
-                        have := Moist.MIR.lowerTotalExpr_fix_lam_canonical env f_id x_id inner
-                        rw [show Moist.MIR.lowerTotalExpr env (.Fix f_id (.Lam x_id inner)) =
-                          lowerTotal env (Moist.MIR.expandFix (.Fix f_id (.Lam x_id inner))) from rfl,
-                          ht_rhs] at this
-                        revert this
-                        cases lowerTotal _ (Moist.MIR.expandFix inner) with
-                        | none => simp
-                        | some bl => simp; intro h; exact ⟨bl, h⟩
-                      | _ => exfalso; revert ht_rhs
-                             simp [Moist.MIR.expandFix, lowerTotal]
-                    | _ => simp [Moist.MIR.Expr.isValue] at hval
-                  obtain ⟨body_l, rfl⟩ := h_canon
-                  exact uplc_beta_single_pure_openRefines hclosed_rest hclosed_rhs h_single
-                    (fun ρ _hwf π => fixLamWrapUplc_halts body_l ρ π)
-            · -- exprSize ≤ inlineThreshold (small value/pure, occ may be > 1).
-              rename_i hval_or
-              by_cases hpure2 : (Moist.MIR.isPure rhs) = true
-              · exact uplc_beta_multi_pure_openRefines hclosed_rest hclosed_rhs
-                  (fun ρ hwf π =>
-                    Moist.Verified.DeadLet.dead_let_pure_stack_poly env
-                      (Moist.MIR.expandFix rhs)
-                      (Moist.Verified.Purity.isPure_expandFix rhs hpure2)
-                      ht_rhs hwf π)
-              · -- Fix case (isValue, ¬isPure, small)
-                have hval : Moist.MIR.Expr.isValue rhs = true := by
-                  rcases Bool.or_eq_true_iff.mp hval_or with h | h
-                  · exact h
-                  · exact absurd h hpure2
-                have h_canon : ∃ body_l, t_rhs = Moist.MIR.fixLamWrapUplc body_l := by
-                  cases rhs with
-                  | Var _ | Lit _ | Builtin _ => simp [Moist.MIR.Expr.isAtom] at *
-                  | Lam _ _ | Delay _ => simp [Moist.MIR.isPure] at hpure2
-                  | Fix f_id fix_body =>
-                    cases fix_body with
-                    | Lam x_id inner =>
-                      have := Moist.MIR.lowerTotalExpr_fix_lam_canonical env f_id x_id inner
-                      rw [show Moist.MIR.lowerTotalExpr env (.Fix f_id (.Lam x_id inner)) =
-                        lowerTotal env (Moist.MIR.expandFix (.Fix f_id (.Lam x_id inner))) from rfl,
-                        ht_rhs] at this
-                      revert this
-                      cases lowerTotal _ (Moist.MIR.expandFix inner) with
-                      | none => simp
-                      | some bl => simp; intro h; exact ⟨bl, h⟩
-                    | _ => exfalso; revert ht_rhs; simp [Moist.MIR.expandFix, lowerTotal]
-                  | _ => simp [Moist.MIR.Expr.isValue] at hval
-                obtain ⟨body_l, rfl⟩ := h_canon
-                exact uplc_beta_multi_pure_openRefines hclosed_rest hclosed_rhs
-                  (fun ρ _hwf π => fixLamWrapUplc_halts body_l ρ π)
+          · rename_i hval_or
+            by_cases hpure2 : (Moist.MIR.isPure rhs) = true
+            · exact uplc_beta_multi_pure_openRefines hclosed_rest hclosed_rhs
+                (fun ρ hwf π =>
+                  Moist.Verified.DeadLet.dead_let_pure_stack_poly env
+                    (Moist.MIR.expandFix rhs)
+                    (Moist.Verified.Purity.isPure_expandFix rhs hpure2)
+                    ht_rhs hwf π)
+            · have hval : Moist.MIR.Expr.isValue rhs = true := by
+                rcases Bool.or_eq_true_iff.mp hval_or with h | h
+                · exact h
+                · exact absurd h hpure2
+              have h_canon : ∃ body_l, t_rhs = Moist.MIR.fixLamWrapUplc body_l := by
+                cases rhs with
+                | Var _ | Lit _ | Builtin _ => simp [Moist.MIR.Expr.isAtom] at *
+                | Lam _ _ | Delay _ => simp [Moist.MIR.isPure] at hpure2
+                | Fix f_id fix_body =>
+                  cases fix_body with
+                  | Lam x_id inner =>
+                    have := Moist.MIR.lowerTotalExpr_fix_lam_canonical env f_id x_id inner
+                    rw [show Moist.MIR.lowerTotalExpr env (.Fix f_id (.Lam x_id inner)) =
+                      lowerTotal env (Moist.MIR.expandFix (.Fix f_id (.Lam x_id inner))) from rfl,
+                      ht_rhs] at this
+                    revert this
+                    cases lowerTotal _ (Moist.MIR.expandFix inner) with
+                    | none => simp
+                    | some bl => simp; intro h; exact ⟨bl, h⟩
+                  | _ => exfalso; revert ht_rhs; simp [Moist.MIR.expandFix, lowerTotal]
+                | _ => simp [Moist.MIR.Expr.isValue] at hval
+              obtain ⟨body_l, rfl⟩ := h_canon
+              exact uplc_beta_multi_pure_openRefines hclosed_rest hclosed_rhs
+                (fun ρ _hwf π => fixLamWrapUplc_halts body_l ρ π)
           · -- Branch C: impure strict — extract conditions from InlineGate
             rw [Bool.and_eq_true] at hgate
             have hocc : occ = 1 := by
               have := hgate.1; simp [BEq.beq] at this; exact this
             have hnotid : id = false := by
               have := hgate.2; revert this; cases h : id <;> simp
-            exact uplc_beta_impure_strict_openRefines hclosed_rest hclosed_rhs
-              (Moist.Verified.InlineSoundness.OccBridge.lowerTotalLet_strictSingleOcc_of_inlineGate
-                v env rest body t_rest ht_rest hocc hnotid
-                distinct_binders)
+            have deferredFalse := (Bool.or_eq_false_iff.mp hnotid).1
+            have strict := Moist.Verified.InlineSoundness.OccBridge.lowerTotalLet_strictSingleOcc_of_inlineGate
+              v env rest body t_rest ht_rest hocc deferredFalse distinct_binders
+            have frontier : Moist.MIR.firstEvaluationUse v (.Let rest body) = true := by
+              have blocked := (Bool.or_eq_false_iff.mp hnotid).2
+              cases selected : Moist.MIR.firstEvaluationUse v (.Let rest body) with
+              | true => rfl
+              | false => rw [selected] at blocked; contradiction
+            have path := Moist.Verified.InlineSoundness.Frontier.inlineGate_evaluationPath
+              v env rest body t_rest ht_rest frontier
+            exact Moist.Verified.InlineSoundness.Frontier.beta_evaluationPath_ctxRefines
+              path strict hclosed_rest hclosed_rhs
 
 /-- Atoms always satisfy `InlineGate`: `shouldInline` for an atom expression
     returns `true` unconditionally (atoms are free to duplicate). -/
@@ -511,7 +491,7 @@ private theorem subst_body_inline_mirCtxRefines (v : VarId) (rhs body : Expr)
     at the `MIRCtxRefines` level: they have *identical* lowerings (both
     reduce to `.Apply (.Lam 0 body_lowered) x_lowered`), modulo the order
     of bindings in the `do`-notation. -/
-private theorem mirCtxRefines_app_lam_to_let (p : VarId) (body x : Expr) :
+theorem mirCtxRefines_app_lam_to_let (p : VarId) (body x : Expr) :
     MIRCtxRefines (.App (.Lam p body) x) (.Let [(p, x, false)] body) := by
   intro env
   have heq : lowerTotalExpr env (.App (.Lam p body) x) =
@@ -811,7 +791,8 @@ private theorem inlineLetGo_soundness :
           (Moist.MIR.occursUnderFix v body ||
             rest.any (fun (_, e, _) => Moist.MIR.occursUnderFix v e))
           (Moist.MIR.occursInDeferred v body ||
-            rest.any (fun (_, e, _) => Moist.MIR.occursInDeferred v e))) = true
+            rest.any (fun (_, e, _) => Moist.MIR.occursInDeferred v e) ||
+            !Moist.MIR.firstEvaluationUse v (.Let rest body))) = true
     · simp only [hinline, ↓reduceIte]
       let p_body := Moist.MIR.subst v rhs body s
       let body' := p_body.1
@@ -858,7 +839,8 @@ private theorem inlineLetGo_soundness :
             (.Let acc.reverse (.Let ((v, rhs, er) :: rest) body)) :=
         mirCtxRefines_of_lowerEq
           (lowerTotalExpr_let_split · acc.reverse ((v, rhs, er) :: rest) body)
-      have hgate : InlineGate v rhs body rest = true := hinline
+      have hgate : InlineGate v rhs body rest = true :=
+        hinline
       have h_nc2 : rest.all (fun b => noCaptureFrom (freeVars rhs) b.2.1) = true := hnr_rest_all
       have h_step :
           MIRCtxRefines
@@ -878,7 +860,8 @@ private theorem inlineLetGo_soundness :
             (Moist.MIR.occursUnderFix v body ||
               rest.any (fun (_, e, _) => Moist.MIR.occursUnderFix v e))
             (Moist.MIR.occursInDeferred v body ||
-              rest.any (fun (_, e, _) => Moist.MIR.occursInDeferred v e))) = false := by
+              rest.any (fun (_, e, _) => Moist.MIR.occursInDeferred v e) ||
+              !Moist.MIR.firstEvaluationUse v (.Let rest body))) = false := by
         cases h : Moist.MIR.shouldInline rhs _ _ _ with
         | true => exact absurd h hinline
         | false => rfl
@@ -1076,10 +1059,18 @@ end
 
 theorem inline_refines (e : Expr) (s : Moist.MIR.FreshState) :
     MIRCtxRefines e (Moist.MIR.inlinePassWithCanon e s).1.1 := by
-  show MIRCtxRefines e (inlinePass (canonicalize e) s).1.1
-  exact mirCtxRefines_trans
-    (mirCtxRefines_of_lowerEq (fun env =>
-      (Moist.MIR.lowerTotalExpr_canonicalize env e).symm))
-    (inline_soundness_aux (canonicalize e) s (wellScoped_canonicalize e))
+  by_cases hscoped : wellScoped e = true
+  · simpa [Moist.MIR.inlinePassWithCanon, hscoped, Moist.MIR.reserveFreshFor,
+      bind, pure, StateT.bind, StateT.pure, modify, modifyGet, StateT.modifyGet] using
+      inline_soundness_aux e
+        { next := max s.next (Moist.MIR.maxUidExpr e + 1) } hscoped
+  · let reserved : Moist.MIR.FreshState :=
+      { next := max s.next (Moist.MIR.maxUidExpr (canonicalize e) + 1) }
+    have result := mirCtxRefines_trans
+      (mirCtxRefines_of_lowerEq (fun env =>
+        (Moist.MIR.lowerTotalExpr_canonicalize env e).symm))
+      (inline_soundness_aux (canonicalize e) reserved (wellScoped_canonicalize e))
+    simpa [Moist.MIR.inlinePassWithCanon, hscoped, Moist.MIR.reserveFreshFor,
+      bind, pure, StateT.bind, StateT.pure, modify, modifyGet, StateT.modifyGet] using result
 
 end Moist.Verified.MIR

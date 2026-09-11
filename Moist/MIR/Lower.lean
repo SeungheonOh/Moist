@@ -1,5 +1,6 @@
 import Moist.MIR.Expr
 import Moist.MIR.Analysis
+import Moist.MIR.LowerTotal
 
 namespace Moist.MIR
 
@@ -93,7 +94,7 @@ where
       let s ← liftFresh (freshVar "s")
       let v ← liftFresh (freshVar "v")
       let selfApp := Expr.Lam v (.App (.App (.Var s) (.Var s)) (.Var v))
-      let e' ← liftFresh (subst f selfApp e)
+      let e' ← if f == x then pure e else liftFresh (subst f selfApp e)
       let inner := Expr.Lam s (.Lam x e')
       let innerTerm ← lower env inner
       -- (λz. z z) innerTerm — the functional appears only once
@@ -103,6 +104,6 @@ where
       ExceptT.mk (pure (.error s!"Fix body must be a Lam, got: {repr body}"))
 
 def lowerExpr (e : Expr) (freshStart : Nat := 10000) : Except String Term :=
-  (ExceptT.run (lower [] e) |>.run ⟨freshStart⟩).1
+  (ExceptT.run (lower [] e) |>.run ⟨max freshStart (maxUidExpr e + 1)⟩).1
 
 end Moist.MIR

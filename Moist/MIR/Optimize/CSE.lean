@@ -1,90 +1,29 @@
 import Moist.MIR.Expr
 import Moist.MIR.Analysis
+import Moist.MIR.Optimize.Safety
 
 namespace Moist.MIR
 
-/-! # Common Sub-Expression Elimination (CSE)
+/-! # Common Sub-Expression Elimination
 
-Eliminates redundant computations by detecting structurally identical
-let-binding RHS expressions and reusing the first binding's result for
-all subsequent duplicates.
+CSE reuses an earlier, dominating let-bound result when the expressions are
+alpha-equivalent and reevaluation cannot emit observable trace messages.
+Potential failure does not by itself prohibit reuse: a failed first
+evaluation prevents reaching the duplicate. Trace, however, is observable
+despite the absence of mutable state.
 
-## Why This Is Always Safe in Plutus
+isRepeatable follows available function/thunk aliases conservatively.
+Known nonlogging builtin calls and safe allocations remain eligible;
+unknown calls, unknown forces, and potentially logging computations do not.
 
-Plutus has no mutable state. If `App f x` succeeds for binding `a`,
-computing `App f x` again for binding `b` would produce the identical
-result. If `App f x` errors, sequential evaluation guarantees we never
-reach `b`, so replacing `b` with `a` does not change the error
-semantics.
+The seen map flows into nested scopes but never out of conditional or
+deferred scopes. Entries are invalidated when their result or a free
+dependency is rebound. Public traversal first establishes globally unique
+binders, so replacement and later scope movement cannot capture variables.
+The explicit seen argument is an internal environment of dominating bindings.
 
-## Scope-Aware Deduplication
-
-The seen map of known bindings is propagated across scope boundaries:
-from outer Let blocks into nested Let blocks, case alternatives, lambda
-bodies, fix bodies, and delay bodies. This allows a binding inside a
-case alternative to be deduplicated against a binding from an enclosing
-scope.
-
-This is safe because outer bindings are always evaluated before inner
-scopes are entered. If an outer binding succeeded, any duplicate inner
-binding would also succeed with the identical result (no mutable state).
-
-When entering a Lam or Fix scope, entries in the seen map are filtered
-to remove any whose RHS mentions the new binder (the RHS would refer to
-a different binding in the new scope) or whose mapped variable equals
-the binder (would be shadowed).
-
-## Algorithm
-
-1. Walk the expression tree carrying a `seen` map of previously computed
-   RHS expressions to their binding variables: `List (Expr × VarId)`.
-2. At each `Let binds body`, process bindings left-to-right:
-   a. CSE the RHS with the current seen map (outer + previous bindings).
-   b. Check if the CSE'd RHS matches any entry in the seen map.
-   c. If found as `w`: rename all free occurrences of `v` to `w` in
-      subsequent bindings and in the body. Drop this binding.
-   d. If not found: add `(rhs, v)` to the seen map and keep the binding.
-3. After all bindings, CSE the body with the full accumulated seen map.
-4. When entering Lam/Fix, filter the seen map for the new binder.
-5. Pass the seen map unchanged through Case, Delay, App, Force, Constr.
-
-## Examples
-
-```
--- Duplicate application eliminated
-let a = App (Var f) (Var x) in
-let b = App (Var f) (Var x) in
-App (Var a) (Var b)
-  ==>
-let a = App (Var f) (Var x) in
-App (Var a) (Var a)
-
--- Cross-scope dedup: inner case alt reuses outer binding
-let a = unConstrData ctx in
-let tag = fstPair (sndPair a) in
-Case (equalsInteger tag 0) [
-  ...,
-  let a' = unConstrData ctx in    -- matches a from outer scope!
-  let flds = sndPair a' in        -- matches sndPair a after rename
-  unListData (headList flds)
-]
-  ==>
-let a = unConstrData ctx in
-let flds = sndPair a in
-let tag = fstPair flds in
-Case (equalsInteger tag 0) [
-  ...,
-  unListData (headList flds)       -- a' and inner flds eliminated
-]
-
--- Cross-scope through nested Let blocks
-let a = App (Var f) (Var x) in
-  let b = App (Var f) (Var x) in  -- matches a from outer Let
-  App (Var a) (Var b)
-  ==>
-let a = App (Var f) (Var x) in
-App (Var a) (Var a)
-```
+For example, repeated addInteger applications may share their result;
+repeated calls to an unknown f must remain separate because f may trace.
 -/
 
 /-! ## Structural Equality
@@ -187,7 +126,8 @@ lambda bodies, and other nested expressions.
 -/
 
 mutual
-  partial def cse (seen : List (Expr × VarId)) : Expr → Expr × Bool
+  partial def cse (seen : List (Expr × VarId)) (expression : Expr) : Expr × Bool :=
+    match uniqueOptimizationBinders expression with
     | .Let binds body =>
       cseLetBlock seen binds body
 
@@ -262,13 +202,15 @@ mutual
         -- CSE nested expressions within the RHS
         let (rhs', rhsChanged) := cse seen rhs
         -- Check if the processed RHS matches something already seen
-        match lookupStructEq seen rhs' with
+        match if isRepeatable seen rhs' then lookupStructEq seen rhs' else none with
         | some w =>
           let rest' := rest.map fun (y, e, er2) => (y, rename v w e, er2)
           let body' := rename v w body
           go rest' seen acc body' true
         | none =>
-          go rest ((rhs', v) :: seen) ((v, rhs', er) :: acc) body (changed || rhsChanged)
+          let available := filterSeen v seen
+          let available := if (freeVars rhs').contains v then available else (rhs', v) :: available
+          go rest available ((v, rhs', er) :: acc) body (changed || rhsChanged)
 end
 
 end Moist.MIR

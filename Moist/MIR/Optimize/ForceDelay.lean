@@ -1,5 +1,6 @@
 import Moist.MIR.Expr
 import Moist.MIR.Analysis
+import Moist.MIR.Optimize.Safety
 
 namespace Moist.MIR
 
@@ -155,7 +156,7 @@ the through-let pattern where a `Delay` binding is only used under
 `Force`. See the module documentation for the full algorithm and
 examples. -/
 partial def forceDelay (e : Expr) : Expr × Bool :=
-  match e with
+  match uniqueOptimizationBinders e with
   | .Var _ | .Lit _ | .Builtin _ | .Error => (e, false)
 
   | .Lam x body =>
@@ -229,7 +230,7 @@ where
       | .Delay inner =>
         -- Check all uses of v in subsequent bindings and body
         let restExpr := if rest.isEmpty then body else .Let rest body
-        if allUsesAreForce v restExpr then
+        if countOccurrences v restExpr > 0 && allUsesAreForce v restExpr then
           -- Replace Force (Var v) -> inner in subsequent bindings and body
           let rest' := rest.map fun (w, r, er2) => (w, replaceForceVar v inner r, er2)
           let body' := replaceForceVar v inner body

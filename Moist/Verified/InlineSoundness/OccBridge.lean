@@ -90,7 +90,7 @@ section CoreBridge
 
 /-! ### VarId BEq transitivity -/
 
-private theorem varid_beq_symm {a b : VarId}
+theorem varid_beq_symm {a b : VarId}
     (h : (a == b) = true) : (b == a) = true := by
   have h' : (a.origin == b.origin && a.uid == b.uid) = true := h
   rw [Bool.and_eq_true] at h'
@@ -1092,7 +1092,7 @@ private theorem envLookupT_go_beq_congr (x v : VarId) (env : List VarId) (k : Na
     · rfl
     · exact ih (k + 1)
 
-private theorem envLookupT_split_beq (envL : List VarId) (v : VarId) (envR : List VarId)
+theorem envLookupT_split_beq (envL : List VarId) (v : VarId) (envR : List VarId)
     (x : VarId) (hxv : (x == v) = true)
     (hv_notin : envL.findIdx? (· == v) = none) :
     envLookupT (envL ++ v :: envR) x = some envL.length := by

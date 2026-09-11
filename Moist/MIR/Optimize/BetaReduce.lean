@@ -1,5 +1,6 @@
 import Moist.MIR.Expr
 import Moist.MIR.Analysis
+import Moist.MIR.Optimize.Safety
 
 namespace Moist.MIR
 
@@ -41,7 +42,10 @@ reduced inside-out.
 -/
 
 mutual
-  partial def betaReducePass : Expr → FreshM (Expr × Bool)
+  partial def betaReducePass (expression : Expr) : FreshM (Expr × Bool) := do
+    let prepared := uniqueOptimizationBinders expression
+    reserveFreshFor prepared
+    match prepared with
     | .App f x => do
       let (f', c1) ← betaReducePass f
       let (x', c2) ← betaReducePass x

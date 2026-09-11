@@ -1,81 +1,30 @@
 import Moist.MIR.Expr
 import Moist.MIR.Analysis
+import Moist.MIR.Optimize.Safety
 
 namespace Moist.MIR
 
 /-! # Eta Reduction
 
-Simplifies `λx. f x` to `f` when `x` is not free in `f`.
-
-Generalizes to multi-argument eta:
-  `λa b c. f a b c` → `f`   (when a,b,c ∉ FV(f))
+Simplifies `λx. f x` to `f` when `x` is not free in `f` and `f` is
+guaranteed callable. Nested lambdas are checked one layer at a time;
+absence of free variables alone does not justify multi-argument eta.
 
 ## CEK Safety
 
-Always safe. `(λx. f x) v` and `f v` produce identical results
-under CEK evaluation — the lambda wrapper is pure overhead.
+Reduction requires a head that is guaranteed to evaluate to a callable
+value. Unknown variables, saturated applications, and delayed values do
+not satisfy this condition in untyped call-by-value evaluation.
+The mandatory outer lambda of a Fix body is preserved for lowering.
 -/
 
-/-- Peel trailing applications that exactly match the lambda parameters
-    in order. Returns the function head and whether eta reduction applied.
-
-    Given `body` and a list of lambda-bound vars `[a, b, c]` (outermost first),
-    checks if body = `f a b c` where f doesn't reference a, b, or c. -/
-private def tryEtaReduce (body : Expr) (params : List VarId) : Option Expr :=
-  let nParams := params.length
-  -- Uncurry the body: f a1 a2 ... an
-  let (head, args) := uncurryApp body
-  -- Must have at least nParams args
-  if args.length < nParams then none
-  else
-    -- The trailing args must exactly match params in order
-    let trailingArgs := args.drop (args.length - nParams)
-    let matchesParams := (trailingArgs.zip params.reverse).all fun (arg, param) =>
-      match arg with
-      | .Var v => v == param
-      | _ => false
-    if !matchesParams then none
-    else
-      -- The head + leading args must not reference any of the params
-      let leadingArgs := args.take (args.length - nParams)
-      let headExpr := leadingArgs.foldl (init := head) fun acc a => .App acc a
-      let headFV := freeVars headExpr
-      let captured := params.any fun p => headFV.contains p
-      if captured then none
-      else some headExpr
-
-/-- Eta-reduce a single lambda nest. Peels all leading Lam binders,
-    attempts eta reduction on the body, re-wraps any remaining binders. -/
-private def etaReduceLam (e : Expr) : Expr :=
-  go e []
-where
-  go : Expr → List VarId → Expr
-    | .Lam x body, params => go body (params ++ [x])
-    | body, params =>
-      if params.isEmpty then body
-      else
-        match tryEtaReduce body params with
-        | some reduced => reduced
-        | none =>
-          -- Try partial eta: remove trailing params one at a time
-          goPartial body params
-  goPartial : Expr → List VarId → Expr
-    | body, [] => body
-    | body, params =>
-      -- Try removing the last param
-      let last := params.getLast!
-      match body with
-      | .App f (.Var v) =>
-        if v == last && !(freeVars f).contains last then
-          -- η-reduce one layer: λ...last. f last → λ... f
-          let remaining := params.dropLast
-          if remaining.isEmpty then f
-          else goPartial f remaining
-        else
-          -- Can't reduce, re-wrap all params
-          params.foldr (init := body) fun p acc => .Lam p acc
-      | _ =>
-        params.foldr (init := body) fun p acc => .Lam p acc
+private def etaReduceLam (expression : Expr) : Expr :=
+  match expression with
+  | .Lam parameter (.App function (.Var argument)) =>
+    if parameter == argument && !(freeVars function).contains parameter && isCallableValue function then
+      function
+    else expression
+  | _ => expression
 
 /-- Run eta reduction over the entire expression tree.
     Returns the reduced expression and whether any reduction occurred. -/
@@ -89,6 +38,9 @@ partial def etaReduce : Expr → Expr × Bool
       -- Recurse into the result in case it exposed more eta opportunities
       let (reduced', changed2) := etaReduce reduced
       (reduced', true || changed2)
+  | .Fix f (.Lam parameter body) =>
+    let (body', changed) := etaReduce body
+    (.Fix f (.Lam parameter body'), changed)
   | .Fix f body =>
     let (body', changed) := etaReduce body
     (.Fix f body', changed)

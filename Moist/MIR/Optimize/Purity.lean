@@ -1,59 +1,29 @@
 import Moist.MIR.Expr
-import Moist.Onchain.Builtins
 import Moist.CEK.Builtins
 
 namespace Moist.MIR
 
 open Moist.Plutus.Term
-open Moist.Onchain (builtinArity)
 open Moist.CEK (expectedArgs ExpectedArgs ArgKind)
 open Moist.Plutus.Term (BuiltinFun)
 
-/-! # Purity Analysis
+/-! # Conservative Purity Analysis
 
-Determines whether an expression is guaranteed to evaluate without error.
-Used by optimization passes (FloatOut, DCE, PreLower) to decide when it
-is safe to move, speculate, or eliminate expressions.
+isPure recognizes computations guaranteed to terminate successfully without
+logging, assuming free variables denote already-evaluated values.
 
-## Design
+Atoms, lambdas, and delays are pure. Constructors and sequential lets are
+pure only when their evaluated children are pure. A direct force of a delay
+uses the body's purity. Builtin forces must match the expected type-force
+protocol at every level.
 
-An expression is **pure** when evaluating it is guaranteed to succeed,
-regardless of runtime values. The sources of impurity are:
-
-1. **Error** nodes — always fail.
-2. **Any application with a `Var` head** — the variable could alias a
-   fallible builtin (e.g. `headList`, `divideInteger`).
-3. **Saturated application of a fallible builtin** — e.g. `divideInteger x 0`,
-   `headList []`. We cannot statically determine argument values, so any
-   fully-applied fallible builtin is conservatively impure.
-
-### Safe builtin applications
-
-- **Partial application** of any builtin (fewer args than arity) always
-  succeeds — it just builds a partially-applied closure.
-- **Saturated applications** are always impure — even "total" builtins
-  like `addInteger` can error on wrong-type arguments, and we cannot
-  statically verify argument types.
-
-### Value forms (body not evaluated at construction time)
-
-- **Lam, Delay, Fix** — building a closure/thunk never fails.
+Applications, cases, and Fix nodes are conservatively rejected. No argument
+types or constructor arities are inferred here. In particular, a saturated
+apparently total builtin can fail on wrong-type inputs, and an unknown force
+may fail or execute a trace. The separate builtinRemainder helper recognizes
+safe partial builtin states for eta and repeatability without weakening this
+predicate's existing proof contract.
 -/
-
-/-! ## Builtin Application Analysis -/
-
-/-- Extract the builtin from a head expression, stripping Force wrappers. -/
-private def extractBuiltin : Expr → Option BuiltinFun
-  | .Builtin b => some b
-  | .Force e => extractBuiltin e
-  | _ => none
-
-/-- Unwrap an application spine to get (head, argCount). -/
-private def countArgs : Expr → Expr × Nat
-  | .App f _ =>
-    let (head, n) := countArgs f
-    (head, n + 1)
-  | e => (e, 0)
 
 /-! ## Core Purity Check -/
 
@@ -78,15 +48,11 @@ mutual
 
   /-- Return `true` when evaluating the expression is guaranteed to succeed.
 
-  - Value forms (Var, Lit, Builtin, Lam, Delay, Fix) are always pure.
+  - Value forms (Var, Lit, Builtin, Lam, Delay) are pure.
   - `Force e` is pure when `e` is pure AND produces a forceable value
     (a `Delay` or a builtin expecting a type-force argument).
-  - `App f x`: only pure when the head is a **known builtin** (possibly
-    Force-wrapped) AND partially applied (fewer args than arity).
-    All other applications are impure — saturated builtins may error
-    on wrong-type arguments, and `Var`-headed applications could alias
-    any function.
-  - `Case`, `Let`, `Constr`: pure when all sub-expressions are pure.
+  - `App`, `Case`, and `Fix` are conservatively impure.
+  - `Let` and `Constr` are pure when all evaluated sub-expressions are pure.
   - `Error`: always impure. -/
   def isPure : Expr → Bool
     | .Error => false
