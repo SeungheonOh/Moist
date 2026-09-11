@@ -87,6 +87,35 @@ termination_by state.left.length + state.right.length
 @[onchain] def literalAmounts (quantity : Int) : Data :=
   PlutusData.toData (AssocMap.mk [("key".toUTF8, quantity)] : AssocMap ByteString Int)
 
+@[onchain] def headAmount (datum : Data) : Int :=
+  Moist.Onchain.AssocMap.withHead (fun _ => -1) (fun _ quantity _ => quantity)
+    (PlutusData.unsafeFromData datum : AssocMap ByteString Int)
+
+@[onchain] def dropAmounts (count : Int) (datum : Data) : Data :=
+  PlutusData.toData (Moist.Onchain.AssocMap.drop count
+    (PlutusData.unsafeFromData datum : AssocMap ByteString Int))
+
+@[onchain] noncomputable def lazyAmounts (datum : Data) : Int :=
+  Moist.Onchain.AssocMap.foldrLazy (fun key quantity _ next =>
+    if equalsByteString key "stop".toUTF8 then quantity
+    else if lessThanInteger quantity 0 then pError
+    else addInteger quantity (next ())) 0 (PlutusData.unsafeFromData datum : AssocMap ByteString Int)
+
+@[onchain] def remainingAmounts (datum : Data) : Data :=
+  Moist.Onchain.AssocMap.foldrLazy (fun key _ rest next =>
+    if equalsByteString key "stop".toUTF8 then PlutusData.toData rest else next ())
+    (PlutusData.toData (Moist.Onchain.AssocMap.empty : AssocMap ByteString Int))
+    (PlutusData.unsafeFromData datum : AssocMap ByteString Int)
+
+@[onchain] def mergeAmounts (left right : Data) : Data :=
+  let result := Moist.Onchain.AssocMap.mergeWith lessThanInteger
+    (fun left right =>
+      let difference := subtractInteger left right
+      if equalsInteger difference 0 then none else some difference)
+    some (fun right => some (subtractInteger 0 right))
+    (PlutusData.unsafeFromData left : AssocMap Int Int) (PlutusData.unsafeFromData right)
+  PlutusData.toData result
+
 @[onchain] def nativeEntries (map : AssocMap ByteString Int) : List (ByteString × Int) := map.toList
 @[onchain] def dynamicMap (entries : List (ByteString × Int)) : AssocMap ByteString Int := ⟨entries⟩
 @[onchain] def nativeSafeDecoder (datum : Data) : Option Int := PlutusData.fromData datum
@@ -140,6 +169,11 @@ private def mapConstant := compile! constantAmounts
 private def mapNestedConstant := compile! nestedConstantAmounts
 private def mapMultiple := compile! multipleAmounts
 private def mapLiteral := compile! literalAmounts
+private def mapHead := compile! headAmount
+private def mapDrop := compile! dropAmounts
+private def mapLazy := compile! lazyAmounts
+private def mapRemaining := compile! remainingAmounts
+private def mapMerge := compile! mergeAmounts
 
 private def dataTerm (value : Data) : Term := .Constant (.Data value, .AtomicType .TypeData)
 private def integerTerm (value : Int) : Term := .Constant (.Integer value, .AtomicType .TypeInteger)
@@ -203,6 +237,38 @@ def tests : TestTree := suite "collection_encoding" do
       (dataTerm (.Map [(.B "policy".toUTF8, .Map [(.B "token".toUTF8, .I 1)])]))
     for entries in [[], [first], [first, second], [first, second, duplicate]] do
       check (.Apply mapMultiple (dataTerm (.Map entries))) (booleanTerm (entries.length > 1))
+  test "map_head_drop_and_lazy_tail_preserve_order_and_demand" do
+    let entries := [(Data.B "first".toUTF8, Data.I 1), (.B "stop".toUTF8, .I 2),
+      (.B "stop".toUTF8, .I (-1))]
+    for count in [-3, 0, 1, 2, 3, 4] do
+      check (.Apply (.Apply mapDrop (integerTerm count)) (dataTerm (.Map entries)))
+        (dataTerm (.Map (entries.drop count.toNat)))
+      check (.Apply (.Apply mapDrop (integerTerm count)) (dataTerm (.Map []))) (dataTerm (.Map []))
+    check (.Apply mapHead (dataTerm (.Map entries))) (integerTerm 1)
+    check (.Apply mapHead (dataTerm (.Map []))) (integerTerm (-1))
+    check (.Apply mapLazy (dataTerm (.Map entries))) (integerTerm 3)
+    check (.Apply mapLazy (dataTerm (.Map []))) (integerTerm 0)
+    check (.Apply mapRemaining (dataTerm (.Map entries))) (dataTerm (.Map (entries.drop 2)))
+    check (.Apply mapRemaining (dataTerm (.Map (entries.take 1)))) (dataTerm (.Map []))
+    match ← Moist.Plutus.Eval.evalTerm (.Apply mapLazy (dataTerm (.Map [(.B "fail".toUTF8, .I (-1))]))) with
+    | .error (.builtinError, _, _) => pure ()
+    | result => throw (IO.userError s!"Forced lazy tail did not fail as expected: {repr result}")
+  test "sorted_map_merge_preserves_missing_and_zero_entries" do
+    let amounts : List (Option Int) := [none, some (-1), some 0, some 2]
+    let samples := amounts.flatMap fun first => amounts.map fun second =>
+      (first.toList.map fun amount => ((1 : Int), amount)) ++
+        (second.toList.map fun amount => ((2 : Int), amount))
+    let encode := fun entries => Data.Map (entries.map fun (key, amount) => (Data.I key, Data.I amount))
+    for left in samples do
+      for right in samples do
+        let expected := [(1 : Int), 2].filterMap fun key =>
+          let first := (left.find? (fun entry => entry.1 == key)).map (·.2)
+          let second := (right.find? (fun entry => entry.1 == key)).map (·.2)
+          match first, second with
+          | none, none => none
+          | some first, some second => if first == second then none else some (key, first - second)
+          | first, second => some (key, first.getD 0 - second.getD 0)
+        check (.Apply (.Apply mapMerge (dataTerm (encode left))) (dataTerm (encode right))) (dataTerm (encode expected))
   test "malformed_primitive_and_list_entries_fail" do
     for (script, input) in [(integerDecoder, Data.B "wrong".toUTF8), (listSum, .List [.B "wrong".toUTF8]),
         (mapFind, .Map [(.B "policy".toUTF8, .Map [(.B "token".toUTF8, .B "wrong".toUTF8)])])] do

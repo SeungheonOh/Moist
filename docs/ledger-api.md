@@ -37,6 +37,23 @@ entry order and subsequent duplicate entries are preserved, matching the
 upstream Data-backed map operations. These functions do not sort or deduplicate
 maps. Ledger-valid maps should satisfy the ledger's ordering/uniqueness rules.
 
+For selective access, use `withHead` to branch on the first entry and its typed
+tail, or `drop` to skip entries without decoding their keys or values. Nonpositive
+drop counts leave the map unchanged; counts past the end return an empty map.
+`foldrLazy` supplies each step with the typed remaining map and a `Unit → result`
+continuation. The remaining traversal runs only when that continuation is called.
+The initial result is still a strict argument; the continuation is not memoized.
+These operations avoid materializing lists of replacement records just to inspect
+a few entries of a ledger map.
+
+`mergeWith less both leftOnly rightOnly` merges two maps using a linear traversal
+of their entries, excluding callback costs. Both inputs must be ordered using
+the supplied strict key comparison for sorted-map semantics. Matching encoded
+keys invoke `both`; unmatched entries invoke their corresponding side callback.
+Callbacks return `some value` to keep an entry or `none` to discard it. No zero
+filtering, sorting, or deduplication occurs implicitly. This supports typed value
+arithmetic while retaining the encoded map representation on-chain.
+
 Native Lean code can use `AssocMap.toList` and construct maps from native lists.
 On-chain, literal map entries are encoded by the compiler, but a dynamic native
 list of unboxed typed pairs cannot be substituted for encoded map entries.
