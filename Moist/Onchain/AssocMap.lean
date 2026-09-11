@@ -22,6 +22,10 @@ private def foldData (step : α → Data → Data → α) (initial : α) : List 
   | [] => initial
   | entry :: rest => foldData step (step initial entry.1 entry.2) rest
 
+private def foldRightData (step : Data → Data → α → α) (initial : α) : List (Data × Data) → α
+  | [] => initial
+  | entry :: rest => step entry.1 entry.2 (foldRightData step initial rest)
+
 def lookup [PlutusData key] [PlutusData value] (wanted : key) (map : AssocMap key value) : Option value :=
   match lookupData (PlutusData.toData wanted) (unMapData (PlutusData.toData map)) with
   | none => none
@@ -40,6 +44,12 @@ def firstValue? [PlutusData key] [PlutusData value] (map : AssocMap key value) :
   match unMapData (PlutusData.toData map) with
   | [] => none
   | entry :: _ => some (PlutusData.unsafeFromData entry.2)
+
+def foldr [PlutusData key] [PlutusData value] (step : key → value → α → α) (initial : α)
+    (map : AssocMap key value) : α :=
+  foldRightData (fun key value accumulator =>
+    step (PlutusData.unsafeFromData key) (PlutusData.unsafeFromData value) accumulator)
+    initial (unMapData (PlutusData.toData map))
 
 def hasMultiple [PlutusData key] [PlutusData value] (map : AssocMap key value) : Bool :=
   match unMapData (PlutusData.toData map) with

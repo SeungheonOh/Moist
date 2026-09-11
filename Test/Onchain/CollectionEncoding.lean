@@ -44,6 +44,9 @@ open Test.Framework
   match Moist.Onchain.AssocMap.firstValue? map with
   | none => -1
   | some amount => amount
+@[onchain] def foldRightAmounts (datum : Data) : Int :=
+  let map : AssocMap ByteString Int := PlutusData.unsafeFromData datum
+  Moist.Onchain.AssocMap.foldr (fun _ quantity accumulator => subtractInteger quantity accumulator) 0 map
 @[onchain] def singletonAmount (quantity : Int) : Data :=
   PlutusData.toData (Moist.Onchain.AssocMap.singleton "key".toUTF8 quantity)
 @[onchain] def emptyAmounts : Data :=
@@ -93,6 +96,7 @@ private def mapDelete := compile! deleteAmount
 private def mapInsert := compile! insertAmount
 private def mapFold := compile! foldAmounts
 private def mapFirst := compile! firstAmount
+private def mapFoldRight := compile! foldRightAmounts
 private def mapSingleton := compile! singletonAmount
 private def mapEmpty := compile! emptyAmounts
 private def mapMultiple := compile! multipleAmounts
@@ -138,6 +142,9 @@ def tests : TestTree := suite "collection_encoding" do
     check (.Apply mapInsert (dataTerm (.Map [second])))
       (dataTerm (.Map [second, (.B "key".toUTF8, .I 42)]))
     check (.Apply mapFold (dataTerm input)) (integerTerm 6)
+    check (.Apply mapFoldRight (dataTerm input)) (integerTerm 2)
+    check (.Apply mapFoldRight (dataTerm (.Map [first, second]))) (integerTerm (-1))
+    check (.Apply mapFoldRight (dataTerm (.Map []))) (integerTerm 0)
     check (.Apply mapFirst (dataTerm input)) (integerTerm 1)
     check (.Apply mapFirst (dataTerm (.Map []))) (integerTerm (-1))
     check (.Apply mapSingleton (integerTerm 7)) (dataTerm (.Map [(.B "key".toUTF8, .I 7)]))

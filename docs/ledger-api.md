@@ -27,7 +27,7 @@ Unsafe decoding is not a complete input-schema validation layer.
 ## Typed maps
 
 Import `Moist.Onchain` or `Moist.Onchain.AssocMap`. The latter provides typed
-`lookup`, `delete`, `insert`, `foldl`, `firstValue?`, `hasMultiple`, `empty`, and
+`lookup`, `delete`, `insert`, `foldl`, `foldr`, `firstValue?`, `hasMultiple`, `empty`, and
 `singleton` operations. Keys and values are decoded at the operation boundary;
 contract callers do not manipulate raw map entries.
 
