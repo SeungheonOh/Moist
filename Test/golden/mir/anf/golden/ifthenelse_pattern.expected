@@ -1,10 +1,10 @@
 @ output
-let anf_100 = ifThenElse x_1
-let anf_101 = delay 1
-let anf_102 = anf_100 anf_101
-let anf_103 = delay 0
-let anf_104 = anf_102 anf_103
-in force anf_104
+let ganf_2 = ifThenElse x_1
+let ganf_3 = delay 1
+let ganf_4 = ganf_2 ganf_3
+let ganf_5 = delay 0
+let ganf_6 = ganf_4 ganf_5
+in force ganf_6
 
 @ isANF
 true

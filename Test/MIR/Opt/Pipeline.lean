@@ -1,5 +1,6 @@
 import Test.MIR.Helpers
 import Moist.MIR.Optimize
+import Moist.MIR.Optimize.PreLower
 
 namespace Test.MIR.Opt.Pipeline
 
@@ -28,11 +29,11 @@ def tests : TestTree := suite "pipeline" do
     let r := optimizeExpr e 1000
     checkAlphaEq "pipe_force_delay_doc" r (.Var x)
   test "pipe_cse_dce" do
-    let e := Expr.Let [(a, .App (.Var f) (.Var x), false),
-                        (b, .App (.Var f) (.Var x), false)]
+    let e := Expr.Let [(a, .App (.Builtin .AddInteger) (.Var x), false),
+                        (b, .App (.Builtin .AddInteger) (.Var x), false)]
                 (.Var a)
     let r := optimizeExpr e 1000
-    checkAlphaEq "pipe_cse_dce" r (.App (.Var f) (.Var x))
+    checkAlphaEq "pipe_cse_dce" r (.App (.Builtin .AddInteger) (.Var x))
   test "pipe_float_cse" do
     let e := Expr.Lam x
       (.Let [(a, intLit 1, false), (b, intLit 1, false), (c, .App (.Var a) (.Var x), false)]
@@ -88,6 +89,8 @@ def tests : TestTree := suite "pipeline" do
       Expr.Delay (.Let [(anf, rhs, false)] (.App (.Var anf) arg))
     let r := optimizeExpr e 1000
     checkAlphaEq "pipe_inline_impure_partial_under_delay" r (.Delay (.App rhs arg))
+    checkAlphaEq "prelower_inline_impure_partial_under_delay"
+      (preLowerInlineExpr r) (.Delay (.App rhs arg))
   test "pipe_beta_exposes_inline_in_recursive_delay_branch" do
     let addall : VarId := ⟨63, .source, "addall"⟩
     let xs : VarId := ⟨64, .source, "xs"⟩

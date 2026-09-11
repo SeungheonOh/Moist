@@ -1,5 +1,5 @@
 @ optimized
-λx_1. addInteger x_1 (addInteger x_1)
+λx_1. let gb_14 = addInteger x_1 in gb_14 gb_14
 
 @ isANF
-false
+true

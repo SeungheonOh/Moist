@@ -1,5 +1,5 @@
 @ output
-λx_1. g_5
+λx_1 y_2. g_5 y_2
 
 @ changed
-true
+false

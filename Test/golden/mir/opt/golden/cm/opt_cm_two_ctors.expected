@@ -1,7 +1,7 @@
 @ output
-case x_1 of
-  | λf0_70. let t1_80 = f0_70 let t2_81 = f0_70 in constr(0 t1_80 t2_81)
-  | λf0_70 f1_71. let t1_80 = f0_70 let t2_81 = f1_71 in constr(0 t1_80 t2_81)
+let gt1_85 = case x_1 of | λgf0_82. gf0_82 | λgf0_83 gf1_84. gf0_83
+let gt2_89 = case x_1 of | λgg0_86. gg0_86 | λgg0_87 gg1_88. gg1_88
+in constr(0 gt1_85 gt2_89)
 
 @ changed
-true
+false

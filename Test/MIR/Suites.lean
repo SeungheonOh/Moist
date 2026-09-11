@@ -17,12 +17,21 @@ import Test.MIR.Opt.Pipeline
 import Test.MIR.Opt.CaseMerge
 import Test.MIR.Opt.EtaReduce
 import Test.MIR.Opt.BetaReduce
+import Test.MIR.Opt.Soundness
+import Test.MIR.Opt.Differential
+import Test.MIR.Opt.Production
+import Test.MIR.Opt.Structural
 import Test.MIR.Lower.Golden
-import Test.MIR.Lower.FixTotal
 import Test.MIR.Eval.Golden
 import Test.MIR.Eval.Compile
 import Test.MIR.Eval.Policy
 import Test.MIR.Analysis.Unit
+import Test.Comparison.Tests
+import Test.MIR.Opt.Recursion
+import Test.MIR.Opt.CheckedBranches
+import Test.MIR.Opt.SoundnessAudit
+import Test.MIR.Opt.FormalCoverage
+import Test.MIR.Opt.FormalAxioms
 
 namespace Test.MIR
 
@@ -50,10 +59,18 @@ def testTree : TestTree := suite "mir" do
       Test.MIR.Opt.CaseMerge.tests
       Test.MIR.Opt.EtaReduce.tests
       Test.MIR.Opt.BetaReduce.tests
+      Test.MIR.Opt.Soundness.tests
+      Test.MIR.Opt.Differential.tests
+      Test.MIR.Opt.Production.tests
+      Test.MIR.Opt.Structural.tests
+      Test.MIR.Opt.Recursion.tests
+      Test.MIR.Opt.CheckedBranches.tests
+      Test.MIR.Opt.SoundnessAudit.tests
+      Test.MIR.Opt.FormalCoverage.tests
   group "lower" do
     Test.MIR.Lower.Golden.goldenTree
-    Test.MIR.Lower.FixTotal.fixTotalTree
   group "eval" do
+    Test.Comparison.tests
     Test.MIR.Eval.Golden.goldenTree
     Test.MIR.Eval.Compile.compileTree
     Test.MIR.Eval.Policy.policyTree

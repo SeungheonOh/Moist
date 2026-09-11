@@ -153,11 +153,24 @@ noncomputable def nftMintPolicy (expectedTxId : ByteString) (expectedIdx : Int)
 
 /-! ## Compile policies -/
 
+@[onchain]
+noncomputable def matchingRedeemerFieldsPolicy (ctx : ScriptContext) : Bool :=
+  match ctx.scriptInfo with
+  | .mintingScript _ =>
+    let fields := unListData ctx.redeemer
+    if nullList fields then false else
+      let first := unBData (headList fields)
+      let rest := tailList fields
+      if nullList rest then false else
+        equalsByteString first (unBData (headList rest))
+  | _ => false
+
 section Compiled
   def cAlwaysMint   := compile! alwaysMintPolicy
   def cRedeemerGate := compile! redeemerGatePolicy
   def cCsCheck      := compile! csCheckPolicy
   def cNftMint      := compile! nftMintPolicy
+  def cMatchingRedeemerFields := compile! matchingRedeemerFieldsPolicy
 end Compiled
 
 #eval cNftMint.printTerm

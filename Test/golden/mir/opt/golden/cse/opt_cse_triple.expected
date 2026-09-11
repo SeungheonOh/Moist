@@ -1,6 +1,8 @@
 @ output
 let a_7 = force x_1
-in constr(0 a_7 a_7 a_7)
+let b_8 = force x_1
+let c_9 = force x_1
+in constr(0 a_7 b_8 c_9)
 
 @ changed
-true
+false

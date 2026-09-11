@@ -1,3 +1,2 @@
 @ uplc
-[(lam (lam [(lam [[(var 3) (var 3)] (var 1)]) (var 1)]))
-  (lam (lam [(lam [[(var 3) (var 3)] (var 1)]) (var 1)]))]
+[(lam [(var 1) (var 1)]) (lam (lam [(lam [[(var 3) (var 3)] (var 1)]) (var 1)]))]

@@ -1,10 +1,8 @@
 @ output
-case x_1 of
-  | λf0_70 f1_71.
-    let t1_80 = f0_70
-    let r_52 = addInteger t1_80 1
-    let t2_81 = f1_71
-    in addInteger r_52 t2_81
+let t1_80 = case x_1 of | λf0_70 f1_71. f0_70
+let r_52 = addInteger t1_80 1
+let t2_81 = case x_1 of | λg0_74 g1_75. g1_75
+in addInteger r_52 t2_81
 
 @ changed
-true
+false

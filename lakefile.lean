@@ -69,3 +69,18 @@ lean_exe conformance where
 
 lean_exe ptah_test where
   root := `Test.Ptah
+
+lean_exe mir_audit where
+  root := `Test.MIR.AuditMain
+
+lean_exe mir_opportunity_bench where
+  root := `Test.MIR.OpportunityMain
+
+lean_exe validator_comparison where
+  root := `Test.Comparison.Main
+
+lean_exe recursion_bench where
+  root := `Test.Comparison.RecursionBench
+
+lean_exe checked_branch_bench where
+  root := `Test.Comparison.CheckedBranchBench

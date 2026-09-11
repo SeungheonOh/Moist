@@ -2,20 +2,20 @@
 let fac_10 =
   fix fac_10 =
     λn_11.
-      let anf_100 = equalsInteger n_11
-      let isZero_12 = anf_100 0
-      let anf_101 = ifThenElse isZero_12
-      let anf_102 = delay 1
-      let anf_105 = anf_101 anf_102
-      let anf_106 =
+      let ganf_15 = equalsInteger n_11
+      let isZero_12 = ganf_15 0
+      let ganf_16 = ifThenElse isZero_12
+      let ganf_17 = delay 1
+      let ganf_20 = ganf_16 ganf_17
+      let ganf_21 =
         delay
-          let anf_103 = subtractInteger n_11
-          let n1_13 = anf_103 1
+          let ganf_18 = subtractInteger n_11
+          let n1_13 = ganf_18 1
           let facN1_14 = fac_10 n1_13
-          let anf_104 = multiplyInteger n_11
-          in anf_104 facN1_14
-      let anf_107 = anf_105 anf_106
-      in force anf_107
+          let ganf_19 = multiplyInteger n_11
+          in ganf_19 facN1_14
+      let ganf_22 = ganf_20 ganf_21
+      in force ganf_22
 in fac_10 10
 
 @ isANF

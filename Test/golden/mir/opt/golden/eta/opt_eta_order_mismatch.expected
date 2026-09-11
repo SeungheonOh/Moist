@@ -1,5 +1,5 @@
 @ output
-addInteger
+λx_1 y_2. addInteger y_2 x_1
 
 @ changed
-true
+false

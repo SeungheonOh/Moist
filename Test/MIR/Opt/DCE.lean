@@ -18,18 +18,21 @@ def tests : TestTree := suite "dce" do
     checkPassResult "dce_unused_delay"
       (dce (.Let [(a, .Delay (.Var y), false)] (.Var x))) (.Var x) true
     checkPassResult "dce_unused_fix"
-      (dce (.Let [(a, .Fix f (.Lam y (.Var y)), false)] (.Var x))) (.Var x) true
+      (dce (.Let [(a, .Fix f (.Lam y (.Var y)), false)] (.Var x)))
+      (.Let [(a, .Fix f (.Lam y (.Var y)), false)] (.Var x)) false
     checkPassResult "dce_unused_builtin"
       (dce (.Let [(a, .Builtin .AddInteger, false)] (.Var x))) (.Var x) true
     checkPassResult "dce_unused_constr_atoms"
       (dce (.Let [(a, .Constr 0 [.Var y, .Var z], false)] (.Var x))) (.Var x) true
   test "dce_unused_pure_extended" do
     checkPassResult "dce_unused_force"
-      (dce (.Let [(a, .Force (.Var x), false)] (.Var y))) (.Var y) true
+      (dce (.Let [(a, .Force (.Var x), false)] (.Var y)))
+      (.Let [(a, .Force (.Var x), false)] (.Var y)) false
     checkPassResult "dce_unused_let_rhs"
       (dce (.Let [(a, .Let [(b, intLit 1, false)] (.Var b), false)] (.Var x))) (.Var x) true
     checkPassResult "dce_unused_total_builtin"
-      (dce (.Let [(a, .App (.App (.Builtin .AddInteger) (intLit 1)) (intLit 2), false)] (.Var y))) (.Var y) true
+      (dce (.Let [(a, .App (.App (.Builtin .AddInteger) (intLit 1)) (intLit 2), false)] (.Var y)))
+      (.Let [(a, .App (.App (.Builtin .AddInteger) (intLit 1)) (intLit 2), false)] (.Var y)) false
     checkPassResult "dce_unused_app_kept"
       (dce (.Let [(a, .App (.Var f) (.Var x), false)] (.Var y)))
       (.Let [(a, .App (.Var f) (.Var x), false)] (.Var y)) false
@@ -37,7 +40,8 @@ def tests : TestTree := suite "dce" do
       (dce (.Let [(a, .Constr 0 [.App (.Var f) (.Var x)], false)] (.Var y)))
       (.Let [(a, .Constr 0 [.App (.Var f) (.Var x)], false)] (.Var y)) false
     checkPassResult "dce_unused_case_pure"
-      (dce (.Let [(a, .Case (.Var x) [.Var y], false)] (.Var z))) (.Var z) true
+      (dce (.Let [(a, .Case (.Var x) [.Var y], false)] (.Var z)))
+      (.Let [(a, .Case (.Var x) [.Var y], false)] (.Var z)) false
   test "dce_impure_error" do
     let e4 := Expr.Let [(a, .Error, false)] (.Var x)
     checkPassResult "dce_impure_error" (dce e4) e4 false

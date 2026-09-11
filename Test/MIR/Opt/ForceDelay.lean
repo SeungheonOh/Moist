@@ -47,7 +47,7 @@ def tests : TestTree := suite "forceDelay" do
                 (.Lam v (.Force (.Var v)))
     let (r, ch) := forceDelay e
     checkAlphaEq "fd_through_let_shadow" r e
-    check "fd_through_let_shadow_changed" ch
+    check "fd_through_let_shadow_unchanged" (!ch)
   test "fd_non_delay_binding" do
     let e := Expr.Let [(a, .App (.Var f) (.Var x), false)] (.Force (.Var a))
     checkPassResult "fd_non_delay_binding" (forceDelay e) e false

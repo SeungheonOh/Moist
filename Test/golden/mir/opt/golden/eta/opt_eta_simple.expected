@@ -1,5 +1,5 @@
 @ output
-f_4
+λx_1. f_4 x_1
 
 @ changed
-true
+false

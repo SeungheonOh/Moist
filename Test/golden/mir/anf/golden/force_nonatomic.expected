@@ -1,6 +1,6 @@
 @ output
-let anf_100 = f_4 x_1
-in force anf_100
+let ganf_5 = f_4 x_1
+in force ganf_5
 
 @ isANF
 true

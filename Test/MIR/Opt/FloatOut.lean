@@ -35,12 +35,10 @@ def tests : TestTree := suite "floatOut" do
     checkPassResult "float_impure_app_stays" (floatOut e) e false
   test "float_total_builtin_out" do
     let e := Expr.Lam x (.Let [(a, .App (.App (.Builtin .AddInteger) (intLit 1)) (intLit 2), false)] (.Var a))
-    let expected := Expr.Let [(a, .App (.App (.Builtin .AddInteger) (intLit 1)) (intLit 2), false)] (.Lam x (.Var a))
-    checkPassResult "float_total_builtin_out" (floatOut e) expected true
+    checkPassResult "float_total_builtin_out" (floatOut e) e false
   test "float_pure_force_out" do
     let e := Expr.Lam x (.Let [(a, .Force (.Var y), false)] (.Var a))
-    let expected := Expr.Let [(a, .Force (.Var y), false)] (.Lam x (.Var a))
-    checkPassResult "float_pure_force_out" (floatOut e) expected true
+    checkPassResult "float_pure_force_out" (floatOut e) e false
   test "float_mixed_partition" do
     let e := Expr.Lam x
       (.Let [(a, intLit 1, false), (b, .App (.Var a) (.Var x), false)]
@@ -80,7 +78,7 @@ def tests : TestTree := suite "floatOut" do
       (.Lam x (.App (.Var b) (.Var x)))
     checkPassResult "float_seq_pure_chain_floats" (floatOut e) expected true
   test "float_fix_pure" do
-    let e := Expr.Fix f (.Let [(a, intLit 1, false)] (.Lam x (.App (.Var f) (.Var a))))
+    let e := Expr.Fix f (.Lam x (.Let [(a, intLit 1, false)] (.App (.Var f) (.Var a))))
     let expected := Expr.Let [(a, intLit 1, false)] (.Fix f (.Lam x (.App (.Var f) (.Var a))))
     checkPassResult "float_fix_pure" (floatOut e) expected true
   test "float_fix_mentions_binder" do

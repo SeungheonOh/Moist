@@ -1,17 +1,22 @@
 @ optimized
 λfoo_20.
-  let flds_21 = (force (force sndPair)) (unConstrData foo_20)
-  let anf_1009 = (force tailList) ((force tailList) flds_21)
-  in
-    addInteger (unIData ((force headList) flds_21)) (addInteger (unIData ((force headList) anf_1009)) (unIData ((force headList) ((force tailList) anf_1009))))
+  let gflds_62 = (force (force sndPair)) (unConstrData foo_20)
+  let gfA_64 = unIData ((force headList) gflds_62)
+  let ganf_66 = (force tailList) ((force tailList) gflds_62)
+  let gfC_68 = unIData ((force headList) ganf_66)
+  let gfD_73 = unIData ((force headList) ((force tailList) ganf_66))
+  in addInteger gfA_64 (addInteger gfC_68 gfD_73)
 
 @ uplc
 (lam
   [(lam
       [(lam
-          [[(builtin addInteger) [(builtin unIData) [(force (builtin headList)) (var 2)]]]
-            [[(builtin addInteger) [(builtin unIData) [(force (builtin headList)) (var 1)]]]
-              [(builtin unIData)
-                [(force (builtin headList)) [(force (builtin tailList)) (var 1)]]]]])
-        [(force (builtin tailList)) [(force (builtin tailList)) (var 1)]]])
+          [(lam
+              [(lam
+                  [(lam [[(builtin addInteger) (var 4)] [[(builtin addInteger) (var 2)] (var 1)]])
+                    [(builtin unIData)
+                      [(force (builtin headList)) [(force (builtin tailList)) (var 2)]]]])
+                [(builtin unIData) [(force (builtin headList)) (var 1)]]])
+            [(force (builtin tailList)) [(force (builtin tailList)) (var 2)]]])
+        [(builtin unIData) [(force (builtin headList)) (var 1)]]])
     [(force (force (builtin sndPair))) [(builtin unConstrData) (var 1)]]])

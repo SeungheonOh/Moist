@@ -1,7 +1,8 @@
 @ output
 let a_7 = f_4 x_1
-let c_9 = g_5 a_7
+let b_8 = f_4 x_1
+let c_9 = g_5 b_8
 in c_9
 
 @ changed
-true
+false

@@ -9,10 +9,10 @@ open Test.Framework
 
 def tests : TestTree := suite "cse" do
   test "cse_dup_app" do
-    let e := Expr.Let [(a, .App (.Var f) (.Var x), false),
-                        (b, .App (.Var f) (.Var x), false)]
+    let e := Expr.Let [(a, .App (.Builtin .AddInteger) (.Var x), false),
+                        (b, .App (.Builtin .AddInteger) (.Var x), false)]
                 (.App (.Var a) (.Var b))
-    let expected := Expr.Let [(a, .App (.Var f) (.Var x), false)]
+    let expected := Expr.Let [(a, .App (.Builtin .AddInteger) (.Var x), false)]
                       (.App (.Var a) (.Var a))
     checkPassResult "cse_dup_app" (cse [] e) expected true
   test "cse_no_dup" do
@@ -21,11 +21,11 @@ def tests : TestTree := suite "cse" do
                 (.App (.Var a) (.Var b))
     checkPassResult "cse_no_dup" (cse [] e) e false
   test "cse_triple_dup" do
-    let e := Expr.Let [(a, .Force (.Var x), false),
-                        (b, .Force (.Var x), false),
-                        (c, .Force (.Var x), false)]
+    let e := Expr.Let [(a, .Force (.Builtin .HeadList), false),
+                        (b, .Force (.Builtin .HeadList), false),
+                        (c, .Force (.Builtin .HeadList), false)]
                 (.Constr 0 [.Var a, .Var b, .Var c])
-    let expected := Expr.Let [(a, .Force (.Var x), false)]
+    let expected := Expr.Let [(a, .Force (.Builtin .HeadList), false)]
                       (.Constr 0 [.Var a, .Var a, .Var a])
     checkPassResult "cse_triple_dup" (cse [] e) expected true
   test "cse_dup_var" do
@@ -48,11 +48,11 @@ def tests : TestTree := suite "cse" do
                       (.App (.Var a) (.Var a))
     checkPassResult "cse_dup_constr" (cse [] e) expected true
   test "cse_dup_renames_rest" do
-    let e := Expr.Let [(a, .App (.Var f) (.Var x), false),
-                        (b, .App (.Var f) (.Var x), false),
+    let e := Expr.Let [(a, .App (.Builtin .AddInteger) (.Var x), false),
+                        (b, .App (.Builtin .AddInteger) (.Var x), false),
                         (c, .App (.Var g) (.Var b), false)]
                 (.Var c)
-    let expected := Expr.Let [(a, .App (.Var f) (.Var x), false),
+    let expected := Expr.Let [(a, .App (.Builtin .AddInteger) (.Var x), false),
                                (c, .App (.Var g) (.Var a), false)]
                       (.Var c)
     checkPassResult "cse_dup_renames_rest" (cse [] e) expected true
@@ -61,10 +61,10 @@ def tests : TestTree := suite "cse" do
     checkPassResult "cse_single_binding" (cse [] e) e false
   test "cse_recurse_lam" do
     let e := Expr.Lam z
-      (.Let [(a, .App (.Var f) (.Var z), false), (b, .App (.Var f) (.Var z), false)]
+      (.Let [(a, .App (.Builtin .AddInteger) (.Var z), false), (b, .App (.Builtin .AddInteger) (.Var z), false)]
         (.App (.Var a) (.Var b)))
     let expected := Expr.Lam z
-      (.Let [(a, .App (.Var f) (.Var z), false)]
+      (.Let [(a, .App (.Builtin .AddInteger) (.Var z), false)]
         (.App (.Var a) (.Var a)))
     checkPassResult "cse_recurse_lam" (cse [] e) expected true
   test "cse_recurse_fix" do
@@ -105,26 +105,26 @@ def tests : TestTree := suite "cse" do
     checkPassResult "cse_recurse_app" (cse [] e) expected true
   -- Scope-aware: nested Let blocks now deduplicate against outer scope
   test "cse_cross_scope_nested_let" do
-    let e := Expr.Let [(a, .App (.Var f) (.Var x), false)]
-      (.Let [(b, .App (.Var f) (.Var x), false)]
+    let e := Expr.Let [(a, .App (.Builtin .AddInteger) (.Var x), false)]
+      (.Let [(b, .App (.Builtin .AddInteger) (.Var x), false)]
         (.App (.Var a) (.Var b)))
-    let expected := Expr.Let [(a, .App (.Var f) (.Var x), false)]
+    let expected := Expr.Let [(a, .App (.Builtin .AddInteger) (.Var x), false)]
       (.App (.Var a) (.Var a))
     checkPassResult "cse_cross_scope_nested_let" (cse [] e) expected true
   -- Scope-aware: case alternative deduplicates against outer binding
   test "cse_cross_scope_case_alt" do
-    let e := Expr.Let [(a, .App (.Var f) (.Var x), false)]
+    let e := Expr.Let [(a, .App (.Builtin .AddInteger) (.Var x), false)]
       (.Case (.Var y)
-        [.Let [(b, .App (.Var f) (.Var x), false)] (.App (.Var a) (.Var b))])
-    let expected := Expr.Let [(a, .App (.Var f) (.Var x), false)]
+        [.Let [(b, .App (.Builtin .AddInteger) (.Var x), false)] (.App (.Var a) (.Var b))])
+    let expected := Expr.Let [(a, .App (.Builtin .AddInteger) (.Var x), false)]
       (.Case (.Var y) [.App (.Var a) (.Var a)])
     checkPassResult "cse_cross_scope_case_alt" (cse [] e) expected true
   -- Scope-aware: Lam body deduplicates against outer binding
   test "cse_cross_scope_lam" do
-    let e := Expr.Let [(a, .App (.Var f) (.Var x), false)]
+    let e := Expr.Let [(a, .App (.Builtin .AddInteger) (.Var x), false)]
       (.Lam z
-        (.Let [(b, .App (.Var f) (.Var x), false)] (.App (.Var b) (.Var z))))
-    let expected := Expr.Let [(a, .App (.Var f) (.Var x), false)]
+        (.Let [(b, .App (.Builtin .AddInteger) (.Var x), false)] (.App (.Var b) (.Var z))))
+    let expected := Expr.Let [(a, .App (.Builtin .AddInteger) (.Var x), false)]
       (.Lam z (.App (.Var a) (.Var z)))
     checkPassResult "cse_cross_scope_lam" (cse [] e) expected true
   -- filterSeen: Lam binder shadows variable used in seen RHS — no false match

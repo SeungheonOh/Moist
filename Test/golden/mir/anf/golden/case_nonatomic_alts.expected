@@ -1,7 +1,7 @@
 @ output
 case x_1 of
-  | let anf_100 = f_4 y_2
-  in anf_100 z_3
+  | let ganf_8 = f_4 y_2
+  in ganf_8 z_3
   | a_7
 
 @ isANF

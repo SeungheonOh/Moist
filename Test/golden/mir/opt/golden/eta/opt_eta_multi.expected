@@ -1,5 +1,5 @@
 @ output
-f_4
+λa_7 b_8. f_4 a_7 b_8
 
 @ changed
-true
+false

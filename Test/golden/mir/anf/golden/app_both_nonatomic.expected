@@ -1,7 +1,7 @@
 @ output
-let anf_100 = f_4 x_1
-let anf_101 = g_5 y_2
-in anf_100 anf_101
+let ganf_6 = f_4 x_1
+let ganf_7 = g_5 y_2
+in ganf_6 ganf_7
 
 @ isANF
 true
