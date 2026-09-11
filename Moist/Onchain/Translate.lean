@@ -588,14 +588,20 @@ mutual
         return ← translateWellFoundedFix fn args
       -- ite: `if b then t else f` where b : Bool
       -- Lean elaborates this as @ite α (@Eq Bool b Bool.true) inst t f
-      if name == ``ite && args.size >= 5 then
+      if (name == ``ite || name == ``dite) && args.size >= 5 then
         let prop := args[1]!
         let (propFn, propArgs) := uncurryApp prop
         if propFn.isConstOf ``Eq && propArgs.size >= 3 && propArgs[0]!.isConstOf ``Bool then
           let boolExpr := propArgs[1]!
           let scrut ← translateExpr boolExpr
-          let trueAlt ← translateExpr args[3]!
-          let falseAlt ← translateExpr args[4]!
+          let translateBranch := fun (branch : Lean.Expr) => do
+            if name == ``dite then
+              match branch with
+              | .lam _ _ body _ => translateExpr (body.instantiate1 (.const ``True.intro []))
+              | _ => throwError "Dependent Boolean branches require proof lambdas on-chain"
+            else translateExpr branch
+          let trueAlt ← translateBranch args[3]!
+          let falseAlt ← translateBranch args[4]!
           return ← applyOverArgs (mkBoolBranch scrut trueAlt falseAlt) args 5
       if isRec name then
         throwError (explicitRecursorExprError name)

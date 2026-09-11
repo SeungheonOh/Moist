@@ -18,6 +18,25 @@ open Test.Framework
 @[onchain] def mapIntegers (datum : Data) : Data :=
   let values : List Int := PlutusData.unsafeFromData datum
   PlutusData.toData (values.map (fun value => subtractInteger 0 value))
+
+@[plutus_sop] structure MergeState where
+  left : List Int
+  right : List Int
+
+def mergeSum (state : MergeState) : Int :=
+  match state with
+  | ⟨[], right⟩ => right.foldl addInteger 0
+  | ⟨left, []⟩ => left.foldl addInteger 0
+  | ⟨first :: leftRest, second :: rightRest⟩ =>
+    if equalsInteger first second then
+      addInteger (addInteger first second) (mergeSum ⟨leftRest, rightRest⟩)
+    else if lessThanInteger first second then
+      addInteger first (mergeSum ⟨leftRest, second :: rightRest⟩)
+    else addInteger second (mergeSum ⟨first :: leftRest, rightRest⟩)
+termination_by state.left.length + state.right.length
+
+@[onchain] def mergeLists (left right : Data) : Int :=
+  mergeSum ⟨PlutusData.unsafeFromData left, PlutusData.unsafeFromData right⟩
 @[onchain] def decodeInteger : Data → Int := PlutusData.unsafeFromData
 @[onchain] def roundtripBytes (datum : Data) : Data :=
   PlutusData.toData (PlutusData.unsafeFromData datum : ByteString)
@@ -103,6 +122,7 @@ private def integerEncoder := compile! encodeInteger
 private def integerNegation := compile! negateInteger
 private def integerProofWrapper := compile! proofWrapper
 private def integerMap := compile! mapIntegers
+private def integerMerge := compile! mergeLists
 private def integerDecoder := compile! decodeInteger
 private def bytesRoundtrip := compile! roundtripBytes
 private def listRoundtrip := compile! roundtripList
@@ -148,6 +168,10 @@ def tests : TestTree := suite "collection_encoding" do
     for values in [[], [[]], [[1, -2], [], [3]]] do
       let encoded := PlutusData.toData (values : List (List Int))
       check (.Apply listRoundtrip (dataTerm encoded)) (dataTerm encoded)
+    for left in [[], [-1], [0, 2], [-2, 0, 5]] do
+      for right in [[], [-1], [0, 2], [-2, 0, 5]] do
+        check (.Apply (.Apply integerMerge (dataTerm (PlutusData.toData left))) (dataTerm (PlutusData.toData right)))
+          (integerTerm ((left ++ right).foldl (· + ·) 0))
   test "nested_maps_preserve_data_backed_entries" do
     let value := Data.Map [(.B "policy".toUTF8, .Map [(.B "token".toUTF8, .I 7)])]
     check (.Apply mapRoundtrip (dataTerm value)) (dataTerm value)
