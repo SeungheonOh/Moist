@@ -1,0 +1,14 @@
+mir
+  opt
+    unit
+      formal-coverage
+        ok: certified_traversals_preserve_generated_rewrites
+        ok: certified_traversals_reach_deep_children
+        ok: production_inline_rejects_divergent_predecessor
+        ok: certified_dead_fix_preserves_scope_and_deferred_effects
+        ok: builtin_state_totality_rejects_saturation_and_effectful_arguments
+        ok: data_folding_preserves_reference_list_representation
+        ok: data_folding_preserves_representation_in_all_pipelines
+        ok: data_folding_keeps_native_encoding_identical
+
+8 passed, 0 failed

@@ -1,0 +1,25 @@
+        FAIL: constant_case_branch_counts
+FAIL: list-case/0/3/known-constructor-cases/native: (con integer 8) != failure
+Moist.MIR.Expr.Case
+  (Moist.MIR.Expr.Lit
+    (Moist.Plutus.Term.Const.ConstList [],
+     Moist.Plutus.Term.BuiltinType.TypeOperator
+       (Moist.Plutus.Term.TypeOperator.TypeList (Moist.Plutus.Term.BuiltinType.AtomicType Integer))))
+  [Moist.MIR.Expr.Lam
+     { uid := 9104, origin := Moist.MIR.VarOrigin.source, hint := "" }
+     (Moist.MIR.Expr.Lam
+       { uid := 9105, origin := Moist.MIR.VarOrigin.source, hint := "" }
+       (Moist.MIR.Expr.Lit (Moist.Plutus.Term.Const.Integer 7, Moist.Plutus.Term.BuiltinType.AtomicType Integer))),
+   Moist.MIR.Expr.Lit (Moist.Plutus.Term.Const.Integer 8, Moist.Plutus.Term.BuiltinType.AtomicType Integer),
+   Moist.MIR.Expr.App
+     (Moist.MIR.Expr.App
+       (Moist.MIR.Expr.Force (Moist.MIR.Expr.Builtin (Moist.Plutus.Term.BuiltinFun.Trace)))
+       (Moist.MIR.Expr.Lit
+         (Moist.Plutus.Term.Const.String "unreachable", Moist.Plutus.Term.BuiltinType.AtomicType String)))
+     (Moist.MIR.Expr.Lit (Moist.Plutus.Term.Const.Integer 9, Moist.Plutus.Term.BuiltinType.AtomicType Integer))]
+mir
+  opt
+    unit
+      soundness-audit
+
+0 passed, 1 failed

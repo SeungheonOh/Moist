@@ -1,0 +1,253 @@
+validator,scenario,profile,cpu,memory,flat_bytes
+Voting,nft in script input,frozen-default,10736094,25085,207
+Voting,nft in script input,fusion-only,9564842,21629,187
+Voting,nft in script input,selector-only,10373850,24285,199
+Voting,nft in script input,checked-branches,9202598,20829,180
+Voting,nft in pubkey input,frozen-default,10736094,25085,207
+Voting,nft in pubkey input,fusion-only,9564842,21629,187
+Voting,nft in pubkey input,selector-only,10373850,24285,199
+Voting,nft in pubkey input,checked-branches,9202598,20829,180
+Voting,nft among multiple inputs,frozen-default,15072549,36530,207
+Voting,nft among multiple inputs,fusion-only,13315671,31346,187
+Voting,nft among multiple inputs,selector-only,14438622,35130,199
+Voting,nft among multiple inputs,checked-branches,12681744,29946,180
+Voting,nft with other tokens,frozen-default,10736094,25085,207
+Voting,nft with other tokens,fusion-only,9564842,21629,187
+Voting,nft with other tokens,selector-only,10373850,24285,199
+Voting,nft with other tokens,checked-branches,9202598,20829,180
+Voting,no nft,frozen-default,3716234,1062,207
+Voting,no nft,fusion-only,3386608,934,187
+Voting,no nft,selector-only,3481990,1062,199
+Voting,no nft,checked-branches,3152364,934,180
+Voting,wrong currency,frozen-default,8554153,21191,207
+Voting,wrong currency,fusion-only,8059714,20999,187
+Voting,wrong currency,selector-only,8261348,21191,199
+Voting,wrong currency,checked-branches,4566909,999,180
+Voting,wrong token,frozen-default,10195013,21384,207
+Voting,wrong token,fusion-only,9535761,21128,187
+Voting,wrong token,selector-only,9843647,21384,199
+Voting,wrong token,checked-branches,9184395,21128,180
+Voting,empty inputs,frozen-default,1123779,517,207
+Voting,empty inputs,fusion-only,1123779,517,187
+Voting,empty inputs,selector-only,1065218,517,199
+Voting,empty inputs,checked-branches,1065218,517,180
+Voting,multiple inputs no nft,frozen-default,16939063,42281,207
+Voting,multiple inputs no nft,fusion-only,12585372,21833,187
+Voting,multiple inputs no nft,selector-only,16294892,42281,199
+Voting,multiple inputs no nft,checked-branches,11941201,21833,180
+Voting,wrong purpose,frozen-default,631972,325,207
+Voting,wrong purpose,fusion-only,631972,325,187
+Voting,wrong purpose,selector-only,631972,325,199
+Voting,wrong purpose,checked-branches,631972,325,180
+Voting,quantity -1,frozen-default,10277088,21417,207
+Voting,quantity -1,fusion-only,9617836,21161,187
+Voting,quantity -1,selector-only,9984283,21417,199
+Voting,quantity -1,checked-branches,9325031,21161,180
+Voting,quantity 0,frozen-default,10277088,21417,207
+Voting,quantity 0,fusion-only,9617836,21161,187
+Voting,quantity 0,selector-only,9984283,21417,199
+Voting,quantity 0,checked-branches,9325031,21161,180
+Voting,quantity 2,frozen-default,10277088,21417,207
+Voting,quantity 2,fusion-only,9617836,21161,187
+Voting,quantity 2,selector-only,9984283,21417,199
+Voting,quantity 2,checked-branches,9325031,21161,180
+Voting,quantity 100,frozen-default,10277088,21417,207
+Voting,quantity 100,fusion-only,9617836,21161,187
+Voting,quantity 100,selector-only,9984283,21417,199
+Voting,quantity 100,checked-branches,9325031,21161,180
+Certifying,register credential,frozen-default,3173328,11153,343
+Certifying,register credential,fusion-only,3173328,11153,343
+Certifying,register credential,selector-only,3173328,11153,343
+Certifying,register credential,checked-branches,3173328,11153,343
+Certifying,unregister after expiration,frozen-default,7303596,22790,343
+Certifying,unregister after expiration,fusion-only,7303596,22790,343
+Certifying,unregister after expiration,selector-only,7303596,22790,343
+Certifying,unregister after expiration,checked-branches,7303596,22790,343
+Certifying,delegate to abstain,frozen-default,5202247,17615,343
+Certifying,delegate to abstain,fusion-only,5202247,17615,343
+Certifying,delegate to abstain,selector-only,5202247,17615,343
+Certifying,delegate to abstain,checked-branches,5202247,17615,343
+Certifying,register+delegate to abstain,frozen-default,5318580,18016,343
+Certifying,register+delegate to abstain,fusion-only,5318580,18016,343
+Certifying,register+delegate to abstain,selector-only,5318580,18016,343
+Certifying,register+delegate to abstain,checked-branches,5318580,18016,343
+Certifying,register no deposit,frozen-default,3173328,11153,343
+Certifying,register no deposit,fusion-only,3173328,11153,343
+Certifying,register no deposit,selector-only,3173328,11153,343
+Certifying,register no deposit,checked-branches,3173328,11153,343
+Certifying,unregister boundary -1 inclusive=false,frozen-default,7078143,21390,343
+Certifying,unregister boundary -1 inclusive=false,fusion-only,7078143,21390,343
+Certifying,unregister boundary -1 inclusive=false,selector-only,7078143,21390,343
+Certifying,unregister boundary -1 inclusive=false,checked-branches,7078143,21390,343
+Certifying,unregister boundary -1 inclusive=true,frozen-default,7079596,21390,343
+Certifying,unregister boundary -1 inclusive=true,fusion-only,7079596,21390,343
+Certifying,unregister boundary -1 inclusive=true,selector-only,7079596,21390,343
+Certifying,unregister boundary -1 inclusive=true,checked-branches,7079596,21390,343
+Certifying,unregister boundary 0 inclusive=false,frozen-default,7302143,22790,343
+Certifying,unregister boundary 0 inclusive=false,fusion-only,7302143,22790,343
+Certifying,unregister boundary 0 inclusive=false,selector-only,7302143,22790,343
+Certifying,unregister boundary 0 inclusive=false,checked-branches,7302143,22790,343
+Certifying,unregister boundary 0 inclusive=true,frozen-default,7079596,21390,343
+Certifying,unregister boundary 0 inclusive=true,fusion-only,7079596,21390,343
+Certifying,unregister boundary 0 inclusive=true,selector-only,7079596,21390,343
+Certifying,unregister boundary 0 inclusive=true,checked-branches,7079596,21390,343
+Certifying,unregister boundary 1 inclusive=false,frozen-default,7302143,22790,343
+Certifying,unregister boundary 1 inclusive=false,fusion-only,7302143,22790,343
+Certifying,unregister boundary 1 inclusive=false,selector-only,7302143,22790,343
+Certifying,unregister boundary 1 inclusive=false,checked-branches,7302143,22790,343
+Certifying,unregister boundary 1 inclusive=true,frozen-default,7303596,22790,343
+Certifying,unregister boundary 1 inclusive=true,fusion-only,7303596,22790,343
+Certifying,unregister boundary 1 inclusive=true,selector-only,7303596,22790,343
+Certifying,unregister boundary 1 inclusive=true,checked-branches,7303596,22790,343
+Certifying,unregister negative infinity,frozen-default,3294450,1195,343
+Certifying,unregister negative infinity,fusion-only,3294450,1195,343
+Certifying,unregister negative infinity,selector-only,3294450,1195,343
+Certifying,unregister negative infinity,checked-branches,3294450,1195,343
+Certifying,unregister positive infinity,frozen-default,6322783,19796,343
+Certifying,unregister positive infinity,fusion-only,6322783,19796,343
+Certifying,unregister positive infinity,selector-only,6322783,19796,343
+Certifying,unregister positive infinity,checked-branches,6322783,19796,343
+Certifying,invalid delegate 2/0,frozen-default,2514247,815,343
+Certifying,invalid delegate 2/0,fusion-only,2514247,815,343
+Certifying,invalid delegate 2/0,selector-only,2514247,815,343
+Certifying,invalid delegate 2/0,checked-branches,2514247,815,343
+Certifying,invalid delegate 2/1,frozen-default,2107615,716,343
+Certifying,invalid delegate 2/1,fusion-only,2107615,716,343
+Certifying,invalid delegate 2/1,selector-only,2107615,716,343
+Certifying,invalid delegate 2/1,checked-branches,2107615,716,343
+Certifying,invalid delegate 2/2,frozen-default,2461914,814,343
+Certifying,invalid delegate 2/2,fusion-only,2461914,814,343
+Certifying,invalid delegate 2/2,selector-only,2461914,814,343
+Certifying,invalid delegate 2/2,checked-branches,2461914,814,343
+Certifying,invalid delegate 2/3,frozen-default,2159948,717,343
+Certifying,invalid delegate 2/3,fusion-only,2159948,717,343
+Certifying,invalid delegate 2/3,selector-only,2159948,717,343
+Certifying,invalid delegate 2/3,checked-branches,2159948,717,343
+Certifying,invalid delegate 3/0,frozen-default,2566580,816,343
+Certifying,invalid delegate 3/0,fusion-only,2566580,816,343
+Certifying,invalid delegate 3/0,selector-only,2566580,816,343
+Certifying,invalid delegate 3/0,checked-branches,2566580,816,343
+Certifying,invalid delegate 3/1,frozen-default,2159948,717,343
+Certifying,invalid delegate 3/1,fusion-only,2159948,717,343
+Certifying,invalid delegate 3/1,selector-only,2159948,717,343
+Certifying,invalid delegate 3/1,checked-branches,2159948,717,343
+Certifying,invalid delegate 3/2,frozen-default,2514247,815,343
+Certifying,invalid delegate 3/2,fusion-only,2514247,815,343
+Certifying,invalid delegate 3/2,selector-only,2514247,815,343
+Certifying,invalid delegate 3/2,checked-branches,2514247,815,343
+Certifying,invalid delegate 3/3,frozen-default,2212281,718,343
+Certifying,invalid delegate 3/3,fusion-only,2212281,718,343
+Certifying,invalid delegate 3/3,selector-only,2212281,718,343
+Certifying,invalid delegate 3/3,checked-branches,2212281,718,343
+Certifying,unsupported certificate 4,frozen-default,1634327,556,343
+Certifying,unsupported certificate 4,fusion-only,1634327,556,343
+Certifying,unsupported certificate 4,selector-only,1634327,556,343
+Certifying,unsupported certificate 4,checked-branches,1634327,556,343
+Certifying,unsupported certificate 5,frozen-default,1634327,556,343
+Certifying,unsupported certificate 5,fusion-only,1634327,556,343
+Certifying,unsupported certificate 5,selector-only,1634327,556,343
+Certifying,unsupported certificate 5,checked-branches,1634327,556,343
+Certifying,unsupported certificate 6,frozen-default,1634327,556,343
+Certifying,unsupported certificate 6,fusion-only,1634327,556,343
+Certifying,unsupported certificate 6,selector-only,1634327,556,343
+Certifying,unsupported certificate 6,checked-branches,1634327,556,343
+Certifying,unsupported certificate 7,frozen-default,1634327,556,343
+Certifying,unsupported certificate 7,fusion-only,1634327,556,343
+Certifying,unsupported certificate 7,selector-only,1634327,556,343
+Certifying,unsupported certificate 7,checked-branches,1634327,556,343
+Certifying,unsupported certificate 8,frozen-default,1634327,556,343
+Certifying,unsupported certificate 8,fusion-only,1634327,556,343
+Certifying,unsupported certificate 8,selector-only,1634327,556,343
+Certifying,unsupported certificate 8,checked-branches,1634327,556,343
+Certifying,unsupported certificate 9,frozen-default,1634327,556,343
+Certifying,unsupported certificate 9,fusion-only,1634327,556,343
+Certifying,unsupported certificate 9,selector-only,1634327,556,343
+Certifying,unsupported certificate 9,checked-branches,1634327,556,343
+Certifying,unsupported certificate 10,frozen-default,1634327,556,343
+Certifying,unsupported certificate 10,fusion-only,1634327,556,343
+Certifying,unsupported certificate 10,selector-only,1634327,556,343
+Certifying,unsupported certificate 10,checked-branches,1634327,556,343
+Certifying,wrong purpose,frozen-default,794708,389,343
+Certifying,wrong purpose,fusion-only,794708,389,343
+Certifying,wrong purpose,selector-only,794708,389,343
+Certifying,wrong purpose,checked-branches,794708,389,343
+Vesting,full withdrawal after vesting,frozen-default,33572726,100136,917
+Vesting,full withdrawal after vesting,fusion-only,30058970,89768,839
+Vesting,full withdrawal after vesting,selector-only,32208872,96736,882
+Vesting,full withdrawal after vesting,checked-branches,28695116,86368,804
+Vesting,partial withdrawal midpoint,frozen-default,46507689,127797,917
+Vesting,partial withdrawal midpoint,fusion-only,41822681,113973,839
+Vesting,partial withdrawal midpoint,selector-only,44600469,123197,882
+Vesting,partial withdrawal midpoint,checked-branches,39915461,109373,804
+Vesting,second partial withdrawal,frozen-default,46507689,127797,917
+Vesting,second partial withdrawal,fusion-only,41822681,113973,839
+Vesting,second partial withdrawal,selector-only,44600469,123197,882
+Vesting,second partial withdrawal,checked-branches,39915461,109373,804
+Vesting,full withdrawal at end,frozen-default,34088817,101341,917
+Vesting,full withdrawal at end,fusion-only,30575061,90973,839
+Vesting,full withdrawal at end,selector-only,32724963,97941,882
+Vesting,full withdrawal at end,checked-branches,29211207,87573,804
+Vesting,small withdrawal early,frozen-default,46507689,127797,917
+Vesting,small withdrawal early,fusion-only,41822681,113973,839
+Vesting,small withdrawal early,selector-only,44600469,123197,882
+Vesting,small withdrawal early,checked-branches,39915461,109373,804
+Vesting,third partial drains,frozen-default,33572726,100136,917
+Vesting,third partial drains,fusion-only,30058970,89768,839
+Vesting,third partial drains,selector-only,32208872,96736,882
+Vesting,third partial drains,checked-branches,28695116,86368,804
+Vesting,odd division partial,frozen-default,46507689,127797,917
+Vesting,odd division partial,fusion-only,41822681,113973,839
+Vesting,odd division partial,selector-only,44600469,123197,882
+Vesting,odd division partial,checked-branches,39915461,109373,804
+Vesting,multi beneficiary outputs,frozen-default,38335352,115104,917
+Vesting,multi beneficiary outputs,fusion-only,33943157,102144,839
+Vesting,multi beneficiary outputs,selector-only,36699815,111104,882
+Vesting,multi beneficiary outputs,checked-branches,32307620,98144,804
+Vesting,zero fee,frozen-default,33572726,100136,917
+Vesting,zero fee,fusion-only,30058970,89768,839
+Vesting,zero fee,selector-only,32208872,96736,882
+Vesting,zero fee,checked-branches,28695116,86368,804
+Vesting,quarter vested,frozen-default,46507689,127797,917
+Vesting,quarter vested,fusion-only,41822681,113973,839
+Vesting,quarter vested,selector-only,44600469,123197,882
+Vesting,quarter vested,checked-branches,39915461,109373,804
+Vesting,ninety percent,frozen-default,46507689,127797,917
+Vesting,ninety percent,fusion-only,41822681,113973,839
+Vesting,ninety percent,selector-only,44600469,123197,882
+Vesting,ninety percent,checked-branches,39915461,109373,804
+Vesting,not signed,frozen-default,3145317,1255,917
+Vesting,not signed,fusion-only,2980504,1191,839
+Vesting,not signed,selector-only,3028195,1255,882
+Vesting,not signed,checked-branches,2863382,1191,804
+Vesting,wrong amount,frozen-default,17706524,43160,917
+Vesting,wrong amount,fusion-only,16882459,42840,839
+Vesting,wrong amount,selector-only,17413719,43160,882
+Vesting,wrong amount,checked-branches,16589654,42840,804
+Vesting,under claiming,frozen-default,17706524,43160,917
+Vesting,under claiming,fusion-only,16882459,42840,839
+Vesting,under claiming,selector-only,17413719,43160,882
+Vesting,under claiming,checked-branches,16589654,42840,804
+Vesting,wrong beneficiary output,frozen-default,31200393,85635,917
+Vesting,wrong beneficiary output,fusion-only,29222637,84867,839
+Vesting,wrong beneficiary output,selector-only,30380539,85635,882
+Vesting,wrong beneficiary output,checked-branches,28402783,84867,804
+Vesting,partial wrong datum,frozen-default,46363689,126897,917
+Vesting,partial wrong datum,fusion-only,40526681,105873,839
+Vesting,partial wrong datum,selector-only,41992469,106897,882
+Vesting,partial wrong datum,checked-branches,39355461,105873,804
+Vesting,partial no output,frozen-default,37193269,105931,917
+Vesting,partial no output,fusion-only,31850700,85099,839
+Vesting,partial no output,selector-only,32997732,85931,882
+Vesting,partial no output,checked-branches,30855163,85099,804
+Vesting,before vesting,frozen-default,17235935,43152,917
+Vesting,before vesting,fusion-only,16411870,42832,839
+Vesting,before vesting,selector-only,16943130,43152,882
+Vesting,before vesting,checked-branches,16119065,42832,804
+Vesting,odd division off by one,frozen-default,17706524,43160,917
+Vesting,odd division off by one,fusion-only,16882459,42840,839
+Vesting,odd division off by one,selector-only,17413719,43160,882
+Vesting,odd division off by one,checked-branches,16589654,42840,804
+Vesting,zero duration division,frozen-default,17552983,43157,917
+Vesting,zero duration division,fusion-only,16728918,42837,839
+Vesting,zero duration division,selector-only,17260178,43157,882
+Vesting,zero duration division,checked-branches,16436113,42837,804

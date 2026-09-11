@@ -1,0 +1,785 @@
+ℹ [47/515] Replayed Moist.Plutus.Encode
+info: Moist/Plutus/Encode.lean:82:0: "000000010000001001101000011010010000000000000001"
+info: Moist/Plutus/Encode.lean:348:0: "0500023371C911071A5F783625EE8C004838B40181"
+ℹ [50/515] Replayed Moist.Plutus.Decode
+info: Moist/Plutus/Decode.lean:407:0: Moist.Plutus.Term.Program.Program
+  Version 1.0.0
+  (Moist.Plutus.Term.Term.Constant
+    (Moist.Plutus.Term.Const.ConstList
+       [Moist.Plutus.Term.Const.ConstList [Moist.Plutus.Term.Const.Integer 0],
+        Moist.Plutus.Term.Const.ConstList
+          [Moist.Plutus.Term.Const.Integer 0, Moist.Plutus.Term.Const.Integer 1, Moist.Plutus.Term.Const.Integer 2],
+        Moist.Plutus.Term.Const.ConstList
+          [Moist.Plutus.Term.Const.Integer 4, Moist.Plutus.Term.Const.Integer 5, Moist.Plutus.Term.Const.Integer 2]],
+     Moist.Plutus.Term.BuiltinType.TypeOperator
+       (Moist.Plutus.Term.TypeOperator.TypeList
+         (Moist.Plutus.Term.BuiltinType.TypeOperator
+           (Moist.Plutus.Term.TypeOperator.TypeList (Moist.Plutus.Term.BuiltinType.AtomicType Integer))))))
+info: Moist/Plutus/Decode.lean:408:0: Moist.Plutus.Term.Program.Program
+  Version 1.0.0
+  (Moist.Plutus.Term.Term.Constant
+    (Moist.Plutus.Term.Const.ConstList
+       [Moist.Plutus.Term.Const.ConstList [Moist.Plutus.Term.Const.Integer 0],
+        Moist.Plutus.Term.Const.ConstList
+          [Moist.Plutus.Term.Const.Integer 0, Moist.Plutus.Term.Const.Integer 1, Moist.Plutus.Term.Const.Integer 2],
+        Moist.Plutus.Term.Const.ConstList
+          [Moist.Plutus.Term.Const.Integer 4, Moist.Plutus.Term.Const.Integer 5, Moist.Plutus.Term.Const.Integer 2]],
+     Moist.Plutus.Term.BuiltinType.TypeOperator
+       (Moist.Plutus.Term.TypeOperator.TypeList
+         (Moist.Plutus.Term.BuiltinType.TypeOperator
+           (Moist.Plutus.Term.TypeOperator.TypeList (Moist.Plutus.Term.BuiltinType.AtomicType Integer))))))
+info: Moist/Plutus/Decode.lean:409:0: "0100004BD6F583006010282308854101"
+info: Moist/Plutus/Decode.lean:410:0: true
+info: Moist/Plutus/Decode.lean:412:0: false
+⚠ [277/515] Replayed Test.Onchain.Debug
+warning: Test/Onchain/Debug.lean:21:4: declaration uses 'sorry'
+warning: Test/Onchain/Debug.lean:28:11: unused variable `b`
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: Test/Onchain/Debug.lean:28:15: unused variable `d`
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: Test/Onchain/Debug.lean:28:19: unused variable `f`
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+info: Test/Onchain/Debug.lean:31:0: Result: (con integer 1)
+CPU:    920927
+Memory: 4006
+info: Test/Onchain/Debug.lean:33:0: MIR for Test.Debug.aaa:
+λx_0.
+  case x_0 of
+    | λa_1 a_2 a_3 a_4 a_5 a_6 a_7.
+      (λa_8 b_9 c_10 d_11 e_12 f_13 g_14.
+        addInteger (addInteger (addInteger a_8 g_14) e_12) c_10) a_1 a_2 a_3 a_4 a_5 a_6 a_7
+info: Test/Onchain/Debug.lean:34:0: After beta (changed=true):
+λx_0.
+  case x_0 of
+    | λa_1 a_2 a_3 a_4 a_5 a_6 a_7.
+      let ganf_8 = addInteger a_1
+      let ganf_9 = ganf_8 a_7
+      let ganf_10 = addInteger ganf_9
+      let ganf_11 = ganf_10 a_5
+      let ganf_12 = addInteger ganf_11
+      in ganf_12 a_3
+info: Test/Onchain/Debug.lean:35:0: MIR for Test.Debug.aaa:
+λx_0.
+  case x_0 of
+    | λa_1 a_2 a_3 a_4 a_5 a_6 a_7. addInteger (addInteger (addInteger a_1 a_7) a_5) a_3
+info: Test/Onchain/Debug.lean:94:0: def Test.Debug.SOPHi.instPlutusData : Moist.Onchain.PlutusData SOPHi :=
+{
+  toData := fun x =>
+    SOPHi.casesOn x (fun f.0 => Moist.Plutus.Data.Constr (Int.ofNat 0) [toData f.0])
+      (Moist.Plutus.Data.Constr (Int.ofNat 1) []) fun f.0 => Moist.Plutus.Data.Constr (Int.ofNat 2) [toData f.0],
+  fromData := fun d =>
+    d.casesOn
+      (fun tag fields =>
+        bif tag == Int.ofNat 0 then
+          some (SOPHi.sophi (unsafeFromData (fields.getD 0 (Moist.Plutus.Data.I (Int.ofNat 0)))))
+        else
+          bif tag == Int.ofNat 1 then some SOPHi.sopbye
+          else
+            bif tag == Int.ofNat 2 then
+              some (SOPHi.fooooo (unsafeFromData (fields.getD 0 (Moist.Plutus.Data.I (Int.ofNat 0)))))
+            else none)
+      (fun m => none) (fun l => none) (fun i => none) fun b => none,
+  unsafeFromData := fun d =>
+    d.casesOn
+      (fun tag fields =>
+        bif tag == Int.ofNat 0 then SOPHi.sophi (unsafeFromData (fields.getD 0 (Moist.Plutus.Data.I (Int.ofNat 0))))
+        else
+          bif tag == Int.ofNat 1 then SOPHi.sopbye
+          else
+            bif tag == Int.ofNat 2 then
+              SOPHi.fooooo (unsafeFromData (fields.getD 0 (Moist.Plutus.Data.I (Int.ofNat 0))))
+            else default)
+      (fun m => default) (fun l => default) (fun i => default) fun b => default }
+info: Test/Onchain/Debug.lean:95:0: def Test.Debug.SOPHi.instBEq : BEq SOPHi :=
+{ beq := fun a b => equalsData (toData a) (toData b) }
+info: Test/Onchain/Debug.lean:98:0: MIR for Test.Debug.testMaybe:
+constr(1 42)
+info: Test/Onchain/Debug.lean:100:0: After beta (changed=false):
+λx_0.
+  let gpair_16 = unConstrData x_0
+  let ganf_31 = force fstPair
+  let ganf_32 = force ganf_31
+  let gtag_17 = ganf_32 gpair_16
+  let ganf_33 = force sndPair
+  let ganf_34 = force ganf_33
+  let gfields_18 = ganf_34 gpair_16
+  let ganf_35 = equalsInteger gtag_17
+  let ganf_36 = ganf_35 0
+  in
+    case ganf_36 of
+      | let ganf_37 = equalsInteger gtag_17
+      let ganf_38 = ganf_37 1
+      in
+        case ganf_38 of
+          | let ganf_39 = equalsInteger gtag_17
+          let ganf_40 = ganf_39 2
+          in
+            case ganf_40 of
+              | let ganf_41 = equalsInteger gtag_17
+              let ganf_42 = ganf_41 3
+              in
+                case ganf_42 of
+                  | 0
+                  | let ganf_43 = force headList
+                  let ganf_44 = ganf_43 gfields_18
+                  let ga_19 = unIData ganf_44
+                  let ganf_45 = addInteger ga_19
+                  in ganf_45 1
+              | let ganf_46 = force headList
+              let ganf_47 = ganf_46 gfields_18
+              let ga_20 = unIData ganf_47
+              let ganf_48 = force tailList
+              let grest0_21 = ganf_48 gfields_18
+              let ganf_49 = force headList
+              let ganf_50 = ganf_49 grest0_21
+              let ga_22 = unIData ganf_50
+              let ganf_51 = addInteger ga_20
+              in ganf_51 ga_22
+          | let ganf_52 = force headList
+          let ganf_53 = ganf_52 gfields_18
+          let ga_23 = unIData ganf_53
+          let ganf_54 = force tailList
+          let grest0_24 = ganf_54 gfields_18
+          let ganf_55 = force headList
+          let ganf_56 = ganf_55 grest0_24
+          let ga_25 = unIData ganf_56
+          let ganf_57 = addInteger ga_23
+          in ganf_57 ga_25
+      | let ganf_58 = force headList
+      let ganf_59 = ganf_58 gfields_18
+      let ga_26 = unIData ganf_59
+      let ganf_60 = force tailList
+      let grest0_27 = ganf_60 gfields_18
+      let ganf_61 = force headList
+      let ganf_62 = ganf_61 grest0_27
+      let ga_28 = unIData ganf_62
+      let ganf_63 = force tailList
+      let grest1_29 = ganf_63 grest0_27
+      let ganf_64 = force headList
+      let ganf_65 = ganf_64 grest1_29
+      let ga_30 = unIData ganf_65
+      let ganf_66 = addInteger ga_26
+      let ganf_67 = ganf_66 ga_28
+      let ganf_68 = addInteger ganf_67
+      in ganf_68 ga_30
+info: Test/Onchain/Debug.lean:102:0: MIR for Test.Debug.ddd:
+λx_0.
+  case (unConstrData x_0) of
+    | λgfirst_119 gsecond_120.
+      let ganf_88 = equalsInteger gfirst_119
+      in
+        case (ganf_88 0) of
+          | case (ganf_88 1) of
+            | case (ganf_88 2) of
+              | case (ganf_88 3) of
+                | 0
+                | addInteger (unIData ((force headList) gsecond_120)) 1
+              | let ga_100 = unIData ((force headList) gsecond_120)
+              let ga_103 = unIData ((force headList) ((force tailList) gsecond_120))
+              in addInteger ga_100 ga_103
+            | let ga_106 = unIData ((force headList) gsecond_120)
+            let ga_109 = unIData ((force headList) ((force tailList) gsecond_120))
+            in addInteger ga_106 ga_109
+          | let ga_112 = unIData ((force headList) gsecond_120)
+          let grest0_113 = (force tailList) gsecond_120
+          let ga_115 = unIData ((force headList) grest0_113)
+          let ga_118 = unIData ((force headList) ((force tailList) grest0_113))
+          in addInteger (addInteger ga_112 ga_115) ga_118
+warning: Test/Onchain/Debug.lean:118:8: unused variable `x`
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: Test/Onchain/Debug.lean:118:14: unused variable `z`
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+info: Test/Onchain/Debug.lean:127:0: MIR for Test.Debug.eee:
+constrData 1 ((force mkCons) (iData 1) ((force mkCons) (iData 2) []))
+info: Test/Onchain/Debug.lean:129:0: MIR for Test.Debug.testing2:
+λx_0 k_1.
+  let pair_2 = unConstrData x_0
+  let tag_3 = (force (force fstPair)) pair_2
+  let fields_4 = (force (force sndPair)) pair_2
+  let rest0_18 = (force tailList) fields_4
+  let y_6 = unIData ((force headList) rest0_18)
+  let rest1_19 = (force tailList) rest0_18
+  let rest2_20 = (force tailList) rest1_19
+  let a_8 = unIData ((force headList) rest2_20)
+  in
+    addInteger (addInteger (addInteger y_6 a_8) ((λself_9.
+      let pair_10 = unConstrData self_9
+      let fields_11 = (force (force sndPair)) pair_10
+      let rest0_12 = (force tailList) fields_11
+      let f1_13 = unIData ((force headList) rest0_12)
+      in
+        f1_13) k_1)) ((λself_14.
+      let pair_15 = unConstrData self_14
+      let fields_16 = (force (force sndPair)) pair_15
+      let f0_17 = unIData ((force headList) fields_16)
+      in f0_17) k_1)
+info: Test/Onchain/Debug.lean:133:0: After beta (changed=true):
+λx_0 y_1.
+  let gpair_23 = unConstrData x_0
+  let ganf_40 = force sndPair
+  let ganf_41 = force ganf_40
+  let gfields_24 = ganf_41 gpair_23
+  let ganf_42 = force tailList
+  let grest0_25 = ganf_42 gfields_24
+  let ganf_43 = force headList
+  let ganf_44 = ganf_43 grest0_25
+  let gf1_26 = unIData ganf_44
+  let ganf_45 = gf1_26
+  let ganf_53 = addInteger ganf_45
+  let gpair_27 = unConstrData x_0
+  let ganf_46 = force sndPair
+  let ganf_47 = force ganf_46
+  let gfields_28 = ganf_47 gpair_27
+  let ganf_48 = force tailList
+  let grest0_29 = ganf_48 gfields_28
+  let ganf_49 = force tailList
+  let grest1_30 = ganf_49 grest0_29
+  let ganf_50 = force tailList
+  let grest2_31 = ganf_50 grest1_30
+  let ganf_51 = force headList
+  let ganf_52 = ganf_51 grest2_31
+  let gf3_32 = unIData ganf_52
+  let ganf_54 = gf3_32
+  let ganf_55 = ganf_53 ganf_54
+  let ganf_61 = addInteger ganf_55
+  let gpair_33 = unConstrData y_1
+  let ganf_56 = force sndPair
+  let ganf_57 = force ganf_56
+  let gfields_34 = ganf_57 gpair_33
+  let ganf_58 = force tailList
+  let grest0_35 = ganf_58 gfields_34
+  let ganf_59 = force headList
+  let ganf_60 = ganf_59 grest0_35
+  let gf1_36 = unIData ganf_60
+  let ganf_62 = gf1_36
+  let ganf_63 = ganf_61 ganf_62
+  let ganf_68 = addInteger ganf_63
+  let gpair_37 = unConstrData y_1
+  let ganf_64 = force sndPair
+  let ganf_65 = force ganf_64
+  let gfields_38 = ganf_65 gpair_37
+  let ganf_66 = force headList
+  let ganf_67 = ganf_66 gfields_38
+  let gf0_39 = unIData ganf_67
+  let ganf_69 = gf0_39
+  in ganf_68 ganf_69
+info: Test/Onchain/Debug.lean:135:0: After beta (changed=true):
+λx_0 k_1.
+  let gpair_21 = unConstrData x_0
+  let ganf_36 = force fstPair
+  let ganf_37 = force ganf_36
+  let gtag_22 = ganf_37 gpair_21
+  let ganf_38 = force sndPair
+  let ganf_39 = force ganf_38
+  let gfields_23 = ganf_39 gpair_21
+  let ganf_40 = force tailList
+  let grest0_24 = ganf_40 gfields_23
+  let ganf_41 = force headList
+  let ganf_42 = ganf_41 grest0_24
+  let gy_25 = unIData ganf_42
+  let ganf_43 = force tailList
+  let grest1_26 = ganf_43 grest0_24
+  let ganf_44 = force tailList
+  let grest2_27 = ganf_44 grest1_26
+  let ganf_45 = force headList
+  let ganf_46 = ganf_45 grest2_27
+  let ga_28 = unIData ganf_46
+  let ganf_47 = addInteger gy_25
+  let ganf_48 = ganf_47 ga_28
+  let ganf_54 = addInteger ganf_48
+  let gpair_29 = unConstrData k_1
+  let ganf_49 = force sndPair
+  let ganf_50 = force ganf_49
+  let gfields_30 = ganf_50 gpair_29
+  let ganf_51 = force tailList
+  let grest0_31 = ganf_51 gfields_30
+  let ganf_52 = force headList
+  let ganf_53 = ganf_52 grest0_31
+  let gf1_32 = unIData ganf_53
+  let ganf_55 = gf1_32
+  let ganf_56 = ganf_54 ganf_55
+  let ganf_61 = addInteger ganf_56
+  let gpair_33 = unConstrData k_1
+  let ganf_57 = force sndPair
+  let ganf_58 = force ganf_57
+  let gfields_34 = ganf_58 gpair_33
+  let ganf_59 = force headList
+  let ganf_60 = ganf_59 gfields_34
+  let gf0_35 = unIData ganf_60
+  let ganf_62 = gf0_35
+  in ganf_61 ganf_62
+info: Test/Onchain/Debug.lean:137:0: MIR for Test.Debug.testing:
+λx_0 y_1.
+  let ganf_106 = force (force sndPair)
+  let grest0_107 = (force tailList) (ganf_106 (unConstrData x_0))
+  let ganf_108 =
+    addInteger (addInteger (unIData ((force headList) grest0_107)) (unIData ((force headList) ((force tailList) ((force tailList) grest0_107)))))
+  let gfields_109 = ganf_106 (unConstrData y_1)
+  in
+    addInteger (ganf_108 (unIData ((force headList) ((force tailList) gfields_109)))) (unIData ((force headList) gfields_109))
+info: Test/Onchain/Debug.lean:139:0: MIR for Test.Debug.testing2:
+λx_0 k_1.
+  let ganf_95 = force (force sndPair)
+  let grest0_96 = (force tailList) (ganf_95 (unConstrData x_0))
+  let gy_97 = unIData ((force headList) grest0_96)
+  let ga_98 = unIData ((force headList) ((force tailList) ((force tailList) grest0_96)))
+  let ganf_99 = addInteger (addInteger gy_97 ga_98)
+  let gfields_100 = ganf_95 (unConstrData k_1)
+  in
+    addInteger (ganf_99 (unIData ((force headList) ((force tailList) gfields_100)))) (unIData ((force headList) gfields_100))
+info: Test/Onchain/Debug.lean:141:0: After beta (changed=true):
+λx_0 y_1.
+  let gpair_23 = unConstrData x_0
+  let ganf_40 = force sndPair
+  let ganf_41 = force ganf_40
+  let gfields_24 = ganf_41 gpair_23
+  let ganf_42 = force tailList
+  let grest0_25 = ganf_42 gfields_24
+  let ganf_43 = force headList
+  let ganf_44 = ganf_43 grest0_25
+  let gf1_26 = unIData ganf_44
+  let ganf_45 = gf1_26
+  let ganf_53 = addInteger ganf_45
+  let gpair_27 = unConstrData x_0
+  let ganf_46 = force sndPair
+  let ganf_47 = force ganf_46
+  let gfields_28 = ganf_47 gpair_27
+  let ganf_48 = force tailList
+  let grest0_29 = ganf_48 gfields_28
+  let ganf_49 = force tailList
+  let grest1_30 = ganf_49 grest0_29
+  let ganf_50 = force tailList
+  let grest2_31 = ganf_50 grest1_30
+  let ganf_51 = force headList
+  let ganf_52 = ganf_51 grest2_31
+  let gf3_32 = unIData ganf_52
+  let ganf_54 = gf3_32
+  let ganf_55 = ganf_53 ganf_54
+  let ganf_61 = addInteger ganf_55
+  let gpair_33 = unConstrData y_1
+  let ganf_56 = force sndPair
+  let ganf_57 = force ganf_56
+  let gfields_34 = ganf_57 gpair_33
+  let ganf_58 = force tailList
+  let grest0_35 = ganf_58 gfields_34
+  let ganf_59 = force headList
+  let ganf_60 = ganf_59 grest0_35
+  let gf1_36 = unIData ganf_60
+  let ganf_62 = gf1_36
+  let ganf_63 = ganf_61 ganf_62
+  let ganf_68 = addInteger ganf_63
+  let gpair_37 = unConstrData y_1
+  let ganf_64 = force sndPair
+  let ganf_65 = force ganf_64
+  let gfields_38 = ganf_65 gpair_37
+  let ganf_66 = force headList
+  let ganf_67 = ganf_66 gfields_38
+  let gf0_39 = unIData ganf_67
+  let ganf_69 = gf0_39
+  in ganf_68 ganf_69
+info: Test/Onchain/Debug.lean:143:0: Result: (con integer 17)
+CPU:    2547112
+Memory: 7918
+info: Test/Onchain/Debug.lean:145:0: Result: (lam
+  (lam
+    [(lam
+        [(lam
+            [(lam
+                [(lam
+                    [[(builtin addInteger)
+                        [(var 2) [(builtin unIData) [(force (builtin headList)) [(force (builtin tailList)) (var 1)]]]]]
+                      [(builtin unIData) [(force (builtin headList)) (var 1)]]])
+                  [(var 3) [(builtin unConstrData) (var 4)]]])
+              [(builtin addInteger)
+                [[(builtin addInteger) [(builtin unIData) [(force (builtin headList)) (var 1)]]]
+                  [(builtin unIData)
+                    [(force (builtin headList)) [(force (builtin tailList)) [(force (builtin tailList)) (var 1)]]]]]]])
+          [(force (builtin tailList)) [(var 1) [(builtin unConstrData) (var 3)]]]])
+      (force (force (builtin sndPair)))]))
+CPU:    16100
+Memory: 200
+info: Test/Onchain/Debug.lean:147:0: λa b.
+  let c = force (force sndPair)
+  let d = (force tailList) (c (unConstrData a))
+  let e =
+    addInteger
+      (addInteger
+        (unIData ((force headList) d))
+        (unIData ((force headList) ((force tailList) ((force tailList) d)))))
+  let f = c (unConstrData b)
+  in addInteger (e (unIData ((force headList) ((force tailList) f)))) (unIData ((force headList) f))
+info: Test/Onchain/Debug.lean:149:0: Result: (con integer 17)
+CPU:    2643112
+Memory: 8518
+info: Test/Onchain/Debug.lean:151:0: Result: (con (list integer) [1, 2, 3])
+CPU:    16100
+Memory: 200
+info: Test/Onchain/Debug.lean:153:0: Result: (con integer 3)
+CPU:    1256013
+Memory: 4896
+info: Test/Onchain/Debug.lean:155:0: Result: (con data (Constr 2 [(I 1), (I 123)]))
+CPU:    16100
+Memory: 200
+info: Test/Onchain/Debug.lean:157:0: Result: (con integer 42)
+CPU:    16100
+Memory: 200
+info: Test/Onchain/Debug.lean:159:0: Result: (con (list unit) [(), (), ()])
+CPU:    16100
+Memory: 200
+info: Test/Onchain/Debug.lean:164:0: MIR for Test.Debug.a:
+[(), (), ()]
+info: Test/Onchain/Debug.lean:166:0: MIR for Test.Debug.ccc:
+(Constr 0 [(I 1), (I 2), (I 3)])
+info: Test/Onchain/Debug.lean:168:0: Result: (con integer 51)
+CPU:    815724
+Memory: 3306
+info: Test/Onchain/Debug.lean:170:0: MIR for Test.Debug.bbb:
+constr(0 1 2 3 4 5 6 42)
+info: Test/Onchain/Debug.lean:172:0: MIR for Test.Debug.aaa:
+λx_0.
+  case x_0 of
+    | λa_1 a_2 a_3 a_4 a_5 a_6 a_7. addInteger (addInteger (addInteger a_1 a_7) a_5) a_3
+info: Test/Onchain/Debug.lean:252:0: MIR for Test.Debug.findInputByOutRef:
+fix Test.Debug.findInputByOutRef_0 =
+  λinputs_1 ref_2.
+    case ((force nullList) inputs_1) of
+      | case inputs_1 of
+        | λhead_3 tail_4.
+          case (equalsData ((force headList) (case (unConstrData head_3) of
+            | λgfirst_5 gsecond_6. gsecond_6)) ref_2) of
+            | Test.Debug.findInputByOutRef_0 tail_4 ref_2
+            | constr(1 head_3)
+      | constr(0)
+info: Test/Onchain/Debug.lean:254:0: let i =
+  λa b c.
+    case ((force nullList) b) of
+      | case b of
+        | λd e.
+          case (equalsData ((force headList) (case (unConstrData d) of | λf g. g)) c) of
+            | (let h = e in a a h) c
+            | constr(1 d)
+      | constr(0)
+in i i
+info: Test/Onchain/Debug.lean:261:0: MIR for Test.Debug.testingIns:
+(force mkCons) (constrData 0 ((force mkCons) (constrData 0 ((force mkCons) (bData #3132333132313233) ((force mkCons) (iData 0) []))) ((force mkCons) (constrData 0 ((force mkCons) (constrData 0 ((force mkCons) (constrData 1 ((force mkCons) (bData #61616161) [])) ((force mkCons) (constrData 1 []) []))) ((force mkCons) (mapData ((fix mapEnc_0 =
+  λxs_1.
+    let enc_cons_8 =
+      delay
+        let pair_2 = (force headList) xs_1
+        in
+          (force mkCons) (mkPairData (bData ((force (force fstPair)) pair_2)) (mapData ((fix mapEnc_3 =
+            λxs_4.
+              let enc_cons_6 =
+                delay
+                  let pair_5 = (force headList) xs_4
+                  in
+                    (force mkCons) (mkPairData (bData ((force (force fstPair)) pair_5)) (iData ((force (force sndPair)) pair_5))) (mapEnc_3 ((force tailList) xs_4))
+              let enc_nil_7 = delay []
+              in
+                case ((force nullList) xs_4) of
+                  | force enc_cons_6
+                  | force enc_nil_7) ((force (force sndPair)) pair_2)))) (mapEnc_0 ((force tailList) xs_1))
+    let enc_nil_9 = delay []
+    in
+      case ((force nullList) xs_1) of
+        | force enc_cons_8
+        | force enc_nil_9) [])) ((force mkCons) (constrData 0 []) ((force mkCons) (constrData 1 []) []))))) []))) []
+info: Test/Onchain/Debug.lean:262:0: MIR for Test.Debug.testingIns:
+let ganf_100 = constrData 0
+let ganf_98 = (force mkCons) (ganf_100 [(B #3132333132313233), (I 0)])
+let ganf_24 = constrData 1
+let ganf_32 = (force mkCons) (ganf_24 [(B #61616161)])
+let ganf_33 = (force mkCons) (ganf_24 []) []
+in
+  (force mkCons) (ganf_100 (ganf_98 ((force mkCons) (ganf_100 ((force mkCons) (ganf_100 (ganf_32 ganf_33)) ((force mkCons) (mapData ((fix mapEnc_0 =
+    λxs_1.
+      case ((force nullList) xs_1) of
+        | let pair_2 = (force headList) xs_1
+        let ganf_40 = force (force fstPair)
+        in
+          (force mkCons) (mkPairData (bData (ganf_40 pair_2)) (mapData ((fix mapEnc_3 =
+            λxs_4.
+              case ((force nullList) xs_4) of
+                | let pair_5 = (force headList) xs_4
+                in
+                  (force mkCons) (mkPairData (bData (ganf_40 pair_5)) (iData ((force (force sndPair)) pair_5))) (mapEnc_3 ((force tailList) xs_4))
+                | []) ((force (force sndPair)) pair_2)))) (mapEnc_0 ((force tailList) xs_1))
+        | []) [])) ((force mkCons) (ganf_100 []) ganf_33)))) []))) []
+info: Test/Onchain/Debug.lean:263:0: Result: (con (list data) [(Constr 0 [(Constr 0 [(B #3132333132313233), (I 0)]), (Constr 0 [(Constr 0 [(Constr 1 [(B #61616161)]), (Constr 1 [])]), (Map []), (Constr 0 []), (Constr 1 [])])])])
+CPU:    2316732
+Memory: 9644
+info: Test/Onchain/Debug.lean:271:0: MIR for Test.Debug.addall:
+fix Test.Debug.addall_0 =
+  λxs_1.
+    case ((force nullList) xs_1) of
+      | case xs_1 of
+        | λhead_2 tail_3. addInteger head_2 (Test.Debug.addall_0 tail_3)
+      | 0
+info: Test/Onchain/Debug.lean:280:0: MIR for Test.Debug.hello:
+λx_0. force ((force ifThenElse) x_0 (delay 42) (delay 0))
+info: Test/Onchain/Debug.lean:281:0: Result: (con integer 0)
+CPU:    268149
+Memory: 1301
+info: Test/Onchain/Debug.lean:355:0: MIR for Test.Debug.eqBar:
+equalsData
+info: Test/Onchain/Debug.lean:356:0: MIR for Test.Debug.eqBaz:
+equalsData
+info: Test/Onchain/Debug.lean:380:0: Expr for Moist.Cardano.V3.TxOutRef.instBEq:
+{ beq := fun a b => equalsData (toData a) (toData b) }
+ℹ [279/515] Replayed Test.MIR.Eval.Policy
+info: Test/MIR/Eval/Policy.lean:176:0: (lam
+  (lam
+    (lam
+      [(lam
+          (case
+            [[(builtin equalsInteger)
+                (case
+                  [(builtin unConstrData)
+                    [(force (builtin headList)) [(force (builtin tailList)) (var 1)]]]
+                  (lam (lam (var 2))))]
+              (con integer 0)]
+            (con bool False)
+            [(lam
+                [(lam
+                    [(lam
+                        (case
+                          [[(builtin equalsByteString) (var 2)] (var 7)]
+                          (con bool False)
+                          [[(builtin equalsInteger) (var 1)] (var 6)]))
+                      [(builtin unIData)
+                        [(force (builtin headList)) [(force (builtin tailList)) (var 2)]]]])
+                  [(builtin unBData) [(force (builtin headList)) (var 1)]]])
+              [(builtin unListData) [(force (builtin headList)) (var 1)]]]))
+        [(force (builtin tailList)) (case [(builtin unConstrData) (var 1)] (lam (lam (var 1))))]])))
+info: Test/MIR/Eval/Policy.lean:178:0: MIR for Test.MIR.Eval.Policy.alwaysMintPolicy:
+λctx_0.
+  (λx_1.
+    True) ((λself_2.
+    let pair_3 = unConstrData self_2
+    let fields_4 = (force (force sndPair)) pair_3
+    let rest0_5 = (force tailList) fields_4
+    let rest1_6 = (force tailList) rest0_5
+    let f2_7 = (force headList) rest1_6
+    in f2_7) ctx_0)
+info: Test/MIR/Eval/Policy.lean:179:0: MIR for Test.MIR.Eval.Policy.alwaysMintPolicy:
+λctx_0.
+  let gf2_30 =
+    (force headList) ((force tailList) ((force tailList) (case (unConstrData ctx_0) of
+      | λgfirst_31 gsecond_32. gsecond_32)))
+  in True
+info: Test/MIR/Eval/Policy.lean:181:0: MIR for Test.MIR.Eval.Policy.nftMintPolicy:
+λexpectedTxId_0 expectedIdx_1 ctx_2.
+  let foo_3 =
+    (λself_4.
+      let pair_5 = unConstrData self_4
+      let fields_6 = (force (force sndPair)) pair_5
+      let rest0_7 = (force tailList) fields_6
+      let rest1_8 = (force tailList) rest0_7
+      let f2_9 = (force headList) rest1_8
+      in f2_9) ctx_2
+  let pair_10 = unConstrData foo_3
+  let tag_11 = (force (force fstPair)) pair_10
+  let fields_12 = (force (force sndPair)) pair_10
+  in
+    case (equalsInteger tag_11 0) of
+      | case (equalsInteger tag_11 1) of
+        | case (equalsInteger tag_11 2) of
+          | case (equalsInteger tag_11 3) of
+            | case (equalsInteger tag_11 4) of
+              | False
+              | False
+            | False
+          | False
+        | False
+      | let rdList_14 =
+        unListData ((λself_15.
+          let pair_16 = unConstrData self_15
+          let fields_17 = (force (force sndPair)) pair_16
+          let rest0_18 = (force tailList) fields_17
+          let f1_19 = (force headList) rest0_18
+          in f1_19) ctx_2)
+      let rdTxId_20 = unBData ((force headList) rdList_14)
+      let rdIdx_21 = unIData ((force headList) ((force tailList) rdList_14))
+      in
+        force ((force ifThenElse) (equalsByteString rdTxId_20 expectedTxId_0) (delay
+          equalsInteger rdIdx_21 expectedIdx_1) (delay False))
+info: Test/MIR/Eval/Policy.lean:182:0: MIR for Test.MIR.Eval.Policy.nftMintPolicy:
+λexpectedTxId_0 expectedIdx_1 ctx_2.
+  let grest0_126 =
+    (force tailList) (case (unConstrData ctx_2) of | λgfirst_132 gsecond_133. gsecond_133)
+  in
+    case (equalsInteger (case (unConstrData ((force headList) ((force tailList) grest0_126))) of
+      | λgfirst_134 gsecond_135. gfirst_134) 0) of
+      | False
+      | let grdList_129 = unListData ((force headList) grest0_126)
+      let grdTxId_130 = unBData ((force headList) grdList_129)
+      let grdIdx_131 = unIData ((force headList) ((force tailList) grdList_129))
+      in
+        case (equalsByteString grdTxId_130 expectedTxId_0) of
+          | False
+          | equalsInteger grdIdx_131 expectedIdx_1
+ℹ [399/515] Replayed Test.Ptah
+info: Test/Ptah.lean:376:0: pid OK
+info: Test/Ptah.lean:381:0: fibonacci OK
+info: Test/Ptah.lean:386:0: gcd OK
+info: Test/Ptah.lean:391:0: power OK
+info: Test/Ptah.lean:396:0: abs OK
+info: Test/Ptah.lean:401:0: plength OK
+info: Test/Ptah.lean:406:0: pmap OK
+info: Test/Ptah.lean:411:0: pfilter OK
+info: Test/Ptah.lean:416:0: pfoldl OK
+info: Test/Ptah.lean:421:0: preverse OK
+info: Test/Ptah.lean:426:0: pzipWith OK
+info: Test/Ptah.lean:431:0: pany OK
+info: Test/Ptah.lean:436:0: pall OK
+info: Test/Ptah.lean:441:0: intToDataAndBack OK
+info: Test/Ptah.lean:446:0: builtinListLength OK
+info: Test/Ptah.lean:451:0: ptracedAdd OK
+info: Test/Ptah.lean:456:0: doubleAndIncrement OK
+info: Test/Ptah.lean:461:0: pipeline OK
+info: Test/Ptah.lean:466:0: miniValidator OK
+info: Test/Ptah.lean:471:0: psafeHead OK
+info: Test/Ptah.lean:476:0: psumPositives OK
+info: Test/Ptah.lean:481:0: example1 OK
+info: Test/Ptah.lean:487:0: dPairTest (data list) OK
+info: Test/Ptah.lean:492:0: dMaybeTest (data constr) OK
+info: Test/Ptah.lean:497:0: dUnitTest (data constr) OK
+info: Test/Ptah.lean:502:0: dPairRoundTrip OK
+info: Test/Ptah.lean:528:0: eitherTest (derived) OK
+info: Test/Ptah.lean:533:0: tripleTest (derived) OK
+info: Test/Ptah.lean:538:0: ordToInt (derived) OK
+info: Test/Ptah.lean:544:0: λgx_0. gx_0
+info: Test/Ptah.lean:545:0: λgx_0 gx_1. addInteger gx_0 gx_1
+info: Test/Ptah.lean:548:0: λgx_0. gx_0
+info: Test/Ptah.lean:549:0: addInteger
+info: Test/Ptah.lean:552:0: λa. a
+info: Test/Ptah.lean:553:0: addInteger
+info: Test/Ptah.lean:556:0: (lam (var 1))
+info: Test/Ptah.lean:557:0: (builtin addInteger)
+info: Test/Ptah.lean:560:0: 010100200101
+info: Test/Ptah.lean:561:0: 0101007001
+⚠ [402/515] Replayed Moist.Verified.BetaValueRefines
+warning: Moist/Verified/BetaValueRefines.lean:3062:50: unused variable `h_σ`
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: Moist/Verified/BetaValueRefines.lean:4466:5: unused variable `h`
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: Moist/Verified/BetaValueRefines.lean:4487:5: unused variable `h`
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: Moist/Verified/BetaValueRefines.lean:4494:5: unused variable `h`
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: Moist/Verified/BetaValueRefines.lean:4496:22: unused variable `hlen`
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+⚠ [481/515] Replayed Moist.Verified.InlineSoundness.Preservation
+warning: Moist/Verified/InlineSoundness/Preservation.lean:1088:21: This simp argument is unused:
+  StateT.bind
+
+Hint: Omit it from the simp argument list.
+  simp only [bind,̵ ̵S̵t̵a̵t̵e̵T̵.̵b̵i̵n̵d̵] at hw
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: Moist/Verified/InlineSoundness/Preservation.lean:1578:21: This simp argument is unused:
+  StateT.bind
+
+Hint: Omit it from the simp argument list.
+  simp only [bind,̵ ̵S̵t̵a̵t̵e̵T̵.̵b̵i̵n̵d̵]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+ℹ [514/515] Replayed Test.MIR.Opt.FormalAxioms
+info: Test/MIR/Opt/FormalAxioms.lean:82:0: 'Moist.Verified.AdvancedRefinement.finite_join_refines' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:83:0: 'Moist.Verified.MIR.eliminateDeadFix_refines' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:84:0: 'Moist.Verified.BuiltinState.builtinRemainder_returns' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:85:0: 'Moist.Verified.BuiltinState.isTotalPreLowerValue_halts' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:86:0: 'Moist.Verified.BuiltinState.isTotalPreLowerValue_no_error' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:87:0: 'Moist.Verified.BuiltinState.isCallableValue_returns' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:88:0: 'Moist.Verified.InlineSoundness.Totality.lowerTotal_total' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:89:0: 'Moist.Verified.InlineSoundness.Totality.TotalTerm.subst_halts' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:90:0: 'Moist.Verified.InlineSoundness.Frontier.inlineGate_evaluationPath' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:91:0: 'Moist.Verified.InlineSoundness.Frontier.evaluationPath_subst_errors' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:92:0: 'Moist.Verified.InlineSoundness.Frontier.beta_evaluationPath_ctxRefines' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:93:0: 'Test.MIR.Opt.StrictFrontier.evaluation_path_rejects_divergent_predecessor' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:94:0: 'Moist.Verified.MIR.InlineGate_impure_frontier' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:95:0: 'Moist.Verified.InlineSoundness.Frontier.outcome_of_terminal' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:96:0: 'Moist.Verified.InlineSoundness.Frontier.beta_frontier_ctxRefines' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:97:0: 'Moist.Verified.MIR.rewriteBottomUp_refines' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:98:0: 'Moist.Verified.MIR.rewriteBottomUp_complete' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:99:0: 'Moist.Verified.MIR.foldDataConstructors_refines' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:100:0: 'Moist.Verified.MIR.constantValue_evaluates' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:101:0: 'Moist.Verified.MIR.constantFold_refines' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:102:0: 'Moist.Verified.MIR.constantFoldingSegment_refines' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:103:0: 'Moist.Verified.AdvancedRefinement.contextual_of_uniform_refinement' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:104:0: 'Moist.Verified.AdvancedRefinement.contextual_of_uniform_join' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:105:0: 'Moist.Verified.AdvancedRefinement.fold_mkCons_generic_data' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:106:0: 'Moist.Verified.AdvancedRefinement.fold_mkCons_specialized_data' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:107:0: 'Moist.Verified.AdvancedRefinement.fold_binary_builtin' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:108:0: 'Moist.Verified.AdvancedRefinement.boolean_choice' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:109:0: 'Moist.Verified.AdvancedRefinement.force_case_delay' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:110:0: 'Moist.Verified.AdvancedRefinement.delayed_list_choice_variable' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:111:0: 'Moist.Verified.InlineSoundness.StrictOcc.same_env_beta_single_obsRefines' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:112:0: 'Moist.Verified.InlineSoundness.StrictOcc.same_env_beta_multi_obsRefines' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:113:0: 'Moist.Verified.InlineSoundness.SubstCommute.uplc_beta_single_pure_openRefines' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:114:0: 'Moist.Verified.InlineSoundness.SubstCommute.uplc_beta_multi_pure_openRefines' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:115:0: 'Moist.Verified.MIR.anfNormalize_refines' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:116:0: 'Moist.Verified.MIR.dce_refines' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:117:0: 'Moist.Verified.MIR.inline_refines' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:118:0: 'Moist.Verified.MIR.verifiedOptimize_refines' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:119:0: 'Test.MIR.Opt.BudgetModel.unbounded_budget_exhaustion_is_false' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:120:0: 'Test.MIR.Opt.StrictFrontier.strict_occurrence_alone_does_not_refine' depends on axioms: [propext, Quot.sound]
+ℹ [515/515] Replayed Test.MIR.Opt.AdvancedAxioms
+info: Test/MIR/Opt/AdvancedAxioms.lean:3:0: 'Moist.Verified.AdvancedRedexes.force_case_delay' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:4:0: 'Moist.Verified.AdvancedRedexes.boolean_choice' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:5:0: 'Moist.Verified.AdvancedRedexes.list_cons_fusion' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:6:0: 'Moist.Verified.AdvancedRedexes.list_nil_fusion' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:7:0: 'Moist.Verified.AdvancedRedexes.pack_three_literal_arguments' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:8:0: 'Moist.Verified.AdvancedRedexes.fold_binary_builtin' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:9:0: 'Moist.Verified.AdvancedRedexes.add_integer_zero' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:10:0: 'Moist.Verified.AdvancedRedexes.multiply_integer_one' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:11:0: 'Moist.Verified.AdvancedRedexes.checked_integer_round_trip' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:12:0: 'Moist.Verified.AdvancedRedexes.checked_bytes_round_trip' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:13:0: 'Moist.Verified.AdvancedRedexes.checked_list_round_trip' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:14:0: 'Moist.Verified.AdvancedRedexes.checked_map_round_trip' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:15:0: 'Moist.Verified.AdvancedRedexes.repeated_boolean_case' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:16:0: 'Moist.Verified.AdvancedRedexes.native_pair_first' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:17:0: 'Moist.Verified.AdvancedRedexes.native_pair_second' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:18:0: 'Moist.Verified.AdvancedRedexes.list_choice_cons' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:19:0: 'Moist.Verified.AdvancedRedexes.list_choice_nil' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:20:0: 'Moist.Verified.AdvancedRedexes.delayed_data_list_choice' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:21:0: 'Moist.Verified.AdvancedRedexes.delayed_generic_list_choice' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:22:0: 'Moist.Verified.AdvancedRedexes.delayed_list_choice_value' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:23:0: 'Moist.Verified.AdvancedRedexes.checked_nonempty_list_fusion' depends on axioms: [propext, Quot.sound]
+Build completed successfully (515 jobs).

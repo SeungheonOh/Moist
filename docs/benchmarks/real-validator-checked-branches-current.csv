@@ -1,0 +1,228 @@
+validator,scenario,implementation,accepts,cpu,memory,flat_bytes,cbor_bytes
+Voting,nft in script input,Moist-unoptimized,true,13742968,40055,295,298
+Voting,nft in script input,Moist-default,true,9202598,20829,180,182
+Voting,nft in script input,Moist-size-options,true,9186598,20729,184,186
+Voting,nft in script input,Plutarch-reported,true,12244560,30755,,272
+Voting,nft in script input,Plinth-reported,true,11461062,27727,,244
+Voting,nft in pubkey input,Moist-unoptimized,true,13742968,40055,295,298
+Voting,nft in pubkey input,Moist-default,true,9202598,20829,180,182
+Voting,nft in pubkey input,Moist-size-options,true,9186598,20729,184,186
+Voting,nft in pubkey input,Plutarch-reported,true,12244560,30755,,272
+Voting,nft in pubkey input,Plinth-reported,true,11461062,27727,,244
+Voting,nft among multiple inputs,Moist-unoptimized,true,19431521,59002,295,298
+Voting,nft among multiple inputs,Moist-default,true,12681744,29946,180,182
+Voting,nft among multiple inputs,Moist-size-options,true,12553744,29146,184,186
+Voting,nft among multiple inputs,Plutarch-reported,true,17129982,44166,,272
+Voting,nft among multiple inputs,Plinth-reported,true,15661615,37374,,244
+Voting,nft with other tokens,Moist-unoptimized,true,13742968,40055,295,298
+Voting,nft with other tokens,Moist-default,true,9202598,20829,180,182
+Voting,nft with other tokens,Moist-size-options,true,9186598,20729,184,186
+Voting,nft with other tokens,Plutarch-reported,true,12244560,30755,,272
+Voting,nft with other tokens,Plinth-reported,true,11461062,27727,,244
+Voting,no nft,Moist-unoptimized,false,7387010,21130,295,298
+Voting,no nft,Moist-default,false,3152364,934,180,182
+Voting,no nft,Moist-size-options,false,3152364,934,184,186
+Voting,wrong currency,Moist-unoptimized,false,9100978,21260,295,298
+Voting,wrong currency,Moist-default,false,4566909,999,180,182
+Voting,wrong currency,Moist-size-options,false,4566909,999,184,186
+Voting,wrong token,Moist-unoptimized,false,14017887,41454,295,298
+Voting,wrong token,Moist-default,false,9184395,21128,180,182
+Voting,wrong token,Moist-size-options,false,9184395,21128,184,186
+Voting,empty inputs,Moist-unoptimized,false,1442457,583,295,298
+Voting,empty inputs,Moist-default,false,1065218,517,180,182
+Voting,empty inputs,Moist-size-options,false,1065218,517,184,186
+Voting,multiple inputs no nft,Moist-unoptimized,false,20990084,62354,295,298
+Voting,multiple inputs no nft,Moist-default,false,11941201,21833,180,182
+Voting,multiple inputs no nft,Moist-size-options,false,11941201,21833,184,186
+Voting,wrong purpose,Moist-unoptimized,false,708021,326,295,298
+Voting,wrong purpose,Moist-default,false,631972,325,180,182
+Voting,wrong purpose,Moist-size-options,false,631972,325,184,186
+Voting,quantity -1,Moist-unoptimized,false,14099962,41487,295,298
+Voting,quantity -1,Moist-default,false,9325031,21161,180,182
+Voting,quantity -1,Moist-size-options,false,9325031,21161,184,186
+Voting,quantity 0,Moist-unoptimized,false,14099962,41487,295,298
+Voting,quantity 0,Moist-default,false,9325031,21161,180,182
+Voting,quantity 0,Moist-size-options,false,9325031,21161,184,186
+Voting,quantity 2,Moist-unoptimized,false,14099962,41487,295,298
+Voting,quantity 2,Moist-default,false,9325031,21161,180,182
+Voting,quantity 2,Moist-size-options,false,9325031,21161,184,186
+Voting,quantity 100,Moist-unoptimized,false,14099962,41487,295,298
+Voting,quantity 100,Moist-default,false,9325031,21161,180,182
+Voting,quantity 100,Moist-size-options,false,9325031,21161,184,186
+Certifying,register credential,Moist-unoptimized,true,3745377,14254,586,589
+Certifying,register credential,Moist-default,true,3173328,11153,343,346
+Certifying,register credential,Moist-size-options,true,3221328,11453,339,342
+Certifying,register credential,Plutarch-reported,true,3281634,11753,,317
+Certifying,register credential,Plinth-reported,true,3235577,11084,,381
+Certifying,unregister after expiration,Moist-unoptimized,true,10936527,40747,586,589
+Certifying,unregister after expiration,Moist-default,true,7303596,22790,343,346
+Certifying,unregister after expiration,Moist-size-options,true,7127596,21690,339,342
+Certifying,unregister after expiration,Plutarch-reported,true,7886843,24094,,317
+Certifying,unregister after expiration,Plinth-reported,true,8633363,26629,,381
+Certifying,delegate to abstain,Moist-unoptimized,true,6444288,24048,586,589
+Certifying,delegate to abstain,Moist-default,true,5202247,17615,343,346
+Certifying,delegate to abstain,Moist-size-options,true,5202247,17615,339,342
+Certifying,delegate to abstain,Plutarch-reported,true,5907816,18612,,317
+Certifying,delegate to abstain,Plinth-reported,true,5528026,17948,,381
+Certifying,register+delegate to abstain,Moist-unoptimized,true,6592621,24649,586,589
+Certifying,register+delegate to abstain,Moist-default,true,5318580,18016,343,346
+Certifying,register+delegate to abstain,Moist-size-options,true,5318580,18016,339,342
+Certifying,register+delegate to abstain,Plutarch-reported,true,6386093,19946,,317
+Certifying,register+delegate to abstain,Plinth-reported,true,5832408,19050,,381
+Certifying,register no deposit,Moist-unoptimized,true,3745377,14254,586,589
+Certifying,register no deposit,Moist-default,true,3173328,11153,343,346
+Certifying,register no deposit,Moist-size-options,true,3221328,11453,339,342
+Certifying,unregister boundary -1 inclusive=false,Moist-unoptimized,false,7879074,21647,586,589
+Certifying,unregister boundary -1 inclusive=false,Moist-default,false,7078143,21390,343,346
+Certifying,unregister boundary -1 inclusive=false,Moist-size-options,false,7078143,21390,339,342
+Certifying,unregister boundary -1 inclusive=true,Moist-unoptimized,false,7880527,21647,586,589
+Certifying,unregister boundary -1 inclusive=true,Moist-default,false,7079596,21390,343,346
+Certifying,unregister boundary -1 inclusive=true,Moist-size-options,false,7079596,21390,339,342
+Certifying,unregister boundary 0 inclusive=false,Moist-unoptimized,true,10935074,40747,586,589
+Certifying,unregister boundary 0 inclusive=false,Moist-default,true,7302143,22790,343,346
+Certifying,unregister boundary 0 inclusive=false,Moist-size-options,true,7126143,21690,339,342
+Certifying,unregister boundary 0 inclusive=true,Moist-unoptimized,false,7880527,21647,586,589
+Certifying,unregister boundary 0 inclusive=true,Moist-default,false,7079596,21390,343,346
+Certifying,unregister boundary 0 inclusive=true,Moist-size-options,false,7079596,21390,339,342
+Certifying,unregister boundary 1 inclusive=false,Moist-unoptimized,true,10935074,40747,586,589
+Certifying,unregister boundary 1 inclusive=false,Moist-default,true,7302143,22790,343,346
+Certifying,unregister boundary 1 inclusive=false,Moist-size-options,true,7126143,21690,339,342
+Certifying,unregister boundary 1 inclusive=true,Moist-unoptimized,true,10936527,40747,586,589
+Certifying,unregister boundary 1 inclusive=true,Moist-default,true,7303596,22790,343,346
+Certifying,unregister boundary 1 inclusive=true,Moist-size-options,true,7127596,21690,339,342
+Certifying,unregister negative infinity,Moist-unoptimized,false,6737079,21260,586,589
+Certifying,unregister negative infinity,Moist-default,false,3294450,1195,343,346
+Certifying,unregister negative infinity,Moist-size-options,false,3294450,1195,339,342
+Certifying,unregister positive infinity,Moist-unoptimized,true,8485412,31861,586,589
+Certifying,unregister positive infinity,Moist-default,true,6322783,19796,343,346
+Certifying,unregister positive infinity,Moist-size-options,true,6194783,18996,339,342
+Certifying,invalid delegate 2/0,Moist-unoptimized,false,5932288,20848,586,589
+Certifying,invalid delegate 2/0,Moist-default,false,2514247,815,343,346
+Certifying,invalid delegate 2/0,Moist-size-options,false,2514247,815,339,342
+Certifying,invalid delegate 2/1,Moist-unoptimized,false,2183664,717,586,589
+Certifying,invalid delegate 2/1,Moist-default,false,2107615,716,343,346
+Certifying,invalid delegate 2/1,Moist-size-options,false,2107615,716,339,342
+Certifying,invalid delegate 2/2,Moist-unoptimized,false,5879955,20847,586,589
+Certifying,invalid delegate 2/2,Moist-default,false,2461914,814,343,346
+Certifying,invalid delegate 2/2,Moist-size-options,false,2461914,814,339,342
+Certifying,invalid delegate 2/3,Moist-unoptimized,false,2235997,718,586,589
+Certifying,invalid delegate 2/3,Moist-default,false,2159948,717,343,346
+Certifying,invalid delegate 2/3,Moist-size-options,false,2159948,717,339,342
+Certifying,invalid delegate 3/0,Moist-unoptimized,false,5984621,20849,586,589
+Certifying,invalid delegate 3/0,Moist-default,false,2566580,816,343,346
+Certifying,invalid delegate 3/0,Moist-size-options,false,2566580,816,339,342
+Certifying,invalid delegate 3/1,Moist-unoptimized,false,2235997,718,586,589
+Certifying,invalid delegate 3/1,Moist-default,false,2159948,717,343,346
+Certifying,invalid delegate 3/1,Moist-size-options,false,2159948,717,339,342
+Certifying,invalid delegate 3/2,Moist-unoptimized,false,5932288,20848,586,589
+Certifying,invalid delegate 3/2,Moist-default,false,2514247,815,343,346
+Certifying,invalid delegate 3/2,Moist-size-options,false,2514247,815,339,342
+Certifying,invalid delegate 3/3,Moist-unoptimized,false,5488330,20719,586,589
+Certifying,invalid delegate 3/3,Moist-default,false,2212281,718,343,346
+Certifying,invalid delegate 3/3,Moist-size-options,false,2212281,718,339,342
+Certifying,unsupported certificate 4,Moist-unoptimized,false,1762709,558,586,589
+Certifying,unsupported certificate 4,Moist-default,false,1634327,556,343,346
+Certifying,unsupported certificate 4,Moist-size-options,false,1634327,556,339,342
+Certifying,unsupported certificate 5,Moist-unoptimized,false,1815042,559,586,589
+Certifying,unsupported certificate 5,Moist-default,false,1634327,556,343,346
+Certifying,unsupported certificate 5,Moist-size-options,false,1634327,556,339,342
+Certifying,unsupported certificate 6,Moist-unoptimized,false,1867375,560,586,589
+Certifying,unsupported certificate 6,Moist-default,false,1634327,556,343,346
+Certifying,unsupported certificate 6,Moist-size-options,false,1634327,556,339,342
+Certifying,unsupported certificate 7,Moist-unoptimized,false,1919708,561,586,589
+Certifying,unsupported certificate 7,Moist-default,false,1634327,556,343,346
+Certifying,unsupported certificate 7,Moist-size-options,false,1634327,556,339,342
+Certifying,unsupported certificate 8,Moist-unoptimized,false,1972041,562,586,589
+Certifying,unsupported certificate 8,Moist-default,false,1634327,556,343,346
+Certifying,unsupported certificate 8,Moist-size-options,false,1634327,556,339,342
+Certifying,unsupported certificate 9,Moist-unoptimized,false,2024374,563,586,589
+Certifying,unsupported certificate 9,Moist-default,false,1634327,556,343,346
+Certifying,unsupported certificate 9,Moist-size-options,false,1634327,556,339,342
+Certifying,unsupported certificate 10,Moist-unoptimized,false,2024374,563,586,589
+Certifying,unsupported certificate 10,Moist-default,false,1634327,556,343,346
+Certifying,unsupported certificate 10,Moist-size-options,false,1634327,556,339,342
+Certifying,wrong purpose,Moist-unoptimized,false,794708,389,586,589
+Certifying,wrong purpose,Moist-default,false,794708,389,343,346
+Certifying,wrong purpose,Moist-size-options,false,794708,389,339,342
+Vesting,full withdrawal after vesting,Moist-unoptimized,true,46769559,160614,1322,1325
+Vesting,full withdrawal after vesting,Moist-default,true,28695116,86368,804,807
+Vesting,full withdrawal after vesting,Moist-size-options,true,27847116,81068,789,792
+Vesting,full withdrawal after vesting,Plutarch-reported,true,38909388,112264,,1219
+Vesting,full withdrawal after vesting,Plinth-reported,true,35340687,101467,,1184
+Vesting,partial withdrawal midpoint,Moist-unoptimized,true,63091935,205976,1322,1325
+Vesting,partial withdrawal midpoint,Moist-default,true,39915461,109373,804,807
+Vesting,partial withdrawal midpoint,Moist-size-options,true,38811461,102473,789,792
+Vesting,partial withdrawal midpoint,Plutarch-reported,true,66088455,183674,,1219
+Vesting,partial withdrawal midpoint,Plinth-reported,true,56291830,157014,,1184
+Vesting,second partial withdrawal,Moist-unoptimized,true,63091935,205976,1322,1325
+Vesting,second partial withdrawal,Moist-default,true,39915461,109373,804,807
+Vesting,second partial withdrawal,Moist-size-options,true,38811461,102473,789,792
+Vesting,second partial withdrawal,Plutarch-reported,true,66088455,183674,,1219
+Vesting,second partial withdrawal,Plinth-reported,true,56291830,157014,,1184
+Vesting,full withdrawal at end,Moist-unoptimized,true,47285650,161819,1322,1325
+Vesting,full withdrawal at end,Moist-default,true,29211207,87573,804,807
+Vesting,full withdrawal at end,Moist-size-options,true,28363207,82273,789,792
+Vesting,full withdrawal at end,Plutarch-reported,true,39425890,113469,,1219
+Vesting,full withdrawal at end,Plinth-reported,true,35857189,102672,,1184
+Vesting,small withdrawal early,Moist-unoptimized,true,63091935,205976,1322,1325
+Vesting,small withdrawal early,Moist-default,true,39915461,109373,804,807
+Vesting,small withdrawal early,Moist-size-options,true,38811461,102473,789,792
+Vesting,small withdrawal early,Plutarch-reported,true,66088455,183674,,1219
+Vesting,small withdrawal early,Plinth-reported,true,56291830,157014,,1184
+Vesting,third partial drains,Moist-unoptimized,true,46769559,160614,1322,1325
+Vesting,third partial drains,Moist-default,true,28695116,86368,804,807
+Vesting,third partial drains,Moist-size-options,true,27847116,81068,789,792
+Vesting,third partial drains,Plutarch-reported,true,38909388,112264,,1219
+Vesting,third partial drains,Plinth-reported,true,35340687,101467,,1184
+Vesting,odd division partial,Moist-unoptimized,true,63091935,205976,1322,1325
+Vesting,odd division partial,Moist-default,true,39915461,109373,804,807
+Vesting,odd division partial,Moist-size-options,true,38811461,102473,789,792
+Vesting,odd division partial,Plutarch-reported,true,66088455,183674,,1219
+Vesting,odd division partial,Plinth-reported,true,56291830,157014,,1184
+Vesting,multi beneficiary outputs,Moist-unoptimized,true,53274863,184548,1322,1325
+Vesting,multi beneficiary outputs,Moist-default,true,32307620,98144,804,807
+Vesting,multi beneficiary outputs,Moist-size-options,true,31331620,92044,789,792
+Vesting,multi beneficiary outputs,Plutarch-reported,true,43484191,126070,,1219
+Vesting,multi beneficiary outputs,Plinth-reported,true,39313502,113109,,1184
+Vesting,zero fee,Moist-unoptimized,true,46769559,160614,1322,1325
+Vesting,zero fee,Moist-default,true,28695116,86368,804,807
+Vesting,zero fee,Moist-size-options,true,27847116,81068,789,792
+Vesting,zero fee,Plutarch-reported,true,38909388,112264,,1219
+Vesting,zero fee,Plinth-reported,true,35340687,101467,,1184
+Vesting,quarter vested,Moist-unoptimized,true,63091935,205976,1322,1325
+Vesting,quarter vested,Moist-default,true,39915461,109373,804,807
+Vesting,quarter vested,Moist-size-options,true,38811461,102473,789,792
+Vesting,quarter vested,Plutarch-reported,true,66088455,183674,,1219
+Vesting,quarter vested,Plinth-reported,true,56291830,157014,,1184
+Vesting,ninety percent,Moist-unoptimized,true,63091935,205976,1322,1325
+Vesting,ninety percent,Moist-default,true,39915461,109373,804,807
+Vesting,ninety percent,Moist-size-options,true,38811461,102473,789,792
+Vesting,ninety percent,Plutarch-reported,true,66088455,183674,,1219
+Vesting,ninety percent,Plinth-reported,true,56291830,157014,,1184
+Vesting,not signed,Moist-unoptimized,false,6865269,21387,1322,1325
+Vesting,not signed,Moist-default,false,2863382,1191,804,807
+Vesting,not signed,Moist-size-options,false,2863382,1191,789,792
+Vesting,wrong amount,Moist-unoptimized,false,26596816,83906,1322,1325
+Vesting,wrong amount,Moist-default,false,16589654,42840,804,807
+Vesting,wrong amount,Moist-size-options,false,16589654,42840,789,792
+Vesting,under claiming,Moist-unoptimized,false,26596816,83906,1322,1325
+Vesting,under claiming,Moist-default,false,16589654,42840,804,807
+Vesting,under claiming,Moist-size-options,false,16589654,42840,789,792
+Vesting,wrong beneficiary output,Moist-unoptimized,false,44401177,146612,1322,1325
+Vesting,wrong beneficiary output,Moist-default,false,28402783,84867,804,807
+Vesting,wrong beneficiary output,Moist-size-options,false,25202783,64867,789,792
+Vesting,partial wrong datum,Moist-unoptimized,false,60211935,187976,1322,1325
+Vesting,partial wrong datum,Moist-default,false,39355461,105873,804,807
+Vesting,partial wrong datum,Moist-size-options,false,36155461,85873,789,792
+Vesting,partial no output,Moist-unoptimized,false,50712731,166974,1322,1325
+Vesting,partial no output,Moist-default,false,30855163,85099,804,807
+Vesting,partial no output,Moist-size-options,false,30855163,85099,789,792
+Vesting,before vesting,Moist-unoptimized,false,22850178,63897,1322,1325
+Vesting,before vesting,Moist-default,false,16119065,42832,804,807
+Vesting,before vesting,Moist-size-options,false,16119065,42832,789,792
+Vesting,odd division off by one,Moist-unoptimized,false,26596816,83906,1322,1325
+Vesting,odd division off by one,Moist-default,false,16589654,42840,804,807
+Vesting,odd division off by one,Moist-size-options,false,16589654,42840,789,792
+Vesting,zero duration division,Moist-unoptimized,false,26367226,83902,1322,1325
+Vesting,zero duration division,Moist-default,false,16436113,42837,804,807
+Vesting,zero duration division,Moist-size-options,false,16436113,42837,789,792

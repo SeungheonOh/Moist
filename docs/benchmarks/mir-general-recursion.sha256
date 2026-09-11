@@ -1,0 +1,4 @@
+46b899a0c9038ed6ea4fb1a0f279360d3216e222a3079506d50e0bed763c7dcc  docs/benchmarks/mir-static-arguments-only.csv
+ee074a23240ff8c3aa505f3333d41a5549b098dff64121e2845f274c98366c29  docs/benchmarks/mir-general-recursion.csv
+63d08739809cb1dfc7e46c967be6d64f69303f995fa3d7b659fc5f8889267614  docs/benchmarks/mir-general-recursion-scaling.csv
+8b3407d2e2426819142581e9b0d910b5a76431d480a80abda161c5ebcaee84d1  docs/benchmarks/real-validator-general-current.csv

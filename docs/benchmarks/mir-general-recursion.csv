@@ -1,0 +1,190 @@
+validator,scenario,profile,cpu,memory,flat_bytes
+Voting,nft in script input,frozen-default,11448192,28587,237
+Voting,nft in script input,result-summaries,11072094,27185,229
+Voting,nft in script input,combined,10736094,25085,207
+Voting,nft in pubkey input,frozen-default,11448192,28587,237
+Voting,nft in pubkey input,result-summaries,11072094,27185,229
+Voting,nft in pubkey input,combined,10736094,25085,207
+Voting,nft among multiple inputs,frozen-default,16260696,42533,237
+Voting,nft among multiple inputs,result-summaries,15696549,40430,229
+Voting,nft among multiple inputs,combined,15072549,36530,207
+Voting,nft with other tokens,frozen-default,11448192,28587,237
+Voting,nft with other tokens,result-summaries,11072094,27185,229
+Voting,nft with other tokens,combined,10736094,25085,207
+Voting,no nft,frozen-default,7068332,21064,237
+Voting,no nft,result-summaries,6916234,21062,229
+Voting,no nft,combined,3716234,1062,207
+Voting,wrong currency,frozen-default,8706251,21193,237
+Voting,wrong currency,result-summaries,8554153,21191,229
+Voting,wrong currency,combined,8554153,21191,207
+Voting,wrong token,frozen-default,10347111,21386,237
+Voting,wrong token,result-summaries,10195013,21384,229
+Voting,wrong token,combined,10195013,21384,207
+Voting,empty inputs,frozen-default,1199828,518,237
+Voting,empty inputs,result-summaries,1123779,517,229
+Voting,empty inputs,combined,1123779,517,207
+Voting,multiple inputs no nft,frozen-default,17243259,42285,237
+Voting,multiple inputs no nft,result-summaries,16939063,42281,229
+Voting,multiple inputs no nft,combined,16939063,42281,207
+Voting,wrong purpose,frozen-default,631972,325,237
+Voting,wrong purpose,result-summaries,631972,325,229
+Voting,wrong purpose,combined,631972,325,207
+Voting,quantity -1,frozen-default,10429186,21419,237
+Voting,quantity -1,result-summaries,10277088,21417,229
+Voting,quantity -1,combined,10277088,21417,207
+Voting,quantity 0,frozen-default,10429186,21419,237
+Voting,quantity 0,result-summaries,10277088,21417,229
+Voting,quantity 0,combined,10277088,21417,207
+Voting,quantity 2,frozen-default,10429186,21419,237
+Voting,quantity 2,result-summaries,10277088,21417,229
+Voting,quantity 2,combined,10277088,21417,207
+Voting,quantity 100,frozen-default,10429186,21419,237
+Voting,quantity 100,result-summaries,10277088,21417,229
+Voting,quantity 100,combined,10277088,21417,207
+Certifying,register credential,frozen-default,3361377,11854,347
+Certifying,register credential,result-summaries,3173328,11153,343
+Certifying,register credential,combined,3173328,11153,343
+Certifying,unregister after expiration,frozen-default,7491645,23491,347
+Certifying,unregister after expiration,result-summaries,7303596,22790,343
+Certifying,unregister after expiration,combined,7303596,22790,343
+Certifying,delegate to abstain,frozen-default,5390296,18316,347
+Certifying,delegate to abstain,result-summaries,5202247,17615,343
+Certifying,delegate to abstain,combined,5202247,17615,343
+Certifying,register+delegate to abstain,frozen-default,5506629,18717,347
+Certifying,register+delegate to abstain,result-summaries,5318580,18016,343
+Certifying,register+delegate to abstain,combined,5318580,18016,343
+Certifying,register no deposit,frozen-default,3361377,11854,347
+Certifying,register no deposit,result-summaries,3173328,11153,343
+Certifying,register no deposit,combined,3173328,11153,343
+Certifying,unregister boundary -1 inclusive=false,frozen-default,7154192,21391,347
+Certifying,unregister boundary -1 inclusive=false,result-summaries,7078143,21390,343
+Certifying,unregister boundary -1 inclusive=false,combined,7078143,21390,343
+Certifying,unregister boundary -1 inclusive=true,frozen-default,7155645,21391,347
+Certifying,unregister boundary -1 inclusive=true,result-summaries,7079596,21390,343
+Certifying,unregister boundary -1 inclusive=true,combined,7079596,21390,343
+Certifying,unregister boundary 0 inclusive=false,frozen-default,7490192,23491,347
+Certifying,unregister boundary 0 inclusive=false,result-summaries,7302143,22790,343
+Certifying,unregister boundary 0 inclusive=false,combined,7302143,22790,343
+Certifying,unregister boundary 0 inclusive=true,frozen-default,7155645,21391,347
+Certifying,unregister boundary 0 inclusive=true,result-summaries,7079596,21390,343
+Certifying,unregister boundary 0 inclusive=true,combined,7079596,21390,343
+Certifying,unregister boundary 1 inclusive=false,frozen-default,7490192,23491,347
+Certifying,unregister boundary 1 inclusive=false,result-summaries,7302143,22790,343
+Certifying,unregister boundary 1 inclusive=false,combined,7302143,22790,343
+Certifying,unregister boundary 1 inclusive=true,frozen-default,7491645,23491,347
+Certifying,unregister boundary 1 inclusive=true,result-summaries,7303596,22790,343
+Certifying,unregister boundary 1 inclusive=true,combined,7303596,22790,343
+Certifying,unregister negative infinity,frozen-default,3370499,1196,347
+Certifying,unregister negative infinity,result-summaries,3294450,1195,343
+Certifying,unregister negative infinity,combined,3294450,1195,343
+Certifying,unregister positive infinity,frozen-default,6510832,20497,347
+Certifying,unregister positive infinity,result-summaries,6322783,19796,343
+Certifying,unregister positive infinity,combined,6322783,19796,343
+Certifying,invalid delegate 2/0,frozen-default,2590296,816,347
+Certifying,invalid delegate 2/0,result-summaries,2514247,815,343
+Certifying,invalid delegate 2/0,combined,2514247,815,343
+Certifying,invalid delegate 2/1,frozen-default,2183664,717,347
+Certifying,invalid delegate 2/1,result-summaries,2107615,716,343
+Certifying,invalid delegate 2/1,combined,2107615,716,343
+Certifying,invalid delegate 2/2,frozen-default,2537963,815,347
+Certifying,invalid delegate 2/2,result-summaries,2461914,814,343
+Certifying,invalid delegate 2/2,combined,2461914,814,343
+Certifying,invalid delegate 2/3,frozen-default,2235997,718,347
+Certifying,invalid delegate 2/3,result-summaries,2159948,717,343
+Certifying,invalid delegate 2/3,combined,2159948,717,343
+Certifying,invalid delegate 3/0,frozen-default,2642629,817,347
+Certifying,invalid delegate 3/0,result-summaries,2566580,816,343
+Certifying,invalid delegate 3/0,combined,2566580,816,343
+Certifying,invalid delegate 3/1,frozen-default,2235997,718,347
+Certifying,invalid delegate 3/1,result-summaries,2159948,717,343
+Certifying,invalid delegate 3/1,combined,2159948,717,343
+Certifying,invalid delegate 3/2,frozen-default,2590296,816,347
+Certifying,invalid delegate 3/2,result-summaries,2514247,815,343
+Certifying,invalid delegate 3/2,combined,2514247,815,343
+Certifying,invalid delegate 3/3,frozen-default,2288330,719,347
+Certifying,invalid delegate 3/3,result-summaries,2212281,718,343
+Certifying,invalid delegate 3/3,combined,2212281,718,343
+Certifying,unsupported certificate 4,frozen-default,1710376,557,347
+Certifying,unsupported certificate 4,result-summaries,1634327,556,343
+Certifying,unsupported certificate 4,combined,1634327,556,343
+Certifying,unsupported certificate 5,frozen-default,1710376,557,347
+Certifying,unsupported certificate 5,result-summaries,1634327,556,343
+Certifying,unsupported certificate 5,combined,1634327,556,343
+Certifying,unsupported certificate 6,frozen-default,1710376,557,347
+Certifying,unsupported certificate 6,result-summaries,1634327,556,343
+Certifying,unsupported certificate 6,combined,1634327,556,343
+Certifying,unsupported certificate 7,frozen-default,1710376,557,347
+Certifying,unsupported certificate 7,result-summaries,1634327,556,343
+Certifying,unsupported certificate 7,combined,1634327,556,343
+Certifying,unsupported certificate 8,frozen-default,1710376,557,347
+Certifying,unsupported certificate 8,result-summaries,1634327,556,343
+Certifying,unsupported certificate 8,combined,1634327,556,343
+Certifying,unsupported certificate 9,frozen-default,1710376,557,347
+Certifying,unsupported certificate 9,result-summaries,1634327,556,343
+Certifying,unsupported certificate 9,combined,1634327,556,343
+Certifying,unsupported certificate 10,frozen-default,1710376,557,347
+Certifying,unsupported certificate 10,result-summaries,1634327,556,343
+Certifying,unsupported certificate 10,combined,1634327,556,343
+Certifying,wrong purpose,frozen-default,794708,389,347
+Certifying,wrong purpose,result-summaries,794708,389,343
+Certifying,wrong purpose,combined,794708,389,343
+Vesting,full withdrawal after vesting,frozen-default,34064775,102737,945
+Vesting,full withdrawal after vesting,result-summaries,33876726,102036,941
+Vesting,full withdrawal after vesting,combined,33572726,100136,917
+Vesting,partial withdrawal midpoint,frozen-default,47191738,131598,945
+Vesting,partial withdrawal midpoint,result-summaries,47003689,130897,941
+Vesting,partial withdrawal midpoint,combined,46507689,127797,917
+Vesting,second partial withdrawal,frozen-default,47191738,131598,945
+Vesting,second partial withdrawal,result-summaries,47003689,130897,941
+Vesting,second partial withdrawal,combined,46507689,127797,917
+Vesting,full withdrawal at end,frozen-default,34580866,103942,945
+Vesting,full withdrawal at end,result-summaries,34392817,103241,941
+Vesting,full withdrawal at end,combined,34088817,101341,917
+Vesting,small withdrawal early,frozen-default,47191738,131598,945
+Vesting,small withdrawal early,result-summaries,47003689,130897,941
+Vesting,small withdrawal early,combined,46507689,127797,917
+Vesting,third partial drains,frozen-default,34064775,102737,945
+Vesting,third partial drains,result-summaries,33876726,102036,941
+Vesting,third partial drains,combined,33572726,100136,917
+Vesting,odd division partial,frozen-default,47191738,131598,945
+Vesting,odd division partial,result-summaries,47003689,130897,941
+Vesting,odd division partial,combined,46507689,127797,917
+Vesting,multi beneficiary outputs,frozen-default,38875401,118005,945
+Vesting,multi beneficiary outputs,result-summaries,38687352,117304,941
+Vesting,multi beneficiary outputs,combined,38335352,115104,917
+Vesting,zero fee,frozen-default,34064775,102737,945
+Vesting,zero fee,result-summaries,33876726,102036,941
+Vesting,zero fee,combined,33572726,100136,917
+Vesting,quarter vested,frozen-default,47191738,131598,945
+Vesting,quarter vested,result-summaries,47003689,130897,941
+Vesting,quarter vested,combined,46507689,127797,917
+Vesting,ninety percent,frozen-default,47191738,131598,945
+Vesting,ninety percent,result-summaries,47003689,130897,941
+Vesting,ninety percent,combined,46507689,127797,917
+Vesting,not signed,frozen-default,6421366,21256,945
+Vesting,not signed,result-summaries,6345317,21255,941
+Vesting,not signed,combined,3145317,1255,917
+Vesting,wrong amount,frozen-default,17782573,43161,945
+Vesting,wrong amount,result-summaries,17706524,43160,941
+Vesting,wrong amount,combined,17706524,43160,917
+Vesting,under claiming,frozen-default,17782573,43161,945
+Vesting,under claiming,result-summaries,17706524,43160,941
+Vesting,under claiming,combined,17706524,43160,917
+Vesting,wrong beneficiary output,frozen-default,31276442,85636,945
+Vesting,wrong beneficiary output,result-summaries,31200393,85635,941
+Vesting,wrong beneficiary output,combined,31200393,85635,917
+Vesting,partial wrong datum,frozen-default,46439738,126898,945
+Vesting,partial wrong datum,result-summaries,46363689,126897,941
+Vesting,partial wrong datum,combined,46363689,126897,917
+Vesting,partial no output,frozen-default,37269318,105932,945
+Vesting,partial no output,result-summaries,37193269,105931,941
+Vesting,partial no output,combined,37193269,105931,917
+Vesting,before vesting,frozen-default,17311984,43153,945
+Vesting,before vesting,result-summaries,17235935,43152,941
+Vesting,before vesting,combined,17235935,43152,917
+Vesting,odd division off by one,frozen-default,17782573,43161,945
+Vesting,odd division off by one,result-summaries,17706524,43160,941
+Vesting,odd division off by one,combined,17706524,43160,917
+Vesting,zero duration division,frozen-default,17629032,43158,945
+Vesting,zero duration division,result-summaries,17552983,43157,941
+Vesting,zero duration division,combined,17552983,43157,917

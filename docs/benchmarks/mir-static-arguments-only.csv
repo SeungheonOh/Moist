@@ -1,0 +1,127 @@
+validator,scenario,profile,cpu,memory,flat_bytes
+Voting,nft in script input,baseline,11448192,28587,237
+Voting,nft in script input,static-arguments,11112192,26487,215
+Voting,nft in pubkey input,baseline,11448192,28587,237
+Voting,nft in pubkey input,static-arguments,11112192,26487,215
+Voting,nft among multiple inputs,baseline,16260696,42533,237
+Voting,nft among multiple inputs,static-arguments,15636696,38633,215
+Voting,nft with other tokens,baseline,11448192,28587,237
+Voting,nft with other tokens,static-arguments,11112192,26487,215
+Voting,no nft,baseline,7068332,21064,237
+Voting,no nft,static-arguments,7068332,21064,215
+Voting,wrong currency,baseline,8706251,21193,237
+Voting,wrong currency,static-arguments,8706251,21193,215
+Voting,wrong token,baseline,10347111,21386,237
+Voting,wrong token,static-arguments,10347111,21386,215
+Voting,empty inputs,baseline,1199828,518,237
+Voting,empty inputs,static-arguments,1199828,518,215
+Voting,multiple inputs no nft,baseline,17243259,42285,237
+Voting,multiple inputs no nft,static-arguments,17243259,42285,215
+Voting,wrong purpose,baseline,631972,325,237
+Voting,wrong purpose,static-arguments,631972,325,215
+Voting,quantity -1,baseline,10429186,21419,237
+Voting,quantity -1,static-arguments,10429186,21419,215
+Voting,quantity 0,baseline,10429186,21419,237
+Voting,quantity 0,static-arguments,10429186,21419,215
+Voting,quantity 2,baseline,10429186,21419,237
+Voting,quantity 2,static-arguments,10429186,21419,215
+Voting,quantity 100,baseline,10429186,21419,237
+Voting,quantity 100,static-arguments,10429186,21419,215
+Certifying,register credential,baseline,3361377,11854,347
+Certifying,register credential,static-arguments,3361377,11854,347
+Certifying,unregister after expiration,baseline,7491645,23491,347
+Certifying,unregister after expiration,static-arguments,7491645,23491,347
+Certifying,delegate to abstain,baseline,5390296,18316,347
+Certifying,delegate to abstain,static-arguments,5390296,18316,347
+Certifying,register+delegate to abstain,baseline,5506629,18717,347
+Certifying,register+delegate to abstain,static-arguments,5506629,18717,347
+Certifying,register no deposit,baseline,3361377,11854,347
+Certifying,register no deposit,static-arguments,3361377,11854,347
+Certifying,unregister boundary -1 inclusive=false,baseline,7154192,21391,347
+Certifying,unregister boundary -1 inclusive=false,static-arguments,7154192,21391,347
+Certifying,unregister boundary -1 inclusive=true,baseline,7155645,21391,347
+Certifying,unregister boundary -1 inclusive=true,static-arguments,7155645,21391,347
+Certifying,unregister boundary 0 inclusive=false,baseline,7490192,23491,347
+Certifying,unregister boundary 0 inclusive=false,static-arguments,7490192,23491,347
+Certifying,unregister boundary 0 inclusive=true,baseline,7155645,21391,347
+Certifying,unregister boundary 0 inclusive=true,static-arguments,7155645,21391,347
+Certifying,unregister boundary 1 inclusive=false,baseline,7490192,23491,347
+Certifying,unregister boundary 1 inclusive=false,static-arguments,7490192,23491,347
+Certifying,unregister boundary 1 inclusive=true,baseline,7491645,23491,347
+Certifying,unregister boundary 1 inclusive=true,static-arguments,7491645,23491,347
+Certifying,unregister negative infinity,baseline,3370499,1196,347
+Certifying,unregister negative infinity,static-arguments,3370499,1196,347
+Certifying,unregister positive infinity,baseline,6510832,20497,347
+Certifying,unregister positive infinity,static-arguments,6510832,20497,347
+Certifying,invalid delegate 2/0,baseline,2590296,816,347
+Certifying,invalid delegate 2/0,static-arguments,2590296,816,347
+Certifying,invalid delegate 2/1,baseline,2183664,717,347
+Certifying,invalid delegate 2/1,static-arguments,2183664,717,347
+Certifying,invalid delegate 2/2,baseline,2537963,815,347
+Certifying,invalid delegate 2/2,static-arguments,2537963,815,347
+Certifying,invalid delegate 2/3,baseline,2235997,718,347
+Certifying,invalid delegate 2/3,static-arguments,2235997,718,347
+Certifying,invalid delegate 3/0,baseline,2642629,817,347
+Certifying,invalid delegate 3/0,static-arguments,2642629,817,347
+Certifying,invalid delegate 3/1,baseline,2235997,718,347
+Certifying,invalid delegate 3/1,static-arguments,2235997,718,347
+Certifying,invalid delegate 3/2,baseline,2590296,816,347
+Certifying,invalid delegate 3/2,static-arguments,2590296,816,347
+Certifying,invalid delegate 3/3,baseline,2288330,719,347
+Certifying,invalid delegate 3/3,static-arguments,2288330,719,347
+Certifying,unsupported certificate 4,baseline,1710376,557,347
+Certifying,unsupported certificate 4,static-arguments,1710376,557,347
+Certifying,unsupported certificate 5,baseline,1710376,557,347
+Certifying,unsupported certificate 5,static-arguments,1710376,557,347
+Certifying,unsupported certificate 6,baseline,1710376,557,347
+Certifying,unsupported certificate 6,static-arguments,1710376,557,347
+Certifying,unsupported certificate 7,baseline,1710376,557,347
+Certifying,unsupported certificate 7,static-arguments,1710376,557,347
+Certifying,unsupported certificate 8,baseline,1710376,557,347
+Certifying,unsupported certificate 8,static-arguments,1710376,557,347
+Certifying,unsupported certificate 9,baseline,1710376,557,347
+Certifying,unsupported certificate 9,static-arguments,1710376,557,347
+Certifying,unsupported certificate 10,baseline,1710376,557,347
+Certifying,unsupported certificate 10,static-arguments,1710376,557,347
+Certifying,wrong purpose,baseline,794708,389,347
+Certifying,wrong purpose,static-arguments,794708,389,347
+Vesting,full withdrawal after vesting,baseline,34064775,102737,945
+Vesting,full withdrawal after vesting,static-arguments,33760775,100837,921
+Vesting,partial withdrawal midpoint,baseline,47191738,131598,945
+Vesting,partial withdrawal midpoint,static-arguments,46695738,128498,921
+Vesting,second partial withdrawal,baseline,47191738,131598,945
+Vesting,second partial withdrawal,static-arguments,46695738,128498,921
+Vesting,full withdrawal at end,baseline,34580866,103942,945
+Vesting,full withdrawal at end,static-arguments,34276866,102042,921
+Vesting,small withdrawal early,baseline,47191738,131598,945
+Vesting,small withdrawal early,static-arguments,46695738,128498,921
+Vesting,third partial drains,baseline,34064775,102737,945
+Vesting,third partial drains,static-arguments,33760775,100837,921
+Vesting,odd division partial,baseline,47191738,131598,945
+Vesting,odd division partial,static-arguments,46695738,128498,921
+Vesting,multi beneficiary outputs,baseline,38875401,118005,945
+Vesting,multi beneficiary outputs,static-arguments,38523401,115805,921
+Vesting,zero fee,baseline,34064775,102737,945
+Vesting,zero fee,static-arguments,33760775,100837,921
+Vesting,quarter vested,baseline,47191738,131598,945
+Vesting,quarter vested,static-arguments,46695738,128498,921
+Vesting,ninety percent,baseline,47191738,131598,945
+Vesting,ninety percent,static-arguments,46695738,128498,921
+Vesting,not signed,baseline,6421366,21256,945
+Vesting,not signed,static-arguments,6421366,21256,921
+Vesting,wrong amount,baseline,17782573,43161,945
+Vesting,wrong amount,static-arguments,17782573,43161,921
+Vesting,under claiming,baseline,17782573,43161,945
+Vesting,under claiming,static-arguments,17782573,43161,921
+Vesting,wrong beneficiary output,baseline,31276442,85636,945
+Vesting,wrong beneficiary output,static-arguments,31276442,85636,921
+Vesting,partial wrong datum,baseline,46439738,126898,945
+Vesting,partial wrong datum,static-arguments,46439738,126898,921
+Vesting,partial no output,baseline,37269318,105932,945
+Vesting,partial no output,static-arguments,37269318,105932,921
+Vesting,before vesting,baseline,17311984,43153,945
+Vesting,before vesting,static-arguments,17311984,43153,921
+Vesting,odd division off by one,baseline,17782573,43161,945
+Vesting,odd division off by one,static-arguments,17782573,43161,921
+Vesting,zero duration division,baseline,17629032,43158,945
+Vesting,zero duration division,static-arguments,17629032,43158,921

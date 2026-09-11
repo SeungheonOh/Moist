@@ -1,0 +1,13 @@
+mir
+  opt
+    unit
+      soundness-audit
+14,400 new-pass/production comparisons, native results and Lean CEK traces.
+        ok: all_new_passes_and_option_combinations_generated_terms
+        ok: higher_order_recursive_result_summaries
+        ok: closure_contexts_and_repeated_aliases
+        ok: partial_builtin_states_preserve_validation_timing
+        ok: constant_case_branch_counts
+        ok: folding_native_boundary_equivalence
+
+6 passed, 0 failed

@@ -1,0 +1,162 @@
+⚠ [93/383] Replayed Moist.Verified.BetaValueRefines
+warning: Moist/Verified/BetaValueRefines.lean:3062:50: unused variable `h_σ`
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: Moist/Verified/BetaValueRefines.lean:4466:5: unused variable `h`
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: Moist/Verified/BetaValueRefines.lean:4487:5: unused variable `h`
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: Moist/Verified/BetaValueRefines.lean:4494:5: unused variable `h`
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+warning: Moist/Verified/BetaValueRefines.lean:4496:22: unused variable `hlen`
+
+Note: This linter can be disabled with `set_option linter.unusedVariables false`
+ℹ [133/383] Replayed Moist.Plutus.Encode
+info: Moist/Plutus/Encode.lean:82:0: "000000010000001001101000011010010000000000000001"
+info: Moist/Plutus/Encode.lean:348:0: "0500023371C911071A5F783625EE8C004838B40181"
+⚠ [233/383] Replayed Moist.Verified.InlineSoundness.Preservation
+warning: Moist/Verified/InlineSoundness/Preservation.lean:1088:21: This simp argument is unused:
+  StateT.bind
+
+Hint: Omit it from the simp argument list.
+  simp only [bind,̵ ̵S̵t̵a̵t̵e̵T̵.̵b̵i̵n̵d̵] at hw
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+warning: Moist/Verified/InlineSoundness/Preservation.lean:1578:21: This simp argument is unused:
+  StateT.bind
+
+Hint: Omit it from the simp argument list.
+  simp only [bind,̵ ̵S̵t̵a̵t̵e̵T̵.̵b̵i̵n̵d̵]
+
+Note: This linter can be disabled with `set_option linter.unusedSimpArgs false`
+ℹ [327/383] Replayed Moist.Plutus.Decode
+info: Moist/Plutus/Decode.lean:407:0: Moist.Plutus.Term.Program.Program
+  Version 1.0.0
+  (Moist.Plutus.Term.Term.Constant
+    (Moist.Plutus.Term.Const.ConstList
+       [Moist.Plutus.Term.Const.ConstList [Moist.Plutus.Term.Const.Integer 0],
+        Moist.Plutus.Term.Const.ConstList
+          [Moist.Plutus.Term.Const.Integer 0, Moist.Plutus.Term.Const.Integer 1, Moist.Plutus.Term.Const.Integer 2],
+        Moist.Plutus.Term.Const.ConstList
+          [Moist.Plutus.Term.Const.Integer 4, Moist.Plutus.Term.Const.Integer 5, Moist.Plutus.Term.Const.Integer 2]],
+     Moist.Plutus.Term.BuiltinType.TypeOperator
+       (Moist.Plutus.Term.TypeOperator.TypeList
+         (Moist.Plutus.Term.BuiltinType.TypeOperator
+           (Moist.Plutus.Term.TypeOperator.TypeList (Moist.Plutus.Term.BuiltinType.AtomicType Integer))))))
+info: Moist/Plutus/Decode.lean:408:0: Moist.Plutus.Term.Program.Program
+  Version 1.0.0
+  (Moist.Plutus.Term.Term.Constant
+    (Moist.Plutus.Term.Const.ConstList
+       [Moist.Plutus.Term.Const.ConstList [Moist.Plutus.Term.Const.Integer 0],
+        Moist.Plutus.Term.Const.ConstList
+          [Moist.Plutus.Term.Const.Integer 0, Moist.Plutus.Term.Const.Integer 1, Moist.Plutus.Term.Const.Integer 2],
+        Moist.Plutus.Term.Const.ConstList
+          [Moist.Plutus.Term.Const.Integer 4, Moist.Plutus.Term.Const.Integer 5, Moist.Plutus.Term.Const.Integer 2]],
+     Moist.Plutus.Term.BuiltinType.TypeOperator
+       (Moist.Plutus.Term.TypeOperator.TypeList
+         (Moist.Plutus.Term.BuiltinType.TypeOperator
+           (Moist.Plutus.Term.TypeOperator.TypeList (Moist.Plutus.Term.BuiltinType.AtomicType Integer))))))
+info: Moist/Plutus/Decode.lean:409:0: "0100004BD6F583006010282308854101"
+info: Moist/Plutus/Decode.lean:410:0: true
+info: Moist/Plutus/Decode.lean:412:0: false
+ℹ [382/383] Replayed Test.MIR.Opt.FormalAxioms
+info: Test/MIR/Opt/FormalAxioms.lean:107:0: 'Moist.Verified.AdvancedRefinement.finite_join_refines' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:108:0: 'Moist.Verified.MIR.packApplications_refines' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:109:0: 'Moist.Verified.MIR.finish_default_refines' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:110:0: 'Moist.Verified.MIR.packApplications_recursive_eq' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:111:0: 'Moist.Verified.MIR.packApplications_unique' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:112:0: 'Moist.Verified.MIR.Hygiene.uniqueOptimizationBinders_refines' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:113:0: 'Moist.Verified.MIR.Hygiene.uniqueOptimizationBinders_lower' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:114:0: 'Test.MIR.Opt.ListShapeCertificates.annotation_only_list_fusion_not_refines' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:115:0: 'Moist.Verified.MIR.eliminateDeadFix_refines' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:116:0: 'Moist.Verified.BuiltinState.builtinRemainder_returns' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:117:0: 'Moist.Verified.BuiltinState.isTotalPreLowerValue_halts' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:118:0: 'Moist.Verified.BuiltinState.isTotalPreLowerValue_no_error' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:119:0: 'Moist.Verified.BuiltinState.isCallableValue_returns' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:120:0: 'Moist.Verified.InlineSoundness.Totality.lowerTotal_total' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:121:0: 'Moist.Verified.InlineSoundness.Totality.TotalTerm.subst_halts' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:122:0: 'Moist.Verified.InlineSoundness.Frontier.inlineGate_evaluationPath' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:123:0: 'Moist.Verified.InlineSoundness.Frontier.evaluationPath_subst_errors' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:124:0: 'Moist.Verified.InlineSoundness.Frontier.beta_evaluationPath_ctxRefines' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:125:0: 'Test.MIR.Opt.StrictFrontier.evaluation_path_rejects_divergent_predecessor' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:126:0: 'Moist.Verified.MIR.InlineGate_impure_frontier' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:127:0: 'Moist.Verified.InlineSoundness.Frontier.outcome_of_terminal' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:128:0: 'Moist.Verified.InlineSoundness.Frontier.beta_frontier_ctxRefines' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:129:0: 'Moist.Verified.MIR.rewriteBottomUp_refines' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:130:0: 'Moist.Verified.MIR.rewriteBottomUp_complete' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:131:0: 'Moist.Verified.MIR.foldDataConstructors_refines' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:132:0: 'Moist.Verified.MIR.constantValue_evaluates' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:133:0: 'Moist.Verified.MIR.constantFold_refines' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:134:0: 'Moist.Verified.MIR.constantFoldingSegment_refines' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:135:0: 'Moist.Verified.AdvancedRefinement.contextual_of_uniform_refinement' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:136:0: 'Moist.Verified.AdvancedRefinement.contextual_of_uniform_join' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:137:0: 'Moist.Verified.AdvancedRefinement.fold_mkCons_generic_data' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:138:0: 'Moist.Verified.AdvancedRefinement.fold_mkCons_specialized_data' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:139:0: 'Moist.Verified.AdvancedRefinement.fold_binary_builtin' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:140:0: 'Moist.Verified.AdvancedRefinement.boolean_choice' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:141:0: 'Moist.Verified.AdvancedRefinement.force_case_delay' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:142:0: 'Moist.Verified.AdvancedRefinement.delayed_list_choice_variable' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:143:0: 'Moist.Verified.InlineSoundness.StrictOcc.same_env_beta_single_obsRefines' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:144:0: 'Moist.Verified.InlineSoundness.StrictOcc.same_env_beta_multi_obsRefines' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:145:0: 'Moist.Verified.InlineSoundness.SubstCommute.uplc_beta_single_pure_openRefines' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:146:0: 'Moist.Verified.InlineSoundness.SubstCommute.uplc_beta_multi_pure_openRefines' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:147:0: 'Moist.Verified.MIR.anfNormalize_refines' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:148:0: 'Moist.Verified.MIR.dce_refines' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:149:0: 'Moist.Verified.MIR.inline_refines' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:150:0: 'Moist.Verified.MIR.verifiedOptimize_refines' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:151:0: 'Test.MIR.Opt.BudgetModel.unbounded_budget_exhaustion_is_false' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/FormalAxioms.lean:152:0: 'Test.MIR.Opt.StrictFrontier.strict_occurrence_alone_does_not_refine' depends on axioms: [propext, Quot.sound]
+ℹ [383/383] Replayed Test.MIR.Opt.AdvancedAxioms
+info: Test/MIR/Opt/AdvancedAxioms.lean:3:0: 'Moist.Verified.AdvancedRedexes.force_case_delay' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:4:0: 'Moist.Verified.AdvancedRedexes.boolean_choice' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:5:0: 'Moist.Verified.AdvancedRedexes.list_cons_fusion' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:6:0: 'Moist.Verified.AdvancedRedexes.list_nil_fusion' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:7:0: 'Moist.Verified.AdvancedRedexes.pack_three_literal_arguments' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:8:0: 'Moist.Verified.AdvancedRedexes.fold_binary_builtin' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:9:0: 'Moist.Verified.AdvancedRedexes.add_integer_zero' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:10:0: 'Moist.Verified.AdvancedRedexes.multiply_integer_one' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:11:0: 'Moist.Verified.AdvancedRedexes.checked_integer_round_trip' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:12:0: 'Moist.Verified.AdvancedRedexes.checked_bytes_round_trip' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:13:0: 'Moist.Verified.AdvancedRedexes.checked_list_round_trip' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:14:0: 'Moist.Verified.AdvancedRedexes.checked_map_round_trip' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:15:0: 'Moist.Verified.AdvancedRedexes.repeated_boolean_case' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:16:0: 'Moist.Verified.AdvancedRedexes.native_pair_first' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:17:0: 'Moist.Verified.AdvancedRedexes.native_pair_second' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:18:0: 'Moist.Verified.AdvancedRedexes.list_choice_cons' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:19:0: 'Moist.Verified.AdvancedRedexes.list_choice_nil' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:20:0: 'Moist.Verified.AdvancedRedexes.delayed_data_list_choice' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:21:0: 'Moist.Verified.AdvancedRedexes.delayed_generic_list_choice' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:22:0: 'Moist.Verified.AdvancedRedexes.delayed_list_choice_value' depends on axioms: [propext, Quot.sound]
+info: Test/MIR/Opt/AdvancedAxioms.lean:23:0: 'Moist.Verified.AdvancedRedexes.checked_nonempty_list_fusion' depends on axioms: [propext, Quot.sound]
+Build completed successfully (383 jobs).

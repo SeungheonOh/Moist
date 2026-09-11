@@ -1,0 +1,551 @@
+mir
+  anf
+    golden
+      ok: atom_var
+      ok: atom_lit
+      ok: atom_builtin
+      ok: atom_error
+      ok: app_atomic
+      ok: app_nonatomic_fun
+      ok: app_nonatomic_arg
+      ok: app_both_nonatomic
+      ok: force_nonatomic
+      ok: constr_mixed
+      ok: case_nonatomic_scrut
+      ok: case_nonatomic_alts
+      ok: let_nonatomic_rhs
+      ok: lam_body
+      ok: fix_body
+      ok: delay_body
+      ok: nested_app_chain
+      ok: ifthenelse_pattern
+      ok: let_multi_bind
+      ok: factorial
+      ok: idempotency_app
+      ok: idempotency_factorial
+    unit
+      ok: atoms
+      ok: app_atomic
+      ok: app_nonatomic_fun
+      ok: app_nonatomic_arg
+      ok: app_both_nonatomic
+      ok: force_atomic
+      ok: force_nonatomic
+      ok: constr_atomic
+      ok: constr_one_nonatomic
+      ok: constr_multi_nonatomic
+      ok: case_atomic_scrut
+      ok: case_nonatomic_scrut
+      ok: case_normalize_alts
+      ok: let_normalize_rhs
+      ok: let_normalize_body
+      ok: let_multi_bind
+      ok: lam_normalize_body
+      ok: fix_normalize_body
+      ok: delay_normalize
+      ok: nested_app_chain
+      ok: idempotent
+      ok: idempotent_complex
+      ok: factorial
+      ok: noSelfRef_after_normalize
+      ok: let_empty_binds
+      ok: constr_no_args
+  opt
+    golden
+      float
+        ok: opt_float_mixed
+        ok: opt_float_all
+        ok: opt_float_seq_dep
+        ok: opt_float_fix
+        ok: opt_float_noop
+      cse
+        ok: opt_cse_dup_app
+        ok: opt_cse_triple
+        ok: opt_cse_propagate
+        ok: opt_cse_noop
+      dce
+        ok: opt_dce_pure_unused
+        ok: opt_dce_transitive
+        ok: opt_dce_impure_kept
+        ok: opt_dce_mixed
+        ok: opt_dce_error_kept
+      fd
+        ok: opt_fd_direct
+        ok: opt_fd_through_let
+        ok: opt_fd_multi_force
+        ok: opt_fd_mixed_noop
+        ok: opt_fd_rest_binding
+      inline
+        ok: opt_inline_atom
+        ok: opt_inline_small_lam
+        ok: opt_inline_large_single
+        ok: opt_inline_large_fix
+        ok: opt_inline_beta
+        ok: opt_inline_chain
+      cm
+        ok: opt_cm_basic
+        ok: opt_cm_two_ctors
+        ok: opt_cm_noop
+        ok: opt_cm_absorb
+      eta
+        ok: opt_eta_simple
+        ok: opt_eta_multi
+        ok: opt_eta_partial
+        ok: opt_eta_noop
+        ok: opt_eta_order_mismatch
+      beta
+        ok: opt_beta_atomic
+        ok: opt_beta_nonatomic
+        ok: opt_beta_nested
+        ok: opt_beta_noop
+      pipe
+        ok: opt_pipe_simple
+        ok: opt_pipe_fd_chain
+        ok: opt_pipe_cascade
+        ok: opt_pipe_inline_beta
+        ok: opt_pipe_nested_let
+        ok: opt_pipe_ifthenelse
+        ok: opt_pipe_factorial
+        ok: opt_pipe_fd_dce
+        ok: opt_pipe_already_optimal
+        ok: opt_pipe_shared_prefix
+        ok: opt_pipe_no_inline_across_fix
+        ok: opt_pipe_case_merge
+        ok: opt_pipe_eta
+        ok: opt_pipe_impure_deferred
+        ok: opt_pipe_beta_cse
+    unit
+      isPure
+        ok: isPure
+      exprStructEq
+        ok: exprStructEq
+      lookupStructEq
+        ok: lookupStructEq
+      allUsesAreForce
+        ok: allUsesAreForce
+      occursUnderFix
+        ok: occursUnderFix
+      shouldInline
+        ok: shouldInline
+      floatOut
+        ok: leaves_unchanged
+        ok: float_pure_out_of_lam
+        ok: float_pure_var_out_of_lam
+        ok: float_mentions_binder
+        ok: float_pure_mentions_binder
+        ok: float_impure_app_stays
+        ok: float_total_builtin_out
+        ok: float_pure_force_out
+        ok: float_mixed_partition
+        ok: float_all_float
+        ok: float_all_stay
+        ok: float_seq_dep_stay
+        ok: float_seq_dep_chain
+        ok: float_seq_pure_chain_floats
+        ok: float_fix_pure
+        ok: float_fix_mentions_binder
+        ok: float_body_not_let
+        ok: float_body_app
+        ok: float_inside_delay_at_lam
+        ok: float_recurse_app
+        ok: float_recurse_force
+        ok: float_recurse_constr
+        ok: float_recurse_let_rhs
+        ok: float_recurse_let_body
+        ok: float_recurse_case_alt
+        ok: float_case_pure_binding
+        ok: float_case_impure_stays
+        ok: float_case_mixed
+        ok: float_case_multi_alt
+        ok: float_empty_let
+      cse
+        ok: cse_dup_app
+        ok: cse_no_dup
+        ok: cse_triple_dup
+        ok: cse_dup_var
+        ok: cse_dup_delay
+        ok: cse_dup_constr
+        ok: cse_dup_renames_rest
+        ok: cse_single_binding
+        ok: cse_recurse_lam
+        ok: cse_recurse_fix
+        ok: cse_recurse_let_rhs
+        ok: cse_recurse_case_alt
+        ok: cse_recurse_delay
+        ok: cse_recurse_app
+        ok: cse_cross_scope_nested_let
+        ok: cse_cross_scope_case_alt
+        ok: cse_cross_scope_lam
+        ok: cse_lam_shadows_seen_rhs
+        ok: cse_atom_var
+      dce
+        ok: dce_unused_pure
+        ok: dce_unused_pure_extended
+        ok: dce_impure_error
+        ok: dce_used_kept
+        ok: dce_transitive_2
+        ok: dce_transitive_3
+        ok: dce_transitive_used
+        ok: dce_mixed_remove_end
+        ok: dce_remove_middle
+        ok: dce_all_dead
+        ok: dce_empty_bindings
+        ok: dce_recurse
+        ok: dce_recurse_let_rhs
+        ok: dce_leaves_unchanged
+      forceDelay
+        ok: fd_direct
+        ok: fd_post_recursion
+        ok: fd_through_let_single
+        ok: fd_through_let_multi_force
+        ok: fd_through_let_mixed
+        ok: fd_through_let_in_rest
+        ok: fd_through_let_shadow
+        ok: fd_non_delay_binding
+        ok: fd_force_no_cancel
+        ok: fd_recurse
+        ok: fd_leaves_unchanged
+        ok: fd_let_rhs_simplify
+      inlinePass
+        ok: inline_atom_var
+        ok: inline_atom_var_multi
+        ok: inline_atom_lit
+        ok: inline_atom_builtin
+        ok: inline_small_lam_dup
+        ok: inline_small_delay
+        ok: inline_large_0_occ
+        ok: inline_large_1_no_fix
+        ok: inline_large_1_under_fix
+        ok: inline_large_2_occ
+        ok: inline_nonval_0_occ
+        ok: inline_nonval_1_no_fix
+        ok: inline_nonval_force
+        ok: inline_nonval_case
+        ok: inline_nonval_1_under_fix
+        ok: inline_nonval_2_occ
+        ok: inline_expensive_across_fix
+        ok: inline_beta_atom
+        ok: inline_beta_lit
+        ok: inline_beta_nonatomic
+        ok: inline_beta_non_lam
+        ok: inline_multi_cascade
+        ok: inline_chain_atoms
+        ok: inline_occ_count_rest
+        ok: inline_recurse_lam
+        ok: inline_recurse_fix
+        ok: inline_recurse_delay
+        ok: inline_recurse_force
+        ok: inline_recurse_constr
+        ok: inline_recurse_case_scrut
+        ok: inline_recurse_case_alt
+        ok: inline_capture_avoid
+        ok: inline_leaves_unchanged
+      pipeline
+        ok: pipe_trivial
+        ok: pipe_identity
+        ok: pipe_atom_cascade
+        ok: pipe_force_delay_doc
+        ok: pipe_cse_dce
+        ok: pipe_float_cse
+        ok: pipe_inline_beta
+        ok: pipe_nested_let
+        ok: pipe_idempotent_factorial
+PASS: pipe_factorial
+PASS: pipe_atom_chain
+PASS: pipe_force_delay
+PASS: pipe_cse_target
+        ok: pipe_various_inputs
+PASS: pipe_factorial
+        ok: pipe_factorial
+        ok: pipe_inline_before_fd
+        ok: pipe_inline_impure_partial_under_delay
+        ok: pipe_beta_exposes_inline_in_recursive_delay_branch
+        ok: pipe_cse_before_inline
+        ok: pipe_fd_dce_chain
+        ok: pipe_no_inline_across_fix
+        ok: pipe_shared_prefix
+        ok: pipe_shared_prefix_anf
+      caseMerge
+        ok: cm_basic_two_cases
+        ok: cm_two_ctors
+        ok: cm_different_scrutinees
+        ok: cm_single_case
+        ok: cm_bindings_between
+        ok: cm_bindings_before
+        ok: cm_scrutinee_shadowed
+        ok: cm_known_ctor_resolution
+        ok: cm_triple_case
+        ok: cm_non_case_first
+        ok: cm_recurse_lam
+        ok: cm_recurse_fix
+        ok: cm_recurse_let_rhs
+        ok: cm_leaves_unchanged
+        ok: cm_non_var_scrutinee
+      etaReduce
+        ok: eta_simple
+        ok: eta_multi_arg
+        ok: eta_three_args
+        ok: eta_no_reduce_unused_param
+        ok: eta_partial_trailing
+        ok: eta_arg_order_mismatch
+        ok: eta_Validated 144 adversarial guard comparisons.
+Validated 490 native scalar cases and 96 native data guards.
+Validated 120 native byte/string cases.
+Validated 624 native policy shape comparisons.
+Validated 129024 candidate comparisons, including traces.
+not_simple_pattern
+        ok: eta_lam_head
+        ok: eta_captured_in_head
+        ok: eta_partial_one_layer
+        ok: eta_body_not_app
+        ok: eta_body_literal
+        ok: eta_recurse_fix
+        ok: eta_recurse_let_rhs
+        ok: eta_recurse_let_body
+        ok: eta_recurse_case_alt
+        ok: eta_recurse_app_fn
+        ok: eta_recurse_delay
+        ok: eta_recurse_constr
+        ok: eta_leaves_unchanged
+      betaReduce
+        ok: beta_atomic_var
+        ok: beta_atomic_lit
+        ok: beta_atomic_builtin
+        ok: beta_nonatomic
+        ok: beta_nonatomic_complex_body
+        ok: beta_non_lam_head
+        ok: beta_nested
+        ok: beta_inside_lam
+        ok: beta_inside_fix
+        ok: beta_inside_force
+        ok: beta_inside_delay
+        ok: beta_inside_constr
+        ok: beta_inside_case_scrut
+        ok: beta_inside_case_alt
+        ok: beta_inside_let_rhs
+        ok: beta_inside_let_body
+        ok: beta_leaves_unchanged
+        ok: beta_curried
+      soundness
+        ok: alpha_equivalence_distinguishes_origins
+        ok: eta_preserves_noncommutative_argument_order
+        ok: eta_does_not_evaluate_a_deferred_error
+        ok: eta_does_not_turn_a_lambda_into_a_delay
+        ok: eta_does_not_assume_unknown_heads_are_functions
+        ok: eta_preserves_partial_application_laziness
+        ok: eta_preserves_fix_outer_lambda
+        ok: eta_still_reduces_safe_builtin_and_lambda_heads
+        ok: case_fields_are_not_inferred_from_lambda_count
+        ok: case_constructor_arity_matrix
+        ok: case_preserves_eager_fields_and_missing_branch_errors
+        ok: case_preserves_constant_alternative_limits
+        ok: case_specializes_known_constructors
+        ok: case_does_not_specialize_unknown_constructor_arity
+        ok: force_delay_preserves_captured_environment
+        ok: sequential_shadowing_preserves_binding_identity
+        ok: substitution_alpha_renaming_stops_at_sequential_shadowing
+        ok: rename_many_is_simultaneous
+        ok: cse_does_not_capture_its_replacement
+        ok: float_out_preserves_recursive_function_shape
+        ok: float_out_does_not_capture_other_alternatives
+        ok: lowering_reserves_fresh_generated_identifiers
+        ok: inlining_preserves_trace_order
+        ok: inlining_does_not_move_errors_past_traces
+        ok: inlining_does_not_move_errors_past_divergence
+        ok: cse_preserves_direct_and_aliased_traces
+        ok: cse_still_shares_nonlogging_builtin_calls
+        ok: trace_and_normal_pipeline_agree
+      differential
+18,432 differential pass/context comparisons passed (256 deterministic seeds).
+        ok: deterministic_closed_terms
+      production
+        ok: checked_arithmetic_runtime_inputs
+        ok: checked_data_round_trips_runtime_inputs
+        ok: arithmetic_annihilators_preserve_strict_effects
+        ok: checked_value_facts_respect_shadowing
+        ok: boolean_facts_remain_branch_local
+        ok: checked_optimizations_reduce_runtime_cost
+        ok: adversarial_guards
+        ok: native_builtin_and_projection_conformance
+        ok: native_policy_shape_matrix
+        ok: generated_production_and_pass_compositions
+        ok: all_profiles_checked_data_and_traces
+        ok: typed_data_constructors_and_empty_lists
+        ok: recursive_and_shadowed_functions
+        ok: case_specialization_preserves_composite_types
+        ok: trace_matches_actual_optimizer
+        ok: late_passes_survive_lowering
+        ok: frontend_options_reach_final_lowering
+        ok: free_variables_remain_compilation_errors
+        ok: invalid_fix_bodies_remain_compilation_errors
+        ok: recursive_divergence_does_not_become_error_or_value
+      structural
+        ok: pair_projection_runtime_types
+        ok: pair_unboxing_scope_and_effects
+        ok: pair_builtin_aliases_and_mkpair
+        ok: shared_pair_functions_do_not_gain_allocation_cost
+        ok: list_branch_fusion_runtime_types
+        ok: list_branch_fusion_preserves_empty_errors_and_shadowing
+        ok: frozen_validator_results_and_resource_costs
+        ok: frozen_policies_reject_malformed_runtime_shapes
+        ok: partial_builtin_inlining_retains_protocol_and_effects
+        ok: generated_structural_compositions
+      recursion
+        ok: static_arguments_preserve_effects_and_partial_applications
+        ok: static_argument_guards_and_hygiene
+        ok: boolean_summary_rejects_parameter_specialization_and_arity
+        ok: generated_recursive_return_shapes
+        ok: divergent_workers_remain_divergent
+      checked-branches
+        ok: unknown_inputs_keep_runtime_validation
+        ok: strict_arguments_and_builtin_protocol
+        ok: effects_failures_and_projection_order
+        ok: aliases_shadowing_and_captured_facts
+        ok: recursive_traversals
+        ok: delays_partial_selectors_and_divergence
+      soundness-audit
+14,400 new-pass/production comparisons, native results and Lean CEK traces.
+        ok: all_new_passes_and_option_combinations_generated_terms
+        ok: higher_order_recursive_result_summaries
+        ok: closure_contexts_and_repeated_aliases
+        ok: partial_builtin_states_preserve_validation_timing
+        ok: constant_case_branch_counts
+        ok: folding_native_boundary_equivalence
+      formal-coverage
+        ok: production_inline_rejects_divergent_predecessor
+        ok: data_folding_preserves_reference_list_representation
+        ok: data_folding_preserves_representation_in_all_pipelines
+        ok: data_folding_keeps_native_encoding_identical
+  lower
+    golden
+      ok: lower_var
+      ok: lower_lit
+      ok: lower_builtin
+      ok: lower_error
+      ok: lower_app
+      ok: lower_force_delay
+      ok: lower_constr
+      ok: lower_case
+      ok: lower_let_atom_var
+      ok: lower_let_atom_lit
+      ok: lower_let_atom_builtin
+      ok: lower_let_single_use_lam
+      ok: lower_let_single_use_delay
+      ok: lower_let_dead_pure
+      ok: lower_let_impure_kept
+      ok: lower_let_multi_use
+      ok: lower_let_mixed
+      ok: lower_fix_lam
+      ok: lower_factorial
+      ok: lower_unbound
+      ok: lower_let_chain
+      ok: lower_data_deconstruct
+  eval
+    comparison
+      ok: upstream_scenarios_and_boundaries
+      ok: generated_voting_search
+      ok: generated_vesting_states
+      ok: malformed_context_differential
+      ok: invalid_expiration_parameter
+      ok: default_resource_regressions
+      ok: frozen_real_validator_resource_regressions
+      ok: checked_branch_checkpoint_resource_regressions
+    golden
+      ok: eval_lit
+      ok: eval_add
+      ok: eval_identity
+      ok: eval_equals_true
+      ok: eval_equals_false
+      ok: eval_ifthenelse
+      ok: eval_multiply
+      ok: eval_subtract
+      ok: eval_nested_let
+      ok: eval_lam_app
+      ok: eval_factorial
+      ok: eval_error
+    compile
+      sop
+        ok: sop_construct_foo
+        ok: sop_construct_a
+        ok: sop_foo_extract
+        ok: sop_struct_access
+      data
+        ok: data_construct_bar
+        ok: data_construct_baz_bar
+        ok: data_construct_baz_baz
+        ok: data_match_bar
+        ok: data_match_baz
+        ok: data_match_aaa
+        ok: data_match_foo
+        ok: data_match_qux
+        ok: data_nested_match
+      recursion
+        ok: factorial_1
+        ok: factorial_5
+        ok: factorial_10
+      abbrev
+        ok: abbrev_construct_payment
+        ok: abbrev_construct_action_pay
+        ok: abbrev_construct_action_empty
+        ok: abbrev_construct_nested
+        ok: abbrev_construct_time
+        ok: abbrev_extract_lovelace
+        ok: abbrev_match_action_pay
+        ok: abbrev_match_action_empty
+        ok: abbrev_extract_posixtime
+      tree
+        ok: tree_sum_leaf
+        ok: tree_sum_small
+        ok: tree_sum_big
+    policy
+      ctx
+        ok: mint_ctx
+        ok: spend_ctx
+      always
+        ok: always_mint_ok
+        ok: always_mint_spend
+      redeemer_gate
+        ok: rdm_gate_ok
+        ok: rdm_gate_wrong
+        ok: rdm_gate_spend
+      cs_check
+        ok: cs_match
+        ok: cs_mismatch
+        ok: cs_spend
+      nft
+        ok: nft_ok
+        ok: nft_bad_redeemer
+        ok: nft_spend
+        ok: nft_wrong_idx
+  analysis
+    unit
+      isAtom
+        ok: isAtom
+      isValue
+        ok: isValue
+      freeVars
+        ok: basic
+        ok: lam
+        ok: app
+        ok: fix
+        ok: let_sequential
+        ok: let_forward_ref
+      noSelfRef
+        ok: noSelfRef
+      countOccurrences
+        ok: basic
+        ok: shadowed_lam
+        ok: let_before_shadow
+        ok: let_no_shadow
+      exprSize
+        ok: exprSize
+      isANF
+        ok: valid
+        ok: invalid
+      uncurryApp
+        ok: uncurryApp
+      isClosed_fixIsRecursive
+        ok: isClosed
+        ok: fixIsRecursive
+
+470 passed, 0 failed

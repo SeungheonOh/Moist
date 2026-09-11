@@ -1,0 +1,11 @@
+=== plift tests ===
+plift 42 = 42
+plift (10 + 20) = 30
+plift true = true
+plift "hello" = hello
+plift () = ()
+plift (7 * 6) = 42
+plift (if true then 1 else 0) = 1
+plift (int→data→int 99) = 99
+plift sum [1,2,3] = 6
+all plift tests passed

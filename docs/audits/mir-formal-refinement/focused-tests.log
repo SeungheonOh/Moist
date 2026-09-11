@@ -1,0 +1,10 @@
+mir
+  opt
+    unit
+      formal-coverage
+        ok: production_inline_rejects_divergent_predecessor
+        ok: data_folding_preserves_reference_list_representation
+        ok: data_folding_preserves_representation_in_all_pipelines
+        ok: data_folding_keeps_native_encoding_identical
+
+4 passed, 0 failed

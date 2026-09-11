@@ -1,0 +1,8 @@
+        FAIL: data_folding_preserves_reference_list_representation
+FAIL: Data folding changed reference semantics: ("(con integer 9)", []) != ("failure", [])
+mir
+  opt
+    unit
+      formal-coverage
+
+0 passed, 1 failed
