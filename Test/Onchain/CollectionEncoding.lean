@@ -11,6 +11,13 @@ open Moist.Plutus.Term
 open Test.Framework
 
 @[onchain] def encodeInteger : Int → Data := PlutusData.toData
+@[onchain] def negateInteger (value : Int) : Int := subtractInteger 0 value
+@[onchain] def proofWrapper (value : Int) : Int :=
+  let wrapped : { value : Int // True } := ⟨value, True.intro⟩
+  wrapped.val
+@[onchain] def mapIntegers (datum : Data) : Data :=
+  let values : List Int := PlutusData.unsafeFromData datum
+  PlutusData.toData (values.map (fun value => subtractInteger 0 value))
 @[onchain] def decodeInteger : Data → Int := PlutusData.unsafeFromData
 @[onchain] def roundtripBytes (datum : Data) : Data :=
   PlutusData.toData (PlutusData.unsafeFromData datum : ByteString)
@@ -51,6 +58,11 @@ open Test.Framework
   PlutusData.toData (Moist.Onchain.AssocMap.singleton "key".toUTF8 quantity)
 @[onchain] def emptyAmounts : Data :=
   PlutusData.toData (Moist.Onchain.AssocMap.empty : AssocMap ByteString Int)
+@[onchain] def constantAmounts : Data :=
+  PlutusData.toData (Moist.Onchain.AssocMap.singleton "token".toUTF8 (1 : Int))
+@[onchain] def nestedConstantAmounts (currency : ByteString) : Data :=
+  PlutusData.toData (Moist.Onchain.AssocMap.singleton currency
+    (Moist.Onchain.AssocMap.singleton "token".toUTF8 (1 : Int)))
 @[onchain] def multipleAmounts (datum : Data) : Bool :=
   Moist.Onchain.AssocMap.hasMultiple (PlutusData.unsafeFromData datum : AssocMap ByteString Int)
 @[onchain] def literalAmounts (quantity : Int) : Data :=
@@ -59,6 +71,7 @@ open Test.Framework
 @[onchain] def nativeEntries (map : AssocMap ByteString Int) : List (ByteString × Int) := map.toList
 @[onchain] def dynamicMap (entries : List (ByteString × Int)) : AssocMap ByteString Int := ⟨entries⟩
 @[onchain] def nativeSafeDecoder (datum : Data) : Option Int := PlutusData.fromData datum
+@[onchain] def nativePair (values : List Int) : List Int × List Int := (values, values)
 
 @[onchain] def genericMember [PlutusData value] (wanted : value) : List value → Bool
   | [] => false
@@ -84,8 +97,12 @@ private def rejectsNativeEntries := rejectCodec! nativeEntries "encoded entries"
 private def rejectsDynamicMap := rejectCodec! dynamicMap "encoded entries"
 private def rejectsNativeDecoder := rejectCodec! nativeSafeDecoder "native decoder"
 private def rejectsUnspecializedCodec := rejectCodec! byteMember "Cannot specialize"
+private def rejectsNativePair := rejectCodec! nativePair "Prod.mk requires Data-backed fields"
 
 private def integerEncoder := compile! encodeInteger
+private def integerNegation := compile! negateInteger
+private def integerProofWrapper := compile! proofWrapper
+private def integerMap := compile! mapIntegers
 private def integerDecoder := compile! decodeInteger
 private def bytesRoundtrip := compile! roundtripBytes
 private def listRoundtrip := compile! roundtripList
@@ -99,6 +116,8 @@ private def mapFirst := compile! firstAmount
 private def mapFoldRight := compile! foldRightAmounts
 private def mapSingleton := compile! singletonAmount
 private def mapEmpty := compile! emptyAmounts
+private def mapConstant := compile! constantAmounts
+private def mapNestedConstant := compile! nestedConstantAmounts
 private def mapMultiple := compile! multipleAmounts
 private def mapLiteral := compile! literalAmounts
 
@@ -115,12 +134,17 @@ private def check (term expected : Term) : IO Unit := do
 
 def tests : TestTree := suite "collection_encoding" do
   test "primitive_codec_partial_applications" do
+    for value in [-10, -1, 0, 1, 10] do
+      check (.Apply integerNegation (integerTerm value)) (integerTerm (-value))
+      check (.Apply integerProofWrapper (integerTerm value)) (integerTerm value)
     check (.Apply integerEncoder (integerTerm 42)) (dataTerm (.I 42))
     check (.Apply integerDecoder (dataTerm (.I (-12)))) (integerTerm (-12))
     check (.Apply bytesRoundtrip (dataTerm (.B "bytes".toUTF8))) (dataTerm (.B "bytes".toUTF8))
   test "lists_decode_elements_and_empty_list_types" do
     for values in [[], [1], [-2, 0, 5]] do
       check (.Apply listSum (dataTerm (PlutusData.toData values))) (integerTerm (values.foldl (· + ·) 0))
+      check (.Apply integerMap (dataTerm (PlutusData.toData values)))
+        (dataTerm (PlutusData.toData (values.map fun value => -value)))
     for values in [[], [[]], [[1, -2], [], [3]]] do
       let encoded := PlutusData.toData (values : List (List Int))
       check (.Apply listRoundtrip (dataTerm encoded)) (dataTerm encoded)
@@ -150,6 +174,9 @@ def tests : TestTree := suite "collection_encoding" do
     check (.Apply mapSingleton (integerTerm 7)) (dataTerm (.Map [(.B "key".toUTF8, .I 7)]))
     check (.Apply mapLiteral (integerTerm 7)) (dataTerm (.Map [(.B "key".toUTF8, .I 7)]))
     check mapEmpty (dataTerm (.Map []))
+    check mapConstant (dataTerm (.Map [(.B "token".toUTF8, .I 1)]))
+    check (.Apply mapNestedConstant (.Constant (.ByteString "policy".toUTF8, .AtomicType .TypeByteString)))
+      (dataTerm (.Map [(.B "policy".toUTF8, .Map [(.B "token".toUTF8, .I 1)])]))
     for entries in [[], [first], [first, second], [first, second, duplicate]] do
       check (.Apply mapMultiple (dataTerm (.Map entries))) (booleanTerm (entries.length > 1))
   test "malformed_primitive_and_list_entries_fail" do
@@ -161,7 +188,7 @@ def tests : TestTree := suite "collection_encoding" do
         unless kind == .builtinError || kind == .typeMismatch do
           throw (IO.userError s!"Unexpected failure: {kind}")
   test "unsupported_native_map_views_and_safe_decoder_are_rejected" do
-    unless rejectsNativeEntries && rejectsDynamicMap && rejectsNativeDecoder && rejectsUnspecializedCodec do
+    unless rejectsNativeEntries && rejectsDynamicMap && rejectsNativeDecoder && rejectsUnspecializedCodec && rejectsNativePair do
       throw (IO.userError "Missing representation diagnostic")
 
 end Test.CollectionEncoding

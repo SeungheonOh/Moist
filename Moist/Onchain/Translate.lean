@@ -280,15 +280,16 @@ private partial def reduceProj (e : Lean.Expr) : TranslateM (Option Lean.Expr) :
     else return none
   | _ => return none
 
-/-- Resolve a bvar-free expression to a known builtin by iteratively
+/-- Resolve a bvar-free expression to a known builtin or codec by iteratively
     unfolding definitions and resolving projections. Stops as soon as
-    the head becomes a builtin name. -/
+    the head becomes a compiler-handled primitive. -/
 private partial def resolveToBuiltin (e : Lean.Expr) (fuel : Nat) : TranslateM (Option Lean.Expr) := do
   if fuel == 0 then return none
   let (head, headArgs) := uncurryApp e
   let headName := head.constName?
   if let .const name _ := head then
-    if isBuiltinName name then return some e
+    if isBuiltinName name || name == ``PlutusData.toData || name == ``PlutusData.fromData ||
+        name == ``PlutusData.unsafeFromData || name == ``dataBeq then return some e
   -- If head is a lambda, beta-reduce with available args
   if head.isLambda then
     let e' := e.headBeta
@@ -508,7 +509,53 @@ mutual
   partial def translateApp (e : Lean.Expr) : TranslateM MIR.Expr := do
     -- Check for casesOn/rec patterns before whnf
     let (fn, args) := uncurryApp e
+    if let .lam _ domain body binder := fn then
+      if args.size > 0 then
+        let argument := args[0]!
+        let environment ← getEnv
+        let value := match argument with
+          | .bvar _ | .fvar _ | .lam .. | .lit _ | .sort _ => true
+          | .const name _ => match environment.find? name with
+            | some (.ctorInfo constructor) => constructor.numFields == 0
+            | _ => false
+          | _ => false
+        if value || (← isErasableBinder domain binder) then
+          let reduced := (args.extract 1 args.size).foldl Lean.Expr.app (body.instantiate1 argument)
+          return ← translateExpr reduced
     if let .const name _ := fn then
+      if (lookupBuiltin name).isSome then return ← translateAppDirect e
+      if name == ``Subtype.mk && args.size >= 2 then
+        if args.size >= 3 then return ← translateExpr args[2]!
+        let value ← freshVarId "subtypeValue"
+        return .Lam value (.Var value)
+      if (name == ``List.attach || name == ``List.attachWith) && args.size >= 2 then
+        return ← translateExpr args[1]!
+      if name == ``List.map && args.size >= 2 then
+        let elementType ← match ← leanTypeToBuiltinType args[1]! with
+          | some elementType => pure elementType
+          | none => match ← resolveDataCodec args[1]! with
+            | .ok codec =>
+              if codec.isIdentity then pure (.AtomicType .TypeData)
+              else throwError "List.map result must have a builtin or Data-backed representation"
+            | .error _ => throwError "List.map result must have a builtin or Data-backed representation"
+        let mapping ← freshVarId "mapping"
+        let recurse ← freshVarId "map"
+        let values ← freshVarId "values"
+        let head := .App (mkBuiltin .HeadList) (.Var values)
+        let tail := .App (mkBuiltin .TailList) (.Var values)
+        let cons := .App (.App (mkBuiltin .MkCons) (.App (.Var mapping) head)) (.App (.Var recurse) tail)
+        let body := mkBoolBranch (.App (mkBuiltin .NullList) (.Var values)) (emptyListLit elementType) cons
+        return ← applyOverArgs (.Lam mapping (.Fix recurse (.Lam values body))) args 2
+      if name == ``dataBeq && args.size >= 2 then
+        let codec ← match ← resolveDataCodec args[0]! with
+          | .ok codec => pure codec
+          | .error error => throwError "Cannot specialize dataBeq: {formatDataCompatError error}"
+        let left ← freshVarId "left"
+        let right ← freshVarId "right"
+        let leftData ← encodeToData codec (.Var left)
+        let rightData ← encodeToData codec (.Var right)
+        let body := .Lam left (.Lam right (.App (.App (mkBuiltin .EqualsData) leftData) rightData))
+        return ← applyOverArgs body args 2
       if (name == ``Moist.Plutus.AssocMap.mk || name == ``Moist.Plutus.AssocMap.toList ||
           name == ``Moist.Plutus.AssocMap.casesOn) && args.size >= 2 then
         let keyCodec ← resolveDataCodec args[0]!
@@ -578,6 +625,8 @@ mutual
 
     -- Try whnf to reduce the expression
     if !e.hasLooseBVars then
+      if let some resolved ← resolveToBuiltin e 20 then
+        if resolved != e then return ← translateExpr resolved
       -- Before full whnf, beta-reduce and check for panic (whnf would
       -- reduce panic → panicCore → default, losing the trace message).
       if let some r ← extractPanic e.headBeta then return r
@@ -644,6 +693,7 @@ mutual
       For SOP: Case → extract field from the single constructor branch. -/
   partial def translateProj (typeName : Name) (idx : Nat) (struct : Lean.Expr)
       : TranslateM MIR.Expr := do
+    if typeName == ``Subtype && idx == 0 then return ← translateExpr struct
     let env ← getEnv
     match env.find? typeName with
     | some (.inductInfo iv) =>
@@ -752,6 +802,15 @@ mutual
         let altsStart := scrutIdx + 1
         let numAlts := iv.ctors.length
         let expectedEnd := altsStart + numAlts
+
+        if typeName == ``Subtype && args.size > altsStart then
+          let scrut ← translateExpr args[scrutIdx]
+          match args[altsStart]! with
+          | .lam valueName _ (.lam _ _ body _) _ =>
+            let value ← freshVarId valueName.toString
+            let body ← withLocal value (translateExpr (body.instantiate1 (.const ``True.intro [])))
+            return ← applyOverArgs (.Let [(value, scrut, false)] body) args expectedEnd
+          | _ => throwError "Subtype.casesOn requires a value/proof lambda on-chain"
 
         -- Check for UPLC builtin types first
         if let some kind := builtinTypeKind typeName then
@@ -1277,6 +1336,14 @@ mutual
                   throwError "List.cons: expected 2 value arguments, got {valueArgs.size}"
             | .pair =>
               -- Prod.mk fst snd → try constant folding, else MkPairData
+              unless args.size >= 2 do throwError "Prod.mk requires concrete Data-backed field types"
+              for fieldType in args.extract 0 2 do
+                match ← resolveDataCodec fieldType with
+                | .ok codec =>
+                  unless codec.isIdentity do
+                    throwError "Prod.mk requires Data-backed fields on-chain; use a @[plutus_sop] structure for native values"
+                | .error _ =>
+                  throwError "Prod.mk requires Data-backed fields on-chain; use a @[plutus_sop] structure for native values"
               if valueArgs.size == 2 then
                 return .App (.App (.Builtin .MkPairData) valueArgs[0]!) valueArgs[1]!
               else
@@ -1320,8 +1387,15 @@ mutual
     -- Collect non-erased arguments
     let mut relevantArgs : Array Lean.Expr := #[]
     let mut currentFn := fn
+    let initialType : Lean.Expr := match fn.constName?.bind env.find? with
+      | some information => information.type
+      | none => .sort .zero
+    let mut declaredType := initialType
     for arg in args do
       let mut erase ← shouldEraseArg currentFn
+      if let .forallE _ domain body binder := declaredType then
+        erase := erase || (← isErasableBinder domain binder)
+        declaredType := body
       -- Fallback: when shouldEraseArg fails (function has loose bvars),
       -- check if the argument's head constant is a proof (type is Prop).
       -- This catches proof args threaded through WellFounded.fix match branches.
