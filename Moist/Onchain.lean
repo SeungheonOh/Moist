@@ -6,4 +6,5 @@ import Moist.Onchain.Translate
 import Moist.Onchain.Compile
 import Moist.Onchain.Prelude
 import Moist.Onchain.PlutusData
+import Moist.Onchain.AssocMap
 import Moist.Cardano.V3

@@ -33,6 +33,7 @@ import Test.MIR.Opt.SoundnessAudit
 import Test.MIR.Opt.FormalCoverage
 import Test.MIR.Opt.FormalAxioms
 import Test.Onchain.ConstitutionEncoding
+import Test.Onchain.CollectionEncoding
 
 namespace Test.MIR
 
@@ -72,6 +73,7 @@ def testTree : TestTree := suite "mir" do
     Test.MIR.Lower.Golden.goldenTree
   group "eval" do
     Test.ConstitutionEncoding.tests
+    Test.CollectionEncoding.tests
     Test.Comparison.tests
     Test.MIR.Eval.Golden.goldenTree
     Test.MIR.Eval.Compile.compileTree

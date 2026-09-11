@@ -373,35 +373,15 @@ private partial def encodeToData (codec : DataCodec) (val : MIR.Expr) : Translat
           [.Force (.Var consH), .Force (.Var nilH)])
       let mapFn := MIR.Expr.Fix mapF (.Lam xs mapBody)
       return .App (mkBuiltin .ListData) (.App mapFn val)
-  | .mapData keyCodec valCodec =>
-    if keyCodec.isIdentity && valCodec.isIdentity then
-      return .App (mkBuiltin .MapData) val
-    else
-      let mapF ← freshVarId "mapEnc"
-      let xs ← freshVarId "xs"
-      let pair ← freshVarId "pair"
-      let rawKey := MIR.Expr.App (mkBuiltin .FstPair) (.Var pair)
-      let rawVal := MIR.Expr.App (mkBuiltin .SndPair) (.Var pair)
-      let encodedKey ← encodeToData keyCodec rawKey
-      let encodedVal ← encodeToData valCodec rawVal
-      let newPair := MIR.Expr.App (.App (mkBuiltin .MkPairData) encodedKey) encodedVal
-      let tailExpr := MIR.Expr.App (mkBuiltin .TailList) (.Var xs)
-      let recurse := MIR.Expr.App (.Var mapF) tailExpr
-      -- Bind `pair = headList xs` inside the delayed cons branch
-      -- so headList is only called when the list is non-empty
-      let consBody := MIR.Expr.App (.App (mkBuiltin .MkCons) newPair) recurse
-      let cons := MIR.Expr.Let [(pair, .App (mkBuiltin .HeadList) (.Var xs), false)] consBody
-      let nil := MIR.Expr.Lit
-        (.ConstPairDataList [], .TypeOperator (.TypeList
-          (.TypeOperator (.TypePair (.AtomicType .TypeData) (.AtomicType .TypeData)))))
-      let consH ← freshVarId "enc_cons"
-      let nilH ← freshVarId "enc_nil"
-      let mapBody := MIR.Expr.Let
-        [(consH, .Delay cons, false), (nilH, .Delay nil, false)]
-        (.Case (.App (mkBuiltin .NullList) (.Var xs))
-          [.Force (.Var consH), .Force (.Var nilH)])
-      let mapFn := MIR.Expr.Fix mapF (.Lam xs mapBody)
-      return .App (mkBuiltin .MapData) (.App mapFn val)
+  | .mapData _ _ => return .App (mkBuiltin .MapData) val
+
+private def decodedBuiltinType : DataCodec → BuiltinType
+  | .iData => .AtomicType .TypeInteger
+  | .bData => .AtomicType .TypeByteString
+  | .listData element => .TypeOperator (.TypeList (decodedBuiltinType element))
+  | .mapData _ _ => .TypeOperator (.TypeList
+      (.TypeOperator (.TypePair (.AtomicType .TypeData) (.AtomicType .TypeData))))
+  | _ => .AtomicType .TypeData
 
 /-- Decode a MIR expression from Data according to a DataCodec plan. -/
 private partial def decodeFromData (codec : DataCodec) (val : MIR.Expr) : TranslateM MIR.Expr := do
@@ -410,56 +390,19 @@ private partial def decodeFromData (codec : DataCodec) (val : MIR.Expr) : Transl
   | .identity | .constrData _ => return val
   | .iData => return .App (mkBuiltin .UnIData) val
   | .bData => return .App (mkBuiltin .UnBData) val
-  | .listData _elemCodec => return .App (mkBuiltin .UnListData) val
-    -- if elemCodec.isIdentity then
-    --   return .App (mkBuiltin .UnListData) val
-    -- else
-    --   let unlistedV ← freshVarId "unlisted"
-    --   let mapF ← freshVarId "mapDec"
-    --   let xs ← freshVarId "xs"
-    --   let headExpr := MIR.Expr.App (mkBuiltin .HeadList) (.Var xs)
-    --   let decodedHead ← decodeFromData elemCodec headExpr
-    --   let tailExpr := MIR.Expr.App (mkBuiltin .TailList) (.Var xs)
-    --   let recurse := MIR.Expr.App (.Var mapF) tailExpr
-    --   let cons := MIR.Expr.App (.App (mkBuiltin .MkCons) decodedHead) recurse
-    --   let nil := MIR.Expr.Lit (.ConstDataList [], .TypeOperator (.TypeList (.AtomicType .TypeData)))
-    --   let consH ← freshVarId "dec_cons"
-    --   let nilH ← freshVarId "dec_nil"
-    --   let mapBody := MIR.Expr.Let [(consH, .Delay cons), (nilH, .Delay nil)]
-    --     (.Case (.App (mkBuiltin .NullList) (.Var xs))
-    --       [.Force (.Var consH), .Force (.Var nilH)])
-    --   let mapFn := MIR.Expr.Fix mapF (.Lam xs mapBody)
-    --   return .Let [(unlistedV, .App (mkBuiltin .UnListData) val)]
-    --     (.App mapFn (.Var unlistedV))
-  | .mapData _keyCodec _valCodec => return .App (mkBuiltin .UnMapData) val
-    -- if keyCodec.isIdentity && valCodec.isIdentity then
-    --   return .App (mkBuiltin .UnMapData) val
-    -- else
-    --   let unmappedV ← freshVarId "unmapped"
-    --   let mapF ← freshVarId "mapDec"
-    --   let xs ← freshVarId "xs"
-    --   let pair ← freshVarId "pair"
-    --   let rawKey := MIR.Expr.App (mkBuiltin .FstPair) (.Var pair)
-    --   let rawVal := MIR.Expr.App (mkBuiltin .SndPair) (.Var pair)
-    --   let decodedKey ← decodeFromData keyCodec rawKey
-    --   let decodedVal ← decodeFromData valCodec rawVal
-    --   let newPair := MIR.Expr.App (.App (mkBuiltin .MkPairData) decodedKey) decodedVal
-    --   let tailExpr := MIR.Expr.App (mkBuiltin .TailList) (.Var xs)
-    --   let recurse := MIR.Expr.App (.Var mapF) tailExpr
-    --   let cons := MIR.Expr.App (.App (mkBuiltin .MkCons) newPair) recurse
-    --   let nil := MIR.Expr.Lit
-    --     (.ConstPairDataList [], .TypeOperator (.TypeList
-    --       (.TypeOperator (.TypePair (.AtomicType .TypeData) (.AtomicType .TypeData)))))
-    --   let consH ← freshVarId "dec_cons"
-    --   let nilH ← freshVarId "dec_nil"
-    --   let mapBody := MIR.Expr.Let
-    --     [(pair, .App (mkBuiltin .HeadList) (.Var xs)),
-    --      (consH, .Delay cons), (nilH, .Delay nil)]
-    --     (.Case (.App (mkBuiltin .NullList) (.Var xs))
-    --       [.Force (.Var consH), .Force (.Var nilH)])
-    --   let mapFn := MIR.Expr.Fix mapF (.Lam xs mapBody)
-    --   return .Let [(unmappedV, .App (mkBuiltin .UnMapData) val)]
-    --     (.App mapFn (.Var unmappedV))
+  | .listData element =>
+    let unlisted := MIR.Expr.App (mkBuiltin .UnListData) val
+    if element.isIdentity then return unlisted
+    let mapFn ← freshVarId "decodeList"
+    let values ← freshVarId "values"
+    let head := MIR.Expr.App (mkBuiltin .HeadList) (.Var values)
+    let decodedHead ← decodeFromData element head
+    let tail := MIR.Expr.App (mkBuiltin .TailList) (.Var values)
+    let cons := MIR.Expr.App (.App (mkBuiltin .MkCons) decodedHead) (.App (.Var mapFn) tail)
+    let nil := emptyListLit (decodedBuiltinType element)
+    let body := mkBoolBranch (.App (mkBuiltin .NullList) (.Var values)) nil cons
+    return .App (.Fix mapFn (.Lam values body)) unlisted
+  | .mapData _ _ => return .App (mkBuiltin .UnMapData) val
 
 /-- Resolve field types to DataCodec plans. Fails with an error for unsupported types. -/
 private def resolveFieldCodecs (fieldTypes : Array Lean.Expr) (context : String)
@@ -547,10 +490,45 @@ mutual
         return some (.App (.App (mkBuiltin .Trace) msg) .Error)
     return none
 
+  partial def translateMapEntries (keyCodec valueCodec : DataCodec)
+      (entries : Lean.Expr) : TranslateM (Option MIR.Expr) := do
+    let (head, args) := uncurryApp entries.headBeta
+    if head.isConstOf ``List.nil then
+      return some (emptyListLit (.TypeOperator (.TypePair (.AtomicType .TypeData) (.AtomicType .TypeData))))
+    if head.isConstOf ``List.cons && args.size == 3 then
+      let (pairHead, pairArgs) := uncurryApp args[1]!.headBeta
+      if pairHead.isConstOf ``Prod.mk && pairArgs.size == 4 then
+        let some tail ← translateMapEntries keyCodec valueCodec args[2]! | return none
+        let key ← encodeToData keyCodec (← translateExpr pairArgs[2]!)
+        let value ← encodeToData valueCodec (← translateExpr pairArgs[3]!)
+        let pair := MIR.Expr.App (.App (mkBuiltin .MkPairData) key) value
+        return some (.App (.App (mkBuiltin .MkCons) pair) tail)
+    return none
+
   partial def translateApp (e : Lean.Expr) : TranslateM MIR.Expr := do
     -- Check for casesOn/rec patterns before whnf
     let (fn, args) := uncurryApp e
     if let .const name _ := fn then
+      if (name == ``Moist.Plutus.AssocMap.mk || name == ``Moist.Plutus.AssocMap.toList ||
+          name == ``Moist.Plutus.AssocMap.casesOn) && args.size >= 2 then
+        let keyCodec ← resolveDataCodec args[0]!
+        let valueCodec ← resolveDataCodec args[1]!
+        if name == ``Moist.Plutus.AssocMap.mk && args.size >= 3 then
+          if args[2]!.getAppFn.isConstOf ``List.nil then
+            return emptyListLit (.TypeOperator (.TypePair (.AtomicType .TypeData) (.AtomicType .TypeData)))
+          if let .ok key := keyCodec then
+            if let .ok value := valueCodec then
+              if let some entries ← translateMapEntries key value args[2]! then
+                return entries
+        let compatible := match keyCodec, valueCodec with
+          | .ok key, .ok value => key.isIdentity && value.isIdentity
+          | _, _ => false
+        unless compatible do
+          throwError "AssocMap encoded entries cannot be used as native typed pairs on-chain; use Moist.Onchain.AssocMap operations"
+        if name == ``Moist.Plutus.AssocMap.casesOn && args.size >= 5 then
+          let value ← translateExpr args[3]!
+          let branch ← translateExpr args[4]!
+          return ← applyOverArgs (.App branch value) args 5
       if isCasesOn name then
         return ← translateCasesOn name args
       -- Int.ofNat n → integer literal
@@ -574,20 +552,16 @@ mutual
           return ← applyOverArgs (mkBoolBranch scrut trueAlt falseAlt) args 5
       if isRec name then
         throwError (explicitRecursorExprError name)
-      -- PlutusData.toData on @[plutus_data] types: identity
-      if name == `Moist.Onchain.PlutusData.toData && args.size >= 3 then
-        let ty' ← whnf args[0]!
-        let typeName := ty'.getAppFn.constName?.getD Name.anonymous
-        let env ← getEnv
-        if plutusDataAttr.hasTag env typeName || typeName == ``Moist.Plutus.Data then
-          return ← translateExpr args[2]!
-      -- PlutusData.unsafeFromData on @[plutus_data] types: identity
-      if name == `Moist.Onchain.PlutusData.unsafeFromData && args.size >= 3 then
-        let ty' ← whnf args[0]!
-        let typeName := ty'.getAppFn.constName?.getD Name.anonymous
-        let env ← getEnv
-        if plutusDataAttr.hasTag env typeName || typeName == ``Moist.Plutus.Data then
-          return ← translateExpr args[2]!
+      if (name == ``PlutusData.toData || name == ``PlutusData.unsafeFromData) && args.size >= 2 then
+        let codec ← match ← resolveDataCodec args[0]! with
+          | .ok codec => pure codec
+          | .error error => throwError "Cannot specialize {name}: {formatDataCompatError error}"
+        let value ← freshVarId "codecValue"
+        let body ← if name == ``PlutusData.toData then encodeToData codec (.Var value)
+          else decodeFromData codec (.Var value)
+        return ← applyOverArgs (.Lam value body) args 2
+      if name == ``PlutusData.fromData && args.size >= 2 then
+        throwError "PlutusData.fromData is a native decoder; on-chain decoding currently requires PlutusData.unsafeFromData"
       -- panic / panicWithPosWithDecl → Trace msg Error
       -- @panic {α} [Inhabited α] (msg : String) : α
       if name == ``panic && args.size >= 3 then
