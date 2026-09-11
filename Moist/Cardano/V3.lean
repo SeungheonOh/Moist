@@ -11,8 +11,9 @@ Complete on-chain types for Plutus V3 (Conway era) validator scripts.
 
 Encoding rules:
 - Sum types and multi-field product types use @[plutus_data] (Constr encoding).
-- Single-field newtypes are transparent (abbrev) — no Constr wrapper.
+- Newtypes with upstream newtype-derived Data instances are transparent (abbrev).
   e.g. PubKeyHash is raw `B bytes`, Lovelace is raw `I n`.
+- Constitution uses an indexed constructor, despite being a Haskell newtype.
 -/
 
 /-! ## Utility Types -/
@@ -182,7 +183,9 @@ structure ProtocolVersion where
   major : Int
   minor : Int
 
-abbrev Constitution := MaybeData ScriptHash
+@[plutus_data]
+structure Constitution where
+  script : MaybeData ScriptHash
 
 @[plutus_data]
 structure Committee where
