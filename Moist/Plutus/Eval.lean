@@ -102,12 +102,7 @@ private def bitBufferToByteArray (buf : Moist.Plutus.BitBuffer) : ByteArray :=
 opaque evalFlatRaw (program : @& ByteArray) (cpuBudget : UInt64) (memBudget : UInt64)
     : IO (UInt32 × UInt64 × UInt64 × ByteArray)
 
-/-- Evaluate a UPLC Program using the Plutuz CEK machine.
-
-    Encodes the program to flat bytes, sends it to the Zig machine,
-    and decodes the result back to a Lean Term. -/
-def evalProgram (prog : Program) (cpuBudget memBudget : UInt64) : IO (Except (CEKError × ExBudget × String) EvalResult) := do
-  let flatBytes := bitBufferToByteArray (encode_program prog)
+def evalFlat (flatBytes : ByteArray) (cpuBudget memBudget : UInt64) : IO (Except (CEKError × ExBudget × String) EvalResult) := do
   let (errCode, cpuUsed, memUsed, payload) ← evalFlatRaw flatBytes cpuBudget memBudget
   let budget := ExBudget.mk cpuUsed memUsed
   if errCode == 0 then
@@ -120,6 +115,9 @@ def evalProgram (prog : Program) (cpuBudget memBudget : UInt64) : IO (Except (CE
   else
     let errMsg := String.fromUTF8! payload
     return .error (errCodeToError errCode, budget, errMsg)
+
+def evalProgram (prog : Program) (cpuBudget memBudget : UInt64) : IO (Except (CEKError × ExBudget × String) EvalResult) :=
+  evalFlat (bitBufferToByteArray (encode_program prog)) cpuBudget memBudget
 
 /-- Default budget: 10 billion CPU, 14 million memory (Cardano mainnet parameters). -/
 def defaultCpuBudget : UInt64 := 10000000000
