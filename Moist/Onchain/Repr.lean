@@ -97,7 +97,7 @@ private def isTypeFamily : Lean.Expr → Bool
 /-- Resolve the Data codec for a Lean type expression.
     Uses whnf to see through abbreviations (Lovelace → Int, PubKeyHash → ByteString, etc.).
     Fails with a structured error for unsupported types. -/
-partial def resolveDataCodec (ty : Lean.Expr) : MetaM (Except DataCompatError DataCodec) := do
+partial def resolveDataCodec (ty : Lean.Expr) (selfType : Option Name := none) : MetaM (Except DataCompatError DataCodec) := do
   let env ← getEnv
   let isPlutusData ← plutusDataTagRef.get
   let ty' ← whnf ty
@@ -107,7 +107,7 @@ partial def resolveDataCodec (ty : Lean.Expr) : MetaM (Except DataCompatError Da
     else if n == ``Moist.Plutus.Data then return .ok .identity
     else if n == ``Int then return .ok .iData
     else if n == ``ByteArray then return .ok .bData
-    else if isPlutusData env n then return .ok (.constrData n)
+    else if isPlutusData env n || selfType == some n then return .ok (.constrData n)
     else if n == ``Bool then return .error .boolType
     else
       match env.find? n with
@@ -120,20 +120,20 @@ partial def resolveDataCodec (ty : Lean.Expr) : MetaM (Except DataCompatError Da
     | .const n _ =>
       if n == ``List then
         if h : 0 < args.size then
-          match ← resolveDataCodec args[0] with
+          match ← resolveDataCodec args[0] selfType with
           | .ok elemCodec => return .ok (.listData elemCodec)
           | .error e => return .error (.nestedError "List element" e)
         else
           return .error (.unknownType "List with no type argument")
       else if n == ``Moist.Plutus.AssocMap then
         if h : 1 < args.size then
-          match ← resolveDataCodec args[0], ← resolveDataCodec args[1] with
+          match ← resolveDataCodec args[0] selfType, ← resolveDataCodec args[1] selfType with
           | .ok keyCodec, .ok valCodec => return .ok (.mapData keyCodec valCodec)
           | .error e, _ => return .error (.nestedError "AssocMap key" e)
           | _, .error e => return .error (.nestedError "AssocMap value" e)
         else
           return .error (.unknownType "AssocMap with missing type arguments")
-      else if isPlutusData env n then
+      else if isPlutusData env n || selfType == some n then
         return .ok (.constrData n)
       else
         return .error (.unknownType (toString ty'))
@@ -197,7 +197,7 @@ def validatePlutusDataInductive (iv : InductiveVal) : MetaM InductiveCodecPlan :
                 try pure (← isProp dom) catch _ => pure false
               else pure false
             if !erasable then
-              match ← resolveDataCodec dom with
+              match ← resolveDataCodec dom (some iv.name) with
               | .ok codec => fieldCodecs := fieldCodecs.push codec
               | .error e =>
                 throwError "@[plutus_data] type '{iv.name}', constructor '{cval.name}' \
@@ -223,6 +223,72 @@ Uses MetaM term construction which bypasses the `private mk` on PlutusData.
 -/
 
 open Moist.Plutus (Data ByteString)
+
+private def containsSelf (name : Name) : DataCodec → Bool
+  | .constrData typeName => typeName == name
+  | .listData element => containsSelf name element
+  | .mapData key value => containsSelf name key || containsSelf name value
+  | _ => false
+
+private def recursivePlan (plan : InductiveCodecPlan) : Bool :=
+  plan.ctors.any fun ctor => ctor.fieldCodecs.any (containsSelf plan.typeName)
+
+private partial def recursiveEncodeSyntax (name : Name) (codec : DataCodec) (value : String) : MetaM String := do
+  if !containsSelf name codec then return s!"(Moist.Onchain.PlutusData.toData {value})"
+  match codec with
+  | .constrData _ => return s!"(encode {value})"
+  | .listData element =>
+    let body ← recursiveEncodeSyntax name element "element"
+    return s!"(Moist.Plutus.Data.List ({value}.map (fun element => {body})))"
+  | _ => throwError "recursive @[plutus_data] fields currently support direct and List recursion only"
+
+private partial def recursiveDecodeSyntax (name : Name) (codec : DataCodec) (value : String) : MetaM String := do
+  if !containsSelf name codec then return s!"(Moist.Onchain.PlutusData.fromData {value})"
+  match codec with
+  | .constrData _ => return s!"(decode {value})"
+  | .listData element =>
+    let body ← recursiveDecodeSyntax name element "element"
+    return s!"(match {value} with | Moist.Plutus.Data.List elements => elements.mapM (fun element => {body}) | _ => none)"
+  | _ => throwError "recursive @[plutus_data] fields currently support direct and List recursion only"
+
+private def recursiveCodecBody (iv : InductiveVal) (plan : InductiveCodecPlan)
+    (encoding : Bool) (safe : Bool := true) : MetaM Lean.Expr := do
+  unless iv.numParams == 0 && iv.numIndices == 0 && iv.all.length == 1 do
+    throwError "recursive @[plutus_data] derivation currently requires a non-indexed, monomorphic, non-mutual datatype"
+  let mut alternatives : Array String := #[]
+  for ctor in plan.ctors do
+    let fields := (List.range ctor.fieldCodecs.size).map fun index => s!"field{index}"
+    if encoding then
+      let encoded ← fields.toArray.mapIdxM fun index value => recursiveEncodeSyntax iv.name ctor.fieldCodecs[index]! value
+      alternatives := alternatives.push s!"| {ctor.ctorName} {String.intercalate " " fields} => Moist.Plutus.Data.Constr {ctor.tag} [{String.intercalate ", " encoded.toList}]"
+    else
+      let decoded ← fields.toArray.mapIdxM fun index value => recursiveDecodeSyntax iv.name ctor.fieldCodecs[index]! value
+      let bindings := (fields.zip decoded.toList).map fun (field, body) => s!"let {field} ← {body};"
+      alternatives := alternatives.push s!"| Moist.Plutus.Data.Constr {ctor.tag} [{String.intercalate ", " fields}] => do {String.intercalate " " bindings} pure ({ctor.ctorName} {String.intercalate " " fields})"
+  let source := if encoding then
+      s!"(let rec encode (value : {iv.name}) : Moist.Plutus.Data := match value with {String.intercalate " " alternatives.toList} termination_by sizeOf value; encode)"
+    else
+      let result := if safe then "decode" else s!"(fun value => (decode value).getD (default : {iv.name}))"
+      s!"(let rec decode (value : Moist.Plutus.Data) : Option {iv.name} := match value with {String.intercalate " " alternatives.toList} | _ => none termination_by sizeOf value; {result})"
+  let termSyntax ← match Parser.runParserCategory (← getEnv) `term source with
+    | .ok parsed => pure parsed
+    | .error message => throwError "recursive codec syntax: {message}"
+  let action : Elab.Term.TermElabM Lean.Expr := Elab.Term.withoutErrToSorry do
+    let expression ← Elab.Term.elabTerm termSyntax none
+    Elab.Term.synthesizeSyntheticMVarsNoPostponing
+    let definitions ← Elab.Term.MutualClosure.main #[] #[] #[] #[] (← Elab.Term.getLetRecsToLift)
+    let definitions ← Elab.levelMVarToParamTypesPreDecls definitions
+    let definitions ← Elab.fixLevelParams definitions [] []
+    Elab.addPreDefinitions (← getLCtx, ← getLocalInstances) definitions
+    for definition in definitions do
+      if (← collectAxioms definition.declName).contains ``sorryAx then
+        throwError "recursive codec derivation did not produce a complete proof for {definition.declName}"
+    instantiateMVars expression
+  let helperName := if encoding then `encodeRecursive else if safe then `decodeRecursive else `decodeRecursiveUnsafe
+  let expression ← action.run' { declName? := some (iv.name ++ helperName) }
+  if expression.hasSorry || expression.hasExprMVar then
+    throwError "recursive codec derivation produced an unresolved term for {iv.name}"
+  return expression
 
 /-- Encode a field value to a Data expression based on its codec. -/
 private partial def mkEncodeFieldExpr (codec : DataCodec) (val : Lean.Expr) : MetaM Lean.Expr := do
@@ -300,6 +366,7 @@ private def getStructFieldNames (env : Environment) (ctorName : Name)
 /-- Build the toData function body for a codec plan.
     Returns a lambda `α → Data`. -/
 private def mkToDataBody (iv : InductiveVal) (plan : InductiveCodecPlan) : MetaM Lean.Expr := do
+  if recursivePlan plan then return ← recursiveCodecBody iv plan true
   let env ← getEnv
   let typeLvls := iv.levelParams.map Level.param
   let isStruct := iv.ctors.length == 1 && isStructure env iv.name
@@ -380,6 +447,7 @@ private def mkToDataBody (iv : InductiveVal) (plan : InductiveCodecPlan) : MetaM
     When `safe = false`, returns `Data → α` (no wrapping, defaults to `Inhabited.default`/`sorry`). -/
 private def mkFromDataBody (iv : InductiveVal) (plan : InductiveCodecPlan)
     (safe : Bool := true) : MetaM Lean.Expr := do
+  if recursivePlan plan then return ← recursiveCodecBody iv plan false safe
   let env ← getEnv
   let typeLvls := iv.levelParams.map Level.param
 
@@ -600,7 +668,9 @@ initialize plutusDataAttr : TagAttribute ← do
         let plan ← Lean.Meta.MetaM.run' (validatePlutusDataInductive iv)
         modifyEnv fun env => codecPlanExt.addEntry env (name, plan)
         try Lean.Meta.MetaM.run' (derivePlutusDataInstance iv plan)
-        catch e => Lean.logWarning m!"PlutusData auto-derivation failed for {name}: {e.toMessageData}"
+        catch e =>
+          if recursivePlan plan then throw e
+          else Lean.logWarning m!"PlutusData auto-derivation failed for {name}: {e.toMessageData}"
       | some (.ctorInfo _) => pure ()
       | _ => throwError "@[plutus_data] can only be applied to inductive types, \
           but '{name}' is not an inductive type")

@@ -46,12 +46,30 @@ Raw Data/Data maps keep their native builtin pair representation.
 An unresolved `PlutusData` specialization is rejected as well; recursive helpers
 that need codecs should use concrete domain types rather than erased dictionaries.
 
+## Recursive application datatypes
+
+`@[plutus_data]` derives native codecs for non-indexed, monomorphic, non-mutual
+recursive datatypes, including direct children and lists of children. Generated
+encoders and decoders are total Lean definitions with checked termination proofs;
+derivation fails if those proofs cannot be completed. Recursive map fields and
+other unsupported recursive containers are rejected, not silently approximated.
+On-chain values retain their Data representation; traversal matches the declared
+constructors and decodes named fields. Well-founded list traversal erases Lean's
+proof-only `Subtype`/`List.attach` wrappers.
+
+`List.map` preserves builtin result element types, including empty lists.
+Native `Prod` construction requires Data-backed fields because UPLC's dynamic
+pair constructor takes Data/Data arguments. Use an explicit `@[plutus_sop]`
+structure for internal state containing native integers, lists, or other values.
+
 ## Verification
 
 `lake exe tests mir/eval/constitution_encoding` checks native and compiled
 Constitution encodings. `lake exe tests mir/eval/collection_encoding` exercises
 primitive/nested-list codecs, nested maps, map operations, malformed entries,
 and unsupported-representation diagnostics through the native CEK evaluator.
+`lake exe tests mir/eval/recursive_encoding` checks direct/list recursion, native
+codec roundtrips and malformed-child rejection, and raw/default compiled traversal.
 These are executable regression checks, not formal proofs of the frontend.
 
 Encoding references: [V3 Contexts](https://github.com/IntersectMBO/plutus/blob/b2db512618df08bd696e8d9c4229effcede01169/plutus-ledger-api/src/PlutusLedgerApi/V3/Contexts.hs)
