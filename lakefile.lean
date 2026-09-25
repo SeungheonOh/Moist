@@ -73,6 +73,9 @@ lean_exe ptah_test where
 lean_exe mir_audit where
   root := `Test.MIR.AuditMain
 
+lean_exe pass_audit where
+  root := `Test.MIR.PassAuditMain
+
 lean_exe mir_opportunity_bench where
   root := `Test.MIR.OpportunityMain
 
