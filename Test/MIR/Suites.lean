@@ -30,6 +30,7 @@ import Test.Comparison.Tests
 import Test.MIR.Opt.Recursion
 import Test.MIR.Opt.CheckedBranches
 import Test.MIR.Opt.SoundnessAudit
+import Test.MIR.Opt.Acceptance
 import Test.MIR.Opt.FormalCoverage
 import Test.MIR.Opt.FormalAxioms
 import Test.Onchain.ConstitutionEncoding
@@ -69,6 +70,7 @@ def testTree : TestTree := suite "mir" do
       Test.MIR.Opt.Recursion.tests
       Test.MIR.Opt.CheckedBranches.tests
       Test.MIR.Opt.SoundnessAudit.tests
+      Test.MIR.Opt.Acceptance.tests
       Test.MIR.Opt.FormalCoverage.tests
   group "lower" do
     Test.MIR.Lower.Golden.goldenTree

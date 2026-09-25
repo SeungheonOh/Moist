@@ -19,7 +19,7 @@ private def booleanConsumer (condition : Expr) : Expr :=
   .Force (.App (.App (.App (.Force (.Builtin .IfThenElse)) condition)
     (.Delay (trace "true" (intLit 11)))) (.Delay (trace "false" (intLit 22))))
 
-private def transformations : List (String × (Expr → Expr)) :=
+def transformations : List (String × (Expr → Expr)) :=
   [("static",Advanced.staticArguments),
    ("known-constructor-cases",fun expression => (caseMergePass expression).1),
    ("choices",Advanced.simplifyChoices),
