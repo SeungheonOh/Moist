@@ -57,6 +57,14 @@ through `lowerTotalExpr`. It does not certify native CEK correspondence,
 trace equivalence, resource-cap preservation, or the entire production pipeline.
 Local rewrite lemmas and differential tests are not whole-pass certificates.
 
+The [acceptance re-audit](MIR-Acceptance-Reaudit.md) checks the stricter practical
+requirement that identical runtime inputs preserve both acceptance and rejection.
+`lake exe pass_audit` exercises every pass/phase and all production option
+combinations. `python3 Test/MIR/run_reference_pass_audit.py --ghc /path/to/ghc`
+repeats its corpus in pinned plutus-core 1.65.0.0. These are bounded checks;
+budget exhaustion is inconclusive, and builtin failure diagnostics can differ
+even when both executions reject.
+
 The ordinary test build imports `Test.MIR.Opt.FormalAxioms`. Its allowlist
 rejects dependencies outside `propext`, `Classical.choice`, and `Quot.sound`
 for the listed certificates. The false legacy `budget_exhaustion` axiom still
