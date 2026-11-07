@@ -1,13 +1,49 @@
 import Moist.Verified.InlineSoundness.Totality
-import Moist.Verified.InlineSoundness.OccBridge
 import Moist.MIR.Optimize.Safety
 
-set_option maxHeartbeats 800000
 
 namespace Moist.Verified.InlineSoundness.Frontier
 
 open Moist.CEK Moist.Plutus.Term Moist.MIR
 open Moist.Verified.InlineSoundness.Totality
+
+private theorem varid_beq_refl (v : VarId) : (v == v) = true :=
+  (VarId.beq_true_iff v v).mpr ⟨rfl, rfl⟩
+
+private theorem varid_beq_symm {a b : VarId} (h : (a == b) = true) : (b == a) = true :=
+  let ⟨origin, uid⟩ := (VarId.beq_true_iff a b).mp h
+  (VarId.beq_true_iff b a).mpr ⟨origin.symm, uid.symm⟩
+
+private theorem envLookupT_go_beq_congr (x v : VarId) (env : List VarId) (k : Nat)
+    (hxv : (x == v) = true) :
+    envLookupT.go x env k = envLookupT.go v env k := by
+  induction env generalizing k with
+  | nil => rfl
+  | cons h rest ih =>
+    simp only [envLookupT.go]
+    rw [show (h == x) = (h == v) from
+      Bool.eq_iff_iff.mpr ⟨fun hx => VarId.beq_trans _ _ _ hx hxv,
+        fun hv => VarId.beq_trans _ _ _ hv (varid_beq_symm hxv)⟩]
+    split
+    · rfl
+    · exact ih (k + 1)
+
+private theorem envLookupT_split_beq (envL : List VarId) (v : VarId) (envR : List VarId)
+    (x : VarId) (hxv : (x == v) = true)
+    (hv_notin : envL.findIdx? (· == v) = none) :
+    envLookupT (envL ++ v :: envR) x = some envL.length := by
+  show envLookupT.go x (envL ++ v :: envR) 0 = some envL.length
+  rw [envLookupT_go_beq_congr x v _ 0 hxv]
+  rw [List.findIdx?_eq_none_iff] at hv_notin
+  induction envL with
+  | nil => simp [envLookupT.go, varid_beq_refl]
+  | cons y envL' ih =>
+    have hyv : (y == v) = false := hv_notin y List.mem_cons_self
+    simp only [List.cons_append, envLookupT.go, show ¬((y == v) = true) from by simp [hyv]]
+    have hshift := Moist.MIR.envLookupT.go_shift v (envL' ++ v :: envR) 0 1
+    simp only [Nat.zero_add] at hshift
+    rw [hshift, ih (fun z hz => hv_notin z (List.mem_cons_of_mem _ hz))]
+    simp
 
 mutual
   inductive EvaluationPath : Nat → Term → Prop where
@@ -42,6 +78,23 @@ mutual
     | head : CheckedPath position head → CheckedPaths position (head :: tail)
     | tail : TotalTerm head → StrictOcc.freeOf position head = true →
         CheckedPaths position tail → CheckedPaths position (head :: tail)
+end
+
+mutual
+  theorem CheckedPath.toEvaluationPath {position : Nat} {term : Term} :
+      CheckedPath position term → EvaluationPath position term
+    | .var => .var
+    | .applyLeft inner => .applyLeft inner.toEvaluationPath
+    | .applyRight total _ inner => .applyRight total inner.toEvaluationPath
+    | .force inner => .force inner.toEvaluationPath
+    | .constr fields => .constr fields.toEvaluationPaths
+    | .caseScrutinee inner => .caseScrutinee inner.toEvaluationPath
+    | .letBody total _ inner => .letBody total inner.toEvaluationPath
+
+  theorem CheckedPaths.toEvaluationPaths {position : Nat} {terms : List Term} :
+      CheckedPaths position terms → EvaluationPaths position terms
+    | .head inner => .head inner.toEvaluationPath
+    | .tail total _ inner => .tail total inner.toEvaluationPaths
 end
 
 mutual
@@ -176,8 +229,8 @@ mutual
       EvaluationPath (leftEnv.length + 1) term := by
     cases expression with
     | Var other =>
-      have lookup := OccBridge.envLookupT_split_beq leftEnv identifier rightEnv other
-        (OccBridge.varid_beq_symm (by simpa only [firstEvaluationUse] using frontier)) unshadowed
+      have lookup := envLookupT_split_beq leftEnv identifier rightEnv other
+        (varid_beq_symm (by simpa only [firstEvaluationUse] using frontier)) unshadowed
       simp only [lowerTotal, lookup] at lowered
       cases lowered; exact .var
     | Lit _ | Builtin _ | Error | Lam _ _ | Fix _ _ | Delay _ => simp [firstEvaluationUse] at frontier

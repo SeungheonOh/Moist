@@ -6,7 +6,6 @@ import Moist.Verified.DeadLet
 import Moist.MIR.Canonicalize
 import Moist.MIR.Optimize.Inline
 import Moist.Verified.InlineSoundness.SubstCommute
-import Moist.Verified.InlineSoundness.OccBridge
 import Moist.Verified.InlineSoundness.WellScoped
 import Moist.Verified.InlineSoundness.Preservation
 import Moist.Verified.InlineSoundness.FrontierError
@@ -388,14 +387,9 @@ theorem substInBindings_body_inline_mirCtxRefines (v : VarId) (rhs body : Expr)
         unfold InlineGate shouldInline at hgate
         simp only [hatom, hval, hpure, Bool.false_eq_true, Bool.or_false, ↓reduceIte,
           Bool.and_eq_true, beq_iff_eq, Bool.not_eq_true', Bool.or_eq_false_iff] at hgate
-        obtain ⟨hocc, ⟨deferredBody, deferredRest⟩, frontier⟩ := hgate
-        have strict := Moist.Verified.InlineSoundness.OccBridge.lowerTotalLet_strictSingleOcc_of_inlineGate
-          v env rest body t_rest ht_rest hocc (by simp [deferredBody, deferredRest]) distinct_binders
-        have frontier : Moist.MIR.firstEvaluationUse v (.Let rest body) = true := by
-          simpa using frontier
-        exact Moist.Verified.InlineSoundness.Frontier.beta_evaluationPath_ctxRefines
+        exact Moist.Verified.InlineSoundness.Frontier.beta_evaluationPath_refines
           (Moist.Verified.InlineSoundness.Frontier.inlineGate_evaluationPath
-            v env rest body t_rest ht_rest frontier) strict hclosed_rest hclosed_rhs
+            v env rest body t_rest ht_rest (by simpa using hgate.2.2)) hclosed_rest hclosed_rhs
 
 /-- Atoms always satisfy `InlineGate`: `shouldInline` for an atom expression
     returns `true` unconditionally (atoms are free to duplicate). -/
