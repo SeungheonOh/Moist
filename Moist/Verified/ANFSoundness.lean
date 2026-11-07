@@ -1,1414 +1,443 @@
 import Moist.Verified.MIR.Primitives
 import Moist.Verified.MIR.AlphaRenameSoundness
 
-/-! # ANF normalization soundness top-level theorem -/
+/-! # ANF normalization soundness
+
+`anfNormalize_refines`: the pipeline alpha-rename → `anfNormalizeCore` →
+`flattenAll` refines its input.
+
+`anfNormalizeCore` names each non-atomic operand with `anfAtom`
+(`mirCtxRefines_atomize`) and hoists the resulting `let` out of the operand's
+evaluation frame (`mirCtxRefines_hoist_wrapLet`). A hoist needs the fresh name
+to avoid the frame's other operands; this follows from the uid bound
+`maxUidExpr e < s.next`, which `anfNormalizeCore_fresh` propagates. -/
 
 namespace Moist.Verified.MIR
 
-open Moist.CEK
-open Moist.Plutus.Term (Term)
-open Moist.MIR (Expr VarId anfNormalizeCore anfNormalizeListCore anfNormalizeBindsCore anfAtom anfAtomList wrapLet flattenLetBody freeVars lowerTotalExpr lowerTotal lowerTotalLet)
-open Moist.Verified (closedAt closedAtList renameTerm shiftRename)
-open Moist.Verified.Contextual (Context fill ObsRefines CtxEq CtxRefines ctxEq_refl ctxRefines_refl ctxRefines_trans ctxEq_lam ctxEq_app ctxRefines_lam ctxRefines_app)
-open Moist.Verified.Equivalence (ListRel ObsEq ObsRefinesK steps Reaches obsRefinesK_mono obsRefinesK_zero_ret listRel_mono)
-open Moist.Verified.Contextual.SoundnessRefines (EnvRefinesK BehRefinesK ValueRefinesK StackRefK valueRefinesK_mono evalBuiltin_compat_refines obsRefinesK_error stackRefK_mono listRel_valueRefinesK_mono applyArgFrames_stackRefK listRel_refl_vcon_refines)
-open Moist.Verified.FundamentalRefines (ftlr renameRefines renameRefinesR renameRefinesR_shift1 is0preserving_id is0preserving_shiftRename RenameEnvRefR envRefinesK_to_renameEnvRefR_shift renameEnvRefR_mono)
+open Moist.MIR
+open Moist.Verified.Equivalence (ListRel)
 
-/-! ## Section 11. anfAtom specification and the main mutual induction -/
+/-! ## `anfAtom` -/
 
-/-- Direct compute lemmas for `anfAtom` — one for each branch. These bypass
-    the monadic abstraction by just computing the function directly. -/
-private theorem anfAtom_var (v : VarId) (s : Moist.MIR.FreshState) :
-    (Moist.MIR.anfAtom (.Var v)) s = ((.Var v, []), s) := rfl
+theorem anfAtom_eq (e : Expr) (s : FreshState) :
+    anfAtom e s = if e.isAtom then ((e, []), s)
+      else ((.Var ⟨s.next, .gen, "anf"⟩, [(⟨s.next, .gen, "anf"⟩, e, false)]), ⟨s.next + 1⟩) := by
+  unfold anfAtom; split <;> rfl
 
-private theorem anfAtom_lit (lit : _) (s : Moist.MIR.FreshState) :
-    (Moist.MIR.anfAtom (.Lit lit)) s = ((.Lit lit, []), s) := rfl
+theorem anfAtom_isAtom (e : Expr) (s : FreshState) : (anfAtom e s).1.1.isAtom = true := by
+  rw [anfAtom_eq]; split <;> simp_all [Expr.isAtom]
 
-private theorem anfAtom_builtin (b : _) (s : Moist.MIR.FreshState) :
-    (Moist.MIR.anfAtom (.Builtin b)) s = ((.Builtin b, []), s) := rfl
+theorem anfAtom_refines (e : Expr) (s : FreshState) :
+    MIRCtxRefines e (wrapLet (anfAtom e s).1.2 (anfAtom e s).1.1) := by
+  rw [anfAtom_eq]; split
+  · exact mirCtxRefines_refl _
+  · exact mirCtxRefines_atomize e _
 
-/-- Under the always-wrap `anfAtom`, the Let case is uniform with other
-    non-atomic expressions: we always produce `(.Var v, [(v, .Let bs body, false)])`. -/
-private theorem anfAtom_let (bs : List (VarId × Expr × Bool)) (body : Expr)
-    (s : Moist.MIR.FreshState) :
-    (Moist.MIR.anfAtom (Expr.Let bs body)) s =
-      ((Expr.Var ⟨s.next, .gen, "anf"⟩,
-        [(⟨s.next, .gen, "anf"⟩, Expr.Let bs body, false)]),
-       { next := s.next + 1 }) := by
-  show (if (Expr.Let bs body).isAtom then pure (Expr.Let bs body, [])
-    else do
-      let v ← Moist.MIR.freshVar "anf"
-      pure (Expr.Var v, [(v, Expr.Let bs body, false)])) s = _
-  have h1 : (Expr.Let bs body).isAtom = false := rfl
-  simp only [h1]
-  rfl
+theorem anfAtom_fresh (e : Expr) (s : FreshState) (h : maxUidExpr e < s.next) :
+    s.next ≤ (anfAtom e s).2.next ∧ maxUidExpr (anfAtom e s).1.1 < (anfAtom e s).2.next ∧
+      maxUidExprBinds (anfAtom e s).1.2 < (anfAtom e s).2.next := by
+  rw [anfAtom_eq]; split <;> simp [maxUidExpr, maxUidExprBinds] <;> omega
 
-private theorem anfAtom_nonletnon (e : Expr)
-    (he : e.isAtom = false)
-    (hnotlet : ∀ bs body, e ≠ Expr.Let bs body)
-    (s : Moist.MIR.FreshState) :
-    (Moist.MIR.anfAtom e) s = ((Expr.Var ⟨s.next, .gen, "anf"⟩,
-        [(⟨s.next, .gen, "anf"⟩, e, false)]),
-      { next := s.next + 1 }) := by
-  cases e with
-  | Var _ => simp [Expr.isAtom] at he
-  | Lit _ => simp [Expr.isAtom] at he
-  | Builtin _ => simp [Expr.isAtom] at he
-  | Let bs body => exact absurd rfl (hnotlet bs body)
-  | App f x =>
-    show (do if (Expr.App f x).isAtom then pure (Expr.App f x, []) else
-      (match (Expr.App f x) with
-        | Expr.Let bs body =>
-          if body.isAtom then pure (body, bs)
-          else do
-            let v ← Moist.MIR.freshVar "anf"
-            pure (Expr.Var v, bs ++ [(v, body, false)])
-        | _ => do
-          let v ← Moist.MIR.freshVar "anf"
-          pure (Expr.Var v, [(v, Expr.App f x, false)]))) s = _
-    have h1 : (Expr.App f x).isAtom = false := rfl
-    simp only [h1]
-    rfl
-  | Force inner =>
-    show (do if (Expr.Force inner).isAtom then pure (Expr.Force inner, []) else
-      (match (Expr.Force inner) with
-        | Expr.Let bs body =>
-          if body.isAtom then pure (body, bs)
-          else do
-            let v ← Moist.MIR.freshVar "anf"
-            pure (Expr.Var v, bs ++ [(v, body, false)])
-        | _ => do
-          let v ← Moist.MIR.freshVar "anf"
-          pure (Expr.Var v, [(v, Expr.Force inner, false)]))) s = _
-    have h1 : (Expr.Force inner).isAtom = false := rfl
-    simp only [h1]
-    rfl
-  | Delay inner =>
-    show (do if (Expr.Delay inner).isAtom then pure (Expr.Delay inner, []) else
-      (match (Expr.Delay inner) with
-        | Expr.Let bs body =>
-          if body.isAtom then pure (body, bs)
-          else do
-            let v ← Moist.MIR.freshVar "anf"
-            pure (Expr.Var v, bs ++ [(v, body, false)])
-        | _ => do
-          let v ← Moist.MIR.freshVar "anf"
-          pure (Expr.Var v, [(v, Expr.Delay inner, false)]))) s = _
-    have h1 : (Expr.Delay inner).isAtom = false := rfl
-    simp only [h1]
-    rfl
-  | Lam x body =>
-    show (do if (Expr.Lam x body).isAtom then pure (Expr.Lam x body, []) else
-      (match (Expr.Lam x body) with
-        | Expr.Let bs body' =>
-          if body'.isAtom then pure (body', bs)
-          else do
-            let v ← Moist.MIR.freshVar "anf"
-            pure (Expr.Var v, bs ++ [(v, body', false)])
-        | _ => do
-          let v ← Moist.MIR.freshVar "anf"
-          pure (Expr.Var v, [(v, Expr.Lam x body, false)]))) s = _
-    have h1 : (Expr.Lam x body).isAtom = false := rfl
-    simp only [h1]
-    rfl
-  | Case scrut alts =>
-    show (do if (Expr.Case scrut alts).isAtom then pure (Expr.Case scrut alts, []) else
-      (match (Expr.Case scrut alts) with
-        | Expr.Let bs body =>
-          if body.isAtom then pure (body, bs)
-          else do
-            let v ← Moist.MIR.freshVar "anf"
-            pure (Expr.Var v, bs ++ [(v, body, false)])
-        | _ => do
-          let v ← Moist.MIR.freshVar "anf"
-          pure (Expr.Var v, [(v, Expr.Case scrut alts, false)]))) s = _
-    have h1 : (Expr.Case scrut alts).isAtom = false := rfl
-    simp only [h1]
-    rfl
-  | Constr tag args =>
-    show (do if (Expr.Constr tag args).isAtom then pure (Expr.Constr tag args, []) else
-      (match (Expr.Constr tag args) with
-        | Expr.Let bs body =>
-          if body.isAtom then pure (body, bs)
-          else do
-            let v ← Moist.MIR.freshVar "anf"
-            pure (Expr.Var v, bs ++ [(v, body, false)])
-        | _ => do
-          let v ← Moist.MIR.freshVar "anf"
-          pure (Expr.Var v, [(v, Expr.Constr tag args, false)]))) s = _
-    have h1 : (Expr.Constr tag args).isAtom = false := rfl
-    simp only [h1]
-    rfl
-  | Fix f body =>
-    show (do if (Expr.Fix f body).isAtom then pure (Expr.Fix f body, []) else
-      (match (Expr.Fix f body) with
-        | Expr.Let bs body' =>
-          if body'.isAtom then pure (body', bs)
-          else do
-            let v ← Moist.MIR.freshVar "anf"
-            pure (Expr.Var v, bs ++ [(v, body', false)])
-        | _ => do
-          let v ← Moist.MIR.freshVar "anf"
-          pure (Expr.Var v, [(v, Expr.Fix f body, false)]))) s = _
-    have h1 : (Expr.Fix f body).isAtom = false := rfl
-    simp only [h1]
-    rfl
-  | Error =>
-    show (do if (Expr.Error).isAtom then pure (Expr.Error, []) else
-      (match (Expr.Error) with
-        | Expr.Let bs body =>
-          if body.isAtom then pure (body, bs)
-          else do
-            let v ← Moist.MIR.freshVar "anf"
-            pure (Expr.Var v, bs ++ [(v, body, false)])
-        | _ => do
-          let v ← Moist.MIR.freshVar "anf"
-          pure (Expr.Var v, [(v, Expr.Error, false)]))) s = _
-    have h1 : (Expr.Error).isAtom = false := rfl
-    simp only [h1]
-    rfl
+/-- The names `anfAtom` binds are fresh for anything below `s.next`. -/
+theorem anfAtom_binds_fresh {e : Expr} {s : FreshState} {y : Expr}
+    (hy : maxUidExpr y < s.next) : ∀ b ∈ (anfAtom e s).1.2, (freeVars y).contains b.1 = false := by
+  rw [anfAtom_eq]; split
+  · simp
+  · simp only [List.mem_singleton]
+    rintro _ rfl
+    exact maxUidExpr_fresh y _ hy
 
-/-- `anfAtom_spec`: for any initial state `s₁`, running `anfAtom e` yields a
-    pair `(atom, binds)` such that `atom.isAtom = true` and
-    `e ≈Ctxᴹ wrapLet binds atom` bidirectionally. -/
-theorem anfAtom_spec (e : Expr) (s₁ : Moist.MIR.FreshState) :
-    ((Moist.MIR.anfAtom e) s₁).1.1.isAtom = true ∧
-    MIRCtxRefines e
-      (Moist.MIR.wrapLet ((Moist.MIR.anfAtom e) s₁).1.2
-        ((Moist.MIR.anfAtom e) s₁).1.1) := by
-  match e with
-  | .Var v =>
-    rw [anfAtom_var v s₁]
-    exact ⟨rfl, mirCtxRefines_refl _⟩
-  | .Lit lit =>
-    rw [anfAtom_lit lit s₁]
-    exact ⟨rfl, mirCtxRefines_refl _⟩
-  | .Builtin b =>
-    rw [anfAtom_builtin b s₁]
-    exact ⟨rfl, mirCtxRefines_refl _⟩
-  | .Let bs body =>
-    rw [anfAtom_let bs body s₁]
-    refine ⟨rfl, ?_⟩
-    show MIRCtxRefines (.Let bs body) (Moist.MIR.wrapLet _ _)
-    rw [wrapLet_cons]; exact mirCtxRefines_atomize_fwd (.Let bs body) ⟨s₁.next, .gen, "anf"⟩
-  | .App _ _ | .Force _ | .Delay _ | .Lam _ _ | .Case _ _ | .Constr _ _
-  | .Fix _ _ | .Error =>
-    rw [anfAtom_nonletnon _ rfl (by intros; intro heq; cases heq) s₁]
-    refine ⟨rfl, ?_⟩
-    rw [wrapLet_cons]; exact mirCtxRefines_atomize_fwd _ ⟨s₁.next, .gen, "anf"⟩
-
-/-! ## Section 12. Main ANF soundness theorem -/
-
-/-! ### Section 12a. Compute lemmas for `anfNormalizeCore` on each constructor
-
-Each lemma equates `(anfNormalizeCore e) s` to a concrete pair built from
-sub-calls, useful for unfolding in the main induction. -/
-
-private theorem anfNormalizeCore_lam_eq (x : VarId) (body : Expr) (s : Moist.MIR.FreshState) :
-    (Moist.MIR.anfNormalizeCore (.Lam x body)) s =
-      ((.Lam x (Moist.MIR.anfNormalizeCore body s).1),
-       (Moist.MIR.anfNormalizeCore body s).2) := by
-  show (do let body' ← Moist.MIR.anfNormalizeCore body; pure (Expr.Lam x body')) s = _
-  rfl
-
-private theorem anfNormalizeCore_delay_eq (inner : Expr) (s : Moist.MIR.FreshState) :
-    (Moist.MIR.anfNormalizeCore (.Delay inner)) s =
-      ((.Delay (Moist.MIR.anfNormalizeCore inner s).1),
-       (Moist.MIR.anfNormalizeCore inner s).2) := by
-  show (do let e' ← Moist.MIR.anfNormalizeCore inner; pure (Expr.Delay e')) s = _
-  rfl
-
-private theorem anfNormalizeCore_fix_eq (f : VarId) (body : Expr) (s : Moist.MIR.FreshState) :
-    (Moist.MIR.anfNormalizeCore (.Fix f body)) s =
-      ((.Fix f (Moist.MIR.anfNormalizeCore body s).1),
-       (Moist.MIR.anfNormalizeCore body s).2) := by
-  show (do let body' ← Moist.MIR.anfNormalizeCore body; pure (Expr.Fix f body')) s = _
-  rfl
-
-private theorem anfNormalizeCore_force_eq (inner : Expr) (s : Moist.MIR.FreshState) :
-    (Moist.MIR.anfNormalizeCore (.Force inner)) s =
-      (let (inner', s₁) := Moist.MIR.anfNormalizeCore inner s
-       let ((atom, binds), s₂) := Moist.MIR.anfAtom inner' s₁
-       (Moist.MIR.wrapLet binds (.Force atom), s₂)) := by
-  show (do
-      let e' ← Moist.MIR.anfNormalizeCore inner
-      let (atom, binds) ← Moist.MIR.anfAtom e'
-      pure (Moist.MIR.wrapLet binds (Expr.Force atom))) s = _
-  rfl
-
-private theorem anfNormalizeCore_app_eq (f x : Expr) (s : Moist.MIR.FreshState) :
-    (Moist.MIR.anfNormalizeCore (.App f x)) s =
-      (let (f', s₁) := Moist.MIR.anfNormalizeCore f s
-       let (x', s₂) := Moist.MIR.anfNormalizeCore x s₁
-       let ((fAtom, fBinds), s₃) := Moist.MIR.anfAtom f' s₂
-       let ((xAtom, xBinds), s₄) := Moist.MIR.anfAtom x' s₃
-       (Moist.MIR.wrapLet (fBinds ++ xBinds) (.App fAtom xAtom), s₄)) := by
-  show (do
-      let f' ← Moist.MIR.anfNormalizeCore f
-      let x' ← Moist.MIR.anfNormalizeCore x
-      let (fAtom, fBinds) ← Moist.MIR.anfAtom f'
-      let (xAtom, xBinds) ← Moist.MIR.anfAtom x'
-      pure (Moist.MIR.wrapLet (fBinds ++ xBinds) (Expr.App fAtom xAtom))) s = _
-  rfl
-
-private theorem anfNormalizeCore_case_eq (scrut : Expr) (alts : List Expr)
-    (s : Moist.MIR.FreshState) :
-    (Moist.MIR.anfNormalizeCore (.Case scrut alts)) s =
-      (let (scrut', s₁) := Moist.MIR.anfNormalizeCore scrut s
-       let ((atom, binds), s₂) := Moist.MIR.anfAtom scrut' s₁
-       let (alts', s₃) := Moist.MIR.anfNormalizeListCore alts s₂
-       (Moist.MIR.wrapLet binds (.Case atom alts'), s₃)) := by
-  show (do
-      let scrut' ← Moist.MIR.anfNormalizeCore scrut
-      let (atom, binds) ← Moist.MIR.anfAtom scrut'
-      let alts' ← Moist.MIR.anfNormalizeListCore alts
-      pure (Moist.MIR.wrapLet binds (Expr.Case atom alts'))) s = _
-  rfl
-
-private theorem anfNormalizeCore_constr_eq (tag : Nat) (args : List Expr)
-    (s : Moist.MIR.FreshState) :
-    (Moist.MIR.anfNormalizeCore (.Constr tag args)) s =
-      (let (args', s₁) := Moist.MIR.anfNormalizeListCore args s
-       let ((atoms, allBinds), s₂) := Moist.MIR.anfAtomList args' s₁
-       (Moist.MIR.wrapLet allBinds (.Constr tag atoms), s₂)) := by
-  show (do
-      let args' ← Moist.MIR.anfNormalizeListCore args
-      let (atoms, allBinds) ← Moist.MIR.anfAtomList args'
-      pure (Moist.MIR.wrapLet allBinds (Expr.Constr tag atoms))) s = _
-  rfl
-
-private theorem anfNormalizeCore_let_eq (binds : List (VarId × Expr × Bool)) (body : Expr)
-    (s : Moist.MIR.FreshState) :
-    (Moist.MIR.anfNormalizeCore (.Let binds body)) s =
-      (let (normalized, s₁) := Moist.MIR.anfNormalizeBindsCore binds s
-       let (body', s₂) := Moist.MIR.anfNormalizeCore body s₁
-       (Moist.MIR.flattenLetBody normalized body', s₂)) := by
-  show (do
-      let normalized ← Moist.MIR.anfNormalizeBindsCore binds
-      let body' ← Moist.MIR.anfNormalizeCore body
-      pure (Moist.MIR.flattenLetBody normalized body')) s = _
-  rfl
-
-private theorem anfNormalizeList_nil_eq (s : Moist.MIR.FreshState) :
-    (Moist.MIR.anfNormalizeListCore []) s = (([] : List Expr), s) := rfl
-
-private theorem anfNormalizeList_cons_eq (e : Expr) (rest : List Expr)
-    (s : Moist.MIR.FreshState) :
-    (Moist.MIR.anfNormalizeListCore (e :: rest)) s =
-      (let (e', s₁) := Moist.MIR.anfNormalizeCore e s
-       let (rest', s₂) := Moist.MIR.anfNormalizeListCore rest s₁
-       (e' :: rest', s₂)) := by
-  show (do
-      let e' ← Moist.MIR.anfNormalizeCore e
-      let rest' ← Moist.MIR.anfNormalizeListCore rest
-      pure (e' :: rest')) s = _
-  rfl
-
-private theorem anfNormalizeBinds_nil_eq (s : Moist.MIR.FreshState) :
-    (Moist.MIR.anfNormalizeBindsCore []) s = (([] : List (VarId × Expr × Bool)), s) := rfl
-
-private theorem anfNormalizeBinds_cons_eq (v : VarId) (e : Expr) (er : Bool)
-    (rest : List (VarId × Expr × Bool)) (s : Moist.MIR.FreshState) :
-    (Moist.MIR.anfNormalizeBindsCore ((v, e, er) :: rest)) s =
-      (let (e', s₁) := Moist.MIR.anfNormalizeCore e s
-       let (rest', s₂) := Moist.MIR.anfNormalizeBindsCore rest s₁
-       ((v, e', er) :: rest', s₂)) := by
-  show (do
-      let e' ← Moist.MIR.anfNormalizeCore e
-      let rest' ← Moist.MIR.anfNormalizeBindsCore rest
-      pure ((v, e', er) :: rest')) s = _
-  rfl
-
-/-- Every variable introduced by `anfAtom e s` has uid exactly `s.next`. -/
-private theorem anfAtom_binds_uid (e : Expr) (s : Moist.MIR.FreshState) :
-    ∀ b ∈ ((Moist.MIR.anfAtom e) s).1.2, b.1.uid = s.next := by
-  intro b hb
-  by_cases h : e.isAtom = true
-  · -- atomic case: binds = [], so membership is impossible
-    have hres : (Moist.MIR.anfAtom e) s = ((e, []), s) := by
-      show (if e.isAtom = true then (pure (e, []) : Moist.MIR.FreshM _)
-        else do let v ← Moist.MIR.freshVar "anf"; pure (Expr.Var v, [(v, e, false)])) s = _
-      rw [if_pos h]; rfl
-    rw [hres] at hb
-    exact absurd hb (by simp)
-  · have hf : e.isAtom = false := by
-      cases h' : e.isAtom with
-      | true => exact absurd h' h
-      | false => rfl
-    have hres : (Moist.MIR.anfAtom e) s =
-        ((Expr.Var ⟨s.next, .gen, "anf"⟩, [(⟨s.next, .gen, "anf"⟩, e, false)]),
-         { next := s.next + 1 }) := by
-      show (if e.isAtom = true then (pure (e, []) : Moist.MIR.FreshM _)
-        else do let v ← Moist.MIR.freshVar "anf"; pure (Expr.Var v, [(v, e, false)])) s = _
-      rw [if_neg (by simp [hf])]
-      rfl
-    rw [hres] at hb
-    simp at hb
-    rw [hb]
-
-/-- If `anfAtom` produced a non-empty binding list, then the state advanced by 1. -/
-private theorem anfAtom_state_succ_of_binds_nonempty (e : Expr) (s : Moist.MIR.FreshState)
-    (h : ((Moist.MIR.anfAtom e) s).1.2 ≠ []) :
-    ((Moist.MIR.anfAtom e) s).2.next = s.next + 1 := by
-  by_cases hat : e.isAtom = true
-  · exfalso
-    have : (Moist.MIR.anfAtom e) s = ((e, []), s) := by
-      show (if e.isAtom = true then (pure (e, []) : Moist.MIR.FreshM _)
-        else do let v ← Moist.MIR.freshVar "anf"; pure (Expr.Var v, [(v, e, false)])) s = _
-      rw [if_pos hat]; rfl
-    apply h; show ((Moist.MIR.anfAtom e) s).1.2 = []; rw [this]
-  · have hf : e.isAtom = false := by
-      cases h' : e.isAtom with | true => exact absurd h' hat | false => rfl
-    have : (Moist.MIR.anfAtom e) s =
-        ((Expr.Var ⟨s.next, .gen, "anf"⟩, [(⟨s.next, .gen, "anf"⟩, e, false)]),
-         { next := s.next + 1 }) := by
-      show (if e.isAtom = true then (pure (e, []) : Moist.MIR.FreshM _)
-        else do let v ← Moist.MIR.freshVar "anf"; pure (Expr.Var v, [(v, e, false)])) s = _
-      rw [if_neg (by simp [hf])]; rfl
-    show ((Moist.MIR.anfAtom e) s).2.next = _; rw [this]
-
-/-- If `v` is not free in `e` and `v.uid ≠ s.next`, then `v` is not free in the
-    output `wrapLet binds atom` of `anfAtom e s`. This is the key lemma for
-    threading freshness through sibling subterms in the main induction. -/
-private theorem anfAtom_wrapLet_freshIn (e : Expr) (s : Moist.MIR.FreshState) (v : VarId)
-    (hv_e : (Moist.MIR.freeVars e).contains v = false)
-    (hv_uid : v.uid ≠ s.next) :
-    (Moist.MIR.freeVars (Moist.MIR.wrapLet ((Moist.MIR.anfAtom e) s).1.2
-      ((Moist.MIR.anfAtom e) s).1.1)).contains v = false := by
-  by_cases h : e.isAtom = true
-  · have hres : (Moist.MIR.anfAtom e) s = ((e, []), s) := by
-      show (if e.isAtom = true then (pure (e, []) : Moist.MIR.FreshM _)
-        else do let v ← Moist.MIR.freshVar "anf"; pure (Expr.Var v, [(v, e, false)])) s = _
-      rw [if_pos h]; rfl
-    rw [hres]
-    show (Moist.MIR.freeVars (Moist.MIR.wrapLet [] e)).contains v = false
-    exact hv_e
-  · have hf : e.isAtom = false := by
-      cases h' : e.isAtom with
-      | true => exact absurd h' h
-      | false => rfl
-    have hres : (Moist.MIR.anfAtom e) s =
-        ((Expr.Var ⟨s.next, .gen, "anf"⟩, [(⟨s.next, .gen, "anf"⟩, e, false)]),
-         { next := s.next + 1 }) := by
-      show (if e.isAtom = true then (pure (e, []) : Moist.MIR.FreshM _)
-        else do let v ← Moist.MIR.freshVar "anf"; pure (Expr.Var v, [(v, e, false)])) s = _
-      rw [if_neg (by simp [hf])]; rfl
-    rw [hres]
-    rw [wrapLet_cons]
-    -- Goal: (freeVars (.Let [(⟨s.next, .gen, "anf"⟩, e, false)] (.Var ⟨s.next, .gen, "anf"⟩))).contains v = false
-    show (Moist.MIR.freeVars (Expr.Let [(⟨s.next, .gen, "anf"⟩, e, false)]
-      (Expr.Var ⟨s.next, .gen, "anf"⟩))).contains v = false
-    -- freeVars (.Let bs body) = freeVarsLet bs body
-    -- freeVarsLet [(y,rhs,er) :: rest] body = (freeVars rhs).union ((freeVarsLet rest body).erase y)
-    -- freeVarsLet [] body = freeVars body
-    simp only [Moist.MIR.freeVars, Moist.MIR.freeVarsLet]
-    apply Moist.MIR.VarSet.union_not_contains_fwd
-    · exact hv_e
-    · apply Moist.MIR.VarSet.erase_not_contains_fwd
-      rw [Moist.MIR.VarSet.singleton_contains']
-      show ((⟨s.next, .gen, "anf"⟩ : VarId) == v) = false
-      show ((⟨s.next, .gen, "anf"⟩ : VarId).origin == v.origin &&
-            (⟨s.next, .gen, "anf"⟩ : VarId).uid == v.uid) = false
-      rw [Bool.and_eq_false_iff]
-      refine Or.inr ?_
-      exact decide_eq_false (fun heq => hv_uid heq.symm)
-
-/-- `anfAtom` binds' uids exceed any sibling expression with `maxUidExpr y < s.next`. -/
-private theorem anfAtom_binds_fresh_in (e : Expr) (s : Moist.MIR.FreshState)
-    (y : Expr) (hy : Moist.MIR.maxUidExpr y < s.next) :
-    ∀ b ∈ ((Moist.MIR.anfAtom e) s).1.2, (Moist.MIR.freeVars y).contains b.1 = false := by
-  intro b hb
-  have huid : b.1.uid = s.next := anfAtom_binds_uid e s b hb
-  have h_gt : b.1.uid > Moist.MIR.maxUidExpr y := by omega
-  exact Moist.MIR.maxUidExpr_fresh y b.1 h_gt
-
-/-! ### Section 12b. Strong `anfAtom` spec with state tracking
-
-Extends `anfAtom_spec` with (i) monotonicity `s.next ≤ s'.next ≤ s.next + 1`,
-(ii) `FreshGt` preservation: if all vars in `e` have uid `< s.next`, then all
-vars in the output atom and binds have uid `< s'.next`. -/
-
-/-- Monotonicity: `anfAtom` either keeps state unchanged or advances by 1. -/
-private theorem anfAtom_mono (e : Expr) (s : Moist.MIR.FreshState) :
-    s.next ≤ ((Moist.MIR.anfAtom e) s).2.next ∧
-    ((Moist.MIR.anfAtom e) s).2.next ≤ s.next + 1 := by
-  match e with
-  | .Var v => rw [anfAtom_var v s]; exact ⟨Nat.le_refl _, Nat.le_succ _⟩
-  | .Lit lit => rw [anfAtom_lit lit s]; exact ⟨Nat.le_refl _, Nat.le_succ _⟩
-  | .Builtin b => rw [anfAtom_builtin b s]; exact ⟨Nat.le_refl _, Nat.le_succ _⟩
-  | .Let bs body => rw [anfAtom_let bs body s]; exact ⟨by simp, by simp⟩
-  | .App _ _ | .Force _ | .Delay _ | .Lam _ _ | .Case _ _ | .Constr _ _
-  | .Fix _ _ | .Error =>
-    rw [anfAtom_nonletnon _ rfl (by intros; intro heq; cases heq) s]
-    exact ⟨by simp, by simp⟩
-
-/-- Stronger `anfAtom` freshness: the output has maxUid strictly less than
-    `s'.next` (where `s'` is the output state), assuming input has maxUid
-    less than `s.next`. This is the invariant we use in the main induction. -/
-private theorem anfAtom_fresh (e : Expr) (s : Moist.MIR.FreshState)
-    (h : Moist.MIR.maxUidExpr e < s.next) :
-    Moist.MIR.maxUidExpr (Moist.MIR.wrapLet ((Moist.MIR.anfAtom e) s).1.2
-      ((Moist.MIR.anfAtom e) s).1.1) < ((Moist.MIR.anfAtom e) s).2.next := by
-  match e with
-  | .Var v =>
-    rw [anfAtom_var v s]
-    show Moist.MIR.maxUidExpr (.Var v) < s.next; exact h
-  | .Lit lit => rw [anfAtom_lit lit s]; show Moist.MIR.maxUidExpr (.Lit _) < s.next; exact h
-  | .Builtin b => rw [anfAtom_builtin b s]; show Moist.MIR.maxUidExpr (.Builtin _) < s.next; exact h
-  | .Let bs body =>
-    rw [anfAtom_let bs body s, wrapLet_cons]
-    show Moist.MIR.maxUidExpr
-      (.Let [(⟨s.next, .gen, "anf"⟩, .Let bs body, false)] (.Var ⟨s.next, .gen, "anf"⟩)) < s.next + 1
-    have hlet : Moist.MIR.maxUidExpr (.Let bs body) < s.next := h
-    simp only [Moist.MIR.maxUidExpr, Moist.MIR.maxUidExprBinds] at hlet ⊢
-    omega
-  | .App _ _ | .Force _ | .Delay _ | .Lam _ _ | .Case _ _ | .Constr _ _
-  | .Fix _ _ | .Error =>
-    rw [anfAtom_nonletnon _ rfl (by intros; intro heq; cases heq) s, wrapLet_cons]
-    simp only [Moist.MIR.maxUidExpr, Moist.MIR.maxUidExprBinds] at h ⊢
-    omega
-
-/-! ### Section 12e-bis-pre. `anfNormalizeCore` output shape preservation
-
-Shows that `anfNormalizeCore` produces a non-`.Lam` output when given a non-`.Lam`
-input. Needed for the `.Fix` case of the main induction where both sides'
-lowerings should fail to be `some`. -/
-
-/-! ### Section 12f. Main mutual induction
-
-The theorem carries four invariants:
-1. Forward refinement: `e ≈ (anfNormalizeCore e s).1`
-2. Backward refinement: `(anfNormalizeCore e s).1 ≈ e`
-3. State monotonicity: `s.next ≤ (anfNormalizeCore e s).2.next`
-4. Output freshness: `FreshGt (anfNormalizeCore e s).2 (anfNormalizeCore e s).1`
-   (i.e., `maxUidExpr (output) < (output state).next`)
-
-Termination is by `sizeOf e`. -/
-
-private theorem maxUidExpr_le_wrapLet (binds : List (VarId × Expr × Bool)) (atom : Expr) :
-    Moist.MIR.maxUidExpr atom ≤ Moist.MIR.maxUidExpr (Moist.MIR.wrapLet binds atom) := by
-  cases binds with
-  | nil => exact Nat.le_refl _
-  | cons b rest => rw [wrapLet_cons]; simp only [Moist.MIR.maxUidExpr]; omega
-
-private theorem maxUidExprBinds_le_wrapLet
-    (binds : List (VarId × Expr × Bool)) (atom : Expr) :
-    Moist.MIR.maxUidExprBinds binds ≤ Moist.MIR.maxUidExpr (Moist.MIR.wrapLet binds atom) := by
-  cases binds with
-  | nil => simp [Moist.MIR.maxUidExprBinds]
-  | cons b rest => rw [wrapLet_cons]; simp [Moist.MIR.maxUidExpr]; omega
-
-/-- `flattenLetBody` is forward-refined by `.Let binds body`. -/
-private theorem mirCtxRefines_flattenLetBody_fwd
-    (binds : List (VarId × Expr × Bool)) (body : Expr) :
-    MIRCtxRefines (.Let binds body) (Moist.MIR.flattenLetBody binds body) := by
-  match body with
-  | .Let ib ibody => exact mirCtxRefines_let_flatten_body_fwd binds ib ibody
-  | .Var _ | .Lit _ | .Builtin _ | .Error | .Lam _ _ | .Fix _ _ | .App _ _
-  | .Force _ | .Delay _ | .Constr _ _ | .Case _ _ => exact mirCtxRefines_refl _
-
-/-- `maxUidExpr` of `flattenLetBody binds body` is bounded by the `.Let binds body` form. -/
-private theorem maxUidExpr_flattenLetBody_le
-    (binds : List (VarId × Expr × Bool)) (body : Expr) :
-    Moist.MIR.maxUidExpr (Moist.MIR.flattenLetBody binds body) ≤
-      max (Moist.MIR.maxUidExprBinds binds) (Moist.MIR.maxUidExpr body) := by
-  match body with
-  | .Let ib ibody =>
-    simp only [Moist.MIR.flattenLetBody, Moist.MIR.maxUidExpr]
-    have := Moist.MIR.maxUidExprBinds_append binds ib; omega
-  | .Var _ | .Lit _ | .Builtin _ | .Error | .Lam _ _ | .Fix _ _ | .App _ _
-  | .Force _ | .Delay _ | .Constr _ _ | .Case _ _ =>
-    simp only [Moist.MIR.flattenLetBody, Moist.MIR.maxUidExpr]
-    omega
-
-/-- `flattenLetBody` preserves the freshness bound. -/
-private theorem freshGt_flattenLetBody
-    (binds : List (VarId × Expr × Bool)) (body : Expr) (s : Moist.MIR.FreshState)
-    (hbinds : Moist.MIR.maxUidExprBinds binds < s.next)
-    (hbody : Moist.MIR.maxUidExpr body < s.next) :
-    Moist.MIR.maxUidExpr (Moist.MIR.flattenLetBody binds body) < s.next := by
-  have := maxUidExpr_flattenLetBody_le binds body
-  omega
-
-/-- Freshness for `wrapLet binds body`: bounded by the max of binds-uids and body-uid. -/
-private theorem freshGt_wrapLet
-    (binds : List (VarId × Expr × Bool)) (body : Expr) (s : Moist.MIR.FreshState)
-    (hbinds : Moist.MIR.maxUidExprBinds binds < s.next)
-    (hbody : Moist.MIR.maxUidExpr body < s.next) :
-    Moist.MIR.maxUidExpr (Moist.MIR.wrapLet binds body) < s.next := by
-  cases binds with
+theorem maxUidExpr_wrapLet_lt {bs : List (VarId × Expr × Bool)} {body : Expr} {n : Nat}
+    (hbs : maxUidExprBinds bs < n) (hbody : maxUidExpr body < n) :
+    maxUidExpr (wrapLet bs body) < n := by
+  cases bs with
   | nil => exact hbody
-  | cons b rest =>
-    rw [wrapLet_cons]
-    simp only [Moist.MIR.maxUidExpr]
-    omega
+  | cons _ _ => simp only [wrapLet, maxUidExpr]; omega
 
-/-- Freshness for `wrapLet binds (.Case atom alts)`. -/
-private theorem freshGt_wrapLet_case
-    (binds : List (VarId × Expr × Bool)) (atom : Expr) (alts : List Expr)
-    (s : Moist.MIR.FreshState)
-    (hatom : Moist.MIR.maxUidExpr atom < s.next)
-    (halts : Moist.MIR.maxUidExprList alts < s.next)
-    (hbinds : Moist.MIR.maxUidExprBinds binds < s.next) :
-    Moist.MIR.maxUidExpr (Moist.MIR.wrapLet binds (.Case atom alts)) < s.next := by
-  cases binds with
-  | nil => show Moist.MIR.maxUidExpr (.Case atom alts) < _
-           simp only [Moist.MIR.maxUidExpr]; omega
-  | cons b rest => rw [wrapLet_cons]; simp only [Moist.MIR.maxUidExpr]; omega
+theorem maxUidExprList_lt_of_mem {es : List Expr} {n : Nat} (h : maxUidExprList es < n) :
+    ∀ e ∈ es, maxUidExpr e < n := fun _ he =>
+  Nat.lt_of_le_of_lt (maxUidExpr_le_maxUidExprList_of_mem he) h
 
-/-- Freshness for `wrapLet binds (.Constr tag atoms)`. -/
-private theorem freshGt_wrapLet_constr
-    (binds : List (VarId × Expr × Bool)) (tag : Nat) (atoms : List Expr)
-    (s : Moist.MIR.FreshState)
-    (hatoms : Moist.MIR.maxUidExprList atoms < s.next)
-    (hbinds : Moist.MIR.maxUidExprBinds binds < s.next) :
-    Moist.MIR.maxUidExpr (Moist.MIR.wrapLet binds (.Constr tag atoms)) < s.next := by
-  cases binds with
-  | nil => show Moist.MIR.maxUidExpr (.Constr tag atoms) < _
-           simp only [Moist.MIR.maxUidExpr]; exact hatoms
-  | cons b rest => rw [wrapLet_cons]; simp only [Moist.MIR.maxUidExpr]; omega
+/-- `Constr tag (pre ++ args)` with atomic `pre` refines its `anfAtomList` form. -/
+theorem anfAtomList_spec (tag : Nat) :
+    ∀ (args pre : List Expr) (s : FreshState), maxUidExprList args < s.next →
+      maxUidExprList pre < s.next → (∀ a ∈ pre, a.isAtom = true) →
+      s.next ≤ (anfAtomList args s).2.next ∧
+      maxUidExprList (anfAtomList args s).1.1 < (anfAtomList args s).2.next ∧
+      maxUidExprBinds (anfAtomList args s).1.2 < (anfAtomList args s).2.next ∧
+      MIRCtxRefines (.Constr tag (pre ++ args))
+        (wrapLet (anfAtomList args s).1.2 (.Constr tag (pre ++ (anfAtomList args s).1.1)))
+  | [], pre, s, _, _, _ => by
+    show s.next ≤ s.next ∧ maxUidExprList [] < s.next ∧ maxUidExprBinds [] < s.next ∧
+      MIRCtxRefines (.Constr tag (pre ++ [])) (wrapLet [] (.Constr tag (pre ++ [])))
+    exact ⟨Nat.le_refl _, by simp [maxUidExprList]; omega, by simp [maxUidExprBinds]; omega,
+      mirCtxRefines_refl _⟩
+  | a :: rest, pre, s, hargs, hpre, hpreA => by
+    simp only [maxUidExprList] at hargs
+    show s.next ≤ (anfAtomList rest (anfAtom a s).2).2.next ∧
+      maxUidExprList ((anfAtom a s).1.1 :: (anfAtomList rest (anfAtom a s).2).1.1) <
+        (anfAtomList rest (anfAtom a s).2).2.next ∧
+      maxUidExprBinds ((anfAtom a s).1.2 ++ (anfAtomList rest (anfAtom a s).2).1.2) <
+        (anfAtomList rest (anfAtom a s).2).2.next ∧
+      MIRCtxRefines _ (wrapLet ((anfAtom a s).1.2 ++ (anfAtomList rest (anfAtom a s).2).1.2)
+        (.Constr tag (pre ++ (anfAtom a s).1.1 :: (anfAtomList rest (anfAtom a s).2).1.1)))
+    have href := anfAtom_refines a s
+    have hfresh : ∀ b ∈ (anfAtom a s).1.2, ∀ y ∈ pre ++ rest, (freeVars y).contains b.1 = false :=
+      fun b hb y hy => anfAtom_binds_fresh (by
+        rcases List.mem_append.mp hy with hy | hy
+        · exact maxUidExprList_lt_of_mem hpre y hy
+        · exact maxUidExprList_lt_of_mem (by omega) y hy) b hb
+    have hatom := anfAtom_isAtom a s
+    obtain ⟨m₁, F₁, B₁⟩ := anfAtom_fresh a s (by omega)
+    generalize anfAtom a s = r at href hfresh hatom m₁ F₁ B₁ ⊢
+    have hpre' : maxUidExprList (pre ++ [r.1.1]) < r.2.next := by
+      have := maxUidExprList_append pre [r.1.1]
+      simp only [maxUidExprList] at this; omega
+    obtain ⟨m₂, F₂, B₂, ih⟩ := anfAtomList_spec tag rest (pre ++ [r.1.1]) r.2 (by omega) hpre'
+      (fun x hx => by
+        rcases List.mem_append.mp hx with hx | hx
+        · exact hpreA x hx
+        · simp only [List.mem_singleton] at hx; subst hx; exact hatom)
+    simp only [List.append_assoc, List.singleton_append] at ih
+    refine ⟨by omega, by simp only [maxUidExprList]; omega,
+      by have := maxUidExprBinds_append r.1.2 (anfAtomList rest r.2).1.2; omega, ?_⟩
+    exact mirCtxRefines_trans (mirCtxRefines_fill (.constr tag pre rest) href) <|
+      mirCtxRefines_trans (mirCtxRefines_hoist_wrapLet (.constr tag pre rest) hpreA _ _ hfresh) <|
+      mirCtxRefines_trans (mirCtxRefines_wrapLet_body ih) <|
+      mirCtxRefines_of_lowerEq fun env => (lowerTotalExpr_wrapLet_append _ _ _ env).symm
 
-/-- Combined specification for `anfAtomList`: produces atoms (all `isAtom`) and bindings
-    such that `.Constr tag (pre ++ args)` is bidirectionally refined by
-    `wrapLet binds (.Constr tag (pre ++ atoms))` for any atomic prefix `pre`,
-    plus state monotonicity and output freshness. -/
-private theorem anfAtomList_spec
-    (args : List Expr) (s : Moist.MIR.FreshState) (tag : Nat) (pre : List Expr)
-    (hargs : Moist.MIR.maxUidExprList args < s.next)
-    (hpre_uid : Moist.MIR.maxUidExprList pre < s.next)
-    (hpre_atom : ∀ a ∈ pre, a.isAtom = true) :
-    s.next ≤ (Moist.MIR.anfAtomList args s).2.next ∧
-    Moist.MIR.maxUidExprList (Moist.MIR.anfAtomList args s).1.1 <
-      (Moist.MIR.anfAtomList args s).2.next ∧
-    Moist.MIR.maxUidExprBinds (Moist.MIR.anfAtomList args s).1.2 <
-      (Moist.MIR.anfAtomList args s).2.next ∧
-    (∀ a ∈ (Moist.MIR.anfAtomList args s).1.1, a.isAtom = true) ∧
-    MIRCtxRefines (.Constr tag (pre ++ args))
-      (Moist.MIR.wrapLet (Moist.MIR.anfAtomList args s).1.2
-        (.Constr tag (pre ++ (Moist.MIR.anfAtomList args s).1.1))) := by
-  induction args generalizing s pre with
-  | nil =>
-    show s.next ≤ s.next ∧ _
-    refine ⟨Nat.le_refl _, ?_, ?_, ?_, ?_⟩
-    · show Moist.MIR.maxUidExprList ([] : List Expr) < s.next
-      simp [Moist.MIR.maxUidExprList]; omega
-    · show Moist.MIR.maxUidExprBinds ([] : List (VarId × Expr × Bool)) < s.next
-      simp [Moist.MIR.maxUidExprBinds]; omega
-    · intro a ha
-      have ha' : a ∈ ([] : List Expr) := ha
-      exact absurd ha' (by simp)
-    · exact mirCtxRefines_refl _
-  | cons a rest ih =>
-    -- Extract per-element facts
-    have ha_uid : Moist.MIR.maxUidExpr a < s.next := by
-      simp only [Moist.MIR.maxUidExprList] at hargs; omega
-    have hrest_uid : Moist.MIR.maxUidExprList rest < s.next := by
-      simp only [Moist.MIR.maxUidExprList] at hargs; omega
-    obtain ⟨hatom_flag, hatom_fwd⟩ := anfAtom_spec a s
-    have hmono := (anfAtom_mono a s).1
-    have hatom_fresh := anfAtom_fresh a s ha_uid
-    have hα_uid : Moist.MIR.maxUidExpr (Moist.MIR.anfAtom a s).1.1 <
-        (Moist.MIR.anfAtom a s).2.next := by
-      have := maxUidExpr_le_wrapLet (Moist.MIR.anfAtom a s).1.2 (Moist.MIR.anfAtom a s).1.1
-      omega
-    have hβ_uid : Moist.MIR.maxUidExprBinds (Moist.MIR.anfAtom a s).1.2 <
-        (Moist.MIR.anfAtom a s).2.next := by
-      have := maxUidExprBinds_le_wrapLet (Moist.MIR.anfAtom a s).1.2 (Moist.MIR.anfAtom a s).1.1
-      omega
-    -- IH at s₁ with pre' = pre ++ [α]
-    have hrest_uid_s₁ : Moist.MIR.maxUidExprList rest <
-        (Moist.MIR.anfAtom a s).2.next := by omega
-    have hpre'_uid : Moist.MIR.maxUidExprList (pre ++ [(Moist.MIR.anfAtom a s).1.1]) <
-        (Moist.MIR.anfAtom a s).2.next := by
-      have := Moist.MIR.maxUidExprList_append pre [(Moist.MIR.anfAtom a s).1.1]
-      have hsing : Moist.MIR.maxUidExprList [(Moist.MIR.anfAtom a s).1.1] =
-          Moist.MIR.maxUidExpr (Moist.MIR.anfAtom a s).1.1 := by
-        simp [Moist.MIR.maxUidExprList]
-      omega
-    have hpre'_atom : ∀ x ∈ pre ++ [(Moist.MIR.anfAtom a s).1.1], x.isAtom = true := by
-      intro x hx
-      rcases List.mem_append.mp hx with hx | hx
-      · exact hpre_atom x hx
-      · rcases List.mem_singleton.mp hx with rfl
-        exact hatom_flag
-    obtain ⟨ih_mono, ih_atoms_uid, ih_binds_uid, ih_atoms_flag, ih_fwd⟩ :=
-      ih (Moist.MIR.anfAtom a s).2 (pre ++ [(Moist.MIR.anfAtom a s).1.1])
-        hrest_uid_s₁ hpre'_uid hpre'_atom
-    -- Freshness of pre/rest w.r.t. β
-    have hpre_β_fresh : ∀ x ∈ pre, ∀ b ∈ (Moist.MIR.anfAtom a s).1.2,
-        (Moist.MIR.freeVars x).contains b.1 = false := fun x hx b hb =>
-      anfAtom_binds_fresh_in a s x
-        (by have := Moist.MIR.maxUidExpr_le_maxUidExprList_of_mem hx; omega) b hb
-    have hrest_β_fresh : ∀ x ∈ rest, ∀ b ∈ (Moist.MIR.anfAtom a s).1.2,
-        (Moist.MIR.freeVars x).contains b.1 = false := fun x hx b hb =>
-      anfAtom_binds_fresh_in a s x
-        (by have := Moist.MIR.maxUidExpr_le_maxUidExprList_of_mem hx; omega) b hb
-    show s.next ≤ (Moist.MIR.anfAtomList rest (Moist.MIR.anfAtom a s).2).2.next ∧
-      Moist.MIR.maxUidExprList ((Moist.MIR.anfAtom a s).1.1 ::
-        (Moist.MIR.anfAtomList rest (Moist.MIR.anfAtom a s).2).1.1) <
-        (Moist.MIR.anfAtomList rest (Moist.MIR.anfAtom a s).2).2.next ∧
-      Moist.MIR.maxUidExprBinds ((Moist.MIR.anfAtom a s).1.2 ++
-        (Moist.MIR.anfAtomList rest (Moist.MIR.anfAtom a s).2).1.2) <
-        (Moist.MIR.anfAtomList rest (Moist.MIR.anfAtom a s).2).2.next ∧
-      (∀ x ∈ (Moist.MIR.anfAtom a s).1.1 ::
-        (Moist.MIR.anfAtomList rest (Moist.MIR.anfAtom a s).2).1.1, x.isAtom = true) ∧
-      MIRCtxRefines (.Constr tag (pre ++ a :: rest))
-        (Moist.MIR.wrapLet ((Moist.MIR.anfAtom a s).1.2 ++
-          (Moist.MIR.anfAtomList rest (Moist.MIR.anfAtom a s).2).1.2)
-          (.Constr tag (pre ++ ((Moist.MIR.anfAtom a s).1.1 ::
-            (Moist.MIR.anfAtomList rest (Moist.MIR.anfAtom a s).2).1.1))))
-    refine ⟨by omega, ?_, ?_, ?_, ?_⟩
-    · show Moist.MIR.maxUidExprList ((Moist.MIR.anfAtom a s).1.1 ::
-        (Moist.MIR.anfAtomList rest (Moist.MIR.anfAtom a s).2).1.1) < _
-      simp only [Moist.MIR.maxUidExprList]; omega
-    · have := Moist.MIR.maxUidExprBinds_append (Moist.MIR.anfAtom a s).1.2
-        (Moist.MIR.anfAtomList rest (Moist.MIR.anfAtom a s).2).1.2
-      omega
-    · intro x hx
-      rcases List.mem_cons.mp hx with rfl | hx
-      · exact hatom_flag
-      · exact ih_atoms_flag x hx
-    · -- Forward refinement chain
-      have hassoc1 : pre ++ a :: rest = pre ++ [a] ++ rest := by simp
-      have hassoc2 : pre ++ ((Moist.MIR.anfAtom a s).1.1 ::
-          (Moist.MIR.anfAtomList rest (Moist.MIR.anfAtom a s).2).1.1) =
-          pre ++ [(Moist.MIR.anfAtom a s).1.1] ++
-            (Moist.MIR.anfAtomList rest (Moist.MIR.anfAtom a s).2).1.1 := by simp
-      rw [hassoc1, hassoc2]
-      refine mirCtxRefines_trans
-        (mirCtxRefines_constr_of_listRel tag
-          (listRel_app_of_refl_mid_mirCtxRefines hatom_fwd))
-        (mirCtxRefines_trans
-          (mirCtxRefines_constr_of_listRel tag
-            (listRel_app_of_refl_mid_mirCtxRefines (mirCtxRefines_wrapLet_eq_fwd _ _)))
-          (mirCtxRefines_trans
-            (mirCtxRefines_let_hoist_constr_arg_iter_fwd _ tag pre _ rest
-              hpre_atom hpre_β_fresh hrest_β_fresh)
-            (mirCtxRefines_trans
-              (mirCtxRefines_let_body ih_fwd)
-              (mirCtxRefines_trans
-                (mirCtxRefines_let_body (mirCtxRefines_wrapLet_eq_fwd _ _))
-                (mirCtxRefines_trans
-                  (mirCtxRefines_let_flatten_body_fwd _ _ _)
-                  (mirCtxRefines_wrapLet_eq_bwd _ _))))))
-mutual
+/-! ## `anfNormalizeCore` unfolding -/
 
-theorem anfNormalizeCore_mirCtxRefines (e : Expr) (s : Moist.MIR.FreshState)
-    (hfresh : FreshGt s e) :
-    MIRCtxRefines e (Moist.MIR.anfNormalizeCore e s).1 ∧
-    s.next ≤ (Moist.MIR.anfNormalizeCore e s).2.next ∧
-    FreshGt (Moist.MIR.anfNormalizeCore e s).2 (Moist.MIR.anfNormalizeCore e s).1 := by
-  match e with
-  | .Var v =>
-    rw [show (Moist.MIR.anfNormalizeCore (.Var v)) s = (.Var v, s) from rfl]
-    refine ⟨mirCtxRefines_refl _, Nat.le_refl _, ?_⟩
-    exact hfresh
-  | .Lit lit =>
-    rw [show (Moist.MIR.anfNormalizeCore (.Lit lit)) s = (.Lit lit, s) from rfl]
-    refine ⟨mirCtxRefines_refl _, Nat.le_refl _, ?_⟩
-    exact hfresh
-  | .Builtin b =>
-    rw [show (Moist.MIR.anfNormalizeCore (.Builtin b)) s = (.Builtin b, s) from rfl]
-    refine ⟨mirCtxRefines_refl _, Nat.le_refl _, ?_⟩
-    exact hfresh
-  | .Error =>
-    rw [show (Moist.MIR.anfNormalizeCore .Error) s = (.Error, s) from rfl]
-    refine ⟨mirCtxRefines_refl _, Nat.le_refl _, ?_⟩
-    exact hfresh
-  | .Lam x body =>
-    rw [anfNormalizeCore_lam_eq x body s]
-    have hlam_uid : Moist.MIR.maxUidExpr (.Lam x body) < s.next := hfresh
-    simp only [Moist.MIR.maxUidExpr] at hlam_uid
-    have hbody_fresh : FreshGt s body := by show Moist.MIR.maxUidExpr body < _; omega
-    obtain ⟨hfwd, hmono, hfresh'⟩ :=
-      anfNormalizeCore_mirCtxRefines body s hbody_fresh
-    have hb : Moist.MIR.maxUidExpr (Moist.MIR.anfNormalizeCore body s).1 <
-      (Moist.MIR.anfNormalizeCore body s).2.next := hfresh'
-    refine ⟨mirCtxRefines_lam hfwd, hmono, ?_⟩
-    show Moist.MIR.maxUidExpr (.Lam x _) < _
-    simp only [Moist.MIR.maxUidExpr]
-    omega
-  | .Delay inner =>
-    rw [anfNormalizeCore_delay_eq inner s]
-    have hinner_fresh : FreshGt s inner := by
-      have : Moist.MIR.maxUidExpr (.Delay inner) < s.next := hfresh
-      simp only [Moist.MIR.maxUidExpr] at this; exact this
-    obtain ⟨hfwd, hmono, hfresh'⟩ :=
-      anfNormalizeCore_mirCtxRefines inner s hinner_fresh
-    refine ⟨mirCtxRefines_delay hfwd, hmono, ?_⟩
-    show Moist.MIR.maxUidExpr (.Delay _) < _
-    simp only [Moist.MIR.maxUidExpr]
-    exact hfresh'
-  | .Fix f body =>
-    rw [anfNormalizeCore_fix_eq f body s]
-    have hfix_uid : Moist.MIR.maxUidExpr (.Fix f body) < s.next := hfresh
-    simp only [Moist.MIR.maxUidExpr] at hfix_uid
-    have hbody_fresh : FreshGt s body := by
-      show Moist.MIR.maxUidExpr body < s.next; omega
-    obtain ⟨hfwd, hmono, hfresh'⟩ :=
-      anfNormalizeCore_mirCtxRefines body s hbody_fresh
-    refine ⟨?_, hmono, ?_⟩
-    · -- Forward
-      match body, hbody_fresh with
-      | .Lam x inner, hbody_fresh =>
-        have hinner_fresh : FreshGt s inner := by
-          show Moist.MIR.maxUidExpr inner < s.next
-          have : Moist.MIR.maxUidExpr (.Lam x inner) < s.next := hbody_fresh
-          simp only [Moist.MIR.maxUidExpr] at this; omega
-        have ⟨hfwd_inner, _, _⟩ := anfNormalizeCore_mirCtxRefines inner s hinner_fresh
-        rw [show (Moist.MIR.anfNormalizeCore (.Lam x inner) s).1 =
-            .Lam x (Moist.MIR.anfNormalizeCore inner s).1 from by rw [anfNormalizeCore_lam_eq]]
-        exact mirCtxRefines_fix_lam hfwd_inner
-      | .Var _, _ | .Lit _, _ | .Builtin _, _ | .Error, _ | .Fix _ _, _
-      | .App _ _, _ | .Force _, _ | .Delay _, _ | .Constr _ _, _ | .Case _ _, _ | .Let _ _, _ =>
-        exact mirCtxRefines_fix_nonlam_lhs (by intros; intro h; cases h)
-    · -- Output freshness
-      show Moist.MIR.maxUidExpr (.Fix f _) < _
-      simp only [Moist.MIR.maxUidExpr]
-      have hf' : f.uid < s.next := by omega
-      have hb : Moist.MIR.maxUidExpr (Moist.MIR.anfNormalizeCore body s).1 <
-        (Moist.MIR.anfNormalizeCore body s).2.next := hfresh'
-      omega
-  | .Force inner =>
-    rw [anfNormalizeCore_force_eq inner s]
-    have hinner_fresh : FreshGt s inner := by
-      have : Moist.MIR.maxUidExpr (.Force inner) < s.next := hfresh
-      simp only [Moist.MIR.maxUidExpr] at this; exact this
-    obtain ⟨hfwd_in, hmono_in, hfresh_in⟩ :=
-      anfNormalizeCore_mirCtxRefines inner s hinner_fresh
-    obtain ⟨hatom_flag, hatom_fwd⟩ :=
-      anfAtom_spec (Moist.MIR.anfNormalizeCore inner s).1 (Moist.MIR.anfNormalizeCore inner s).2
-    have hatom_mn := (anfAtom_mono (Moist.MIR.anfNormalizeCore inner s).1
-      (Moist.MIR.anfNormalizeCore inner s).2).1
-    have hinner_F : Moist.MIR.maxUidExpr (Moist.MIR.anfNormalizeCore inner s).1 <
-      (Moist.MIR.anfNormalizeCore inner s).2.next := hfresh_in
-    have hatom_out := anfAtom_fresh (Moist.MIR.anfNormalizeCore inner s).1
-      (Moist.MIR.anfNormalizeCore inner s).2 hinner_F
-    refine ⟨?_, Nat.le_trans hmono_in hatom_mn, ?_⟩
-    · -- Forward: .Force inner ≈ .Force inner' ≈ .Force (wrapLet binds atom) ≈ .Let binds (.Force atom) ≈ wrapLet ...
-      refine mirCtxRefines_trans (mirCtxRefines_force hfwd_in) ?_
-      refine mirCtxRefines_trans (mirCtxRefines_force hatom_fwd) ?_
-      refine mirCtxRefines_trans (mirCtxRefines_force (mirCtxRefines_wrapLet_eq_fwd _ _)) ?_
-      refine mirCtxRefines_trans (mirCtxRefines_let_hoist_force_iter_fwd _ _) ?_
-      exact mirCtxRefines_wrapLet_eq_bwd _ _
-    · -- Output freshness
-      have hb_le := maxUidExprBinds_le_wrapLet
-        ((Moist.MIR.anfAtom (Moist.MIR.anfNormalizeCore inner s).1)
-          (Moist.MIR.anfNormalizeCore inner s).2).1.2
-        ((Moist.MIR.anfAtom (Moist.MIR.anfNormalizeCore inner s).1)
-          (Moist.MIR.anfNormalizeCore inner s).2).1.1
-      have ha_le := maxUidExpr_le_wrapLet
-        ((Moist.MIR.anfAtom (Moist.MIR.anfNormalizeCore inner s).1)
-          (Moist.MIR.anfNormalizeCore inner s).2).1.2
-        ((Moist.MIR.anfAtom (Moist.MIR.anfNormalizeCore inner s).1)
-          (Moist.MIR.anfNormalizeCore inner s).2).1.1
-      apply freshGt_wrapLet _ _ _ (Nat.lt_of_le_of_lt hb_le hatom_out)
-      show Moist.MIR.maxUidExpr (.Force _) < _
-      simp only [Moist.MIR.maxUidExpr]
-      exact Nat.lt_of_le_of_lt ha_le hatom_out
-  | .App fn arg =>
-    rw [anfNormalizeCore_app_eq fn arg s]
-    have hap_uid : Moist.MIR.maxUidExpr (.App fn arg) < s.next := hfresh
-    simp only [Moist.MIR.maxUidExpr] at hap_uid
-    have hfn_fresh : FreshGt s fn := by show Moist.MIR.maxUidExpr fn < _; omega
-    obtain ⟨hfn_f, hfn_m, hfn_F⟩ := anfNormalizeCore_mirCtxRefines fn s hfn_fresh
-    have harg_fresh : FreshGt (Moist.MIR.anfNormalizeCore fn s).2 arg := by
-      show Moist.MIR.maxUidExpr arg < _; omega
-    obtain ⟨harg_f, harg_m, harg_F⟩ :=
-      anfNormalizeCore_mirCtxRefines arg (Moist.MIR.anfNormalizeCore fn s).2 harg_fresh
-    let fn' := (Moist.MIR.anfNormalizeCore fn s).1
-    let s₁ := (Moist.MIR.anfNormalizeCore fn s).2
-    let arg' := (Moist.MIR.anfNormalizeCore arg s₁).1
-    let s₂ := (Moist.MIR.anfNormalizeCore arg s₁).2
-    have hfn_m : s.next ≤ s₁.next := hfn_m
-    have harg_m : s₁.next ≤ s₂.next := harg_m
-    have hfn'_F : Moist.MIR.maxUidExpr fn' < s₁.next := hfn_F
-    have harg'_F : Moist.MIR.maxUidExpr arg' < s₂.next := harg_F
-    obtain ⟨hfn_atom_flag, hfn_atom_fwd⟩ := anfAtom_spec fn' s₂
-    let fAtom := ((Moist.MIR.anfAtom fn') s₂).1.1
-    let fBinds := ((Moist.MIR.anfAtom fn') s₂).1.2
-    let s₃ := ((Moist.MIR.anfAtom fn') s₂).2
-    have hfn_atom_mn : s₂.next ≤ s₃.next := (anfAtom_mono fn' s₂).1
-    obtain ⟨hx_atom_flag, hx_atom_fwd⟩ := anfAtom_spec arg' s₃
-    let xAtom := ((Moist.MIR.anfAtom arg') s₃).1.1
-    let xBinds := ((Moist.MIR.anfAtom arg') s₃).1.2
-    let s₄ := ((Moist.MIR.anfAtom arg') s₃).2
-    have hx_atom_mn : s₃.next ≤ s₄.next := (anfAtom_mono arg' s₃).1
-    have hfn'_F_s₂ : Moist.MIR.maxUidExpr fn' < s₂.next := by
-      have := harg_m; omega
-    have harg'_F_s₃ : Moist.MIR.maxUidExpr arg' < s₃.next := by
-      have := hfn_atom_mn; omega
-    -- anfAtom output bounds (wrapLet binds atom < s'.next)
-    have hf_wbnd : Moist.MIR.maxUidExpr (Moist.MIR.wrapLet fBinds fAtom) < s₃.next :=
-      anfAtom_fresh fn' s₂ hfn'_F_s₂
-    have hx_wbnd : Moist.MIR.maxUidExpr (Moist.MIR.wrapLet xBinds xAtom) < s₄.next :=
-      anfAtom_fresh arg' s₃ harg'_F_s₃
-    -- Atom & binds bounds via wrapLet
-    have hfAtom_le := maxUidExpr_le_wrapLet fBinds fAtom
-    have hfBinds_le := maxUidExprBinds_le_wrapLet fBinds fAtom
-    have hxAtom_le := maxUidExpr_le_wrapLet xBinds xAtom
-    have hxBinds_le := maxUidExprBinds_le_wrapLet xBinds xAtom
-    -- Freshness side conditions for the hoist primitives
-    have hfB_fresh_xArg : ∀ b ∈ fBinds,
-        (Moist.MIR.freeVars (Moist.MIR.wrapLet xBinds xAtom)).contains b.1 = false := by
-      intro b hb
-      have huid : b.1.uid = s₂.next := anfAtom_binds_uid fn' s₂ b hb
-      have hne : ((Moist.MIR.anfAtom fn') s₂).1.2 ≠ [] := by
-        intro h
-        have : b ∈ ([] : List (VarId × Expr × Bool)) := h ▸ hb
-        exact absurd this (by simp)
-      have hsucc : s₃.next = s₂.next + 1 := anfAtom_state_succ_of_binds_nonempty fn' s₂ hne
-      apply anfAtom_wrapLet_freshIn arg' s₃ b.1
-      · exact Moist.MIR.maxUidExpr_fresh arg' b.1 (by omega)
-      · omega
-    have hxB_fresh_fAtom : ∀ b ∈ xBinds,
-        (Moist.MIR.freeVars fAtom).contains b.1 = false := by
-      intro b hb
-      have huid : b.1.uid = s₃.next := anfAtom_binds_uid arg' s₃ b hb
-      apply Moist.MIR.maxUidExpr_fresh fAtom b.1
-      -- Need: maxUidExpr fAtom < b.1.uid = s₃.next.
-      -- maxUidExpr fAtom ≤ maxUidExpr (wrapLet fBinds fAtom) < s₃.next.
-      omega
-    refine ⟨?_,
-      Nat.le_trans hfn_m (Nat.le_trans harg_m (Nat.le_trans hfn_atom_mn hx_atom_mn)), ?_⟩
-    · -- Forward
-      refine mirCtxRefines_trans (mirCtxRefines_app hfn_f harg_f) ?_
-      refine mirCtxRefines_trans (mirCtxRefines_app hfn_atom_fwd hx_atom_fwd) ?_
-      refine mirCtxRefines_trans
-        (mirCtxRefines_app (mirCtxRefines_wrapLet_eq_fwd _ _) (mirCtxRefines_refl _)) ?_
-      refine mirCtxRefines_trans
-        (mirCtxRefines_let_hoist_app_left_iter_fwd fBinds fAtom _ hfB_fresh_xArg) ?_
-      refine mirCtxRefines_trans
-        (mirCtxRefines_let_body (mirCtxRefines_app (mirCtxRefines_refl _)
-          (mirCtxRefines_wrapLet_eq_fwd _ _))) ?_
-      refine mirCtxRefines_trans
-        (mirCtxRefines_let_body
-          (mirCtxRefines_let_hoist_app_right_atom_iter_fwd xBinds fAtom xAtom
-            hfn_atom_flag hxB_fresh_fAtom)) ?_
-      refine mirCtxRefines_trans (mirCtxRefines_let_flatten_body_fwd _ _ _) ?_
-      exact mirCtxRefines_wrapLet_eq_bwd _ _
-    · -- Output freshness
-      -- Show maxUidExpr (wrapLet (fBinds ++ xBinds) (.App fAtom xAtom)) < s₄.next
-      have hbinds_app := Moist.MIR.maxUidExprBinds_append fBinds xBinds
-      have hfBinds_b : Moist.MIR.maxUidExprBinds fBinds < s₄.next := by
-        have := hx_atom_mn; omega
-      have hxBinds_b : Moist.MIR.maxUidExprBinds xBinds < s₄.next := by omega
-      have hmxbinds_app : Moist.MIR.maxUidExprBinds (fBinds ++ xBinds) < s₄.next := by omega
-      have hfAtom_b : Moist.MIR.maxUidExpr fAtom < s₄.next := by
-        have := hx_atom_mn; omega
-      have hxAtom_b : Moist.MIR.maxUidExpr xAtom < s₄.next := by omega
-      apply freshGt_wrapLet _ _ _ hmxbinds_app
-      show Moist.MIR.maxUidExpr (.App fAtom xAtom) < _
-      simp only [Moist.MIR.maxUidExpr]; omega
-  | .Case scrut alts =>
-    rw [anfNormalizeCore_case_eq scrut alts s]
-    have hcase_uid : Moist.MIR.maxUidExpr (.Case scrut alts) < s.next := hfresh
-    simp only [Moist.MIR.maxUidExpr] at hcase_uid
-    have hscrut_fresh : FreshGt s scrut := by
-      show Moist.MIR.maxUidExpr scrut < s.next; omega
-    have halts_fresh : Moist.MIR.maxUidExprList alts < s.next := by omega
-    obtain ⟨hscrut_f, hscrut_m, hscrut_F⟩ :=
-      anfNormalizeCore_mirCtxRefines scrut s hscrut_fresh
-    have hscrut_F' : Moist.MIR.maxUidExpr (Moist.MIR.anfNormalizeCore scrut s).1 <
-      (Moist.MIR.anfNormalizeCore scrut s).2.next := hscrut_F
-    obtain ⟨hatom_flag, hatom_fwd⟩ :=
-      anfAtom_spec (Moist.MIR.anfNormalizeCore scrut s).1 (Moist.MIR.anfNormalizeCore scrut s).2
-    have hatom_mn := (anfAtom_mono (Moist.MIR.anfNormalizeCore scrut s).1
-      (Moist.MIR.anfNormalizeCore scrut s).2).1
-    have hatom_out := anfAtom_fresh (Moist.MIR.anfNormalizeCore scrut s).1
-      (Moist.MIR.anfNormalizeCore scrut s).2 hscrut_F
-    have halts_fresh_s₂ : Moist.MIR.maxUidExprList alts <
-        ((Moist.MIR.anfAtom (Moist.MIR.anfNormalizeCore scrut s).1)
-          (Moist.MIR.anfNormalizeCore scrut s).2).2.next := by
-      have := hscrut_m; omega
-    obtain ⟨halts_fwd, halts_m, halts_F⟩ :=
-      anfNormalizeList_mirCtxRefines alts _ halts_fresh_s₂
-    -- Names are too long to inline; alias the components
-    have hbinds_fresh_alts : ∀ b ∈
-        ((Moist.MIR.anfAtom (Moist.MIR.anfNormalizeCore scrut s).1)
-          (Moist.MIR.anfNormalizeCore scrut s).2).1.2,
-        (Moist.MIR.freeVarsList alts).contains b.1 = false := by
-      intro b hb
-      have huid : b.1.uid = (Moist.MIR.anfNormalizeCore scrut s).2.next :=
-        anfAtom_binds_uid _ _ b hb
-      have h1 : Moist.MIR.maxUidExprList alts < s.next := halts_fresh
-      exact Moist.MIR.maxUidExprList_fresh alts b.1 (by omega)
-    have hα_uid : Moist.MIR.maxUidExpr
-        ((Moist.MIR.anfAtom (Moist.MIR.anfNormalizeCore scrut s).1)
-          (Moist.MIR.anfNormalizeCore scrut s).2).1.1 <
-        ((Moist.MIR.anfAtom (Moist.MIR.anfNormalizeCore scrut s).1)
-          (Moist.MIR.anfNormalizeCore scrut s).2).2.next := by
-      have := maxUidExpr_le_wrapLet
-        ((Moist.MIR.anfAtom (Moist.MIR.anfNormalizeCore scrut s).1)
-          (Moist.MIR.anfNormalizeCore scrut s).2).1.2
-        ((Moist.MIR.anfAtom (Moist.MIR.anfNormalizeCore scrut s).1)
-          (Moist.MIR.anfNormalizeCore scrut s).2).1.1
-      omega
-    have hβ_uid : Moist.MIR.maxUidExprBinds
-        ((Moist.MIR.anfAtom (Moist.MIR.anfNormalizeCore scrut s).1)
-          (Moist.MIR.anfNormalizeCore scrut s).2).1.2 <
-        ((Moist.MIR.anfAtom (Moist.MIR.anfNormalizeCore scrut s).1)
-          (Moist.MIR.anfNormalizeCore scrut s).2).2.next := by
-      have := maxUidExprBinds_le_wrapLet
-        ((Moist.MIR.anfAtom (Moist.MIR.anfNormalizeCore scrut s).1)
-          (Moist.MIR.anfNormalizeCore scrut s).2).1.2
-        ((Moist.MIR.anfAtom (Moist.MIR.anfNormalizeCore scrut s).1)
-          (Moist.MIR.anfNormalizeCore scrut s).2).1.1
-      omega
-    refine ⟨?_, Nat.le_trans hscrut_m (Nat.le_trans hatom_mn halts_m), ?_⟩
-    · -- Forward chain: case → wrap → let → hoist → body-norm → unwrap
-      refine mirCtxRefines_trans (mirCtxRefines_case hscrut_f
-        (listRel_mirCtxRefines_refl alts)) ?_
-      refine mirCtxRefines_trans (mirCtxRefines_case hatom_fwd
-        (listRel_mirCtxRefines_refl alts)) ?_
-      refine mirCtxRefines_trans (mirCtxRefines_case
-        (mirCtxRefines_wrapLet_eq_fwd _ _) (listRel_mirCtxRefines_refl alts)) ?_
-      refine mirCtxRefines_trans
-        (mirCtxRefines_let_hoist_case_scrut_iter_fwd _ _ alts hbinds_fresh_alts) ?_
-      refine mirCtxRefines_trans
-        (mirCtxRefines_let_body (mirCtxRefines_case (mirCtxRefines_refl _) halts_fwd)) ?_
-      exact mirCtxRefines_wrapLet_eq_bwd _ _
-    · -- Output freshness
-      have halts_F' : Moist.MIR.maxUidExprList
-          (Moist.MIR.anfNormalizeListCore alts
-            ((Moist.MIR.anfAtom (Moist.MIR.anfNormalizeCore scrut s).1)
-              (Moist.MIR.anfNormalizeCore scrut s).2).2).1 <
-          (Moist.MIR.anfNormalizeListCore alts
-            ((Moist.MIR.anfAtom (Moist.MIR.anfNormalizeCore scrut s).1)
-              (Moist.MIR.anfNormalizeCore scrut s).2).2).2.next := halts_F
-      exact freshGt_wrapLet_case _ _ _ _
-        (Nat.lt_of_lt_of_le hα_uid halts_m) halts_F'
-        (Nat.lt_of_lt_of_le hβ_uid halts_m)
-  | .Constr tag args =>
-    rw [anfNormalizeCore_constr_eq tag args s]
-    have hargs_fresh : FreshGtList s args := by
-      have : Moist.MIR.maxUidExpr (.Constr tag args) < s.next := hfresh
-      simp only [Moist.MIR.maxUidExpr] at this; exact this
-    have ⟨hargs_fwd, hargs_m, hargs_F⟩ :=
-      anfNormalizeList_mirCtxRefines args s hargs_fresh
-    -- Use anfAtomList_spec on args' = anfNormalizeListCore args at state s₁ with empty prefix
-    have hargs_F' : Moist.MIR.maxUidExprList (Moist.MIR.anfNormalizeListCore args s).1 <
-        (Moist.MIR.anfNormalizeListCore args s).2.next := hargs_F
-    have hpre_uid : Moist.MIR.maxUidExprList ([] : List Expr) <
-        (Moist.MIR.anfNormalizeListCore args s).2.next := by
-      simp [Moist.MIR.maxUidExprList]; omega
-    obtain ⟨hAL_mono, hAL_atoms_uid, hAL_binds_uid, _, hAL_fwd⟩ :=
-      anfAtomList_spec (Moist.MIR.anfNormalizeListCore args s).1
-        (Moist.MIR.anfNormalizeListCore args s).2 tag [] hargs_F hpre_uid
-        (by intro a ha; simp at ha)
-    refine ⟨?_, ?_, ?_⟩
-    · -- forward: .Constr tag args ≈ wrapLet binds (.Constr tag atoms)
-      refine mirCtxRefines_trans (mirCtxRefines_constr_of_listRel tag hargs_fwd) ?_
-      simpa using hAL_fwd
-    · -- monotonicity
-      exact Nat.le_trans hargs_m hAL_mono
-    · -- freshness
-      exact freshGt_wrapLet_constr _ tag _ _ hAL_atoms_uid hAL_binds_uid
-  | .Let binds body =>
-    rw [anfNormalizeCore_let_eq binds body s]
-    have hlet_uid : Moist.MIR.maxUidExpr (.Let binds body) < s.next := hfresh
-    simp only [Moist.MIR.maxUidExpr] at hlet_uid
-    have hbinds_fresh : FreshGtBinds s binds := by
-      show Moist.MIR.maxUidExprBinds binds < s.next; omega
-    obtain ⟨hbinds_fwd, hbinds_m, hbinds_F⟩ :=
-      anfNormalizeBinds_mirCtxRefines binds s hbinds_fresh
-    have hbinds_F' : Moist.MIR.maxUidExprBinds (Moist.MIR.anfNormalizeBindsCore binds s).1 <
-      (Moist.MIR.anfNormalizeBindsCore binds s).2.next := hbinds_F
-    have hbody_fresh_s₁ : FreshGt (Moist.MIR.anfNormalizeBindsCore binds s).2 body := by
-      show Moist.MIR.maxUidExpr body < _; have := hbinds_m; omega
-    obtain ⟨hbody_f, hbody_m, hbody_F⟩ :=
-      anfNormalizeCore_mirCtxRefines body (Moist.MIR.anfNormalizeBindsCore binds s).2 hbody_fresh_s₁
-    have hbody_F' : Moist.MIR.maxUidExpr
-      (Moist.MIR.anfNormalizeCore body (Moist.MIR.anfNormalizeBindsCore binds s).2).1 <
-      (Moist.MIR.anfNormalizeCore body (Moist.MIR.anfNormalizeBindsCore binds s).2).2.next := hbody_F
-    refine ⟨?_, Nat.le_trans hbinds_m hbody_m, ?_⟩
-    · -- forward: .Let binds body ≈ ... ≈ flattenLetBody norm body'
-      refine mirCtxRefines_trans (mirCtxRefines_let_binds_congr _ _ body hbinds_fwd) ?_
-      refine mirCtxRefines_trans (mirCtxRefines_let_body hbody_f) ?_
-      exact mirCtxRefines_flattenLetBody_fwd _ _
-    · -- output freshness
-      exact freshGt_flattenLetBody _ _ _
-        (Nat.lt_of_lt_of_le hbinds_F' hbody_m) hbody_F'
-termination_by sizeOf e
+section
+variable (s : FreshState)
 
-theorem anfNormalizeList_mirCtxRefines (es : List Expr) (s : Moist.MIR.FreshState)
-    (hfresh : FreshGtList s es) :
-    ListRel MIRCtxRefines es (Moist.MIR.anfNormalizeListCore es s).1 ∧
-    s.next ≤ (Moist.MIR.anfNormalizeListCore es s).2.next ∧
-    FreshGtList (Moist.MIR.anfNormalizeListCore es s).2 (Moist.MIR.anfNormalizeListCore es s).1 := by
-  match es with
-  | [] =>
-    rw [anfNormalizeList_nil_eq]
-    exact ⟨True.intro, Nat.le_refl _, hfresh⟩
-  | e :: rest =>
-    rw [anfNormalizeList_cons_eq]
-    have hfresh_e : FreshGt s e := by
-      show Moist.MIR.maxUidExpr e < s.next
-      have : Moist.MIR.maxUidExprList (e :: rest) < s.next := hfresh
-      simp only [Moist.MIR.maxUidExprList] at this; omega
-    have hfresh_rest : FreshGtList s rest := by
-      show Moist.MIR.maxUidExprList rest < s.next
-      have : Moist.MIR.maxUidExprList (e :: rest) < s.next := hfresh
-      simp only [Moist.MIR.maxUidExprList] at this; omega
-    have ⟨hfwd_e, hmono_e, hfresh_e'⟩ := anfNormalizeCore_mirCtxRefines e s hfresh_e
-    have hfresh_rest_s₁ : FreshGtList (Moist.MIR.anfNormalizeCore e s).2 rest := by
-      show Moist.MIR.maxUidExprList rest < (Moist.MIR.anfNormalizeCore e s).2.next
-      exact Nat.lt_of_lt_of_le hfresh_rest hmono_e
-    have ⟨hfwd_rest, hmono_rest, hfresh_rest'⟩ :=
-      anfNormalizeList_mirCtxRefines rest (Moist.MIR.anfNormalizeCore e s).2 hfresh_rest_s₁
-    refine ⟨⟨hfwd_e, hfwd_rest⟩, ?_, ?_⟩
-    · exact Nat.le_trans hmono_e hmono_rest
-    · show Moist.MIR.maxUidExprList ((Moist.MIR.anfNormalizeCore e s).1 ::
-        (Moist.MIR.anfNormalizeListCore rest (Moist.MIR.anfNormalizeCore e s).2).1) <
-        (Moist.MIR.anfNormalizeListCore rest (Moist.MIR.anfNormalizeCore e s).2).2.next
-      simp only [Moist.MIR.maxUidExprList]
-      have he'_uid : Moist.MIR.maxUidExpr (Moist.MIR.anfNormalizeCore e s).1 <
-        (Moist.MIR.anfNormalizeCore e s).2.next := hfresh_e'
-      have hrest'_uid : Moist.MIR.maxUidExprList
-        (Moist.MIR.anfNormalizeListCore rest (Moist.MIR.anfNormalizeCore e s).2).1 <
-        (Moist.MIR.anfNormalizeListCore rest (Moist.MIR.anfNormalizeCore e s).2).2.next := hfresh_rest'
-      have hmono_12 : (Moist.MIR.anfNormalizeCore e s).2.next ≤
-        (Moist.MIR.anfNormalizeListCore rest (Moist.MIR.anfNormalizeCore e s).2).2.next := hmono_rest
-      omega
-termination_by sizeOf es
+theorem anfNormalizeCore_force_eq (e : Expr) : anfNormalizeCore (.Force e) s =
+    (wrapLet (anfAtom (anfNormalizeCore e s).1 (anfNormalizeCore e s).2).1.2
+      (.Force (anfAtom (anfNormalizeCore e s).1 (anfNormalizeCore e s).2).1.1),
+     (anfAtom (anfNormalizeCore e s).1 (anfNormalizeCore e s).2).2) := rfl
 
-theorem anfNormalizeBinds_mirCtxRefines (binds : List (VarId × Expr × Bool))
-    (s : Moist.MIR.FreshState) (hfresh : FreshGtBinds s binds) :
-    ListRel (fun b₁ b₂ => b₁.1 = b₂.1 ∧ b₁.2.2 = b₂.2.2 ∧ MIRCtxRefines b₁.2.1 b₂.2.1)
-            binds (Moist.MIR.anfNormalizeBindsCore binds s).1 ∧
-    s.next ≤ (Moist.MIR.anfNormalizeBindsCore binds s).2.next ∧
-    FreshGtBinds (Moist.MIR.anfNormalizeBindsCore binds s).2
-                 (Moist.MIR.anfNormalizeBindsCore binds s).1 := by
-  match binds with
-  | [] =>
-    rw [anfNormalizeBinds_nil_eq]
-    exact ⟨True.intro, Nat.le_refl _, hfresh⟩
-  | (v, e, er) :: rest =>
-    rw [anfNormalizeBinds_cons_eq v e er rest s]
-    have hv_uid : v.uid < s.next := by
-      have : Moist.MIR.maxUidExprBinds ((v, e, er) :: rest) < s.next := hfresh
-      simp only [Moist.MIR.maxUidExprBinds] at this; omega
-    have he_fresh : FreshGt s e := by
-      show Moist.MIR.maxUidExpr e < s.next
-      have : Moist.MIR.maxUidExprBinds ((v, e, er) :: rest) < s.next := hfresh
-      simp only [Moist.MIR.maxUidExprBinds] at this; omega
-    have hrest_fresh : FreshGtBinds s rest := by
-      show Moist.MIR.maxUidExprBinds rest < s.next
-      have : Moist.MIR.maxUidExprBinds ((v, e, er) :: rest) < s.next := hfresh
-      simp only [Moist.MIR.maxUidExprBinds] at this; omega
-    have ⟨he_f, he_m, he_F⟩ := anfNormalizeCore_mirCtxRefines e s he_fresh
-    have hrest_fresh_s₁ : FreshGtBinds (Moist.MIR.anfNormalizeCore e s).2 rest := by
-      show Moist.MIR.maxUidExprBinds rest < (Moist.MIR.anfNormalizeCore e s).2.next
-      exact Nat.lt_of_lt_of_le hrest_fresh he_m
-    have ⟨hrest_fwd, hrest_m, hrest_F⟩ :=
-      anfNormalizeBinds_mirCtxRefines rest (Moist.MIR.anfNormalizeCore e s).2 hrest_fresh_s₁
-    refine ⟨⟨⟨rfl, rfl, he_f⟩, hrest_fwd⟩, ?_, ?_⟩
-    · exact Nat.le_trans he_m hrest_m
-    · show Moist.MIR.maxUidExprBinds ((v, (Moist.MIR.anfNormalizeCore e s).1, er) ::
-        (Moist.MIR.anfNormalizeBindsCore rest (Moist.MIR.anfNormalizeCore e s).2).1) <
-        (Moist.MIR.anfNormalizeBindsCore rest (Moist.MIR.anfNormalizeCore e s).2).2.next
-      simp only [Moist.MIR.maxUidExprBinds]
-      have hv_bnd : v.uid <
-          (Moist.MIR.anfNormalizeBindsCore rest (Moist.MIR.anfNormalizeCore e s).2).2.next := by
-        have : v.uid < s.next := hv_uid
-        have : s.next ≤ (Moist.MIR.anfNormalizeCore e s).2.next := he_m
-        have : (Moist.MIR.anfNormalizeCore e s).2.next ≤
-          (Moist.MIR.anfNormalizeBindsCore rest (Moist.MIR.anfNormalizeCore e s).2).2.next := hrest_m
-        omega
-      have he'_bnd : Moist.MIR.maxUidExpr (Moist.MIR.anfNormalizeCore e s).1 <
-          (Moist.MIR.anfNormalizeBindsCore rest (Moist.MIR.anfNormalizeCore e s).2).2.next := by
-        have : Moist.MIR.maxUidExpr (Moist.MIR.anfNormalizeCore e s).1 <
-          (Moist.MIR.anfNormalizeCore e s).2.next := he_F
-        have : (Moist.MIR.anfNormalizeCore e s).2.next ≤
-          (Moist.MIR.anfNormalizeBindsCore rest (Moist.MIR.anfNormalizeCore e s).2).2.next := hrest_m
-        omega
-      have hrest'_bnd : Moist.MIR.maxUidExprBinds
-          (Moist.MIR.anfNormalizeBindsCore rest (Moist.MIR.anfNormalizeCore e s).2).1 <
-          (Moist.MIR.anfNormalizeBindsCore rest (Moist.MIR.anfNormalizeCore e s).2).2.next := hrest_F
-      omega
-termination_by sizeOf binds
+theorem anfNormalizeCore_app_eq (f x : Expr) : anfNormalizeCore (.App f x) s =
+    let r₁ := anfNormalizeCore f s
+    let r₂ := anfNormalizeCore x r₁.2
+    let a₁ := anfAtom r₁.1 r₂.2
+    let a₂ := anfAtom r₂.1 a₁.2
+    (wrapLet (a₁.1.2 ++ a₂.1.2) (.App a₁.1.1 a₂.1.1), a₂.2) := rfl
+
+theorem anfNormalizeCore_case_eq (scrut : Expr) (alts : List Expr) :
+    anfNormalizeCore (.Case scrut alts) s =
+    let r := anfNormalizeCore scrut s
+    let a := anfAtom r.1 r.2
+    let l := anfNormalizeListCore alts a.2
+    (wrapLet a.1.2 (.Case a.1.1 l.1), l.2) := rfl
+
+theorem anfNormalizeCore_constr_eq (tag : Nat) (args : List Expr) :
+    anfNormalizeCore (.Constr tag args) s =
+    let l := anfNormalizeListCore args s
+    let a := anfAtomList l.1 l.2
+    (wrapLet a.1.2 (.Constr tag a.1.1), a.2) := rfl
+
+theorem anfNormalizeCore_let_eq (binds : List (VarId × Expr × Bool)) (body : Expr) :
+    anfNormalizeCore (.Let binds body) s =
+    let r := anfNormalizeBindsCore binds s
+    let b := anfNormalizeCore body r.2
+    (flattenLetBody r.1 b.1, b.2) := rfl
 
 end
 
-/-! ## Pipeline soundness: alpha-rename + ANF normalization
-
-For Fix-free input, the pipeline is contextually equivalent to the
-original. We run alpha-rename and ANF in *independent* fresh supplies
-(each starting above its input's `maxUidExpr`), which sidesteps any
-need to track state between the two phases. -/
-
-/-! ## Composition via `MIRCtxRefines`
-
-To compose alpha-rename soundness, ANF soundness, and `topFlatten`
-soundness into an end-to-end `MIRCtxEq`, we work at the `MIRCtxRefines`
-level (which has a closedness-free transitivity) and collapse at the
-end. Alpha-rename is lifted to bidirectional `MIRCtxRefines` directly
-from the `lowerTotalExpr`-preservation property. -/
-
-/-- Alpha-rename as a forward `MIRCtxRefines` (Fix-free input). -/
-theorem alphaRenameTop_mirCtxRefines_fwd (e : Expr) (K : Moist.MIR.FreshState)
-    (hK : Moist.MIR.maxUidExpr e < K.next)
-    (hFixFree : Moist.MIR.fixCount e = 0) :
-    MIRCtxRefines e (Moist.MIR.alphaRenameTop e K).1 := by
-  intro env
-  have hlow_eq :
-      Moist.MIR.lowerTotalExpr env e =
-      Moist.MIR.lowerTotalExpr env (Moist.MIR.alphaRenameTop e K).1 :=
-    alphaRenameTop_lowerTotalExpr_eq e K hK hFixFree env
-  refine ⟨fun h => hlow_eq ▸ h, ?_⟩
-  rw [hlow_eq]
-  cases Moist.MIR.lowerTotalExpr env (Moist.MIR.alphaRenameTop e K).1 with
-  | none => trivial
-  | some t => exact Moist.Verified.Contextual.ctxRefines_refl t
-
-/-! ## `flattenReadyCheck` soundness
-
-`flattenReadyCheck` is the bool-valued runtime check that decides
-`FlattenReady`. Proving the implication lets `anfNormalizeFlat` be
-self-validating — if the check passes we flatten safely, otherwise we
-skip flattening (still sound). -/
-
-theorem flattenReadyCheck_implies_FlattenReady (body : Expr) :
-    ∀ (binds : List (VarId × Expr × Bool)),
-      Moist.MIR.flattenReadyCheck body binds = true → FlattenReady body binds
-  | [] => fun _ => .nil
-  | (v, e, er) :: rest => fun h => by
-    show FlattenReady body ((v, e, er) :: rest)
-    -- Unfold the bool check
-    simp only [Moist.MIR.flattenReadyCheck] at h
-    cases e_cases : e with
-    | Let ibs ibody =>
-      rw [e_cases] at h
-      simp only [Bool.and_eq_true] at h
-      obtain ⟨⟨h_body, h_rest⟩, h_rec⟩ := h
-      have hfresh_body : ∀ ib ∈ ibs,
-          (Moist.MIR.freeVars body).contains ib.1 = false := by
-        intro ib hib
-        have h' := List.all_eq_true.mp h_body ib hib
-        show (Moist.MIR.freeVars body).contains ib.1 = false
-        cases h'' : (Moist.MIR.freeVars body).contains ib.1
-        · rfl
-        · rw [h''] at h'; exact absurd h' (by simp)
-      have hfresh_rest : ∀ ib ∈ ibs, ∀ r ∈ rest,
-          (Moist.MIR.freeVars r.2.1).contains ib.1 = false := by
-        intro ib hib r hr
-        have h' := List.all_eq_true.mp h_rest ib hib
-        have h'' := List.all_eq_true.mp h' r hr
-        show (Moist.MIR.freeVars r.2.1).contains ib.1 = false
-        cases h''' : (Moist.MIR.freeVars r.2.1).contains ib.1
-        · rfl
-        · rw [h'''] at h''; exact absurd h'' (by simp)
-      have hrec := flattenReadyCheck_implies_FlattenReady body rest h_rec
-      exact FlattenReady.letCons hfresh_body hfresh_rest hrec
-    | Var _ =>
-      rw [e_cases] at h
-      have hrec := flattenReadyCheck_implies_FlattenReady body rest h
-      refine FlattenReady.nonLetCons (fun ibs ibody => ?_) hrec
-      intro heq; cases heq
-    | Lit _ =>
-      rw [e_cases] at h
-      have hrec := flattenReadyCheck_implies_FlattenReady body rest h
-      refine FlattenReady.nonLetCons (fun ibs ibody => ?_) hrec
-      intro heq; cases heq
-    | Builtin _ =>
-      rw [e_cases] at h
-      have hrec := flattenReadyCheck_implies_FlattenReady body rest h
-      refine FlattenReady.nonLetCons (fun ibs ibody => ?_) hrec
-      intro heq; cases heq
-    | Error =>
-      rw [e_cases] at h
-      have hrec := flattenReadyCheck_implies_FlattenReady body rest h
-      refine FlattenReady.nonLetCons (fun ibs ibody => ?_) hrec
-      intro heq; cases heq
-    | Lam _ _ =>
-      rw [e_cases] at h
-      have hrec := flattenReadyCheck_implies_FlattenReady body rest h
-      refine FlattenReady.nonLetCons (fun ibs ibody => ?_) hrec
-      intro heq; cases heq
-    | Fix _ _ =>
-      rw [e_cases] at h
-      have hrec := flattenReadyCheck_implies_FlattenReady body rest h
-      refine FlattenReady.nonLetCons (fun ibs ibody => ?_) hrec
-      intro heq; cases heq
-    | App _ _ =>
-      rw [e_cases] at h
-      have hrec := flattenReadyCheck_implies_FlattenReady body rest h
-      refine FlattenReady.nonLetCons (fun ibs ibody => ?_) hrec
-      intro heq; cases heq
-    | Force _ =>
-      rw [e_cases] at h
-      have hrec := flattenReadyCheck_implies_FlattenReady body rest h
-      refine FlattenReady.nonLetCons (fun ibs ibody => ?_) hrec
-      intro heq; cases heq
-    | Delay _ =>
-      rw [e_cases] at h
-      have hrec := flattenReadyCheck_implies_FlattenReady body rest h
-      refine FlattenReady.nonLetCons (fun ibs ibody => ?_) hrec
-      intro heq; cases heq
-    | Constr _ _ =>
-      rw [e_cases] at h
-      have hrec := flattenReadyCheck_implies_FlattenReady body rest h
-      refine FlattenReady.nonLetCons (fun ibs ibody => ?_) hrec
-      intro heq; cases heq
-    | Case _ _ =>
-      rw [e_cases] at h
-      have hrec := flattenReadyCheck_implies_FlattenReady body rest h
-      refine FlattenReady.nonLetCons (fun ibs ibody => ?_) hrec
-      intro heq; cases heq
-
-/-! ## `flattenAll` soundness (bidirectional MIRCtxRefines) -/
+/-! ## Freshness -/
 
 mutual
 
-theorem flattenAll_mirCtxRefines_fwd (e : Expr) :
-    MIRCtxRefines e (Moist.MIR.flattenAll e) := by
+theorem anfNormalizeCore_fresh (e : Expr) (s : FreshState) (h : maxUidExpr e < s.next) :
+    s.next ≤ (anfNormalizeCore e s).2.next ∧
+      maxUidExpr (anfNormalizeCore e s).1 < (anfNormalizeCore e s).2.next := by
   match e with
-  | .Var v =>
-    show MIRCtxRefines (.Var v) (Moist.MIR.flattenAll (.Var v))
-    unfold Moist.MIR.flattenAll
-    exact mirCtxRefines_refl _
-  | .Lit lit =>
-    unfold Moist.MIR.flattenAll
-    exact mirCtxRefines_refl _
-  | .Builtin b =>
-    unfold Moist.MIR.flattenAll
-    exact mirCtxRefines_refl _
-  | .Error =>
-    unfold Moist.MIR.flattenAll
-    exact mirCtxRefines_refl _
+  | .Var _ | .Lit _ | .Builtin _ | .Error => exact ⟨Nat.le_refl _, h⟩
   | .Lam x body =>
-    show MIRCtxRefines (.Lam x body) (Moist.MIR.flattenAll (.Lam x body))
-    unfold Moist.MIR.flattenAll
-    exact mirCtxRefines_lam (flattenAll_mirCtxRefines_fwd body)
+    simp only [maxUidExpr] at h
+    obtain ⟨m, F⟩ := anfNormalizeCore_fresh body s (by omega)
+    refine ⟨m, ?_⟩
+    show maxUidExpr (.Lam x (anfNormalizeCore body s).1) < (anfNormalizeCore body s).2.next
+    simp only [maxUidExpr]; omega
   | .Fix f body =>
-    show MIRCtxRefines (.Fix f body) (Moist.MIR.flattenAll (.Fix f body))
-    unfold Moist.MIR.flattenAll
-    match body with
-    | .Lam x inner =>
-      have h_inner := flattenAll_mirCtxRefines_fwd inner
-      show MIRCtxRefines (.Fix f (.Lam x inner))
-        (.Fix f (Moist.MIR.flattenAll (.Lam x inner)))
-      unfold Moist.MIR.flattenAll
-      exact mirCtxRefines_fix_lam h_inner
-    | .Var _ | .Lit _ | .Builtin _ | .Error | .Fix _ _ | .App _ _
-    | .Force _ | .Delay _ | .Constr _ _ | .Case _ _ | .Let _ _ =>
-      exact mirCtxRefines_fix_nonlam_lhs (by intros x inner heq; cases heq)
+    simp only [maxUidExpr] at h
+    obtain ⟨m, F⟩ := anfNormalizeCore_fresh body s (by omega)
+    refine ⟨m, ?_⟩
+    show maxUidExpr (.Fix f (anfNormalizeCore body s).1) < (anfNormalizeCore body s).2.next
+    simp only [maxUidExpr]; omega
+  | .Delay e =>
+    simp only [maxUidExpr] at h
+    obtain ⟨m, F⟩ := anfNormalizeCore_fresh e s h
+    refine ⟨m, ?_⟩
+    show maxUidExpr (.Delay (anfNormalizeCore e s).1) < (anfNormalizeCore e s).2.next
+    simp only [maxUidExpr]; omega
+  | .Force e =>
+    simp only [maxUidExpr] at h
+    rw [anfNormalizeCore_force_eq]; dsimp only
+    obtain ⟨m, F⟩ := anfNormalizeCore_fresh e s h
+    generalize anfNormalizeCore e s = r at m F ⊢
+    obtain ⟨m', F', B'⟩ := anfAtom_fresh r.1 r.2 F
+    exact ⟨by omega, maxUidExpr_wrapLet_lt B' (by simp only [maxUidExpr]; omega)⟩
   | .App f x =>
-    show MIRCtxRefines (.App f x) (Moist.MIR.flattenAll (.App f x))
-    unfold Moist.MIR.flattenAll
-    exact mirCtxRefines_app (flattenAll_mirCtxRefines_fwd f)
-      (flattenAll_mirCtxRefines_fwd x)
-  | .Force inner =>
-    show MIRCtxRefines (.Force inner) (Moist.MIR.flattenAll (.Force inner))
-    unfold Moist.MIR.flattenAll
-    exact mirCtxRefines_force (flattenAll_mirCtxRefines_fwd inner)
-  | .Delay inner =>
-    show MIRCtxRefines (.Delay inner) (Moist.MIR.flattenAll (.Delay inner))
-    unfold Moist.MIR.flattenAll
-    exact mirCtxRefines_delay (flattenAll_mirCtxRefines_fwd inner)
-  | .Constr tag args =>
-    show MIRCtxRefines (.Constr tag args) (Moist.MIR.flattenAll (.Constr tag args))
-    unfold Moist.MIR.flattenAll
-    exact mirCtxRefines_constr_of_listRel tag
-      (flattenAllList_mirCtxRefines_fwd args)
+    simp only [maxUidExpr] at h
+    rw [anfNormalizeCore_app_eq]; dsimp only
+    obtain ⟨m₁, F₁⟩ := anfNormalizeCore_fresh f s (by omega)
+    generalize anfNormalizeCore f s = r₁ at m₁ F₁ ⊢
+    obtain ⟨m₂, F₂⟩ := anfNormalizeCore_fresh x r₁.2 (by omega)
+    generalize anfNormalizeCore x r₁.2 = r₂ at m₂ F₂ ⊢
+    obtain ⟨m₃, F₃, B₃⟩ := anfAtom_fresh r₁.1 r₂.2 (by omega)
+    generalize anfAtom r₁.1 r₂.2 = a₁ at m₃ F₃ B₃ ⊢
+    obtain ⟨m₄, F₄, B₄⟩ := anfAtom_fresh r₂.1 a₁.2 (by omega)
+    generalize anfAtom r₂.1 a₁.2 = a₂ at m₄ F₄ B₄ ⊢
+    have := maxUidExprBinds_append a₁.1.2 a₂.1.2
+    exact ⟨by omega, maxUidExpr_wrapLet_lt (by omega) (by simp only [maxUidExpr]; omega)⟩
   | .Case scrut alts =>
-    show MIRCtxRefines (.Case scrut alts) (Moist.MIR.flattenAll (.Case scrut alts))
-    unfold Moist.MIR.flattenAll
-    exact mirCtxRefines_case (flattenAll_mirCtxRefines_fwd scrut)
-      (flattenAllList_mirCtxRefines_fwd alts)
+    simp only [maxUidExpr] at h
+    rw [anfNormalizeCore_case_eq]; dsimp only
+    obtain ⟨m₁, F₁⟩ := anfNormalizeCore_fresh scrut s (by omega)
+    generalize anfNormalizeCore scrut s = r at m₁ F₁ ⊢
+    obtain ⟨m₂, F₂, B₂⟩ := anfAtom_fresh r.1 r.2 F₁
+    generalize anfAtom r.1 r.2 = a at m₂ F₂ B₂ ⊢
+    obtain ⟨m₃, F₃⟩ := anfNormalizeList_fresh alts a.2 (by omega)
+    exact ⟨by omega, maxUidExpr_wrapLet_lt (by omega) (by simp only [maxUidExpr]; omega)⟩
+  | .Constr tag args =>
+    simp only [maxUidExpr] at h
+    rw [anfNormalizeCore_constr_eq]; dsimp only
+    obtain ⟨m₁, F₁⟩ := anfNormalizeList_fresh args s h
+    generalize anfNormalizeListCore args s = l at m₁ F₁ ⊢
+    obtain ⟨m₂, F₂, B₂, -⟩ := anfAtomList_spec tag l.1 [] l.2 F₁ (by simp [maxUidExprList]; omega)
+      (by simp)
+    exact ⟨by omega, maxUidExpr_wrapLet_lt B₂ (by simp only [maxUidExpr]; omega)⟩
   | .Let binds body =>
-    let binds' := Moist.MIR.flattenAllBinds binds
-    let body' := Moist.MIR.flattenAll body
-    show MIRCtxRefines (.Let binds body) (Moist.MIR.flattenAll (.Let binds body))
-    show MIRCtxRefines (.Let binds body)
-      (Moist.MIR.flattenAll (.Let binds body))
-    unfold Moist.MIR.flattenAll
-    -- After unfold, the goal has an if-then-else with the destructured form.
-    have h_binds_congr : MIRCtxRefines (.Let binds body)
-        (.Let (Moist.MIR.flattenAllBinds binds) body) :=
-      mirCtxRefines_let_binds_congr binds (Moist.MIR.flattenAllBinds binds) body
-        (flattenAllBinds_mirCtxRefines_fwd binds)
-    have h_body_congr : MIRCtxRefines
-        (.Let (Moist.MIR.flattenAllBinds binds) body)
-        (.Let (Moist.MIR.flattenAllBinds binds) (Moist.MIR.flattenAll body)) :=
-      mirCtxRefines_let_body (flattenAll_mirCtxRefines_fwd body)
-    have h_step : MIRCtxRefines (.Let binds body)
-        (.Let (Moist.MIR.flattenAllBinds binds) (Moist.MIR.flattenAll body)) :=
-      mirCtxRefines_trans h_binds_congr h_body_congr
-    by_cases hcheck : Moist.MIR.flattenReadyCheck
-                        (Moist.MIR.flattenAll body)
-                        (Moist.MIR.flattenAllBinds binds) = true
-    · rw [if_pos hcheck]
-      have hfr : FlattenReady (Moist.MIR.flattenAll body)
-          (Moist.MIR.flattenAllBinds binds) :=
-        flattenReadyCheck_implies_FlattenReady _ _ hcheck
-      have h_flat : MIRCtxRefines
-          (.Let (Moist.MIR.flattenAllBinds binds) (Moist.MIR.flattenAll body))
-          (.Let (Moist.MIR.flattenLetBinds (Moist.MIR.flattenAllBinds binds))
-            (Moist.MIR.flattenAll body)) :=
-        mirCtxRefines_flattenLetBinds_fwd _ _ hfr
-      exact mirCtxRefines_trans h_step h_flat
-    · have hfalse : Moist.MIR.flattenReadyCheck (Moist.MIR.flattenAll body)
-          (Moist.MIR.flattenAllBinds binds) = false := by
-        cases h' : Moist.MIR.flattenReadyCheck (Moist.MIR.flattenAll body)
-                     (Moist.MIR.flattenAllBinds binds)
-        · rfl
-        · exact absurd h' hcheck
-      rw [if_neg (by rw [hfalse]; exact Bool.false_ne_true)]
-      exact h_step
+    simp only [maxUidExpr] at h
+    rw [anfNormalizeCore_let_eq]; dsimp only
+    obtain ⟨m₁, F₁⟩ := anfNormalizeBinds_fresh binds s (by omega)
+    generalize anfNormalizeBindsCore binds s = r at m₁ F₁ ⊢
+    obtain ⟨m₂, F₂⟩ := anfNormalizeCore_fresh body r.2 (by omega)
+    generalize anfNormalizeCore body r.2 = b at m₂ F₂ ⊢
+    refine ⟨by omega, ?_⟩
+    cases hb : b.1 <;> simp only [flattenLetBody, maxUidExpr] <;> rw [hb] at F₂ <;>
+      simp only [maxUidExpr] at F₂ <;>
+      first
+      | omega
+      | (have := maxUidExprBinds_append r.1 ‹List (VarId × Expr × Bool)›; omega)
 termination_by sizeOf e
 
-theorem flattenAllList_mirCtxRefines_fwd (es : List Expr) :
-    ListRel MIRCtxRefines es (Moist.MIR.flattenAllList es) := by
+theorem anfNormalizeList_fresh (es : List Expr) (s : FreshState) (h : maxUidExprList es < s.next) :
+    s.next ≤ (anfNormalizeListCore es s).2.next ∧
+      maxUidExprList (anfNormalizeListCore es s).1 < (anfNormalizeListCore es s).2.next := by
   match es with
-  | [] =>
-    show ListRel MIRCtxRefines [] (Moist.MIR.flattenAllList [])
-    unfold Moist.MIR.flattenAllList; exact True.intro
+  | [] => exact ⟨Nat.le_refl _, h⟩
   | e :: rest =>
-    show ListRel MIRCtxRefines (e :: rest) (Moist.MIR.flattenAllList (e :: rest))
-    unfold Moist.MIR.flattenAllList
-    exact ⟨flattenAll_mirCtxRefines_fwd e, flattenAllList_mirCtxRefines_fwd rest⟩
+    simp only [maxUidExprList] at h
+    obtain ⟨m₁, F₁⟩ := anfNormalizeCore_fresh e s (by omega)
+    obtain ⟨m₂, F₂⟩ := anfNormalizeList_fresh rest (anfNormalizeCore e s).2 (by omega)
+    show _ ≤ (anfNormalizeListCore rest (anfNormalizeCore e s).2).2.next ∧
+      maxUidExprList ((anfNormalizeCore e s).1 :: (anfNormalizeListCore rest _).1) <
+        (anfNormalizeListCore rest (anfNormalizeCore e s).2).2.next
+    simp only [maxUidExprList]; exact ⟨by omega, by omega⟩
 termination_by sizeOf es
 
-theorem flattenAllBinds_mirCtxRefines_fwd (binds : List (VarId × Expr × Bool)) :
-    ListRel (fun b₁ b₂ => b₁.1 = b₂.1 ∧ b₁.2.2 = b₂.2.2 ∧ MIRCtxRefines b₁.2.1 b₂.2.1)
-      binds (Moist.MIR.flattenAllBinds binds) := by
+theorem anfNormalizeBinds_fresh (binds : List (VarId × Expr × Bool)) (s : FreshState)
+    (h : maxUidExprBinds binds < s.next) :
+    s.next ≤ (anfNormalizeBindsCore binds s).2.next ∧
+      maxUidExprBinds (anfNormalizeBindsCore binds s).1 < (anfNormalizeBindsCore binds s).2.next := by
   match binds with
-  | [] =>
-    show ListRel _ [] (Moist.MIR.flattenAllBinds [])
-    unfold Moist.MIR.flattenAllBinds; exact True.intro
+  | [] => exact ⟨Nat.le_refl _, h⟩
   | (v, e, er) :: rest =>
-    show ListRel _ ((v, e, er) :: rest) (Moist.MIR.flattenAllBinds ((v, e, er) :: rest))
-    unfold Moist.MIR.flattenAllBinds
-    exact ⟨⟨rfl, rfl, flattenAll_mirCtxRefines_fwd e⟩,
-      flattenAllBinds_mirCtxRefines_fwd rest⟩
+    simp only [maxUidExprBinds] at h
+    obtain ⟨m₁, F₁⟩ := anfNormalizeCore_fresh e s (by omega)
+    obtain ⟨m₂, F₂⟩ := anfNormalizeBinds_fresh rest (anfNormalizeCore e s).2 (by omega)
+    show _ ≤ (anfNormalizeBindsCore rest (anfNormalizeCore e s).2).2.next ∧
+      maxUidExprBinds ((v, (anfNormalizeCore e s).1, er) :: (anfNormalizeBindsCore rest _).1) <
+        (anfNormalizeBindsCore rest (anfNormalizeCore e s).2).2.next
+    simp only [maxUidExprBinds]; exact ⟨by omega, by omega⟩
 termination_by sizeOf binds
 
 end
+
+/-! ## Refinement -/
+
+mutual
+
+theorem anfNormalizeCore_refines (e : Expr) (s : FreshState) (h : maxUidExpr e < s.next) :
+    MIRCtxRefines e (anfNormalizeCore e s).1 := by
+  match e with
+  | .Var _ | .Lit _ | .Builtin _ | .Error => exact mirCtxRefines_refl _
+  | .Lam x body =>
+    simp only [maxUidExpr] at h
+    exact mirCtxRefines_lam (anfNormalizeCore_refines body s (by omega))
+  | .Delay e =>
+    simp only [maxUidExpr] at h
+    exact mirCtxRefines_delay (anfNormalizeCore_refines e s h)
+  | .Fix f body =>
+    simp only [maxUidExpr] at h
+    by_cases hb : ∃ x inner, body = .Lam x inner
+    · obtain ⟨x, inner, rfl⟩ := hb
+      simp only [maxUidExpr] at h
+      exact mirCtxRefines_fix_lam (anfNormalizeCore_refines inner s (by omega))
+    · exact mirCtxRefines_fix_nonlam_lhs fun x inner heq => hb ⟨x, inner, heq⟩
+  | .Force e =>
+    simp only [maxUidExpr] at h
+    rw [anfNormalizeCore_force_eq]
+    have hr := anfNormalizeCore_refines e s h
+    generalize anfNormalizeCore e s = r at hr ⊢
+    exact mirCtxRefines_trans (mirCtxRefines_force hr) <|
+      mirCtxRefines_trans (mirCtxRefines_fill .force (anfAtom_refines r.1 r.2)) <|
+      mirCtxRefines_hoist_wrapLet .force trivial _ _ fun _ _ => trivial
+  | .App f x =>
+    simp only [maxUidExpr] at h
+    rw [anfNormalizeCore_app_eq]; dsimp only
+    have hf := anfNormalizeCore_refines f s (by omega)
+    obtain ⟨m₁, F₁⟩ := anfNormalizeCore_fresh f s (by omega)
+    generalize anfNormalizeCore f s = r₁ at hf m₁ F₁ ⊢
+    have hx := anfNormalizeCore_refines x r₁.2 (by omega)
+    obtain ⟨m₂, F₂⟩ := anfNormalizeCore_fresh x r₁.2 (by omega)
+    generalize anfNormalizeCore x r₁.2 = r₂ at hx m₂ F₂ ⊢
+    have ha₁ := anfAtom_refines r₁.1 r₂.2
+    have hb₁ := anfAtom_binds_fresh (e := r₁.1) F₂
+    have hatom := anfAtom_isAtom r₁.1 r₂.2
+    obtain ⟨-, F₃, -⟩ := anfAtom_fresh r₁.1 r₂.2 (by omega)
+    generalize anfAtom r₁.1 r₂.2 = a₁ at ha₁ hb₁ hatom F₃ ⊢
+    have ha₂ := anfAtom_refines r₂.1 a₁.2
+    have hb₂ := anfAtom_binds_fresh (e := r₂.1) F₃
+    generalize anfAtom r₂.1 a₁.2 = a₂ at ha₂ hb₂ ⊢
+    exact mirCtxRefines_trans (mirCtxRefines_app hf hx) <|
+      mirCtxRefines_trans (mirCtxRefines_fill (.appFun r₂.1) ha₁) <|
+      mirCtxRefines_trans (mirCtxRefines_hoist_wrapLet (.appFun r₂.1) trivial _ _ hb₁) <|
+      mirCtxRefines_trans (mirCtxRefines_wrapLet_body <|
+        mirCtxRefines_trans (mirCtxRefines_fill (.appArg a₁.1.1) ha₂) <|
+          mirCtxRefines_hoist_wrapLet (.appArg a₁.1.1) hatom _ _ hb₂) <|
+      mirCtxRefines_of_lowerEq fun env => (lowerTotalExpr_wrapLet_append _ _ _ env).symm
+  | .Case scrut alts =>
+    simp only [maxUidExpr] at h
+    rw [anfNormalizeCore_case_eq]; dsimp only
+    have hs := anfNormalizeCore_refines scrut s (by omega)
+    obtain ⟨m₁, F₁⟩ := anfNormalizeCore_fresh scrut s (by omega)
+    generalize anfNormalizeCore scrut s = r at hs m₁ F₁ ⊢
+    have ha := anfAtom_refines r.1 r.2
+    have hb : ∀ b ∈ (anfAtom r.1 r.2).1.2, ∀ alt ∈ alts, (freeVars alt).contains b.1 = false :=
+      fun b hb alt halt =>
+        anfAtom_binds_fresh (maxUidExprList_lt_of_mem (by omega : maxUidExprList alts < _) alt halt)
+          b hb
+    obtain ⟨m₂, -, -⟩ := anfAtom_fresh r.1 r.2 F₁
+    generalize anfAtom r.1 r.2 = a at ha hb m₂ ⊢
+    exact mirCtxRefines_trans (mirCtxRefines_fill (.case alts) hs) <|
+      mirCtxRefines_trans (mirCtxRefines_fill (.case alts) ha) <|
+      mirCtxRefines_trans (mirCtxRefines_hoist_wrapLet (.case alts) trivial _ _ hb) <|
+      mirCtxRefines_wrapLet_body <|
+        mirCtxRefines_case (mirCtxRefines_refl _) (anfNormalizeList_refines alts a.2 (by omega))
+  | .Constr tag args =>
+    simp only [maxUidExpr] at h
+    rw [anfNormalizeCore_constr_eq]; dsimp only
+    have hl := anfNormalizeList_refines args s h
+    obtain ⟨-, F⟩ := anfNormalizeList_fresh args s h
+    generalize anfNormalizeListCore args s = l at hl F ⊢
+    exact mirCtxRefines_trans (mirCtxRefines_constr_of_listRel tag hl)
+      (anfAtomList_spec tag l.1 [] l.2 F (by simp [maxUidExprList]; omega) (by simp)).2.2.2
+  | .Let binds body =>
+    simp only [maxUidExpr] at h
+    rw [anfNormalizeCore_let_eq]; dsimp only
+    have hb := anfNormalizeBinds_refines binds s (by omega)
+    obtain ⟨m, -⟩ := anfNormalizeBinds_fresh binds s (by omega)
+    generalize anfNormalizeBindsCore binds s = r at hb m ⊢
+    exact mirCtxRefines_trans (mirCtxRefines_let_binds_congr _ _ body hb) <|
+      mirCtxRefines_trans (mirCtxRefines_let_body (anfNormalizeCore_refines body r.2 (by omega))) <|
+      mirCtxRefines_flattenLetBody _ _
+termination_by sizeOf e
+
+theorem anfNormalizeList_refines (es : List Expr) (s : FreshState)
+    (h : maxUidExprList es < s.next) :
+    ListRel MIRCtxRefines es (anfNormalizeListCore es s).1 := by
+  match es with
+  | [] => exact trivial
+  | e :: rest =>
+    simp only [maxUidExprList] at h
+    obtain ⟨m, -⟩ := anfNormalizeCore_fresh e s (by omega)
+    exact ⟨anfNormalizeCore_refines e s (by omega),
+      anfNormalizeList_refines rest (anfNormalizeCore e s).2 (by omega)⟩
+termination_by sizeOf es
+
+theorem anfNormalizeBinds_refines (binds : List (VarId × Expr × Bool)) (s : FreshState)
+    (h : maxUidExprBinds binds < s.next) :
+    ListRel (fun b₁ b₂ => b₁.1 = b₂.1 ∧ b₁.2.2 = b₂.2.2 ∧ MIRCtxRefines b₁.2.1 b₂.2.1)
+      binds (anfNormalizeBindsCore binds s).1 := by
+  match binds with
+  | [] => exact trivial
+  | (v, e, er) :: rest =>
+    simp only [maxUidExprBinds] at h
+    obtain ⟨m, -⟩ := anfNormalizeCore_fresh e s (by omega)
+    exact ⟨⟨rfl, rfl, anfNormalizeCore_refines e s (by omega)⟩,
+      anfNormalizeBinds_refines rest (anfNormalizeCore e s).2 (by omega)⟩
+termination_by sizeOf binds
+
+end
+
+/-! ## `flattenAll` -/
+
+mutual
+
+theorem flattenAll_refines (e : Expr) : MIRCtxRefines e (flattenAll e) := by
+  match e with
+  | .Var _ | .Lit _ | .Builtin _ | .Error => simp only [flattenAll]; exact mirCtxRefines_refl _
+  | .Lam x body => simp only [flattenAll]; exact mirCtxRefines_lam (flattenAll_refines body)
+  | .Fix f body =>
+    simp only [flattenAll]
+    by_cases hb : ∃ x inner, body = .Lam x inner
+    · obtain ⟨x, inner, rfl⟩ := hb
+      simp only [flattenAll]
+      exact mirCtxRefines_fix_lam (flattenAll_refines inner)
+    · exact mirCtxRefines_fix_nonlam_lhs fun x inner heq => hb ⟨x, inner, heq⟩
+  | .App f x =>
+    simp only [flattenAll]; exact mirCtxRefines_app (flattenAll_refines f) (flattenAll_refines x)
+  | .Force e => simp only [flattenAll]; exact mirCtxRefines_force (flattenAll_refines e)
+  | .Delay e => simp only [flattenAll]; exact mirCtxRefines_delay (flattenAll_refines e)
+  | .Constr tag args =>
+    simp only [flattenAll]; exact mirCtxRefines_constr_of_listRel tag (flattenAllList_refines args)
+  | .Case scrut alts =>
+    simp only [flattenAll]
+    exact mirCtxRefines_case (flattenAll_refines scrut) (flattenAllList_refines alts)
+  | .Let binds body =>
+    simp only [flattenAll]
+    have h := mirCtxRefines_trans (mirCtxRefines_let_binds_congr _ _ body (flattenAllBinds_refines binds))
+      (mirCtxRefines_let_body (flattenAll_refines body))
+    split
+    · exact mirCtxRefines_trans h (mirCtxRefines_flattenLetBinds _ _ ‹_›)
+    · exact h
+termination_by sizeOf e
+
+theorem flattenAllList_refines (es : List Expr) : ListRel MIRCtxRefines es (flattenAllList es) := by
+  match es with
+  | [] => simp only [flattenAllList]; exact trivial
+  | e :: rest =>
+    simp only [flattenAllList]; exact ⟨flattenAll_refines e, flattenAllList_refines rest⟩
+termination_by sizeOf es
+
+theorem flattenAllBinds_refines (binds : List (VarId × Expr × Bool)) :
+    ListRel (fun b₁ b₂ => b₁.1 = b₂.1 ∧ b₁.2.2 = b₂.2.2 ∧ MIRCtxRefines b₁.2.1 b₂.2.1)
+      binds (flattenAllBinds binds) := by
+  match binds with
+  | [] => simp only [flattenAllBinds]; exact trivial
+  | (v, e, er) :: rest =>
+    simp only [flattenAllBinds]
+    exact ⟨⟨rfl, rfl, flattenAll_refines e⟩, flattenAllBinds_refines rest⟩
+termination_by sizeOf binds
+
+end
+
+/-! ## Pipeline -/
 
 theorem anfNormalize_refines (e : Expr) (s : Moist.MIR.FreshState) :
     MIRCtxRefines e (Moist.MIR.anfNormalize e s).1 := by
-  have h_unfold : (Moist.MIR.anfNormalize e s).1 = Moist.MIR.anfNormalizeFlat e := rfl
-  rw [h_unfold]
-  by_cases hFixFree : Moist.MIR.fixCount e = 0
-  · let K : Moist.MIR.FreshState := ⟨Moist.MIR.maxUidExpr e + 1⟩
-    have hK : Moist.MIR.maxUidExpr e < K.next := Nat.lt_succ_self _
-    let renamed := (Moist.MIR.alphaRenameTop e K).1
-    let K_anf : Moist.MIR.FreshState := ⟨Moist.MIR.maxUidExpr renamed + 1⟩
-    have ⟨hanf_fwd, _, _⟩ :=
-      anfNormalizeCore_mirCtxRefines renamed K_anf (Nat.lt_succ_self _)
-    have h_flat_fwd := flattenAll_mirCtxRefines_fwd (Moist.MIR.anfNormalizeCore renamed K_anf).1
-    show MIRCtxRefines e (Moist.MIR.anfNormalizeFlat e)
-    unfold Moist.MIR.anfNormalizeFlat; rw [if_pos hFixFree]
-    exact mirCtxRefines_trans
-      (alphaRenameTop_mirCtxRefines_fwd e K hK hFixFree)
-      (mirCtxRefines_trans hanf_fwd h_flat_fwd)
-  · let K_anf : Moist.MIR.FreshState := ⟨Moist.MIR.maxUidExpr e + 1⟩
-    have ⟨hanf_fwd, _, _⟩ :=
-      anfNormalizeCore_mirCtxRefines e K_anf (Nat.lt_succ_self _)
-    have h_flat_fwd := flattenAll_mirCtxRefines_fwd (Moist.MIR.anfNormalizeCore e K_anf).1
-    show MIRCtxRefines e (Moist.MIR.anfNormalizeFlat e)
-    unfold Moist.MIR.anfNormalizeFlat; rw [if_neg hFixFree]
-    exact mirCtxRefines_trans hanf_fwd h_flat_fwd
+  have core : ∀ e : Expr, MIRCtxRefines e
+      (flattenAll (runFresh (anfNormalizeCore e) (maxUidExpr e + 1))) := fun e =>
+    mirCtxRefines_trans (anfNormalizeCore_refines e _ (Nat.lt_succ_self _)) (flattenAll_refines _)
+  show MIRCtxRefines e (anfNormalizeFlat e)
+  unfold anfNormalizeFlat
+  split
+  · exact mirCtxRefines_trans
+      (mirCtxRefines_of_lowerEq (alphaRenameTop_lowerTotalExpr_eq e _ (Nat.lt_succ_self _) ‹_›))
+      (core _)
+  · exact core e
 
 end Moist.Verified.MIR

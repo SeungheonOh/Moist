@@ -4,170 +4,73 @@ import Moist.Verified.DeadLet
 import Moist.Verified.FundamentalRefines
 import Moist.MIR.ANF
 
-/-! # Shared infrastructure for MIR rewrite primitives
+/-! # CEK-level glue for the MIR rewrite primitives
 
-Reusable helpers used by every primitive file under `Primitives/`:
-
-* `FreshGt{,List,Binds}` — freshness invariant for ANF normalisation.
-* CEK-glue lemmas — `steps_trans`, `obsRefinesK_of_steps_{left,right}`,
-  `stackRefK_funV_id_augment_{left,right}`, `envRefinesK_extend`,
-  `stackRefK_force_augment`, `wrapLet_cons`.
-* `closedAt`-under-`shiftRename` mutuals — `closedAt(List)_renameTerm(List)_shiftRename{,_inv}`.
--/
+Step-shifting for `ObsRefinesK` and `StackRefK` augmentations by a single
+frame (`funV`, `force`). -/
 
 namespace Moist.Verified.MIR
 
 open Moist.CEK
-open Moist.Plutus.Term (Term)
-open Moist.MIR
-  (Expr VarId anfNormalizeCore anfNormalizeListCore anfNormalizeBindsCore anfAtom anfAtomList
-   wrapLet flattenLetBody freeVars maxUidExpr maxUidExprList maxUidExprBinds
-   lowerTotalExpr lowerTotal lowerTotalLet)
-open Moist.Verified (closedAt closedAtList renameTerm shiftRename)
-open Moist.Verified (liftRename liftRename_shiftRename renameTermList renameTermList_getElem renameTermList_length shiftRename_ge shiftRename_lt)
-open Moist.Verified.Equivalence (steps_error steps_halt constToTagAndFields_fields_vcon listRel_reverse)
-open Moist.Verified.Contextual (closedAtList_append)
-open Moist.Verified.FundamentalRefines (envRefinesK_to_renameEnvRef_shift Is0Preserving RenameEnvRef renameRefines_shift1)
-open Moist.Verified.Contextual
-  (Context fill ObsRefines CtxEq CtxRefines
-   ctxEq_refl ctxRefines_refl ctxRefines_trans
-   ctxEq_lam ctxEq_app
-   ctxRefines_lam ctxRefines_app)
-open Moist.Verified.Equivalence
-  (ListRel ObsEq ObsRefinesK steps Reaches obsRefinesK_mono
-   obsRefinesK_zero_ret listRel_mono)
-open Moist.Verified.Contextual.SoundnessRefines
-  (EnvRefinesK BehRefinesK ValueRefinesK StackRefK valueRefinesK_mono
-   evalBuiltin_compat_refines obsRefinesK_error stackRefK_mono
-   listRel_valueRefinesK_mono applyArgFrames_stackRefK
-   listRel_refl_vcon_refines)
-open Moist.Verified.FundamentalRefines (ftlr renameRefines renameRefinesR renameRefinesR_shift1
-  is0preserving_id is0preserving_shiftRename
-  RenameEnvRefR envRefinesK_to_renameEnvRefR_shift renameEnvRefR_mono)
+open Moist.Verified.Equivalence (ObsRefinesK steps obsRefinesK_mono obsRefinesK_zero_ret
+  obsRefinesK_of_step_ret)
+open Moist.Verified.Contextual.SoundnessRefines (EnvRefinesK ValueRefinesK StackRefK
+  valueRefinesK_mono stackRefK_mono obsRefinesK_error evalBuiltin_compat_refines
+  listRel_valueRefinesK_mono)
 
-/-! ## Freshness predicate
-
-`FreshGt s e` says the next fresh uid `s.next` is strictly greater than every
-uid in `e`, so freshly-generated variables can't clash with existing ones. -/
-
-def FreshGt (s : Moist.MIR.FreshState) (e : Expr) : Prop :=
-  maxUidExpr e < s.next
-
-def FreshGtList (s : Moist.MIR.FreshState) (es : List Expr) : Prop :=
-  maxUidExprList es < s.next
-
-def FreshGtBinds (s : Moist.MIR.FreshState) (bs : List (VarId × Expr × Bool)) : Prop :=
-  maxUidExprBinds bs < s.next
-
-/-! ## CEK / ObsRefinesK glue -/
-
-/-- `steps_trans` reproven locally (the original is `private` in `DeadLet`). -/
-theorem steps_trans (m n : Nat) (s : State) :
-    steps (m + n) s = steps n (steps m s) := by
+theorem steps_trans (m n : Nat) (s : State) : steps (m + n) s = steps n (steps m s) := by
   induction m generalizing s with
   | zero => simp [steps]
-  | succ m ih => simp only [Nat.succ_add, steps]; exact ih (Moist.CEK.step s)
+  | succ m ih => simp only [Nat.succ_add, steps]; exact ih (step s)
 
-/-- Rightward step propagation: if the right state takes `n` deterministic
-    steps to reach a `s₂'` that already Obs-refines from `s₁`, then the
-    pre-step state `s₂` also Obs-refines from `s₁`. The intuition: any
-    halt/error of `s₂'` is a halt/error of `s₂` `n` steps later. -/
+private theorem steps_fixed {t : State} (ht : step t = t) : ∀ n, steps n t = t
+  | 0 => rfl
+  | n + 1 => by simp only [steps, ht]; exact steps_fixed ht n
+
+/-- A fixed point reached after `m` steps is still reached `m - n` steps after step `n`. -/
+private theorem steps_after {n m : Nat} {s t : State} (ht : step t = t) (h : steps m s = t) :
+    steps (m - n) (steps n s) = t := by
+  by_cases hmn : m ≤ n
+  · rw [Nat.sub_eq_zero_of_le hmn, show n = m + (n - m) by omega, steps_trans, h, steps_fixed ht]
+    rfl
+  · rw [← steps_trans, show n + (m - n) = m by omega, h]
+
+/-- Running the right state forward preserves refinement. -/
 theorem obsRefinesK_of_steps_right {k n : Nat} {s₁ s₂ s₂' : State}
-    (h_steps : steps n s₂ = s₂')
-    (h : ObsRefinesK k s₁ s₂') : ObsRefinesK k s₁ s₂ := by
-  refine ⟨?_, ?_⟩
-  · intro v hv
-    obtain ⟨v', m, hm⟩ := h.1 v hv
-    refine ⟨v', n + m, ?_⟩
-    rw [steps_trans n m, h_steps]; exact hm
-  · intro n' hn' herr
-    obtain ⟨m, hm⟩ := h.2 n' hn' herr
-    refine ⟨n + m, ?_⟩
-    rw [steps_trans n m, h_steps]; exact hm
+    (h_steps : steps n s₂ = s₂') (h : ObsRefinesK k s₁ s₂') : ObsRefinesK k s₁ s₂ := by
+  refine ⟨fun v hv => ?_, fun m hm herr => ?_⟩
+  · obtain ⟨v', m, hm⟩ := h.1 v hv
+    exact ⟨v', n + m, by rw [steps_trans, h_steps]; exact hm⟩
+  · obtain ⟨m', hm'⟩ := h.2 m hm herr
+    exact ⟨n + m', by rw [steps_trans, h_steps]; exact hm'⟩
 
-/-- Leftward step propagation: if the left state takes `n` deterministic
-    steps to reach `s₁'`, and `s₁'` Obs-refines `s₂`, then the pre-step
-    `s₁` also Obs-refines `s₂`. The intuition: any halt/error of `s₁` is
-    either before step `n` (in which case `steps n s₁ = halt/error`, i.e.
-    `s₁' = halt/error`) or at step `m > n` (in which case `s₁'` halts/
-    errors at step `m - n ≤ k`). -/
+/-- Running the left state forward preserves refinement. -/
 theorem obsRefinesK_of_steps_left {k n : Nat} {s₁ s₁' s₂ : State}
-    (h_steps : steps n s₁ = s₁')
-    (h : ObsRefinesK k s₁' s₂) : ObsRefinesK k s₁ s₂ := by
-  refine ⟨?_, ?_⟩
-  · intro v ⟨m, hmk, hsteps_v⟩
-    by_cases hmn : m ≤ n
-    · -- Case m ≤ n: s₁' = steps n s₁ = halt v
-      have hs₁'_halt : s₁' = .halt v := by
-        rw [← h_steps]
-        have hsplit : n = m + (n - m) := by omega
-        rw [hsplit, steps_trans, hsteps_v]
-        exact steps_halt (n - m) v
-      rw [hs₁'_halt] at h
-      exact h.1 v ⟨0, Nat.zero_le _, rfl⟩
-    · -- Case m > n: s₁' halts at step m - n
-      have h_s₁'_halt : steps (m - n) s₁' = .halt v := by
-        have hsplit : m = n + (m - n) := by omega
-        rw [← h_steps, ← steps_trans, ← hsplit]
-        exact hsteps_v
-      have hmn_le : m - n ≤ k := by omega
-      exact h.1 v ⟨m - n, hmn_le, h_s₁'_halt⟩
-  · intro n' hn' herr
-    by_cases hmn : n' ≤ n
-    · have hs₁'_err : s₁' = .error := by
-        rw [← h_steps]
-        have hsplit : n = n' + (n - n') := by omega
-        rw [hsplit, steps_trans, herr]
-        exact steps_error _
-      rw [hs₁'_err] at h
-      exact h.2 0 (Nat.zero_le _) rfl
-    · have h_s₁'_err : steps (n' - n) s₁' = .error := by
-        have hsplit : n' = n + (n' - n) := by omega
-        rw [← h_steps, ← steps_trans, ← hsplit]
-        exact herr
-      have hmn_le : n' - n ≤ k := by omega
-      exact h.2 (n' - n) hmn_le h_s₁'_err
+    (h_steps : steps n s₁ = s₁') (h : ObsRefinesK k s₁' s₂) : ObsRefinesK k s₁ s₂ := by
+  subst h_steps
+  exact ⟨fun v ⟨m, hm, hs⟩ => h.1 v ⟨m - n, by omega, steps_after rfl hs⟩,
+    fun m hm hs => h.2 (m - n) (by omega) (steps_after rfl hs)⟩
 
-/-- A stack with an "identity-funV" frame on top is `StackRefK`-related to
-    its underlying stack on the right. The frame `funV (VLam (Var 1) ρ)`
-    is transparent: it consumes a returned value via two CEK steps
-    (compute the `Var 1` lookup, ret the result), leaving the same
-    value at the same depth. -/
+/-- The identity frame `funV (λ. 1)` is transparent on the right. -/
 theorem stackRefK_funV_id_augment_right {j : Nat} {π₁ π₂ : Stack} {ρ₂ : CekEnv}
     (hπ : StackRefK ValueRefinesK j π₁ π₂) :
-    StackRefK ValueRefinesK j π₁ (.funV (.VLam (.Var 1) ρ₂) :: π₂) := by
-  intro j' hj' v₁ v₂ hv
-  have h_steps :
-      steps 2 (State.ret (.funV (.VLam (.Var 1) ρ₂) :: π₂) v₂) = State.ret π₂ v₂ := by
-    have hl : (ρ₂.extend v₂).lookup 1 = some v₂ := by cases ρ₂ <;> rfl
-    show (match (ρ₂.extend v₂).lookup 1 with
-          | some v => State.ret π₂ v
-          | none => State.error) = State.ret π₂ v₂
-    rw [hl]
-  exact obsRefinesK_of_steps_right h_steps (hπ j' hj' v₁ v₂ hv)
+    StackRefK ValueRefinesK j π₁ (.funV (.VLam (.Var 1) ρ₂) :: π₂) :=
+  fun j' hj' v₁ v₂ hv => obsRefinesK_of_steps_right (n := 2) rfl (hπ j' hj' v₁ v₂ hv)
 
-/-- Extending both sides of an `EnvRefinesK`-related env-pair by related
-    values produces an `EnvRefinesK`-related env-pair at the bumped depth. -/
 theorem envRefinesK_extend {k d : Nat} {ρ₁ ρ₂ : CekEnv} {v₁ v₂ : CekValue}
     (henv : EnvRefinesK k d ρ₁ ρ₂) (hv : ValueRefinesK k v₁ v₂) :
     EnvRefinesK k (d + 1) (ρ₁.extend v₁) (ρ₂.extend v₂) := by
   intro n hn hnd
   match n, hn with
   | 1, _ => exact ⟨v₁, v₂, rfl, rfl, hv⟩
-  | m + 2, _ =>
-    obtain ⟨w₁, w₂, hl, hr, hw⟩ := henv (m + 1) (by omega) (by omega)
-    exact ⟨w₁, w₂, hl, hr, hw⟩
+  | m + 2, _ => exact henv (m + 1) (by omega) (by omega)
 
-/-- `EnvRefinesK` is antitone in the step-count index. -/
 theorem envRefinesK_mono {j k d : Nat} {ρ₁ ρ₂ : CekEnv} (hj : j ≤ k)
     (henv : EnvRefinesK k d ρ₁ ρ₂) : EnvRefinesK j d ρ₁ ρ₂ := fun n hn hnd => by
   obtain ⟨w₁, w₂, hl, hr, hw⟩ := henv n hn hnd
   exact ⟨w₁, w₂, hl, hr, valueRefinesK_mono hj _ _ hw⟩
 
-/-- A `.force` frame on top of related stacks gives a `StackRefK`-related
-    pair. The .force frame fires based on the value's shape: VDelay
-    continues with the delayed body, VBuiltin steps the builtin's force
-    handling, and other shapes error on both sides. -/
+/-- A `force` frame on related stacks. -/
 theorem stackRefK_force_augment {i : Nat} {π₁ π₂ : Stack}
     (hπ : StackRefK ValueRefinesK i π₁ π₂) :
     StackRefK ValueRefinesK i (.force :: π₁) (.force :: π₂) := by
@@ -175,44 +78,44 @@ theorem stackRefK_force_augment {i : Nat} {π₁ π₂ : Stack}
   match j with
   | 0 => exact obsRefinesK_zero_ret
   | n + 1 =>
-    obsRefinesK_of_step_auto
-    match v₁, v₂ with
-    | .VDelay body₁ ρ₁', .VDelay body₂ ρ₂' =>
-      simp only [Moist.CEK.step, ValueRefinesK] at hv ⊢
-      exact hv n (by omega) n (Nat.le_refl _) π₁ π₂
-        (stackRefK_mono (by omega) hπ)
-    | .VBuiltin b₁ args₁ ea₁, .VBuiltin b₂ args₂ ea₂ =>
-      simp only [ValueRefinesK] at hv
-      obtain ⟨rfl, rfl, hargs⟩ := hv
-      simp only [Moist.CEK.step]
-      split
-      · split
-        · rename_i rest _
-          have hval : ValueRefinesK (n + 1)
-              (.VBuiltin b₁ args₁ rest) (.VBuiltin b₁ args₂ rest) := by
-            simp only [ValueRefinesK]
-            exact ⟨trivial, trivial, hargs⟩
-          exact obsRefinesK_mono (by omega : n ≤ n + 1)
-            (hπ (n + 1) (by omega) _ _ hval)
-        · exact evalBuiltin_compat_refines hargs
-            (stackRefK_mono (by omega) hπ)
-      · exact obsRefinesK_error _
-    | .VCon _, .VCon _ | .VLam _ _, .VLam _ _ | .VConstr _ _, .VConstr _ _ =>
-      simp only [Moist.CEK.step]; exact obsRefinesK_error _
-    | .VCon _, .VLam _ _ | .VCon _, .VDelay _ _ | .VCon _, .VConstr _ _
-    | .VCon _, .VBuiltin _ _ _ | .VLam _ _, .VCon _ | .VLam _ _, .VDelay _ _
-    | .VLam _ _, .VConstr _ _ | .VLam _ _, .VBuiltin _ _ _
-    | .VDelay _ _, .VCon _ | .VDelay _ _, .VLam _ _ | .VDelay _ _, .VConstr _ _
-    | .VDelay _ _, .VBuiltin _ _ _ | .VConstr _ _, .VCon _
-    | .VConstr _ _, .VLam _ _ | .VConstr _ _, .VDelay _ _
-    | .VConstr _ _, .VBuiltin _ _ _ | .VBuiltin _ _ _, .VCon _
-    | .VBuiltin _ _ _, .VLam _ _ | .VBuiltin _ _ _, .VDelay _ _
-    | .VBuiltin _ _ _, .VConstr _ _ => simp only [ValueRefinesK] at hv
+  refine obsRefinesK_of_step_ret ?_
+  cases v₁ <;> cases v₂ <;> simp only [ValueRefinesK] at hv <;> try exact obsRefinesK_error _
+  case VDelay.VDelay =>
+    exact hv n (by omega) n (Nat.le_refl _) π₁ π₂ (stackRefK_mono (by omega) hπ)
+  case VBuiltin.VBuiltin b₁ args₁ ea₁ b₂ args₂ ea₂ =>
+    obtain ⟨rfl, rfl, hargs⟩ := hv
+    simp only [step]
+    split
+    · split
+      · refine obsRefinesK_mono (Nat.le_succ n) (hπ (n + 1) (by omega) _ _ ?_)
+        simp only [ValueRefinesK]; exact ⟨trivial, trivial, hargs⟩
+      · exact evalBuiltin_compat_refines hargs (stackRefK_mono (by omega) hπ)
+    · exact obsRefinesK_error _
 
-/-- Helper: `wrapLet bs body` is the same as `.Let bs body` when `bs` is
-    nonempty. This avoids needing to pattern-match on `bs` explicitly. -/
-theorem wrapLet_cons (b : VarId × Expr × Bool) (bs : List (VarId × Expr × Bool))
-    (body : Expr) :
-    wrapLet (b :: bs) body = .Let (b :: bs) body := rfl
+/-- A `funV` frame holding related functions on related stacks. -/
+theorem stackRefK_funV_top_aug {i : Nat} {vf₁ vf₂ : CekValue} {π₁ π₂ : Stack}
+    (hvf : ValueRefinesK i vf₁ vf₂) (hπ : StackRefK ValueRefinesK i π₁ π₂) :
+    StackRefK ValueRefinesK i (.funV vf₁ :: π₁) (.funV vf₂ :: π₂) := by
+  intro j hj w₁ w₂ hw
+  match j with
+  | 0 => exact obsRefinesK_zero_ret
+  | n + 1 =>
+  refine obsRefinesK_of_step_ret ?_
+  have hvf' : ValueRefinesK (n + 1) vf₁ vf₂ := valueRefinesK_mono hj _ _ hvf
+  cases vf₁ <;> cases vf₂ <;> simp only [ValueRefinesK] at hvf' <;> try exact obsRefinesK_error _
+  case VLam.VLam =>
+    exact hvf' n (by omega) w₁ w₂ (valueRefinesK_mono (by omega) w₁ w₂ hw) n (Nat.le_refl _)
+      π₁ π₂ (stackRefK_mono (by omega) hπ)
+  case VBuiltin.VBuiltin b₁ args₁ ea₁ b₂ args₂ ea₂ =>
+    obtain ⟨rfl, rfl, hargs⟩ := hvf'
+    have hargs' : Moist.Verified.Equivalence.ListRel (ValueRefinesK n) (w₁ :: args₁) (w₂ :: args₂) :=
+      ⟨valueRefinesK_mono (by omega) w₁ w₂ hw, listRel_valueRefinesK_mono (by omega) hargs⟩
+    simp only [step]
+    split
+    · split
+      · refine obsRefinesK_mono (Nat.le_succ n) (hπ (n + 1) (by omega) _ _ ?_)
+        simp only [ValueRefinesK]; exact ⟨trivial, trivial, hargs'⟩
+      · exact evalBuiltin_compat_refines hargs' (stackRefK_mono (by omega) hπ)
+    · exact obsRefinesK_error _
 
 end Moist.Verified.MIR
