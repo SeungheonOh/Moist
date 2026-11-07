@@ -1,0 +1,31 @@
+import Test.Comparison.Validators
+import Moist.Plutus.Encode
+
+/-! Writes every cross-language comparison script as flat hex:
+`<dir>/<Validator>/moist.flat.hex` (default options) and
+`<dir>/<Validator>/moist-size.flat.hex` (builtin sharing and constant pooling). -/
+
+namespace Test.Comparison.CrossExport
+
+open Moist.Plutus.Term
+
+def flatHex (script : Term) : String :=
+  (Moist.Plutus.Encode.encode_program (.Program (.Version 1 1 0) script)).toHexString
+
+/-- `(validator, default script, size-options script)`. -/
+def registry : List (String × Term × Term) := [
+  ("Voting", Validators.votingScript, Validators.votingSize),
+  ("Certifying", Validators.certifyingScript, Validators.certifyingSize),
+  ("Vesting", Validators.vestingScript, Validators.vestingSize)]
+
+def main (arguments : List String) : IO Unit := do
+  let directory := arguments.headD "/Users/sho/fun/cross-bench-data"
+  for (name, defaultScript, sizeScript) in registry do
+    IO.FS.createDirAll s!"{directory}/{name}"
+    IO.FS.writeFile s!"{directory}/{name}/moist.flat.hex" (flatHex defaultScript ++ "\n")
+    IO.FS.writeFile s!"{directory}/{name}/moist-size.flat.hex" (flatHex sizeScript ++ "\n")
+    IO.println s!"{name}: wrote moist.flat.hex and moist-size.flat.hex"
+
+end Test.Comparison.CrossExport
+
+def main (arguments : List String) : IO Unit := Test.Comparison.CrossExport.main arguments

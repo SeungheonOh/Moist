@@ -87,3 +87,6 @@ lean_exe recursion_bench where
 
 lean_exe checked_branch_bench where
   root := `Test.Comparison.CheckedBranchBench
+
+lean_exe cross_bench_export where
+  root := `Test.Comparison.CrossExport
