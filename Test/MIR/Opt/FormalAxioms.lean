@@ -4,6 +4,7 @@ import Moist.Verified.DeadFixSoundness
 import Moist.Verified.BuiltinStateSoundness
 import Moist.Verified.ApplicationPackingSoundness
 import Moist.Verified.HygieneSoundness
+import Moist.Verified.MIR.AlphaEqBool
 import Moist.Verified.AllocationFinishSoundness
 import Moist.Verified.InlineSoundness.Frontier
 import Moist.Verified.VerifiedOptimize
@@ -26,6 +27,8 @@ run_cmd do
     ``Moist.Verified.MIR.Hygiene.uniqueOptimizationBinders_lower,
     ``Moist.Verified.MIR.Hygiene.freshenBinders_correct,
     ``Moist.Verified.MIR.AlphaEq.lowerTotalExpr_eq,
+    ``Moist.Verified.MIR.alphaEq_lowerTotalExpr_eq,
+    ``Moist.Verified.MIR.alphaEq_mirCtxRefines,
     ``Moist.Verified.MIR.lowerTotalExpr_fix_lam_shift,
     ``Moist.Verified.ContinuationRefinement.compute_of_returns,
     ``Moist.Verified.ApplicationPacking.argument_frames,

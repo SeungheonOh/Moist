@@ -629,6 +629,19 @@ where
     | [], _ => none
     | x :: xs, idx => if x == v then some idx else go xs (idx + 1)
 
+theorem lookupIdx_eq_findIdx? (env : List VarId) (v : VarId) :
+    lookupIdx env v = env.findIdx? (· == v) := by
+  suffices h : ∀ (env : List VarId) (n : Nat),
+      lookupIdx.go v env n = (env.findIdx? (· == v)).map (· + n) by
+    simpa [lookupIdx] using h env 0
+  intro env
+  induction env with
+  | nil => intro n; simp [lookupIdx.go]
+  | cons x xs ih =>
+    intro n
+    simp only [lookupIdx.go, List.findIdx?_cons]
+    split <;> simp [ih, Option.map_map, Function.comp_def, Nat.add_comm, Nat.add_left_comm]
+
 mutual
   def alphaEqAux (env1 env2 : List VarId) : Expr → Expr → Bool
     | .Var x, .Var y =>
