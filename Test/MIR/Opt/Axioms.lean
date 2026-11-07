@@ -8,6 +8,7 @@ import Test.MIR.Opt.Axioms.Compiler
 import Test.MIR.Opt.Axioms.DataShapes
 import Test.MIR.Opt.Axioms.DelaySharing
 import Test.MIR.Opt.Axioms.EtaReduce
+import Test.MIR.Opt.Axioms.FailFast
 import Test.MIR.Opt.Axioms.FixLowering
 import Test.MIR.Opt.Axioms.FloatOut
 import Test.MIR.Opt.Axioms.KnownLists
