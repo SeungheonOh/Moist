@@ -70,7 +70,7 @@ theorem anfAtomList_spec (tag : Nat) :
   | [], pre, s, _, _, _ => by
     show s.next ≤ s.next ∧ maxUidExprList [] < s.next ∧ maxUidExprBinds [] < s.next ∧
       MIRCtxRefines (.Constr tag (pre ++ [])) (wrapLet [] (.Constr tag (pre ++ [])))
-    exact ⟨Nat.le_refl _, by simp [maxUidExprList]; omega, by simp [maxUidExprBinds]; omega,
+    exact ⟨Nat.le_refl _, by simp only [maxUidExprList]; omega, by simp only [maxUidExprBinds]; omega,
       mirCtxRefines_refl _⟩
   | a :: rest, pre, s, hargs, hpre, hpreA => by
     simp only [maxUidExprList] at hargs
@@ -205,8 +205,8 @@ theorem anfNormalizeCore_fresh (e : Expr) (s : FreshState) (h : maxUidExpr e < s
     rw [anfNormalizeCore_constr_eq]; dsimp only
     obtain ⟨m₁, F₁⟩ := anfNormalizeList_fresh args s h
     generalize anfNormalizeListCore args s = l at m₁ F₁ ⊢
-    obtain ⟨m₂, F₂, B₂, -⟩ := anfAtomList_spec tag l.1 [] l.2 F₁ (by simp [maxUidExprList]; omega)
-      (by simp)
+    obtain ⟨m₂, F₂, B₂, -⟩ := anfAtomList_spec tag l.1 [] l.2 F₁ (by simp only [maxUidExprList]; omega)
+      (fun _ h => absurd h List.not_mem_nil)
     exact ⟨by omega, maxUidExpr_wrapLet_lt B₂ (by simp only [maxUidExpr]; omega)⟩
   | .Let binds body =>
     simp only [maxUidExpr] at h
@@ -334,7 +334,8 @@ theorem anfNormalizeCore_refines (e : Expr) (s : FreshState) (h : maxUidExpr e <
     obtain ⟨-, F⟩ := anfNormalizeList_fresh args s h
     generalize anfNormalizeListCore args s = l at hl F ⊢
     exact mirCtxRefines_trans (mirCtxRefines_constr_of_listRel tag hl)
-      (anfAtomList_spec tag l.1 [] l.2 F (by simp [maxUidExprList]; omega) (by simp)).2.2.2
+      (anfAtomList_spec tag l.1 [] l.2 F (by simp only [maxUidExprList]; omega)
+        (fun _ h => absurd h List.not_mem_nil)).2.2.2
   | .Let binds body =>
     simp only [maxUidExpr] at h
     rw [anfNormalizeCore_let_eq]; dsimp only

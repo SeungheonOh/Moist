@@ -23,8 +23,7 @@ namespace Moist.Verified.MIR
 
 open Moist.CEK
 open Moist.Plutus.Term (Term)
-open Moist.MIR (Expr VarId lowerTotalExpr lowerTotal lowerTotalLet expandFix expandFixBinds
-  freeVars freeVarsLet wrapLet)
+open Moist.MIR
 open Moist.Verified (closedAt closedAtList renameTerm renameTermList shiftRename liftRename)
 open Moist.Verified.Equivalence (ListRel ObsRefinesK steps listRel_mono listRel_reverse
   obsRefinesK_zero_ret obsRefinesK_of_step_compute obsRefinesK_of_step_ret
@@ -65,14 +64,16 @@ theorem mirCtxRefines_of_shape {α : Type} {m₁ m₂ : Expr}
   | none => exact ⟨id, trivial⟩
   | some a => exact ⟨fun _ => rfl, ctxRefines_of_openRefines (hcl env a) (hsem env a hP)⟩
 
+/-! ## Lowering -/
+
 /-- Prepending a variable that is not free in `e` shifts the lowering of `e`. -/
 theorem lowerTotalExpr_prepend_unused (env : List VarId) (v : VarId) (e : Expr)
     (h : (freeVars e).contains v = false) :
     lowerTotalExpr (v :: env) e = (lowerTotalExpr env e).map (renameTerm (shiftRename 1)) := by
-  have h' := Moist.MIR.expandFix_freeVars_not_contains e v h
+  have h' := expandFix_freeVars_not_contains e v h
   cases hl : lowerTotalExpr env e with
-  | none => exact Moist.MIR.lowerTotal_prepend_unused_none env v _ h' hl
-  | some t => exact Moist.MIR.lowerTotal_prepend_unused env v _ h' t hl
+  | none => exact lowerTotal_prepend_unused_none env v _ h' hl
+  | some t => exact lowerTotal_prepend_unused env v _ h' t hl
 
 theorem lowerTotalExprList_prepend_unused (env : List VarId) (v : VarId) :
     ∀ (es : List Expr), (∀ e ∈ es, (freeVars e).contains v = false) →
@@ -84,6 +85,50 @@ theorem lowerTotalExprList_prepend_unused (env : List VarId) (v : VarId) :
       lowerTotalExpr_prepend_unused env v e (h e (.head _)),
       lowerTotalExprList_prepend_unused env v es (fun e he => h e (.tail _ he))]
     cases lowerTotalExpr env e <;> cases lowerTotalExprList env es <;> rfl
+
+theorem lowerTotalExprList_append (env : List VarId) (pre post : List Expr) :
+    lowerTotalExprList env (pre ++ post) =
+      (lowerTotalExprList env pre).bind fun pre' =>
+        (lowerTotalExprList env post).map fun post' => pre' ++ post' := by
+  induction pre with
+  | nil => simp [lowerTotalExprList_nil]
+  | cons e pre ih =>
+    rw [List.cons_append, lowerTotalExprList_cons, lowerTotalExprList_cons, ih]
+    cases lowerTotalExpr env e <;> cases lowerTotalExprList env pre <;>
+      cases lowerTotalExprList env post <;> rfl
+
+theorem lowerTotalExpr_let_single (env : List VarId) (v : VarId) (rhs body : Expr) (er : Bool) :
+    lowerTotalExpr env (.Let [(v, rhs, er)] body) =
+      (lowerTotalExpr env rhs).bind fun tr =>
+        (lowerTotalExpr (v :: env) body).map fun tb => .Apply (.Lam 0 tb) tr := by
+  simp only [lowerTotalExpr, expandFix, expandFixBinds, lowerTotal, lowerTotalLet]
+  cases lowerTotal env (expandFix rhs) <;> cases lowerTotal (v :: env) (expandFix body) <;> rfl
+
+theorem lowerTotalExpr_wrapLet (bs : List (VarId × Expr × Bool)) (body : Expr)
+    (env : List VarId) : lowerTotalExpr env (wrapLet bs body) = lowerTotalExpr env (.Let bs body) := by
+  cases bs with
+  | nil => simp only [wrapLet, lowerTotalExpr, expandFix, expandFixBinds, lowerTotal, lowerTotalLet]
+  | cons _ _ => rfl
+
+theorem lowerTotalExpr_wrapLet_append (bs₁ bs₂ : List (VarId × Expr × Bool)) (body : Expr)
+    (env : List VarId) :
+    lowerTotalExpr env (wrapLet (bs₁ ++ bs₂) body) =
+      lowerTotalExpr env (wrapLet bs₁ (wrapLet bs₂ body)) := by
+  cases bs₂ with
+  | nil => simp only [List.append_nil, wrapLet]
+  | cons _ _ =>
+    rw [lowerTotalExpr_wrapLet, lowerTotalExpr_wrapLet bs₁, ← lowerTotalExpr_let_flatten_body]; rfl
+
+theorem freeVarsLet_not_contains_of_fresh (rest : List (VarId × Expr × Bool)) (body : Expr)
+    (y : VarId) (hrest : ∀ r ∈ rest, (freeVars r.2.1).contains y = false)
+    (hbody : (freeVars body).contains y = false) :
+    (freeVarsLet rest body).contains y = false := by
+  induction rest with
+  | nil => rw [freeVarsLet]; exact hbody
+  | cons r rest ih =>
+    rw [freeVarsLet]
+    exact VarSet.union_not_contains_fwd _ _ _ (hrest r (.head _))
+      (VarSet.erase_not_contains_fwd _ _ _ (ih fun r hr => hrest r (.tail _ hr)))
 
 /-! ## Value terms
 
@@ -148,6 +193,58 @@ theorem valueTerm_rel {d i : Nat} {t : Term} (ht : IsValueTerm d t)
           (envRefinesK_to_renameEnvRefR_shift (envRefinesK_mono (by omega) henv)) ha)
         i' hi' π₁ π₂ hπ
 
+/-- The shape of a lowered MIR atom: `Var n` (`n ≥ 1`), a constant, or a builtin. -/
+def isLeafAtomTerm (t : Term) : Prop :=
+  (∃ n, n ≥ 1 ∧ t = .Var n) ∨ (∃ ct, t = .Constant ct) ∨ (∃ b, t = .Builtin b)
+
+/-- For atom MIR expressions, the lowering produces a leaf term. -/
+theorem lowerTotal_atom_isLeafAtom :
+    ∀ (env : List VarId) (g : Expr) (t_g : Term),
+      g.isAtom = true →
+      lowerTotal env (expandFix g) = some t_g →
+      isLeafAtomTerm t_g := by
+  intro env g t_g hatom hlow
+  cases g with
+  | Var x =>
+    simp only [expandFix, lowerTotal] at hlow
+    cases h : envLookupT env x with
+    | none => rw [h] at hlow; simp at hlow
+    | some idx =>
+      rw [h] at hlow; simp at hlow; subst hlow
+      exact .inl ⟨idx + 1, Nat.succ_le_succ (Nat.zero_le _), rfl⟩
+  | Lit p =>
+    obtain ⟨c, ty⟩ := p
+    simp only [expandFix, lowerTotal] at hlow
+    cases hlow
+    exact .inr (.inl ⟨(c, ty), rfl⟩)
+  | Builtin b =>
+    simp only [expandFix, lowerTotal] at hlow
+    cases hlow
+    exact .inr (.inr ⟨b, rfl⟩)
+  | _ => simp [Expr.isAtom] at hatom
+
+theorem lowerTotalExpr_atom_valueTerm {env : List VarId} {g : Expr} {t : Term}
+    (hg : g.isAtom = true) (ht : lowerTotalExpr env g = some t) : IsValueTerm env.length t := by
+  have hc := lowerTotalExpr_closedAt ht
+  rcases lowerTotal_atom_isLeafAtom env _ _ hg ht with ⟨n, hn, rfl⟩ | ⟨c, rfl⟩ | ⟨b, rfl⟩
+  · simp only [closedAt, decide_eq_true_eq] at hc; exact ⟨hn, hc⟩
+  · trivial
+  · trivial
+
+theorem lowerTotalExprList_valueTerms {env : List VarId} :
+    ∀ {es : List Expr} {ts : List Term}, (∀ a ∈ es, a.isAtom = true) →
+      lowerTotalExprList env es = some ts → ∀ t ∈ ts, IsValueTerm env.length t
+  | [], _, _, h => by simp [lowerTotalExprList_nil] at h; subst h; simp
+  | e :: es, ts, hA, h => by
+    rw [lowerTotalExprList_cons] at h
+    cases he : lowerTotalExpr env e <;> cases hes : lowerTotalExprList env es <;>
+      simp [he, hes] at h
+    subst h
+    intro t ht
+    rcases List.mem_cons.mp ht with rfl | ht
+    · exact lowerTotalExpr_atom_valueTerm (hA e (.head _)) he
+    · exact lowerTotalExprList_valueTerms (fun a ha => hA a (.tail _ ha)) hes t ht
+
 /-! ## Hoist frames -/
 
 /-- A single-hole UPLC evaluation frame, the hole being evaluated first among
@@ -195,11 +292,14 @@ def push (ρ : CekEnv) : HoistFrame → Stack → Stack
 
 end HoistFrame
 
-theorem getElem?_renameTermList (σ : Nat → Nat) :
-    ∀ (ts : List Term) (n : Nat), (renameTermList σ ts)[n]? = ts[n]?.map (renameTerm σ)
-  | [], _ => rfl
-  | _ :: _, 0 => rfl
-  | _ :: ts, n + 1 => getElem?_renameTermList σ ts n
+theorem renameTermList_eq_map (σ : Nat → Nat) :
+    ∀ (ts : List Term), renameTermList σ ts = ts.map (renameTerm σ)
+  | [] => rfl
+  | t :: ts => by rw [renameTermList, List.map_cons, renameTermList_eq_map σ ts]
+
+theorem getElem?_renameTermList (σ : Nat → Nat) (ts : List Term) (n : Nat) :
+    (renameTermList σ ts)[n]? = ts[n]?.map (renameTerm σ) := by
+  rw [renameTermList_eq_map, List.getElem?_map]
 
 /-- `arg` frame against its shift. -/
 theorem stackRefK_arg_shift {i d : Nat} {x : Term} {π₁ π₂ : Stack} {ρ₁ ρ₂ : CekEnv}
@@ -292,11 +392,6 @@ theorem stackRefK_constrField_shift {d tag : Nat} :
         ⟨valueRefinesK_mono (by omega) _ _ hv,
          listRel_mono (fun _ _ h => valueRefinesK_mono (by omega) _ _ h) hdone⟩
         henv' (stackRefK_mono (by omega) hπ))
-
-theorem renameTermList_eq_map (σ : Nat → Nat) :
-    ∀ (ts : List Term), renameTermList σ ts = ts.map (renameTerm σ)
-  | [] => rfl
-  | t :: ts => by simp only [renameTermList, List.map_cons, renameTermList_eq_map σ ts]
 
 /-- Evaluating the value-term prefix of a `Constr` that is already under way. -/
 private theorem steps_constrField {tag : Nat} {post : List Term} {ρ : CekEnv} {π : Stack}
@@ -404,74 +499,22 @@ theorem openRefines_hoist (F : HoistFrame) {d : Nat} {tr tb : Term} (hF : F.WF d
     ftlr (d + 1) tb hb j' j' (Nat.le_refl _) _ _ (envRefinesK_extend henv' hv)
       j' (Nat.le_refl _) _ _ hstk
 
-theorem freeVarsLet_not_contains_of_fresh (rest : List (VarId × Expr × Bool)) (body : Expr)
-    (y : VarId) (hrest : ∀ r ∈ rest, (freeVars r.2.1).contains y = false)
-    (hbody : (freeVars body).contains y = false) :
-    (freeVarsLet rest body).contains y = false := by
-  induction rest with
-  | nil => rw [freeVarsLet]; exact hbody
-  | cons r rest ih =>
-    rw [freeVarsLet]
-    exact Moist.MIR.VarSet.union_not_contains_fwd _ _ _ (hrest r (.head _))
-      (Moist.MIR.VarSet.erase_not_contains_fwd _ _ _ (ih fun r hr => hrest r (.tail _ hr)))
+theorem ctxRefines_fill (C : Context) {t₁ t₂ : Term} (h : CtxRefines t₁ t₂) :
+    CtxRefines (fill C t₁) (fill C t₂) := by
+  intro C' hC'
+  simp only [← fill_compose] at hC' ⊢
+  exact h _ hC'
 
-/-- For an atom term `t_g` (a leaf: `.Var n` with `n ≥ 1`, `.Constant`, or
-    `.Builtin`), computing `t_g` in any non-empty stack/env takes a single
-    CEK step and always succeeds when `closedAt d t_g` holds under a
-    related env pair. The Var-case constraint `n ≥ 1` encodes the fact
-    that lowered MIR atoms never produce `.Var 0` (the `+1` shift in the
-    Var lowering). -/
-def isLeafAtomTerm (t : Term) : Prop :=
-  (∃ n, n ≥ 1 ∧ t = .Var n) ∨ (∃ ct, t = .Constant ct) ∨ (∃ b, t = .Builtin b)
+def HoistFrame.toContext : HoistFrame → Context
+  | .force => .Force .Hole
+  | .appFun x => .AppLeft .Hole x
+  | .appArg g => .AppRight g .Hole
+  | .case alts => .Case .Hole alts
+  | .constr tag pre post => .Constr tag pre .Hole post
 
-/-- For atom MIR expressions, the lowering produces a leaf term. -/
-theorem lowerTotal_atom_isLeafAtom :
-    ∀ (env : List VarId) (g : Expr) (t_g : Term),
-      g.isAtom = true →
-      lowerTotal env (expandFix g) = some t_g →
-      isLeafAtomTerm t_g := by
-  intro env g t_g hatom hlow
-  cases g with
-  | Var x =>
-    simp only [expandFix, lowerTotal] at hlow
-    cases h : Moist.MIR.envLookupT env x with
-    | none => rw [h] at hlow; simp at hlow
-    | some idx =>
-      rw [h] at hlow; simp at hlow; subst hlow
-      exact .inl ⟨idx + 1, Nat.succ_le_succ (Nat.zero_le _), rfl⟩
-  | Lit p =>
-    obtain ⟨c, ty⟩ := p
-    simp only [expandFix, lowerTotal] at hlow
-    cases hlow
-    exact .inr (.inl ⟨(c, ty), rfl⟩)
-  | Builtin b =>
-    simp only [expandFix, lowerTotal] at hlow
-    cases hlow
-    exact .inr (.inr ⟨b, rfl⟩)
-  | _ => simp [Expr.isAtom] at hatom
-
-
-theorem lowerTotalExpr_atom_valueTerm {env : List VarId} {g : Expr} {t : Term}
-    (hg : g.isAtom = true) (ht : lowerTotalExpr env g = some t) : IsValueTerm env.length t := by
-  have hc := lowerTotalExpr_closedAt ht
-  rcases lowerTotal_atom_isLeafAtom env _ _ hg ht with ⟨n, hn, rfl⟩ | ⟨c, rfl⟩ | ⟨b, rfl⟩
-  · simp only [closedAt, decide_eq_true_eq] at hc; exact ⟨hn, hc⟩
-  · trivial
-  · trivial
-
-theorem lowerTotalExprList_valueTerms {env : List VarId} :
-    ∀ {es : List Expr} {ts : List Term}, (∀ a ∈ es, a.isAtom = true) →
-      lowerTotalExprList env es = some ts → ∀ t ∈ ts, IsValueTerm env.length t
-  | [], _, _, h => by simp [lowerTotalExprList_nil] at h; subst h; simp
-  | e :: es, ts, hA, h => by
-    rw [lowerTotalExprList_cons] at h
-    cases he : lowerTotalExpr env e <;> cases hes : lowerTotalExprList env es <;>
-      simp [he, hes] at h
-    subst h
-    intro t ht
-    rcases List.mem_cons.mp ht with rfl | ht
-    · exact lowerTotalExpr_atom_valueTerm (hA e (.head _)) he
-    · exact lowerTotalExprList_valueTerms (fun a ha => hA a (.tail _ ha)) hes t ht
+theorem HoistFrame.fill_eq (F : HoistFrame) (t : Term) :
+    F.fill t = Moist.Verified.Contextual.fill F.toContext t := by
+  cases F <;> simp [HoistFrame.fill, HoistFrame.toContext, Moist.Verified.Contextual.fill]
 
 /-! ## MIR frames -/
 
@@ -522,28 +565,6 @@ def lower (env : List VarId) : MFrame → Option HoistFrame
     (lowerTotalLet (x :: env) (expandFixBinds rest) (expandFix body)).map
       fun t => .appArg (.Lam 0 t)
 
-end MFrame
-
-theorem lowerTotalExprList_append (env : List VarId) (pre post : List Expr) :
-    lowerTotalExprList env (pre ++ post) =
-      (lowerTotalExprList env pre).bind fun pre' =>
-        (lowerTotalExprList env post).map fun post' => pre' ++ post' := by
-  induction pre with
-  | nil => simp [lowerTotalExprList_nil]
-  | cons e pre ih =>
-    rw [List.cons_append, lowerTotalExprList_cons, lowerTotalExprList_cons, ih]
-    cases lowerTotalExpr env e <;> cases lowerTotalExprList env pre <;>
-      cases lowerTotalExprList env post <;> rfl
-
-theorem lowerTotalExpr_let_single (env : List VarId) (v : VarId) (rhs body : Expr) (er : Bool) :
-    lowerTotalExpr env (.Let [(v, rhs, er)] body) =
-      (lowerTotalExpr env rhs).bind fun tr =>
-        (lowerTotalExpr (v :: env) body).map fun tb => .Apply (.Lam 0 tb) tr := by
-  simp only [lowerTotalExpr, expandFix, expandFixBinds, lowerTotal, lowerTotalLet]
-  cases lowerTotal env (expandFix rhs) <;> cases lowerTotal (v :: env) (expandFix body) <;> rfl
-
-namespace MFrame
-
 theorem lowerTotalExpr_fill (F : MFrame) (env : List VarId) (e : Expr) :
     lowerTotalExpr env (F.fill e) =
       (lowerTotalExpr env e).bind fun t => (F.lower env).map (·.fill t) := by
@@ -588,14 +609,14 @@ theorem lower_cons (F : MFrame) {v : VarId} (hv : F.Fresh v) (env : List VarId) 
       lowerTotalExprList_prepend_unused env v post (fun a ha => hv a (List.mem_append_right _ ha))]
     cases lowerTotalExprList env pre <;> cases lowerTotalExprList env post <;> rfl
   | letRhs x er rest body =>
-    have hfv := Moist.MIR.expandFixBinds_freeVars_not_contains rest body v
+    have hfv := expandFixBinds_freeVars_not_contains rest body v
       (freeVarsLet_not_contains_of_fresh rest body v hv.1 hv.2)
     simp only [lower]
     cases h : lowerTotalLet (x :: env) (expandFixBinds rest) (expandFix body) with
     | none =>
-      simpa using Moist.MIR.lowerTotalLet_prepend_unused_none_gen [x] env v _ _ (.inl hfv) h
+      simpa using lowerTotalLet_prepend_unused_none_gen [x] env v _ _ (.inl hfv) h
     | some t =>
-      have h' := Moist.MIR.lowerTotalLet_prepend_unused_gen [x] env v _ _ (.inl hfv) t h
+      have h' := lowerTotalLet_prepend_unused_gen [x] env v _ _ (.inl hfv) t h
       simp only [List.cons_append, List.nil_append, List.length_singleton] at h'
       simp only [h', Option.map_some, HoistFrame.shift, renameTerm,
         Moist.Verified.liftRename_shiftRename (Nat.le_refl 1)]
@@ -651,25 +672,6 @@ theorem mirCtxRefines_hoist (F : MFrame) (hA : F.Atomic) {v : VarId} (hv : F.Fre
     exact openRefines_hoist _ (F.lower_wf hA hH) (lowerTotalExpr_closedAt hr)
       (by simpa using lowerTotalExpr_closedAt hb)
 
-/-! ## Frame congruence -/
-
-theorem ctxRefines_fill (C : Context) {t₁ t₂ : Term} (h : CtxRefines t₁ t₂) :
-    CtxRefines (fill C t₁) (fill C t₂) := by
-  intro C' hC'
-  simp only [← fill_compose] at hC' ⊢
-  exact h _ hC'
-
-def HoistFrame.toContext : HoistFrame → Context
-  | .force => .Force .Hole
-  | .appFun x => .AppLeft .Hole x
-  | .appArg g => .AppRight g .Hole
-  | .case alts => .Case .Hole alts
-  | .constr tag pre post => .Constr tag pre .Hole post
-
-theorem HoistFrame.fill_eq (F : HoistFrame) (t : Term) :
-    F.fill t = Moist.Verified.Contextual.fill F.toContext t := by
-  cases F <;> simp [HoistFrame.fill, HoistFrame.toContext, Moist.Verified.Contextual.fill]
-
 theorem mirCtxRefines_fill (F : MFrame) {a b : Expr} (h : MIRCtxRefines a b) :
     MIRCtxRefines (F.fill a) (F.fill b) := by
   intro env
@@ -690,23 +692,6 @@ theorem mirCtxRefines_fill (F : MFrame) {a b : Expr} (h : MIRCtxRefines a b) :
         simp only [Option.bind_some, Option.map_some]
         rw [H.fill_eq, H.fill_eq]
         exact ctxRefines_fill _ hc
-
-/-! ## `wrapLet` -/
-
-theorem lowerTotalExpr_wrapLet (bs : List (VarId × Expr × Bool)) (body : Expr)
-    (env : List VarId) : lowerTotalExpr env (wrapLet bs body) = lowerTotalExpr env (.Let bs body) := by
-  cases bs with
-  | nil => simp only [wrapLet, lowerTotalExpr, expandFix, expandFixBinds, lowerTotal, lowerTotalLet]
-  | cons _ _ => rfl
-
-theorem lowerTotalExpr_wrapLet_append (bs₁ bs₂ : List (VarId × Expr × Bool)) (body : Expr)
-    (env : List VarId) :
-    lowerTotalExpr env (wrapLet (bs₁ ++ bs₂) body) =
-      lowerTotalExpr env (wrapLet bs₁ (wrapLet bs₂ body)) := by
-  cases bs₂ with
-  | nil => simp only [List.append_nil, wrapLet]
-  | cons _ _ =>
-    rw [lowerTotalExpr_wrapLet, lowerTotalExpr_wrapLet bs₁, ← lowerTotalExpr_let_flatten_body]; rfl
 
 theorem mirCtxRefines_wrapLet_body {bs : List (VarId × Expr × Bool)} {b₁ b₂ : Expr}
     (h : MIRCtxRefines b₁ b₂) : MIRCtxRefines (wrapLet bs b₁) (wrapLet bs b₂) := by
