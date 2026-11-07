@@ -1,17 +1,18 @@
 import Moist.Verified.InlineSoundness.StrictOcc
 import Moist.Verified.AdvancedRefinement
 
+/-! # Beta reduction at the evaluation frontier
+
+`beta_ctxRefines_of_errorFrontier` is the single UPLC beta rule used by the
+inliner: `(λ. body) rhs` refines `body[rhs/1]` whenever an `rhs` that errors
+makes the substituted body error too. A halting `rhs` discharges the
+hypothesis vacuously (`beta_ctxRefines_of_halts`). -/
+
 namespace Moist.Verified.InlineSoundness.Frontier
 
 open Moist.CEK Moist.Plutus.Term
 open Moist.Verified.Equivalence Moist.Verified.Contextual
 open Moist.Verified.BetaValueRefines Moist.Verified.InlineSoundness.StrictOcc
-
-private theorem steps_bridge (fuel : Nat) (state : State) :
-    steps fuel state = Semantics.steps fuel state := by
-  induction fuel generalizing state with
-  | zero => rfl
-  | succ fuel inductionHypothesis => exact inductionHypothesis (step state)
 
 theorem outcome_of_terminal {environment : CekEnv} {stack : Stack} {term : Term} {terminal : State}
     (isTerminal : terminal = .error ∨ ∃ value, terminal = .halt value)
@@ -19,7 +20,7 @@ theorem outcome_of_terminal {environment : CekEnv} {stack : Stack} {term : Term}
     (∃ value, Reaches (.compute [] environment term) (.halt value)) ∨
       Reaches (.compute [] environment term) .error := by
   obtain ⟨fuel, terminates⟩ := terminates
-  rw [steps_bridge] at terminates
+  rw [vstep_eq] at terminates
   let initial : State := .compute [] environment term
   have inactive : ∃ index, index ≤ fuel ∧ StepLift.isActive (Semantics.steps index initial) = false := by
     apply Classical.byContradiction
@@ -41,14 +42,39 @@ theorem outcome_of_terminal {environment : CekEnv} {stack : Stack} {term : Term}
   obtain ⟨index, _, inactive, _⟩ := StepLift.firstInactive initial fuel inactive
   cases reached : Semantics.steps index initial with
   | compute _ _ _ => rw [reached] at inactive; contradiction
-  | error => exact .inr ⟨index, by rw [steps_bridge]; exact reached⟩
-  | halt value => exact .inl ⟨value, index, by rw [steps_bridge]; exact reached⟩
+  | error => exact .inr ⟨index, by rw [vstep_eq]; exact reached⟩
+  | halt value => exact .inl ⟨value, index, by rw [vstep_eq]; exact reached⟩
   | ret pending value =>
     cases pending with
     | cons _ _ => rw [reached] at inactive; contradiction
     | nil =>
       exact .inl ⟨value, index + 1, by
-        rw [steps_bridge, Semantics.steps_trans, reached]; rfl⟩
+        rw [vstep_eq, Semantics.steps_trans, reached]; rfl⟩
+
+/-- A same-environment observation on well-formed environments and stacks
+    lifts to contextual refinement. -/
+theorem contextual_of_wf_refinement {depth : Nat} {source target : Term}
+    (sourceClosed : closedAt depth source = true)
+    (closedPreserved : ∀ depth, closedAt depth source = true → closedAt depth target = true)
+    (localRefinement : ∀ environment stack, EnvWellFormed depth environment →
+      depth ≤ environment.length → StackWellFormed stack →
+      ObsRefines (.compute stack environment source) (.compute stack environment target)) :
+    CtxRefines source target := by
+  apply TermObsRefinesWF.soundness_refinesWF (d := depth)
+  · intro budget index indexBound leftEnv rightEnv environments leftWellFormed leftLength
+      rightWellFormed rightLength observation observationBound leftStack rightStack
+      leftStackWellFormed rightStackWellFormed stacks
+    exact SubstRefinesExt.obsRefinesK_compose_obsRefines_right
+      (FundamentalRefinesWF.ftlr_wf depth source sourceClosed
+        budget index indexBound leftEnv rightEnv environments leftWellFormed leftLength
+        rightWellFormed rightLength observation observationBound leftStack rightStack
+        leftStackWellFormed rightStackWellFormed stacks)
+      (localRefinement rightEnv rightStack rightWellFormed rightLength rightStackWellFormed)
+  · intro context sourceContextClosed
+    obtain ⟨contextClosed, termClosed⟩ :=
+      (fill_closedAt_iff context source 0).mp sourceContextClosed
+    exact (fill_closedAt_iff context target 0).mpr
+      ⟨contextClosed, closedPreserved _ termClosed⟩
 
 private theorem beta_rhs_outcome {environment : CekEnv} {stack : Stack}
     {body rhs : Term} {terminal : State}
@@ -58,12 +84,9 @@ private theorem beta_rhs_outcome {environment : CekEnv} {stack : Stack}
       Reaches (.compute [] environment rhs) .error := by
   have fixed : step terminal = terminal := by
     rcases isTerminal with rfl | ⟨value, rfl⟩ <;> rfl
-  apply outcome_of_terminal isTerminal
-  have afterPrefix := (AdvancedRefinement.reaches_after_prefix 3 fixed).mp terminates
-  exact afterPrefix
+  exact outcome_of_terminal isTerminal ((AdvancedRefinement.reaches_after_prefix 3 fixed).mp terminates)
 
 private theorem beta_of_rhs_halts {depth : Nat} {body rhs : Term}
-    (single : SingleOcc 1 body)
     (bodyClosed : closedAt (depth + 1) body = true)
     (rhsClosed : closedAt depth rhs = true)
     (environment : CekEnv) (stack : Stack)
@@ -72,22 +95,13 @@ private theorem beta_of_rhs_halts {depth : Nat} {body rhs : Term}
     (stackWellFormed : StackWellFormed stack)
     (halts : ∃ value, Reaches (.compute [] environment rhs) (.halt value)) :
     ObsRefines (.compute stack environment (.Apply (.Lam 0 body) rhs))
-      (.compute stack environment (Moist.Verified.substTerm 1 rhs body)) := by
-  obtain ⟨value, fuel, reaches⟩ := halts
-  obtain ⟨returnFuel, _, returned, returns⟩ :=
-    halt_descends_to_baseπ fuel (.compute [] environment rhs) value reaches ⟨[], rfl⟩
-  apply same_env_beta_single_obsRefines single bodyClosed rhsClosed environment stack
-    environmentWellFormed environmentLength stackWellFormed
-  intro continuation
-  obtain ⟨fuel, returns⟩ := ret_on_all_stacks returns continuation
-  refine ⟨fuel, returned, returns, ?_⟩
-  intro earlier bound errors
-  have split : fuel = earlier + (fuel - earlier) := by omega
-  rw [split, steps_trans, errors, steps_error_fixed] at returns
-  contradiction
+      (.compute stack environment (Moist.Verified.substTerm 1 rhs body)) :=
+  same_env_beta_of_halts bodyClosed rhsClosed environment stack
+    environmentWellFormed environmentLength stackWellFormed halts
 
-theorem same_env_beta_frontier_refines {depth : Nat} {body rhs : Term}
-    (single : SingleOcc 1 body)
+/-- Same-environment beta: the redex is refined by the substituted body as
+    long as an erroring `rhs` makes the substituted body error. -/
+theorem same_env_beta_errorFrontier {depth : Nat} {body rhs : Term}
     (bodyClosed : closedAt (depth + 1) body = true)
     (rhsClosed : closedAt depth rhs = true)
     (environment : CekEnv) (stack : Stack)
@@ -98,56 +112,111 @@ theorem same_env_beta_frontier_refines {depth : Nat} {body rhs : Term}
       Reaches (.compute stack environment (Moist.Verified.substTerm 1 rhs body)) .error) :
     ObsRefines (.compute stack environment (.Apply (.Lam 0 body) rhs))
       (.compute stack environment (Moist.Verified.substTerm 1 rhs body)) := by
-  have fromHalts := beta_of_rhs_halts single bodyClosed rhsClosed environment stack
+  have fromHalts := beta_of_rhs_halts bodyClosed rhsClosed environment stack
     environmentWellFormed environmentLength stackWellFormed
   constructor
   · rintro ⟨value, halts⟩
     rcases beta_rhs_outcome (.inr ⟨value, rfl⟩) halts with rhsHalts | rhsErrors
     · exact (fromHalts rhsHalts).halt ⟨value, halts⟩
     · obtain ⟨errorFuel, errors⟩ := error_on_all_stacks rhsErrors (.funV (.VLam body environment) :: stack)
-      have sourceErrors : Reaches (.compute stack environment (.Apply (.Lam 0 body) rhs)) .error :=
-        ⟨3 + errorFuel, by rw [steps_trans]; exact errors⟩
-      obtain ⟨fuel, halts⟩ := halts
-      have afterHalt := (AdvancedRefinement.reaches_after_prefix fuel rfl).mp sourceErrors
-      rw [halts] at afterHalt
-      obtain ⟨remaining, impossible⟩ := afterHalt
-      rw [steps_halt_fixed] at impossible
-      contradiction
+      exact (halt_excludes_error halts ⟨3 + errorFuel, by rw [steps_trans]; exact errors⟩).elim
   · intro errors
     rcases beta_rhs_outcome (.inl rfl) errors with rhsHalts | rhsErrors
     · exact (fromHalts rhsHalts).error errors
     · exact errorFrontier rhsErrors
 
-theorem beta_frontier_ctxRefines {depth : Nat} {body rhs : Term}
-    (single : SingleOcc 1 body)
+theorem same_env_beta_frontier_refines {depth : Nat} {body rhs : Term}
+    (_single : SingleOcc 1 body)
+    (bodyClosed : closedAt (depth + 1) body = true)
+    (rhsClosed : closedAt depth rhs = true)
+    (environment : CekEnv) (stack : Stack)
+    (environmentWellFormed : EnvWellFormed depth environment)
+    (environmentLength : depth ≤ environment.length)
+    (stackWellFormed : StackWellFormed stack)
+    (errorFrontier : Reaches (.compute [] environment rhs) .error →
+      Reaches (.compute stack environment (Moist.Verified.substTerm 1 rhs body)) .error) :
+    ObsRefines (.compute stack environment (.Apply (.Lam 0 body) rhs))
+      (.compute stack environment (Moist.Verified.substTerm 1 rhs body)) :=
+  same_env_beta_errorFrontier bodyClosed rhsClosed environment stack
+    environmentWellFormed environmentLength stackWellFormed errorFrontier
+
+/-- The UPLC beta rule used for every inlining decision. -/
+theorem beta_ctxRefines_of_errorFrontier {depth : Nat} {body rhs : Term}
     (bodyClosed : closedAt (depth + 1) body = true)
     (rhsClosed : closedAt depth rhs = true)
     (errorFrontier : ∀ environment stack, EnvWellFormed depth environment →
       depth ≤ environment.length → StackWellFormed stack →
       Reaches (.compute [] environment rhs) .error →
       Reaches (.compute stack environment (Moist.Verified.substTerm 1 rhs body)) .error) :
-    CtxRefines (.Apply (.Lam 0 body) rhs) (Moist.Verified.substTerm 1 rhs body) := by
-  apply TermObsRefinesWF.soundness_refinesWF (d := depth)
-  · intro budget index indexBound leftEnv rightEnv environments leftWellFormed leftLength
-      rightWellFormed rightLength observation observationBound leftStack rightStack
-      leftStackWellFormed rightStackWellFormed stacks
-    have sourceClosed : closedAt depth (.Apply (.Lam 0 body) rhs) = true := by
-      simp [closedAt, bodyClosed, rhsClosed]
-    have selfRefinement := FundamentalRefinesWF.ftlr_wf depth _ sourceClosed
-      budget index indexBound leftEnv rightEnv environments leftWellFormed leftLength
-      rightWellFormed rightLength observation observationBound leftStack rightStack
-      leftStackWellFormed rightStackWellFormed stacks
-    exact SubstRefinesExt.obsRefinesK_compose_obsRefines_right selfRefinement
-      (same_env_beta_frontier_refines single bodyClosed rhsClosed rightEnv rightStack
-        rightWellFormed rightLength rightStackWellFormed
-        (errorFrontier rightEnv rightStack rightWellFormed rightLength rightStackWellFormed))
-  · intro context sourceContextClosed
-    obtain ⟨contextClosed, sourceClosed⟩ :=
-      (fill_closedAt_iff context (.Apply (.Lam 0 body) rhs) 0).mp sourceContextClosed
-    simp only [closedAt, Bool.and_eq_true, Nat.zero_add] at sourceClosed
-    apply (fill_closedAt_iff context _ 0).mpr
-    refine ⟨contextClosed, ?_⟩
-    simpa only [Nat.zero_add] using closedAt_substTerm 1 rhs body context.binders (by omega) (by omega)
-      sourceClosed.2 sourceClosed.1
+    CtxRefines (.Apply (.Lam 0 body) rhs) (Moist.Verified.substTerm 1 rhs body) :=
+  contextual_of_wf_refinement (by simp [closedAt, bodyClosed, rhsClosed])
+    (fun depth closed => by
+      simp only [closedAt, Bool.and_eq_true] at closed
+      exact closedAt_substTerm 1 rhs body depth (by omega) (by omega) closed.2 closed.1)
+    (fun environment stack wellFormed length stackWellFormed =>
+      same_env_beta_errorFrontier bodyClosed rhsClosed environment stack wellFormed length
+        stackWellFormed (errorFrontier environment stack wellFormed length stackWellFormed))
+
+theorem beta_frontier_ctxRefines {depth : Nat} {body rhs : Term}
+    (_single : SingleOcc 1 body)
+    (bodyClosed : closedAt (depth + 1) body = true)
+    (rhsClosed : closedAt depth rhs = true)
+    (errorFrontier : ∀ environment stack, EnvWellFormed depth environment →
+      depth ≤ environment.length → StackWellFormed stack →
+      Reaches (.compute [] environment rhs) .error →
+      Reaches (.compute stack environment (Moist.Verified.substTerm 1 rhs body)) .error) :
+    CtxRefines (.Apply (.Lam 0 body) rhs) (Moist.Verified.substTerm 1 rhs body) :=
+  beta_ctxRefines_of_errorFrontier bodyClosed rhsClosed errorFrontier
+
+/-- Beta with an `rhs` that halts in every well-formed environment. -/
+theorem beta_ctxRefines_of_halts {depth : Nat} {body rhs : Term}
+    (bodyClosed : closedAt (depth + 1) body = true)
+    (rhsClosed : closedAt depth rhs = true)
+    (halts : ∀ environment, EnvWellFormed depth environment → depth ≤ environment.length →
+      ∃ value, Reaches (.compute [] environment rhs) (.halt value)) :
+    CtxRefines (.Apply (.Lam 0 body) rhs) (Moist.Verified.substTerm 1 rhs body) :=
+  beta_ctxRefines_of_errorFrontier bodyClosed rhsClosed
+    fun environment _ wellFormed length _ errors =>
+      let ⟨_, halted⟩ := halts environment wellFormed length
+      (halt_excludes_error halted errors).elim
 
 end Moist.Verified.InlineSoundness.Frontier
+
+namespace Moist.Verified.InlineSoundness.SubstCommute
+
+open Moist.CEK Moist.Plutus.Term
+open Moist.Verified.Equivalence Moist.Verified.Contextual
+open Moist.Verified.BetaValueRefines
+
+/-- The UPLC lowering of a recursive lambda returns a value in 17 steps. -/
+theorem fixLamWrapUplc_halts (body : Term) (environment : CekEnv) :
+    ∃ value, Reaches (.compute [] environment (Moist.MIR.fixLamWrapUplc body)) (.halt value) :=
+  ⟨_, 17, rfl⟩
+
+theorem uplc_beta_multi_pure_openRefines {d : Nat} {t_body t_rhs : Term}
+    (hclosed_body : closedAt (d + 1) t_body = true)
+    (hclosed_rhs : closedAt d t_rhs = true)
+    (h_rhs_halts : ∀ (ρ : CekEnv),
+      (∀ n, 0 < n → n ≤ d → ∃ v, ρ.lookup n = some v) →
+      ∀ (π : Stack), ∃ (m : Nat) (v : CekValue),
+        steps m (.compute π ρ t_rhs) = .ret π v ∧
+        ∀ k ≤ m, steps k (.compute π ρ t_rhs) ≠ .error) :
+    CtxRefines (.Apply (.Lam 0 t_body) t_rhs) (substTerm 1 t_rhs t_body) :=
+  Frontier.beta_ctxRefines_of_halts hclosed_body hclosed_rhs fun ρ wellFormed _ => by
+    obtain ⟨m, v, returns, _⟩ := h_rhs_halts ρ (fun n hn hnd =>
+      let ⟨v, hv, _⟩ := envWellFormed_lookup d wellFormed hn hnd; ⟨v, hv⟩) []
+    exact ⟨v, m + 1, by rw [steps_trans, returns]; rfl⟩
+
+theorem uplc_beta_single_pure_openRefines {d : Nat} {t_body t_rhs : Term}
+    (hclosed_body : closedAt (d + 1) t_body = true)
+    (hclosed_rhs : closedAt d t_rhs = true)
+    (_h_single : StrictOcc.SingleOcc 1 t_body)
+    (h_rhs_halts : ∀ (ρ : CekEnv),
+      (∀ n, 0 < n → n ≤ d → ∃ v, ρ.lookup n = some v) →
+      ∀ (π : Stack), ∃ (m : Nat) (v : CekValue),
+        steps m (.compute π ρ t_rhs) = .ret π v ∧
+        ∀ k ≤ m, steps k (.compute π ρ t_rhs) ≠ .error) :
+    CtxRefines (.Apply (.Lam 0 t_body) t_rhs) (substTerm 1 t_rhs t_body) :=
+  uplc_beta_multi_pure_openRefines hclosed_body hclosed_rhs h_rhs_halts
+
+end Moist.Verified.InlineSoundness.SubstCommute

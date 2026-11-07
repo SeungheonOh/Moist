@@ -3,8 +3,6 @@ import Moist.Verified.ClosedAt
 import Moist.Verified.FundamentalRefines
 import Moist.Verified.BetaValueRefines
 import Moist.Verified.StepWellFormed
-import Moist.Verified.SubstRefines
-import Moist.Verified.InlineSoundness.Beta
 
 /-! # Strict single-occurrence predicates for UPLC terms
 
@@ -299,7 +297,7 @@ open Moist.CEK (State CekEnv CekValue Stack Frame step)
 open Moist.Verified.Equivalence (Reaches steps)
 open Moist.Verified.BetaValueRefines (steps_trans steps_error_fixed steps_halt_fixed)
 
-private theorem reaches_halt_not_error {s : State} {v : CekValue}
+theorem halt_excludes_error {s : State} {v : CekValue}
     (hv : Reaches s (.halt v)) (he : Reaches s .error) : False := by
   obtain ⟨m, hm⟩ := hv; obtain ⟨n, hn⟩ := he
   have h1 : steps (m + n) s = .halt v := by rw [steps_trans, hm, steps_halt_fixed]
@@ -317,97 +315,68 @@ open Moist.CEK (State CekEnv CekValue Stack Frame step)
 open Moist.Verified.Equivalence (Reaches steps)
 open Moist.Verified.BetaValueRefines (steps_trans steps_error_fixed steps_halt_fixed)
 
-private theorem steps_bridge : ∀ (n : Nat) (s : State),
-    steps n s = Moist.Verified.Semantics.steps n s := by
-  intro n; induction n with
-  | zero => intro s; rfl
-  | succ m ih => intro s; show steps m (step s) = _; rw [ih]; rfl
+private theorem lift_first_inactive {ρ : CekEnv} {t : Term} {n : Nat} {s : State}
+    (reaches : steps n (.compute [] ρ t) = s)
+    (inactive : Moist.Verified.StepLift.isActive s = false) :
+    ∃ K, K ≤ n ∧ Moist.Verified.StepLift.isActive (steps K (.compute [] ρ t)) = false ∧
+      steps (n - K) (steps K (.compute [] ρ t)) = s ∧
+      ∀ π, steps K (.compute π ρ t) =
+        Moist.Verified.StepLift.liftState π (steps K (.compute [] ρ t)) := by
+  rw [Moist.Verified.BetaValueRefines.vstep_eq] at reaches
+  obtain ⟨K, bound, inactive, active⟩ := Moist.Verified.StepLift.firstInactive _ n
+    ⟨n, Nat.le_refl _, by rw [reaches]; exact inactive⟩
+  refine ⟨K, bound, by rw [Moist.Verified.BetaValueRefines.vstep_eq]; exact inactive, ?_, ?_⟩
+  · rw [← steps_trans, Nat.add_sub_cancel' bound, Moist.Verified.BetaValueRefines.vstep_eq, reaches]
+  · intro π
+    rw [Moist.Verified.BetaValueRefines.vstep_eq, Moist.Verified.BetaValueRefines.vstep_eq]
+    exact Moist.Verified.StepLift.steps_liftState π K (.compute [] ρ t) active
 
+/-- An error reached from the empty stack is reached from every stack. -/
 theorem error_on_all_stacks {ρ : CekEnv} {t : Term}
     (h_err : Reaches (.compute [] ρ t) .error) :
     ∀ π, Reaches (.compute π ρ t) .error := by
-  intro π; obtain ⟨n, hn⟩ := h_err
-  rw [steps_bridge] at hn
-  have h_inact : ∃ k, k ≤ n ∧
-      Moist.Verified.StepLift.isActive (Moist.Verified.Semantics.steps k (.compute [] ρ t)) = false :=
-    ⟨n, Nat.le_refl _, by rw [hn]; rfl⟩
-  obtain ⟨K, hK_le, hK_inact, hK_min⟩ :=
-    Moist.Verified.StepLift.firstInactive _ n h_inact
-  have h_comm := Moist.Verified.StepLift.steps_liftState π K _ hK_min
-  have h_lift : Moist.Verified.StepLift.liftState π (.compute [] ρ t) = .compute π ρ t := by
-    simp [Moist.Verified.StepLift.liftState]
-  rw [h_lift] at h_comm
-  cases h_st : Moist.Verified.Semantics.steps K (.compute [] ρ t) with
-  | error =>
-    rw [h_st] at h_comm; simp [Moist.Verified.StepLift.liftState] at h_comm
-    exact ⟨K, by rw [steps_bridge]; exact h_comm⟩
-  | halt w =>
-    exfalso; rw [h_st] at h_comm; simp [Moist.Verified.StepLift.liftState] at h_comm
-    have h_K_halt_on_π : Moist.Verified.Semantics.steps K (.compute π ρ t) = .ret π w := h_comm
-    have : Moist.Verified.Semantics.steps n (.compute [] ρ t) = .halt w := by
-      rw [show n = K + (n - K) by omega, Moist.Verified.Semantics.steps_trans, h_st,
-          Moist.Verified.Semantics.steps_halt]
-    rw [this] at hn; exact State.noConfusion hn
-  | ret π' w =>
-    cases π' with
-    | nil =>
-      exfalso
-      by_cases hKn : K = n
-      · subst hKn; rw [h_st] at hn; exact State.noConfusion hn
-      · have hK_lt : K < n := by omega
-        have h_next : Moist.Verified.Semantics.steps (K + 1) (.compute [] ρ t) = .halt w := by
-          rw [Moist.Verified.Semantics.steps_trans, h_st]; rfl
-        have : Moist.Verified.Semantics.steps n (.compute [] ρ t) = .halt w := by
-          rw [show n = (K + 1) + (n - K - 1) by omega, Moist.Verified.Semantics.steps_trans,
-              h_next, Moist.Verified.Semantics.steps_halt]
-        rw [this] at hn; exact State.noConfusion hn
-    | cons _ _ => rw [h_st] at hK_inact; simp [Moist.Verified.StepLift.isActive] at hK_inact
-  | compute _ _ _ => rw [h_st] at hK_inact; simp [Moist.Verified.StepLift.isActive] at hK_inact
+  intro π
+  obtain ⟨n, hn⟩ := h_err
+  obtain ⟨K, _, inactive, rest, lift⟩ := lift_first_inactive hn rfl
+  refine ⟨K, ?_⟩
+  rw [lift π]
+  generalize steps K (.compute [] ρ t) = state at inactive rest
+  generalize n - K = fuel at rest
+  match state, fuel with
+  | .error, _ => rfl
+  | .halt _, _ => rw [steps_halt_fixed] at rest; cases rest
+  | .ret [] _, 0 => cases rest
+  | .ret [] _, fuel + 1 =>
+    rw [Nat.add_comm, steps_trans] at rest
+    change steps fuel (.halt _) = _ at rest
+    rw [steps_halt_fixed] at rest; cases rest
+  | .ret (_ :: _) _, _ | .compute _ _ _, _ => cases inactive
+
+/-- A value reached from the empty stack is returned to every stack. -/
+theorem halt_on_all_stacks {ρ : CekEnv} {t : Term} {v : CekValue}
+    (h_halt : Reaches (.compute [] ρ t) (.halt v)) :
+    ∀ π, ∃ m, steps m (.compute π ρ t) = .ret π v := by
+  intro π
+  obtain ⟨n, hn⟩ := h_halt
+  obtain ⟨K, _, inactive, rest, lift⟩ := lift_first_inactive hn rfl
+  refine ⟨K, ?_⟩
+  rw [lift π]
+  generalize steps K (.compute [] ρ t) = state at inactive rest
+  generalize n - K = fuel at rest
+  match state, fuel with
+  | .error, _ => rw [steps_error_fixed] at rest; cases rest
+  | .halt _, _ => rw [steps_halt_fixed] at rest; cases rest; rfl
+  | .ret [] _, 0 => cases rest
+  | .ret [] _, fuel + 1 =>
+    rw [Nat.add_comm, steps_trans] at rest
+    change steps fuel (.halt _) = _ at rest
+    rw [steps_halt_fixed] at rest; cases rest; rfl
+  | .ret (_ :: _) _, _ | .compute _ _ _, _ => cases inactive
 
 theorem ret_on_all_stacks {ρ : CekEnv} {t : Term} {v : CekValue} {n : Nat}
     (hn : steps n (.compute [] ρ t) = .ret [] v) :
-    ∀ π, ∃ m, steps m (.compute π ρ t) = .ret π v := by
-  intro π
-  rw [steps_bridge] at hn
-  have h_inact : ∃ k, k ≤ n ∧
-      Moist.Verified.StepLift.isActive (Moist.Verified.Semantics.steps k (.compute [] ρ t)) = false :=
-    ⟨n, Nat.le_refl _, by rw [hn]; rfl⟩
-  obtain ⟨K, hK_le, hK_inact, hK_min⟩ :=
-    Moist.Verified.StepLift.firstInactive _ n h_inact
-  have h_comm := Moist.Verified.StepLift.steps_liftState π K _ hK_min
-  have h_lift : Moist.Verified.StepLift.liftState π (.compute [] ρ t) = .compute π ρ t := by
-    simp [Moist.Verified.StepLift.liftState]
-  rw [h_lift] at h_comm
-  cases h_st : Moist.Verified.Semantics.steps K (.compute [] ρ t) with
-  | ret π' w =>
-    cases π' with
-    | nil =>
-      have : w = v := by
-        by_cases hKn : K = n
-        · subst hKn; rw [h_st] at hn; cases hn; rfl
-        · exfalso
-          have h_next : Moist.Verified.Semantics.steps (K + 1) (.compute [] ρ t) = .halt w := by
-            rw [Moist.Verified.Semantics.steps_trans, h_st]; rfl
-          have : Moist.Verified.Semantics.steps n (.compute [] ρ t) = .halt w := by
-            rw [show n = (K + 1) + (n - K - 1) by omega, Moist.Verified.Semantics.steps_trans,
-                h_next, Moist.Verified.Semantics.steps_halt]
-          rw [this] at hn; exact State.noConfusion hn
-      subst this; rw [h_st, Moist.Verified.StepLift.liftState] at h_comm
-      exact ⟨K, by rw [steps_bridge]; exact h_comm⟩
-    | cons _ _ => rw [h_st] at hK_inact; simp [Moist.Verified.StepLift.isActive] at hK_inact
-  | error =>
-    exfalso
-    have : Moist.Verified.Semantics.steps n (.compute [] ρ t) = .error := by
-      rw [show n = K + (n - K) by omega, Moist.Verified.Semantics.steps_trans, h_st,
-          Moist.Verified.Semantics.steps_error]
-    rw [this] at hn; exact State.noConfusion hn
-  | halt w =>
-    exfalso; rw [h_st] at h_comm; simp [Moist.Verified.StepLift.liftState] at h_comm
-    have : Moist.Verified.Semantics.steps n (.compute [] ρ t) = .halt w := by
-      rw [show n = K + (n - K) by omega, Moist.Verified.Semantics.steps_trans, h_st,
-          Moist.Verified.Semantics.steps_halt]
-    rw [this] at hn; exact State.noConfusion hn
-  | compute _ _ _ => rw [h_st] at hK_inact; simp [Moist.Verified.StepLift.isActive] at hK_inact
+    ∀ π, ∃ m, steps m (.compute π ρ t) = .ret π v :=
+  halt_on_all_stacks ⟨n + 1, by rw [steps_trans, hn]; rfl⟩
 
 end StackIndependence
 
@@ -421,8 +390,7 @@ section StrictSubstErrorProp
 open Moist.CEK (State CekEnv CekValue Stack Frame step)
 open Moist.Verified.Equivalence (Reaches steps)
 open Moist.Verified (closedAt closedAtList)
-open Moist.Verified.BetaValueRefines (steps_trans steps_error_fixed steps_halt_fixed
-  hasSuffix halt_descends_to_baseπ)
+open Moist.Verified.BetaValueRefines (steps_trans steps_error_fixed steps_halt_fixed)
 
 /-- Error on `t_rhs` under `ρ` lifts to error on the shifted term under the
     extended env `ρ.extend w`. Uses `renameRefinesR_shift1` on the empty
@@ -469,8 +437,7 @@ section SameEnvBeta
 
 open Moist.CEK (State CekEnv CekValue Stack Frame step)
 open Moist.Verified.Equivalence (Reaches steps)
-open Moist.Verified.BetaValueRefines (steps_trans steps_error_fixed steps_halt_fixed
-  hasSuffix halt_descends_to_baseπ)
+open Moist.Verified.BetaValueRefines (steps_trans steps_error_fixed steps_halt_fixed)
 
 private theorem term_sizeOf_pos (t : Term) : sizeOf t ≥ 1 := by
   cases t <;> simp [Term._sizeOf_inst, instSizeOfNat] <;> omega
@@ -628,12 +595,12 @@ theorem renameTerm_multiShift_zero (t : Term) :
 /-- `iterShift K t = renameTerm (multiShift K) t` by induction on K, using
     composition of shiftRename with multiShift. -/
 theorem iterShift_eq_renameTerm_multiShift (K : Nat) (t : Term) :
-    Moist.Verified.SubstRefines.iterShift K t =
+    Moist.Verified.BetaValueRefines.iterShift K t =
     Moist.Verified.renameTerm (multiShift K) t := by
   induction K generalizing t with
-  | zero => simp [Moist.Verified.SubstRefines.iterShift, renameTerm_multiShift_zero]
+  | zero => simp [Moist.Verified.BetaValueRefines.iterShift, renameTerm_multiShift_zero]
   | succ m ih =>
-    simp only [Moist.Verified.SubstRefines.iterShift]
+    simp only [Moist.Verified.BetaValueRefines.iterShift]
     rw [ih]
     rw [renameTerm_renameTerm (multiShift m) (Moist.Verified.shiftRename 1)
         (is0preserving_multiShift m) t]
@@ -676,7 +643,7 @@ private theorem shifted_halt_extend_multi
     (h_ρK : ∀ n, 0 < n → n ≤ d → ρ_K.lookup (n + K) = ρ.lookup n) :
     ∀ π, ∃ m v',
       Moist.Verified.Equivalence.steps m (.compute π ρ_K
-        (Moist.Verified.SubstRefines.iterShift K t)) = .ret π v' ∧
+        (Moist.Verified.BetaValueRefines.iterShift K t)) = .ret π v' ∧
       Moist.Verified.Contextual.SoundnessRefines.ValueRefinesK k v_ret v' := by
   intro π
   obtain ⟨m, h_ret_orig⟩ := h_ret []
@@ -784,856 +751,6 @@ private theorem freeOf_obsRefines_fwd_gen (sz : Nat) {pos d : Nat} {sub t_rhs : 
       j j (Nat.le_refl _) ρ₁ ρ₂ henv_rename i hi π₁ π₂ hπ
   rwa [h_shift] at h_rename
 
-/-! ## Closedness preservation for iterExtend -/
-
--- Placeholder: closedness of t_rhs at d means iterShift n t_rhs is closed at d+n
--- (already provided by closedAt_iterShift in SubstRefines.lean).
-
-open Moist.Verified.Contextual.SoundnessRefines
-  (StackRefK ValueRefinesK stackRefK_mono valueRefinesK_mono
-   evalBuiltin_compat_refines obsRefinesK_error listRel_valueRefinesK_mono
-   applyArgFrames_stackRefK listRel_refl_vcon_refines) in
-open Moist.Verified.Equivalence
-  (ObsRefinesK obsRefinesK_mono obsRefinesK_of_step_compute
-   obsRefinesK_zero_compute ListRel constToTagAndFields_fields_vcon) in
-open Moist.Verified.BetaValueRefines
-  (obsRefinesK_of_steps_left obsRefinesK_of_steps_right
-   valueRefinesK_refl EnvWellFormed ValueWellFormed stackRefK_refl
-   StackWellFormed substTermList_getElem) in
-open Moist.Verified (substTermList_length closedAtList) in
-private theorem body_subst_obsRefinesK_gen (sz : Nat) {d pos : Nat}
-    {t_body t_rhs : Term}
-    (h_sz : sizeOf t_body ≤ sz)
-    (hpos_ge : 1 ≤ pos) (hpos_d : pos ≤ d + 1)
-    (h_strict : SingleOcc pos t_body)
-    (hclosed_body : closedAt (d + 1) t_body = true)
-    (hclosed_rhs : closedAt d t_rhs = true)
-    {ρ₁ ρ₂ : CekEnv} {v_rhs : CekValue}
-    {k_step : Nat}
-    (henv : Moist.Verified.BetaValueRefines.SubstEnvRef pos v_rhs k_step (d + 1) ρ₁ ρ₂)
-    (hexact : ρ₁.lookup pos = some v_rhs)
-    (h_r_halt_multi : ∀ (K : Nat) (ρ_ext : CekEnv),
-        (∀ n, 0 < n → n ≤ d → ρ_ext.lookup (n + K) = ρ₂.lookup n) →
-        ∀ π, ∃ m v',
-          steps m (.compute π ρ_ext
-            (Moist.Verified.SubstRefines.iterShift K t_rhs)) = .ret π v' ∧
-          ValueRefinesK k_step v_rhs v')
-    (hlen_L : d + 1 ≤ ρ₁.length)
-    (hlen_R : d ≤ ρ₂.length)
-    (hvwf : ValueWellFormed v_rhs)
-    {i : Nat} (hi : i ≤ k_step) {π₁ π₂ : Stack}
-    (hπ : StackRefK ValueRefinesK i π₁ π₂) :
-    ObsRefinesK i
-      (.compute π₁ ρ₁ t_body)
-      (.compute π₂ ρ₂ (substTerm pos t_rhs t_body)) := by
-  induction sz generalizing t_body i π₁ π₂ with
-  | zero => exfalso; cases h_strict <;> simp [Term._sizeOf_inst] at h_sz
-  | succ n ih_sz =>
-    match h_strict with
-    | .var =>
-      -- t_body = .Var pos. substTerm pos t_rhs (.Var pos) = t_rhs.
-      simp only [substTerm, ite_true]
-      have h_var_step : steps 1 (.compute π₁ ρ₁ (.Var pos)) = .ret π₁ v_rhs := by
-        simp only [steps, step]
-        show (match ρ₁.lookup pos with | some v => State.ret π₁ v | none => .error) = _
-        rw [hexact]
-      have h_r_halt_0 := h_r_halt_multi 0 ρ₂ (by intro n _ _; simp) π₂
-      rw [Moist.Verified.SubstRefines.iterShift_zero] at h_r_halt_0
-      obtain ⟨m, v_r, hm, hvr_rel⟩ := h_r_halt_0
-      have hvr_mono : ValueRefinesK i v_rhs v_r :=
-        valueRefinesK_mono hi v_rhs v_r hvr_rel
-      exact obsRefinesK_of_steps_left h_var_step
-        (obsRefinesK_of_steps_right hm
-          (hπ i (Nat.le_refl _) v_rhs v_r hvr_mono))
-    | .force (e := e) h_e =>
-      have hsz_e : sizeOf e ≤ n := by
-        have : sizeOf (Term.Force e) = 1 + sizeOf e := rfl; omega
-      simp only [substTerm]
-      have hclosed_e : closedAt (d + 1) e = true := by
-        simp [closedAt] at hclosed_body; exact hclosed_body
-      match i with
-      | 0 => exact obsRefinesK_zero_compute
-      | i' + 1 =>
-        refine obsRefinesK_of_step_compute ?_
-        simp only [step]
-        have hπ_i' : StackRefK ValueRefinesK i' π₁ π₂ :=
-          stackRefK_mono (Nat.le_succ i') hπ
-        have hπ_force : StackRefK ValueRefinesK i' (Frame.force :: π₁) (Frame.force :: π₂) := by
-          intro j hj v₁ v₂ hv
-          match j with
-          | 0 => exact Moist.Verified.Equivalence.obsRefinesK_zero_ret
-          | j' + 1 =>
-            have hπ_j' : StackRefK ValueRefinesK j' π₁ π₂ :=
-              stackRefK_mono (show j' ≤ i' from by omega) hπ_i'
-            refine Moist.Verified.Equivalence.obsRefinesK_of_step_ret ?_
-            match v₁, v₂ with
-            | .VDelay body₁ ρ₁', .VDelay body₂ ρ₂' =>
-              simp only [step, ValueRefinesK] at hv ⊢
-              exact hv j' (by omega) j' (Nat.le_refl _) π₁ π₂ hπ_j'
-            | .VBuiltin b₁ args₁ ea₁, .VBuiltin b₂ args₂ ea₂ =>
-              simp only [ValueRefinesK] at hv; obtain ⟨rfl, rfl, hargs⟩ := hv
-              simp only [step]
-              split
-              · split
-                · rename_i rest _
-                  have hval : ValueRefinesK (j' + 1)
-                      (.VBuiltin b₁ args₁ rest) (.VBuiltin b₁ args₂ rest) := by
-                    simp only [ValueRefinesK]; exact ⟨trivial, trivial, hargs⟩
-                  exact obsRefinesK_mono (Nat.le_succ j')
-                    (hπ_i' (j' + 1) (by omega) _ _ hval)
-                · exact evalBuiltin_compat_refines hargs hπ_j'
-              · exact obsRefinesK_error _
-            | .VCon _, .VCon _ | .VLam _ _, .VLam _ _ | .VConstr _ _, .VConstr _ _ =>
-              simp only [step]; exact obsRefinesK_error _
-            | .VCon _, .VLam _ _ | .VCon _, .VDelay _ _ | .VCon _, .VConstr _ _
-            | .VCon _, .VBuiltin _ _ _ | .VLam _ _, .VCon _ | .VLam _ _, .VDelay _ _
-            | .VLam _ _, .VConstr _ _ | .VLam _ _, .VBuiltin _ _ _
-            | .VDelay _ _, .VCon _ | .VDelay _ _, .VLam _ _ | .VDelay _ _, .VConstr _ _
-            | .VDelay _ _, .VBuiltin _ _ _ | .VConstr _ _, .VCon _
-            | .VConstr _ _, .VLam _ _ | .VConstr _ _, .VDelay _ _
-            | .VConstr _ _, .VBuiltin _ _ _ | .VBuiltin _ _ _, .VCon _
-            | .VBuiltin _ _ _, .VLam _ _ | .VBuiltin _ _ _, .VDelay _ _
-            | .VBuiltin _ _ _, .VConstr _ _ => simp only [ValueRefinesK] at hv
-        exact ih_sz hsz_e h_e hclosed_e (by omega) hπ_force
-    | .apply_l (f := f) (x := x) h_f h_free_x =>
-      have hsz_f : sizeOf f ≤ n := by
-        have : sizeOf (Term.Apply f x) = 1 + sizeOf f + sizeOf x := rfl; omega
-      have hclosed_f : closedAt (d + 1) f = true := by
-        simp [closedAt] at hclosed_body; exact hclosed_body.1
-      have hclosed_x : closedAt (d + 1) x = true := by
-        simp [closedAt] at hclosed_body; exact hclosed_body.2
-      simp only [substTerm]
-      match i with
-      | 0 => exact obsRefinesK_zero_compute
-      | i' + 1 =>
-        refine obsRefinesK_of_step_compute ?_
-        simp only [step]
-        have hπ_arg : StackRefK ValueRefinesK i'
-            (Frame.arg x ρ₁ :: π₁)
-            (Frame.arg (substTerm pos t_rhs x) ρ₂ :: π₂) := by
-          intro j hj w₁ w₂ hw
-          match j with
-          | 0 => exact Moist.Verified.Equivalence.obsRefinesK_zero_ret
-          | j' + 1 =>
-            refine Moist.Verified.Equivalence.obsRefinesK_of_step_ret ?_
-            simp only [step]
-            have hπ_funV : StackRefK ValueRefinesK j' (Frame.funV w₁ :: π₁) (Frame.funV w₂ :: π₂) := by
-              intro j₂ hj₂ u₁ u₂ hu
-              match j₂ with
-              | 0 => exact Moist.Verified.Equivalence.obsRefinesK_zero_ret
-              | j₃ + 1 =>
-                have hπ_j₃ : StackRefK ValueRefinesK j₃ π₁ π₂ :=
-                  stackRefK_mono (show j₃ ≤ i' + 1 by omega) hπ
-                refine Moist.Verified.Equivalence.obsRefinesK_of_step_ret ?_
-                match w₁, w₂ with
-                | .VLam body₁ ρ₁', .VLam body₂ ρ₂' =>
-                  simp only [step, ValueRefinesK] at hw ⊢
-                  exact hw j₃ (by omega) u₁ u₂
-                    (valueRefinesK_mono (Nat.le_succ j₃) u₁ u₂ hu)
-                    j₃ (Nat.le_refl _) π₁ π₂ hπ_j₃
-                | .VBuiltin b₁ args₁ ea₁, .VBuiltin b₂ args₂ ea₂ =>
-                  simp only [ValueRefinesK] at hw; obtain ⟨rfl, rfl, hargs⟩ := hw
-                  simp only [step]
-                  split
-                  · split
-                    · rename_i rest _
-                      have hval : ValueRefinesK (j₃ + 1)
-                          (.VBuiltin b₁ (u₁ :: args₁) rest) (.VBuiltin b₁ (u₂ :: args₂) rest) := by
-                        simp only [ValueRefinesK, ListRel]
-                        exact ⟨trivial, trivial,
-                          valueRefinesK_mono (Nat.le_succ j₃) u₁ u₂ hu,
-                          listRel_valueRefinesK_mono (show j₃ ≤ j' from by omega) hargs⟩
-                      have hπ_j₃₁ : StackRefK ValueRefinesK (j₃ + 1) π₁ π₂ :=
-                        stackRefK_mono (show j₃ + 1 ≤ i' + 1 by omega) hπ
-                      exact obsRefinesK_mono (Nat.le_succ j₃)
-                        (hπ_j₃₁ (j₃ + 1) (Nat.le_refl _) _ _ hval)
-                    · exact evalBuiltin_compat_refines
-                        (by simp only [ListRel]
-                            exact ⟨valueRefinesK_mono (Nat.le_succ j₃) u₁ u₂ hu,
-                              listRel_valueRefinesK_mono (show j₃ ≤ j' from by omega) hargs⟩)
-                        hπ_j₃
-                  · exact obsRefinesK_error _
-                | .VCon _, .VCon _ | .VDelay _ _, .VDelay _ _
-                | .VConstr _ _, .VConstr _ _ =>
-                  simp only [step]; exact obsRefinesK_error _
-                | .VCon _, .VLam _ _ | .VCon _, .VDelay _ _ | .VCon _, .VConstr _ _
-                | .VCon _, .VBuiltin _ _ _ | .VLam _ _, .VCon _ | .VLam _ _, .VDelay _ _
-                | .VLam _ _, .VConstr _ _ | .VLam _ _, .VBuiltin _ _ _
-                | .VDelay _ _, .VCon _ | .VDelay _ _, .VLam _ _ | .VDelay _ _, .VConstr _ _
-                | .VDelay _ _, .VBuiltin _ _ _ | .VConstr _ _, .VCon _
-                | .VConstr _ _, .VLam _ _ | .VConstr _ _, .VDelay _ _
-                | .VConstr _ _, .VBuiltin _ _ _ | .VBuiltin _ _ _, .VCon _
-                | .VBuiltin _ _ _, .VLam _ _ | .VBuiltin _ _ _, .VDelay _ _
-                | .VBuiltin _ _ _, .VConstr _ _ => simp only [ValueRefinesK] at hw
-            exact freeOf_obsRefines_fwd_gen (sizeOf x) (Nat.le_refl _) hpos_ge hpos_d h_free_x
-              hclosed_x hclosed_rhs henv j' (by omega) j' (Nat.le_refl _)
-              (Frame.funV w₁ :: π₁) (Frame.funV w₂ :: π₂) hπ_funV
-        exact ih_sz hsz_f h_f hclosed_f (by omega) hπ_arg
-    | .apply_r (f := f) (x := x) h_free_f h_x =>
-      have hsz_x : sizeOf x ≤ n := by
-        have : sizeOf (Term.Apply f x) = 1 + sizeOf f + sizeOf x := rfl; omega
-      have hclosed_f : closedAt (d + 1) f = true := by
-        simp [closedAt] at hclosed_body; exact hclosed_body.1
-      have hclosed_x : closedAt (d + 1) x = true := by
-        simp [closedAt] at hclosed_body; exact hclosed_body.2
-      simp only [substTerm]
-      match i with
-      | 0 => exact obsRefinesK_zero_compute
-      | i' + 1 =>
-        refine obsRefinesK_of_step_compute ?_
-        simp only [step]
-        have hπ_arg : StackRefK ValueRefinesK i'
-            (Frame.arg x ρ₁ :: π₁)
-            (Frame.arg (substTerm pos t_rhs x) ρ₂ :: π₂) := by
-          intro j hj w₁ w₂ hw
-          match j with
-          | 0 => exact Moist.Verified.Equivalence.obsRefinesK_zero_ret
-          | j' + 1 =>
-            refine Moist.Verified.Equivalence.obsRefinesK_of_step_ret ?_
-            simp only [step]
-            have hπ_funV : StackRefK ValueRefinesK j' (Frame.funV w₁ :: π₁) (Frame.funV w₂ :: π₂) := by
-              intro j₂ hj₂ u₁ u₂ hu
-              match j₂ with
-              | 0 => exact Moist.Verified.Equivalence.obsRefinesK_zero_ret
-              | j₃ + 1 =>
-                have hπ_j₃ : StackRefK ValueRefinesK j₃ π₁ π₂ :=
-                  stackRefK_mono (show j₃ ≤ i' + 1 by omega) hπ
-                refine Moist.Verified.Equivalence.obsRefinesK_of_step_ret ?_
-                match w₁, w₂ with
-                | .VLam body₁ ρ₁', .VLam body₂ ρ₂' =>
-                  simp only [step, ValueRefinesK] at hw ⊢
-                  exact hw j₃ (by omega) u₁ u₂
-                    (valueRefinesK_mono (Nat.le_succ j₃) u₁ u₂ hu)
-                    j₃ (Nat.le_refl _) π₁ π₂ hπ_j₃
-                | .VBuiltin b₁ args₁ ea₁, .VBuiltin b₂ args₂ ea₂ =>
-                  simp only [ValueRefinesK] at hw; obtain ⟨rfl, rfl, hargs⟩ := hw
-                  simp only [step]
-                  split
-                  · split
-                    · rename_i rest _
-                      have hval : ValueRefinesK (j₃ + 1)
-                          (.VBuiltin b₁ (u₁ :: args₁) rest) (.VBuiltin b₁ (u₂ :: args₂) rest) := by
-                        simp only [ValueRefinesK, ListRel]
-                        exact ⟨trivial, trivial,
-                          valueRefinesK_mono (Nat.le_succ j₃) u₁ u₂ hu,
-                          listRel_valueRefinesK_mono (show j₃ ≤ j' from by omega) hargs⟩
-                      have hπ_j₃₁ : StackRefK ValueRefinesK (j₃ + 1) π₁ π₂ :=
-                        stackRefK_mono (show j₃ + 1 ≤ i' + 1 by omega) hπ
-                      exact obsRefinesK_mono (Nat.le_succ j₃)
-                        (hπ_j₃₁ (j₃ + 1) (Nat.le_refl _) _ _ hval)
-                    · exact evalBuiltin_compat_refines
-                        (by simp only [ListRel]
-                            exact ⟨valueRefinesK_mono (Nat.le_succ j₃) u₁ u₂ hu,
-                              listRel_valueRefinesK_mono (show j₃ ≤ j' from by omega) hargs⟩)
-                        hπ_j₃
-                  · exact obsRefinesK_error _
-                | .VCon _, .VCon _ | .VDelay _ _, .VDelay _ _
-                | .VConstr _ _, .VConstr _ _ =>
-                  simp only [step]; exact obsRefinesK_error _
-                | .VCon _, .VLam _ _ | .VCon _, .VDelay _ _ | .VCon _, .VConstr _ _
-                | .VCon _, .VBuiltin _ _ _ | .VLam _ _, .VCon _ | .VLam _ _, .VDelay _ _
-                | .VLam _ _, .VConstr _ _ | .VLam _ _, .VBuiltin _ _ _
-                | .VDelay _ _, .VCon _ | .VDelay _ _, .VLam _ _ | .VDelay _ _, .VConstr _ _
-                | .VDelay _ _, .VBuiltin _ _ _ | .VConstr _ _, .VCon _
-                | .VConstr _ _, .VLam _ _ | .VConstr _ _, .VDelay _ _
-                | .VConstr _ _, .VBuiltin _ _ _ | .VBuiltin _ _ _, .VCon _
-                | .VBuiltin _ _ _, .VLam _ _ | .VBuiltin _ _ _, .VDelay _ _
-                | .VBuiltin _ _ _, .VConstr _ _ => simp only [ValueRefinesK] at hw
-            exact ih_sz hsz_x h_x hclosed_x (by omega) hπ_funV
-        exact freeOf_obsRefines_fwd_gen (sizeOf f) (Nat.le_refl _) hpos_ge hpos_d h_free_f
-          hclosed_f hclosed_rhs henv i' (by omega) i' (Nat.le_refl _)
-          (Frame.arg x ρ₁ :: π₁)
-          (Frame.arg (substTerm pos t_rhs x) ρ₂ :: π₂) hπ_arg
-    | .case_scrut (scrut := scrut) (alts := alts) h_scrut h_free_alts =>
-      have hsz_scrut : sizeOf scrut ≤ n := by
-        have : sizeOf (Term.Case scrut alts) = 1 + sizeOf scrut + sizeOf alts := by
-          simp [Term._sizeOf_inst, List._sizeOf_inst]
-        omega
-      have hclosed_scrut : closedAt (d + 1) scrut = true := by
-        simp [closedAt] at hclosed_body; exact hclosed_body.1
-      have hclosed_alts : closedAtList (d + 1) alts = true := by
-        simp [closedAt] at hclosed_body; exact hclosed_body.2
-      simp only [substTerm]
-      match i with
-      | 0 => exact obsRefinesK_zero_compute
-      | i' + 1 =>
-        refine obsRefinesK_of_step_compute ?_
-        simp only [step]
-        have h_subst_len : (substTermList pos t_rhs alts).length = alts.length :=
-          substTermList_length pos t_rhs alts
-        have hπ_case : StackRefK ValueRefinesK i'
-            (Frame.caseScrutinee alts ρ₁ :: π₁)
-            (Frame.caseScrutinee (substTermList pos t_rhs alts) ρ₂ :: π₂) := by
-          intro j hj v₁ v₂ hv
-          match j with
-          | 0 => exact Moist.Verified.Equivalence.obsRefinesK_zero_ret
-          | j' + 1 =>
-            have hπ_j' : StackRefK ValueRefinesK j' π₁ π₂ :=
-              stackRefK_mono (show j' ≤ i' + 1 by omega) hπ
-            refine Moist.Verified.Equivalence.obsRefinesK_of_step_ret ?_
-            match v₁, v₂ with
-            | .VConstr tag₁ fields₁, .VConstr tag₂ fields₂ =>
-              simp only [ValueRefinesK] at hv; obtain ⟨rfl, hfields_v⟩ := hv
-              simp only [step]
-              split
-              · rename_i alt₁ halt₁
-                have hsome₁ := List.getElem?_eq_some_iff.mp halt₁
-                have hi₁ : tag₁ < alts.length := hsome₁.1
-                have hi₂ : tag₁ < (substTermList pos t_rhs alts).length := by omega
-                have halt₂ : (substTermList pos t_rhs alts)[tag₁]? =
-                    some ((substTermList pos t_rhs alts)[tag₁]) :=
-                  List.getElem?_eq_some_iff.mpr ⟨hi₂, rfl⟩
-                rw [halt₂]; simp only []
-                rw [substTermList_getElem pos t_rhs alts tag₁ hi₁,
-                    show alt₁ = alts[tag₁] from hsome₁.2.symm]
-                exact freeOf_obsRefines_fwd_gen (sizeOf alts[tag₁]) (Nat.le_refl _)
-                  hpos_ge hpos_d (freeOfList_elem h_free_alts hi₁)
-                  (closedAtList_elem' hclosed_alts hi₁)
-                  hclosed_rhs henv j' (by omega) j' (Nat.le_refl _) _ _
-                  (applyArgFrames_stackRefK
-                    (Moist.Verified.Equivalence.listRel_mono
-                      (fun a b h => valueRefinesK_mono (Nat.le_refl _) a b h) hfields_v)
-                    hπ_j')
-              · rename_i hnone₁
-                have hnone₂ : (substTermList pos t_rhs alts)[tag₁]? = none := by
-                  rw [List.getElem?_eq_none_iff] at hnone₁ ⊢; omega
-                rw [hnone₂]; simp only []; exact obsRefinesK_error _
-            | .VCon c₁, .VCon c₂ =>
-              simp only [ValueRefinesK] at hv; subst hv
-              simp only [step]
-              split
-              · rename_i tag numCtors fields htag
-                split
-                · rename_i h_check
-                  have h_check_r : (decide (numCtors > 0) &&
-                      decide ((substTermList pos t_rhs alts).length > numCtors)) = true := by
-                    rw [h_subst_len]; exact h_check
-                  simp only [h_check_r]; exact obsRefinesK_error _
-                · rename_i h_check
-                  have h_check_r : ¬(decide (numCtors > 0) &&
-                      decide ((substTermList pos t_rhs alts).length > numCtors)) = true := by
-                    rw [h_subst_len]; exact h_check
-                  simp only [show (decide (numCtors > 0) &&
-                      decide ((substTermList pos t_rhs alts).length > numCtors)) = false from
-                    Bool.eq_false_iff.mpr h_check_r]
-                  split
-                  · rename_i alt₁ halt₁
-                    have hsome₁ := List.getElem?_eq_some_iff.mp halt₁
-                    have hi₁ : tag < alts.length := hsome₁.1
-                    have hi₂ : tag < (substTermList pos t_rhs alts).length := by omega
-                    have halt₂ : (substTermList pos t_rhs alts)[tag]? =
-                        some ((substTermList pos t_rhs alts)[tag]) :=
-                      List.getElem?_eq_some_iff.mpr ⟨hi₂, rfl⟩
-                    rw [halt₂]; simp only []
-                    rw [substTermList_getElem pos t_rhs alts tag hi₁,
-                        show alt₁ = alts[tag] from hsome₁.2.symm]
-                    have hfields_vcon := constToTagAndFields_fields_vcon c₁
-                    rw [htag] at hfields_vcon
-                    exact freeOf_obsRefines_fwd_gen (sizeOf alts[tag]) (Nat.le_refl _)
-                      hpos_ge hpos_d (freeOfList_elem h_free_alts hi₁)
-                      (closedAtList_elem' hclosed_alts hi₁)
-                      hclosed_rhs henv j' (by omega) j' (Nat.le_refl _) _ _
-                      (applyArgFrames_stackRefK
-                        (listRel_refl_vcon_refines j' fields hfields_vcon)
-                        hπ_j')
-                  · rename_i hnone₁
-                    have hnone₂ : (substTermList pos t_rhs alts)[tag]? = none := by
-                      rw [List.getElem?_eq_none_iff] at hnone₁ ⊢; omega
-                    rw [hnone₂]; simp only []; exact obsRefinesK_error _
-              · exact obsRefinesK_error _
-            | .VLam _ _, .VLam _ _ | .VDelay _ _, .VDelay _ _
-            | .VBuiltin _ _ _, .VBuiltin _ _ _ =>
-              simp only [step]; exact obsRefinesK_error _
-            | .VCon _, .VLam _ _ | .VCon _, .VDelay _ _ | .VCon _, .VConstr _ _
-            | .VCon _, .VBuiltin _ _ _ | .VLam _ _, .VCon _ | .VLam _ _, .VDelay _ _
-            | .VLam _ _, .VConstr _ _ | .VLam _ _, .VBuiltin _ _ _
-            | .VDelay _ _, .VCon _ | .VDelay _ _, .VLam _ _ | .VDelay _ _, .VConstr _ _
-            | .VDelay _ _, .VBuiltin _ _ _ | .VConstr _ _, .VCon _
-            | .VConstr _ _, .VLam _ _ | .VConstr _ _, .VDelay _ _
-            | .VConstr _ _, .VBuiltin _ _ _ | .VBuiltin _ _ _, .VCon _
-            | .VBuiltin _ _ _, .VLam _ _ | .VBuiltin _ _ _, .VDelay _ _
-            | .VBuiltin _ _ _, .VConstr _ _ => simp only [ValueRefinesK] at hv
-        exact ih_sz hsz_scrut h_scrut hclosed_scrut (by omega) hπ_case
-    | .constr (tag := tag) (args := t :: ts) h_args =>
-      simp only [substTerm]
-      match i with
-      | 0 => exact obsRefinesK_zero_compute
-      | i' + 1 =>
-        refine obsRefinesK_of_step_compute ?_
-        simp only [step, substTermList]
-        have hclosed_t : closedAt (d + 1) t = true := by
-          simp [closedAt, closedAtList] at hclosed_body; exact hclosed_body.1
-        have hclosed_ts : closedAtList (d + 1) ts = true := by
-          simp [closedAt, closedAtList] at hclosed_body; exact hclosed_body.2
-        have hsz_args : sizeOf t + sizeOf ts ≤ n := by
-          have : sizeOf (Term.Constr tag (t :: ts)) =
-              1 + sizeOf tag + (1 + sizeOf t + sizeOf ts) := by
-            simp [Term._sizeOf_inst, instSizeOfNat, List._sizeOf_inst]
-          omega
-        have constrField_freeOf_stackRefK :
-            ∀ (ms : List Term),
-              freeOfList pos ms = true →
-              closedAtList (d + 1) ms = true →
-              1 + sizeOf ms ≤ n →
-              ∀ {j_cf : Nat},
-                j_cf ≤ i' →
-                ∀ {done₁ done₂ : List CekValue},
-                  ListRel (ValueRefinesK j_cf) done₁ done₂ →
-                  StackRefK ValueRefinesK j_cf
-                    (Frame.constrField tag done₁ ms ρ₁ :: π₁)
-                    (Frame.constrField tag done₂ (substTermList pos t_rhs ms) ρ₂ :: π₂) := by
-          intro ms
-          induction ms with
-          | nil =>
-            intro _ _ _ j_cf hj_cf done₁ done₂ hdone
-            intro j hj v₁ v₂ hv
-            match j with
-            | 0 => exact Moist.Verified.Equivalence.obsRefinesK_zero_ret
-            | j' + 1 =>
-              refine Moist.Verified.Equivalence.obsRefinesK_of_step_ret ?_
-              simp only [substTermList, step]
-              have hj'_le : j' ≤ i' + 1 :=
-                Nat.le_succ_of_le (Nat.le_of_succ_le (Nat.le_trans hj hj_cf))
-              have hπ_base : StackRefK ValueRefinesK j' π₁ π₂ :=
-                stackRefK_mono hj'_le hπ
-              have hrev : ListRel (ValueRefinesK j')
-                  ((v₁ :: done₁).reverse) ((v₂ :: done₂).reverse) := by
-                simp only [List.reverse_cons]
-                exact Moist.Verified.Equivalence.listRel_append
-                  (Moist.Verified.Equivalence.listRel_reverse
-                    (Moist.Verified.Equivalence.listRel_mono
-                      (fun a b h => valueRefinesK_mono (show j' ≤ j_cf by omega) a b h) hdone))
-                  ⟨valueRefinesK_mono (Nat.le_succ j') v₁ v₂ hv, trivial⟩
-              have hval : ValueRefinesK (j' + 1)
-                  (.VConstr tag ((v₁ :: done₁).reverse))
-                  (.VConstr tag ((v₂ :: done₂).reverse)) := by
-                cases j' with
-                | zero => simp only [ValueRefinesK]; exact ⟨trivial, hrev⟩
-                | succ m => simp only [ValueRefinesK]; exact ⟨trivial, hrev⟩
-              have hπ_j1 : StackRefK ValueRefinesK (j' + 1) π₁ π₂ :=
-                stackRefK_mono (show j' + 1 ≤ i' + 1 from by
-                  exact Nat.succ_le_succ (Nat.le_of_succ_le (Nat.le_trans hj hj_cf))) hπ
-              exact obsRefinesK_mono (Nat.le_succ j')
-                (hπ_j1 (j' + 1) (Nat.le_refl _) _ _ hval)
-          | cons m ms' ih_ms =>
-            intro hfree_ms hclosed_ms hsz_ms j_cf hj_cf done₁ done₂ hdone
-            simp [freeOfList] at hfree_ms
-            simp [closedAtList] at hclosed_ms
-            intro j hj v₁ v₂ hv
-            match j with
-            | 0 => exact Moist.Verified.Equivalence.obsRefinesK_zero_ret
-            | j' + 1 =>
-              refine Moist.Verified.Equivalence.obsRefinesK_of_step_ret ?_
-              simp only [substTermList, step]
-              have hj'_le_jcf : j' ≤ j_cf :=
-                Nat.le_of_lt (Nat.lt_of_succ_le hj)
-              have hj'_le_i' : j' ≤ i' := Nat.le_trans hj'_le_jcf hj_cf
-              have hdone' : ListRel (ValueRefinesK j') (v₁ :: done₁) (v₂ :: done₂) :=
-                ⟨valueRefinesK_mono (Nat.le_succ j') v₁ v₂ hv,
-                 Moist.Verified.Equivalence.listRel_mono
-                   (fun a b h => valueRefinesK_mono hj'_le_jcf a b h) hdone⟩
-              have hπ_next := ih_ms hfree_ms.2 hclosed_ms.2
-                (show 1 + sizeOf ms' ≤ n by
-                  have : sizeOf (m :: ms') ≥ 1 + sizeOf ms' := by simp
-                  omega)
-                hj'_le_i' hdone'
-              exact freeOf_obsRefines_fwd_gen (sizeOf m) (Nat.le_refl _)
-                hpos_ge hpos_d hfree_ms.1 hclosed_ms.1 hclosed_rhs henv
-                j' (by omega) j' (Nat.le_refl _) _ _ hπ_next
-        match h_args with
-        | .head h_t h_free_ts =>
-          have hπ_cf := constrField_freeOf_stackRefK ts h_free_ts hclosed_ts
-            (show 1 + sizeOf ts ≤ n by have := term_sizeOf_pos t; omega)
-            (Nat.le_refl i') (done₁ := []) (done₂ := []) (by simp [ListRel])
-          exact ih_sz (show sizeOf t ≤ n by omega) h_t hclosed_t (by omega) hπ_cf
-        | .tail h_free_t h_rest =>
-          have constrField_occ_stackRefK :
-              ∀ (ms : List Term),
-                SingleOccList pos ms →
-                closedAtList (d + 1) ms = true →
-                1 + sizeOf ms ≤ n →
-                ∀ {j_cf : Nat},
-                  j_cf ≤ i' →
-                  ∀ {done₁ done₂ : List CekValue},
-                    ListRel (ValueRefinesK j_cf) done₁ done₂ →
-                    StackRefK ValueRefinesK j_cf
-                      (Frame.constrField tag done₁ ms ρ₁ :: π₁)
-                      (Frame.constrField tag done₂ (substTermList pos t_rhs ms) ρ₂ :: π₂) := by
-            intro ms
-            induction ms with
-            | nil => intro h_occ; exact absurd h_occ (by intro h; cases h)
-            | cons m ms' ih_ms =>
-              intro h_occ hclosed_ms hsz_ms j_cf hj_cf done₁ done₂ hdone
-              simp [closedAtList] at hclosed_ms
-              intro j hj v₁ v₂ hv
-              match j with
-              | 0 => exact Moist.Verified.Equivalence.obsRefinesK_zero_ret
-              | j' + 1 =>
-                refine Moist.Verified.Equivalence.obsRefinesK_of_step_ret ?_
-                simp only [substTermList, step]
-                have hj'_le_jcf : j' ≤ j_cf :=
-                  Nat.le_of_lt (Nat.lt_of_succ_le hj)
-                have hj'_le_i' : j' ≤ i' := Nat.le_trans hj'_le_jcf hj_cf
-                have hdone' : ListRel (ValueRefinesK j') (v₁ :: done₁) (v₂ :: done₂) :=
-                  ⟨valueRefinesK_mono (Nat.le_succ j') v₁ v₂ hv,
-                   Moist.Verified.Equivalence.listRel_mono
-                     (fun a b h => valueRefinesK_mono hj'_le_jcf a b h) hdone⟩
-                match h_occ with
-                | .head h_m h_free_ms' =>
-                  have hπ_next := constrField_freeOf_stackRefK ms' h_free_ms' hclosed_ms.2
-                    (show 1 + sizeOf ms' ≤ n by
-                      have : sizeOf (m :: ms') ≥ 1 + sizeOf ms' := by simp
-                      omega) hj'_le_i' hdone'
-                  exact ih_sz (show sizeOf m ≤ n by
-                    have : sizeOf (m :: ms') ≥ 1 + sizeOf m := by simp
-                    omega) h_m hclosed_ms.1 (by omega) hπ_next
-                | .tail h_free_m h_rest' =>
-                  have hπ_next := ih_ms h_rest' hclosed_ms.2
-                    (show 1 + sizeOf ms' ≤ n by
-                      have : sizeOf (m :: ms') ≥ 1 + sizeOf ms' := by simp
-                      omega) hj'_le_i' hdone'
-                  exact freeOf_obsRefines_fwd_gen (sizeOf m) (Nat.le_refl _)
-                    hpos_ge hpos_d h_free_m hclosed_ms.1 hclosed_rhs henv
-                    j' (by omega) j' (Nat.le_refl _) _ _ hπ_next
-          have hπ_cf := constrField_occ_stackRefK ts h_rest hclosed_ts
-            (show 1 + sizeOf ts ≤ n by have := term_sizeOf_pos t; omega)
-            (Nat.le_refl i') (done₁ := []) (done₂ := []) (by simp [ListRel])
-          exact freeOf_obsRefines_fwd_gen (sizeOf t) (Nat.le_refl _)
-            hpos_ge hpos_d h_free_t hclosed_t hclosed_rhs henv
-            i' (by omega) i' (Nat.le_refl _) _ _ hπ_cf
-    | .let_body (body := body) (rhs := rhs_inner) h_body h_free =>
-      -- t_body = .Apply (.Lam 0 body) rhs_inner, with
-      --   h_body : StrictSingleOcc 2 body
-      --   h_free : freeOf 1 rhs_inner
-      -- After `simp only [substTerm]`, RHS becomes:
-      --   .Apply (.Lam 0 (substTerm 2 (shift t_rhs) body)) (substTerm pos t_rhs rhs_inner)
-      -- Strategy:
-      --   1. Advance both sides by 3 steps (Apply → arg frame → Lam → ret → funV).
-      --   2. Apply `freeOf_obsRefines_fwd` to `rhs_inner` via funV-frame StackRefK.
-      --   3. The funV-frame StackRefK reduces to VLam ValueRefinesK.
-      --   4. For VLam ValueRefinesK, invoke `substRefinesR_body` at pos=2,
-      --      constructing `RHaltsRelN (shift t_rhs) v_rhs _ (d+1)` from h_ret.
-      simp only [substTerm]
-      -- Sizes and closedness
-      have hsz_rhs_inner : sizeOf rhs_inner ≤ n := by
-        have h_apply : sizeOf (Term.Apply (Term.Lam 0 body) rhs_inner) =
-            1 + sizeOf (Term.Lam 0 body) + sizeOf rhs_inner := rfl
-        have h_lam_pos : sizeOf (Term.Lam 0 body) ≥ 1 := by
-          have : sizeOf (Term.Lam 0 body) = 1 + sizeOf (0 : Nat) + sizeOf body := rfl
-          omega
-        omega
-      have hclosed_body_body : Moist.Verified.closedAt (d + 2) body = true := by
-        simp [Moist.Verified.closedAt] at hclosed_body; exact hclosed_body.1
-      have hclosed_rhs_inner : Moist.Verified.closedAt (d + 1) rhs_inner = true := by
-        simp [Moist.Verified.closedAt] at hclosed_body; exact hclosed_body.2
-      -- Shorthand for the substituted body term (expanded form matches the goal)
-      let subst_body_term : Term := Moist.Verified.substTerm (pos + 1)
-          (Moist.Verified.renameTerm (Moist.Verified.shiftRename 1) t_rhs) body
-      show ObsRefinesK i
-          (.compute π₁ ρ₁ (.Apply (.Lam 0 body) rhs_inner))
-          (.compute π₂ ρ₂
-            (.Apply (.Lam 0 subst_body_term)
-                    (Moist.Verified.substTerm pos t_rhs rhs_inner)))
-      -- Advance each side by 3 steps
-      have h_step_L : Moist.Verified.Equivalence.steps 3
-          (.compute π₁ ρ₁ (.Apply (.Lam 0 body) rhs_inner)) =
-          .compute (Frame.funV (.VLam body ρ₁) :: π₁)
-            ρ₁ rhs_inner := by
-        simp [Moist.Verified.Equivalence.steps, step]
-      have h_step_R : Moist.Verified.Equivalence.steps 3
-          (.compute π₂ ρ₂
-            (.Apply (.Lam 0 subst_body_term)
-                    (Moist.Verified.substTerm pos t_rhs rhs_inner))) =
-          .compute (Frame.funV (.VLam subst_body_term ρ₂) :: π₂)
-            ρ₂ (Moist.Verified.substTerm pos t_rhs rhs_inner) := by
-        simp [Moist.Verified.Equivalence.steps, step]
-      -- Use the lifts to reduce to the post-3-step obligation
-      apply obsRefinesK_of_steps_left h_step_L
-      apply obsRefinesK_of_steps_right h_step_R
-      -- Now the goal is:
-      --   ObsRefinesK i (compute (funV VLam_L :: π₁) ρ₁ rhs_inner)
-      --                (compute (funV VLam_R :: π₂) ρ₂ (substTerm pos t_rhs rhs_inner))
-      -- where VLam_L = VLam body ρ₁, VLam_R = VLam subst_body_term ρ.
-      -- We use `freeOf_obsRefines_fwd` on `rhs_inner` with the funV-frame StackRefK.
-      -- Construct the funV-frame StackRefK, which requires VLam ValueRefinesK.
-      have hclosed_shifted_rhs :
-          Moist.Verified.closedAt (d + 1)
-            (Moist.Verified.renameTerm (Moist.Verified.shiftRename 1) t_rhs) = true :=
-        Moist.Verified.BetaValueRefines.closedAt_shift hclosed_rhs
-      have hsz_body : sizeOf body ≤ n := by
-        have h_lam : sizeOf (Term.Lam 0 body) = 1 + sizeOf (0 : Nat) + sizeOf body := rfl
-        have h_apply : sizeOf (Term.Apply (Term.Lam 0 body) rhs_inner) =
-            1 + sizeOf (Term.Lam 0 body) + sizeOf rhs_inner := rfl
-        omega
-      -- Build the StackRefK ValueRefinesK on funV frames directly
-      have hπ_funV : StackRefK ValueRefinesK i
-          (Frame.funV (.VLam body ρ₁) :: π₁)
-          (Frame.funV (.VLam subst_body_term ρ₂) :: π₂) := by
-        intro j hj w₁ w₂ hw
-        match j with
-        | 0 => exact Moist.Verified.Equivalence.obsRefinesK_zero_ret
-        | j' + 1 =>
-          refine Moist.Verified.Equivalence.obsRefinesK_of_step_ret ?_
-          simp only [step]
-          -- hj : j'+1 ≤ i, hi : i ≤ k_step, so j' ≤ k_step
-          have hj'_le_k : j' ≤ k_step := by omega
-          -- Build SubstEnvRef (pos+1) v_rhs j' (d+2) (ρ₁.extend w₁) (ρ₂.extend w₂)
-          have henv_ext :
-              Moist.Verified.BetaValueRefines.SubstEnvRef (pos + 1) v_rhs j' (d + 2)
-                (ρ₁.extend w₁) (ρ₂.extend w₂) :=
-            Moist.Verified.BetaValueRefines.substEnvRef_extend hpos_ge
-              (valueRefinesK_mono (Nat.le_succ j') w₁ w₂ hw)
-              (Moist.Verified.BetaValueRefines.substEnvRef_mono hj'_le_k henv)
-          -- Build (ρ₁.extend w₁).lookup (pos+1) = some v_rhs
-          have hexact_ext : (ρ₁.extend w₁).lookup (pos + 1) = some v_rhs := by
-            rw [Moist.Verified.BetaValueRefines.extend_lookup_succ ρ₁ w₁ pos hpos_ge]
-            exact hexact
-          -- Build h_r_halt_multi for the recursive call at d+1, ρ₂.extend w₂
-          -- Key: iterShift K (shift t_rhs) = iterShift (K+1) t_rhs,
-          -- and lookup conditions at d+1 on (ρ₂.extend w₂) reduce to d on ρ₂
-          have h_r_halt_multi' : ∀ (K : Nat) (ρ_ext : CekEnv),
-              (∀ n, 0 < n → n ≤ d + 1 → ρ_ext.lookup (n + K) = (ρ₂.extend w₂).lookup n) →
-              ∀ π, ∃ m v',
-              steps m (.compute π ρ_ext
-                (Moist.Verified.SubstRefines.iterShift K
-                  (Moist.Verified.renameTerm (Moist.Verified.shiftRename 1) t_rhs))) = .ret π v' ∧
-              ValueRefinesK j' v_rhs v' := by
-            intro K ρ_ext h_lookup π
-            rw [Moist.Verified.SubstRefines.iterShift_shift]
-            have h_lookup_base : ∀ n, 0 < n → n ≤ d →
-                ρ_ext.lookup (n + (K + 1)) = ρ₂.lookup n := by
-              intro n hn hnd
-              have := h_lookup (n + 1) (by omega) (by omega)
-              rw [Moist.Verified.BetaValueRefines.extend_lookup_succ ρ₂ w₂ n hn] at this
-              rwa [show n + 1 + K = n + (K + 1) from by omega] at this
-            obtain ⟨m, v', hm, hv'⟩ := h_r_halt_multi (K + 1) ρ_ext h_lookup_base π
-            exact ⟨m, v', hm, valueRefinesK_mono hj'_le_k v_rhs v' hv'⟩
-          -- Recurse on body with pos+1
-          exact body_subst_obsRefinesK_gen n
-            (d := d + 1) (pos := pos + 1)
-            (t_body := body)
-            (t_rhs := Moist.Verified.renameTerm (Moist.Verified.shiftRename 1) t_rhs)
-            (ρ₁ := ρ₁.extend w₁) (ρ₂ := ρ₂.extend w₂)
-            (v_rhs := v_rhs) (k_step := j')
-            hsz_body (by omega) (by omega) h_body
-            hclosed_body_body hclosed_shifted_rhs
-            henv_ext hexact_ext h_r_halt_multi'
-            (by simp [CekEnv.extend, CekEnv.length]; omega)
-            (by simp [CekEnv.extend, CekEnv.length]; omega)
-            hvwf (Nat.le_refl j')
-            (stackRefK_mono (show j' ≤ i by omega) hπ)
-      -- Apply freeOf_obsRefines_fwd_gen on rhs_inner (freeOf pos rhs_inner)
-      exact freeOf_obsRefines_fwd_gen (sizeOf rhs_inner) (Nat.le_refl _)
-        hpos_ge hpos_d h_free hclosed_rhs_inner hclosed_rhs henv
-        i (by omega) i (Nat.le_refl _) _ _ hπ_funV
-    | .lam (name := name) (body := inner) h_inner =>
-      simp only [substTerm]
-      have hclosed_inner : closedAt (d + 2) inner = true := by
-        simp [closedAt] at hclosed_body; exact hclosed_body
-      match i with
-      | 0 => exact obsRefinesK_zero_compute
-      | i' + 1 =>
-        refine obsRefinesK_of_step_compute ?_
-        simp only [step]
-        apply (stackRefK_mono (Nat.le_succ i') hπ) i' (Nat.le_refl _)
-        match i' with
-        | 0 => simp [ValueRefinesK]
-        | i'' + 1 =>
-          unfold ValueRefinesK
-          intro j hj v₁ v₂ hv i_inner hi_inner π₁' π₂' hπ'
-          have hj_le : j ≤ k_step := by omega
-          have henv_ext := Moist.Verified.BetaValueRefines.substEnvRef_extend hpos_ge hv
-            (Moist.Verified.BetaValueRefines.substEnvRef_mono (show j ≤ k_step by omega) henv)
-          have hexact_ext : (ρ₁.extend v₁).lookup (pos + 1) = some v_rhs := by
-            rw [Moist.Verified.BetaValueRefines.extend_lookup_succ ρ₁ v₁ pos (by omega), hexact]
-          have h_r_halt_multi' : ∀ K ρ_ext,
-              (∀ n, 0 < n → n ≤ d + 1 → ρ_ext.lookup (n + K) = (ρ₂.extend v₂).lookup n) →
-              ∀ π, ∃ m v',
-                steps m (.compute π ρ_ext
-                  (Moist.Verified.SubstRefines.iterShift K
-                    (renameTerm (shiftRename 1) t_rhs))) = .ret π v' ∧
-                ValueRefinesK j v_rhs v' := by
-            intro K ρ_ext h_lookup π
-            have h_lookup_base : ∀ n, 0 < n → n ≤ d →
-                ρ_ext.lookup (n + (K + 1)) = ρ₂.lookup n := by
-              intro n hn hnd
-              rw [show n + (K + 1) = (n + 1) + K from by omega,
-                  h_lookup (n + 1) (by omega) (by omega),
-                  Moist.Verified.BetaValueRefines.extend_lookup_succ ρ₂ v₂ n (by omega)]
-            rw [Moist.Verified.SubstRefines.iterShift_shift]
-            obtain ⟨m, v', hm, hv'⟩ := h_r_halt_multi (K + 1) ρ_ext h_lookup_base π
-            exact ⟨m, v', hm, valueRefinesK_mono (show j ≤ k_step by omega) v_rhs v' hv'⟩
-          exact body_subst_obsRefinesK_gen n
-            (d := d + 1) (pos := pos + 1) (t_body := inner)
-            (t_rhs := renameTerm (shiftRename 1) t_rhs)
-            (ρ₁ := ρ₁.extend v₁) (ρ₂ := ρ₂.extend v₂)
-            (v_rhs := v_rhs) (k_step := j)
-            (by have : sizeOf (Term.Lam name inner) = 1 + sizeOf name + sizeOf inner := by
-                  simp [Term._sizeOf_inst]
-                omega)
-            (by omega) (by omega) h_inner hclosed_inner
-            (Moist.Verified.BetaValueRefines.closedAt_shift hclosed_rhs)
-            henv_ext hexact_ext h_r_halt_multi'
-            (by simp [CekEnv.extend, CekEnv.length]; omega)
-            (by simp [CekEnv.extend, CekEnv.length]; omega)
-            hvwf hi_inner hπ'
-    | .delay (body := inner) h_inner =>
-      simp only [substTerm]
-      have hclosed_inner : closedAt (d + 1) inner = true := by
-        simp [closedAt] at hclosed_body; exact hclosed_body
-      match i with
-      | 0 => exact obsRefinesK_zero_compute
-      | i' + 1 =>
-        refine obsRefinesK_of_step_compute ?_
-        simp only [step]
-        apply (stackRefK_mono (Nat.le_succ i') hπ) i' (Nat.le_refl _)
-        match i' with
-        | 0 => simp [ValueRefinesK]
-        | i'' + 1 =>
-          unfold ValueRefinesK
-          intro j hj i_inner hi_inner π₁' π₂' hπ'
-          exact body_subst_obsRefinesK_gen n
-            (d := d) (pos := pos) (t_body := inner)
-            (t_rhs := t_rhs) (ρ₁ := ρ₁) (ρ₂ := ρ₂)
-            (v_rhs := v_rhs) (k_step := j)
-            (by have : sizeOf (Term.Delay inner) = 1 + sizeOf inner := by
-                  simp [Term._sizeOf_inst]
-                omega)
-            hpos_ge hpos_d h_inner hclosed_inner hclosed_rhs
-            (Moist.Verified.BetaValueRefines.substEnvRef_mono (show j ≤ k_step by omega) henv)
-            hexact
-            (fun K ρ_ext h_lookup π => by
-              obtain ⟨m, v', hm, hv'⟩ := h_r_halt_multi K ρ_ext h_lookup π
-              exact ⟨m, v', hm, valueRefinesK_mono (show j ≤ k_step by omega) v_rhs v' hv'⟩)
-            hlen_L hlen_R hvwf hi_inner hπ'
-    | .case_alt (scrut := scrut) (alts := alts) h_free_scrut h_alts =>
-      have hsz_scrut : sizeOf scrut ≤ n := by
-        have : sizeOf (Term.Case scrut alts) = 1 + sizeOf scrut + sizeOf alts := by
-          simp [Term._sizeOf_inst, List._sizeOf_inst]
-        omega
-      have hclosed_scrut : closedAt (d + 1) scrut = true := by
-        simp [closedAt] at hclosed_body; exact hclosed_body.1
-      have hclosed_alts : closedAtList (d + 1) alts = true := by
-        simp [closedAt] at hclosed_body; exact hclosed_body.2
-      simp only [substTerm]
-      match i with
-      | 0 => exact obsRefinesK_zero_compute
-      | i' + 1 =>
-        refine obsRefinesK_of_step_compute ?_
-        simp only [step]
-        have h_subst_len : (substTermList pos t_rhs alts).length = alts.length :=
-          substTermList_length pos t_rhs alts
-        have alt_obsRefinesK (tag : Nat) (hi_tag : tag < alts.length)
-            {j' : Nat} (hj'_le : j' ≤ i')
-            {π₁' π₂' : Stack} (hπ' : StackRefK ValueRefinesK j' π₁' π₂') :
-            ObsRefinesK j'
-              (.compute π₁' ρ₁ (alts[tag]'hi_tag))
-              (.compute π₂' ρ₂ (substTerm pos t_rhs (alts[tag]'hi_tag))) := by
-          have h_elem := h_alts.elem_singleOcc_or_freeOf tag hi_tag
-          have hclosed_elem := closedAtList_elem' hclosed_alts hi_tag
-          cases h_elem with
-          | inl h_occ =>
-            have hsz_elem : sizeOf (alts[tag]'hi_tag) ≤ n := by
-              have : sizeOf (alts[tag]'hi_tag) < 1 + sizeOf alts := by
-                exact Nat.lt_of_lt_of_le (List.sizeOf_lt_of_mem (List.getElem_mem hi_tag)) (by omega)
-              have : sizeOf (Term.Case scrut alts) = 1 + sizeOf scrut + sizeOf alts := by
-                simp [Term._sizeOf_inst, List._sizeOf_inst]
-              omega
-            exact ih_sz hsz_elem h_occ hclosed_elem (by omega) hπ'
-          | inr h_free =>
-            exact freeOf_obsRefines_fwd_gen (sizeOf (alts[tag]'hi_tag)) (Nat.le_refl _)
-              hpos_ge hpos_d h_free hclosed_elem hclosed_rhs henv
-              j' (by omega) j' (Nat.le_refl _) _ _ hπ'
-        have hπ_case : StackRefK ValueRefinesK i'
-            (Frame.caseScrutinee alts ρ₁ :: π₁)
-            (Frame.caseScrutinee (substTermList pos t_rhs alts) ρ₂ :: π₂) := by
-          intro j hj v₁ v₂ hv
-          match j with
-          | 0 => exact Moist.Verified.Equivalence.obsRefinesK_zero_ret
-          | j' + 1 =>
-            have hπ_j' : StackRefK ValueRefinesK j' π₁ π₂ :=
-              stackRefK_mono (show j' ≤ i' + 1 by omega) hπ
-            refine Moist.Verified.Equivalence.obsRefinesK_of_step_ret ?_
-            match v₁, v₂ with
-            | .VConstr tag₁ fields₁, .VConstr tag₂ fields₂ =>
-              simp only [ValueRefinesK] at hv; obtain ⟨rfl, hfields_v⟩ := hv
-              simp only [step]
-              split
-              · rename_i alt₁ halt₁
-                have hsome₁ := List.getElem?_eq_some_iff.mp halt₁
-                have hi₁ : tag₁ < alts.length := hsome₁.1
-                have hi₂ : tag₁ < (substTermList pos t_rhs alts).length := by omega
-                have halt₂ : (substTermList pos t_rhs alts)[tag₁]? =
-                    some ((substTermList pos t_rhs alts)[tag₁]) :=
-                  List.getElem?_eq_some_iff.mpr ⟨hi₂, rfl⟩
-                rw [halt₂]; simp only []
-                rw [substTermList_getElem pos t_rhs alts tag₁ hi₁,
-                    show alt₁ = alts[tag₁] from hsome₁.2.symm]
-                exact alt_obsRefinesK tag₁ hi₁ (by omega)
-                  (applyArgFrames_stackRefK
-                    (Moist.Verified.Equivalence.listRel_mono
-                      (fun a b h => valueRefinesK_mono (Nat.le_refl _) a b h) hfields_v)
-                    hπ_j')
-              · rename_i hnone₁
-                have hnone₂ : (substTermList pos t_rhs alts)[tag₁]? = none := by
-                  rw [List.getElem?_eq_none_iff] at hnone₁ ⊢; omega
-                rw [hnone₂]; simp only []; exact obsRefinesK_error _
-            | .VCon c₁, .VCon c₂ =>
-              simp only [ValueRefinesK] at hv; subst hv
-              simp only [step]
-              split
-              · rename_i tag numCtors fields htag
-                split
-                · rename_i h_check
-                  have h_check_r : (decide (numCtors > 0) &&
-                      decide ((substTermList pos t_rhs alts).length > numCtors)) = true := by
-                    rw [h_subst_len]; exact h_check
-                  simp only [h_check_r]; exact obsRefinesK_error _
-                · rename_i h_check
-                  have h_check_r : ¬(decide (numCtors > 0) &&
-                      decide ((substTermList pos t_rhs alts).length > numCtors)) = true := by
-                    rw [h_subst_len]; exact h_check
-                  simp only [show (decide (numCtors > 0) &&
-                      decide ((substTermList pos t_rhs alts).length > numCtors)) = false from
-                    Bool.eq_false_iff.mpr h_check_r]
-                  split
-                  · rename_i alt₁ halt₁
-                    have hsome₁ := List.getElem?_eq_some_iff.mp halt₁
-                    have hi₁ : tag < alts.length := hsome₁.1
-                    have hi₂ : tag < (substTermList pos t_rhs alts).length := by omega
-                    have halt₂ : (substTermList pos t_rhs alts)[tag]? =
-                        some ((substTermList pos t_rhs alts)[tag]) :=
-                      List.getElem?_eq_some_iff.mpr ⟨hi₂, rfl⟩
-                    rw [halt₂]; simp only []
-                    rw [substTermList_getElem pos t_rhs alts tag hi₁,
-                        show alt₁ = alts[tag] from hsome₁.2.symm]
-                    have hfields_vcon := constToTagAndFields_fields_vcon c₁
-                    rw [htag] at hfields_vcon
-                    exact alt_obsRefinesK tag hi₁ (by omega)
-                      (applyArgFrames_stackRefK
-                        (listRel_refl_vcon_refines j' fields hfields_vcon)
-                        hπ_j')
-                  · rename_i hnone₁
-                    have hnone₂ : (substTermList pos t_rhs alts)[tag]? = none := by
-                      rw [List.getElem?_eq_none_iff] at hnone₁ ⊢; omega
-                    rw [hnone₂]; simp only []; exact obsRefinesK_error _
-              · exact obsRefinesK_error _
-            | .VLam _ _, .VLam _ _ | .VDelay _ _, .VDelay _ _
-            | .VBuiltin _ _ _, .VBuiltin _ _ _ =>
-              simp only [step]; exact obsRefinesK_error _
-            | .VCon _, .VLam _ _ | .VCon _, .VDelay _ _ | .VCon _, .VConstr _ _
-            | .VCon _, .VBuiltin _ _ _ | .VLam _ _, .VCon _ | .VLam _ _, .VDelay _ _
-            | .VLam _ _, .VConstr _ _ | .VLam _ _, .VBuiltin _ _ _
-            | .VDelay _ _, .VCon _ | .VDelay _ _, .VLam _ _ | .VDelay _ _, .VConstr _ _
-            | .VDelay _ _, .VBuiltin _ _ _ | .VConstr _ _, .VCon _
-            | .VConstr _ _, .VLam _ _ | .VConstr _ _, .VDelay _ _
-            | .VConstr _ _, .VBuiltin _ _ _ | .VBuiltin _ _ _, .VCon _
-            | .VBuiltin _ _ _, .VLam _ _ | .VBuiltin _ _ _, .VDelay _ _
-            | .VBuiltin _ _ _, .VConstr _ _ => simp only [ValueRefinesK] at hv
-        exact freeOf_obsRefines_fwd_gen (sizeOf scrut) (Nat.le_refl _)
-          hpos_ge hpos_d h_free_scrut hclosed_scrut hclosed_rhs henv
-          i' (by omega) i' (Nat.le_refl _) _ _ hπ_case
-
 open Moist.Verified.Contextual.SoundnessRefines
   (StackRefK ValueRefinesK stackRefK_mono valueRefinesK_mono
    evalBuiltin_compat_refines obsRefinesK_error listRel_valueRefinesK_mono
@@ -1660,7 +777,7 @@ private theorem body_subst_multi_obsRefinesK_gen (sz : Nat) {d pos : Nat}
         (∀ n, 0 < n → n ≤ d → ρ_ext.lookup (n + K) = ρ₂.lookup n) →
         ∀ π, ∃ m v',
           steps m (.compute π ρ_ext
-            (Moist.Verified.SubstRefines.iterShift K t_rhs)) = .ret π v' ∧
+            (Moist.Verified.BetaValueRefines.iterShift K t_rhs)) = .ret π v' ∧
           ValueRefinesK k_step v_rhs v')
     (hlen_L : d + 1 ≤ ρ₁.length)
     (hlen_R : d ≤ ρ₂.length)
@@ -1690,7 +807,7 @@ private theorem body_subst_multi_obsRefinesK_gen (sz : Nat) {d pos : Nat}
           show (match ρ₁.lookup k with | some v => State.ret π₁ v | none => .error) = _
           rw [hexact]
         have h_r_halt_0 := h_r_halt_multi 0 ρ₂ (by intro nn _ _; simp) π₂
-        rw [Moist.Verified.SubstRefines.iterShift_zero] at h_r_halt_0
+        rw [Moist.Verified.BetaValueRefines.iterShift_zero] at h_r_halt_0
         obtain ⟨m, v_r, hm, hvr_rel⟩ := h_r_halt_0
         exact obsRefinesK_of_steps_left h_var_step
           (obsRefinesK_of_steps_right hm
@@ -1767,11 +884,11 @@ private theorem body_subst_multi_obsRefinesK_gen (sz : Nat) {d pos : Nat}
                 (∀ n, 0 < n → n ≤ d + 1 → ρ_ext.lookup (n + K) = (ρ₂.extend v₂).lookup n) →
                 ∀ π, ∃ m v',
                   steps m (.compute π ρ_ext
-                    (Moist.Verified.SubstRefines.iterShift K
+                    (Moist.Verified.BetaValueRefines.iterShift K
                       (renameTerm (shiftRename 1) t_rhs))) = .ret π v' ∧
                   ValueRefinesK j v_rhs v' := by
               intro K ρ_ext h_lookup π
-              rw [Moist.Verified.SubstRefines.iterShift_shift]
+              rw [Moist.Verified.BetaValueRefines.iterShift_shift]
               obtain ⟨m, v', hm, hv'⟩ := h_r_halt_multi (K + 1) ρ_ext (by
                 intro nn hnn hnnd
                 rw [show nn + (K + 1) = (nn + 1) + K from by omega,
@@ -2121,105 +1238,42 @@ private theorem body_subst_multi_obsRefinesK_gen (sz : Nat) {d pos : Nat}
           exact ih_sz hsz_scrut hclosed_scrut (by omega) hπ_case
 termination_by sz
 
-theorem same_env_beta_single_obsRefines {d : Nat} {t_body t_rhs : Term}
-    (h_single : SingleOcc 1 t_body)
+/-- Same-environment beta for an `rhs` that halts from the empty stack. -/
+theorem same_env_beta_of_halts {d : Nat} {t_body t_rhs : Term}
     (hclosed_body : closedAt (d + 1) t_body = true)
     (hclosed_rhs : closedAt d t_rhs = true)
     (ρ : CekEnv) (π : Stack)
     (henv_wf : Moist.Verified.BetaValueRefines.EnvWellFormed d ρ)
     (hlen : d ≤ ρ.length)
     (hwf_π : Moist.Verified.BetaValueRefines.StackWellFormed π)
-    (h_rhs_halts : ∀ π', ∃ (m : Nat) (v : CekValue),
-      steps m (.compute π' ρ t_rhs) = .ret π' v ∧
-      ∀ k ≤ m, steps k (.compute π' ρ t_rhs) ≠ .error) :
+    (h_halts : ∃ v, Reaches (.compute [] ρ t_rhs) (.halt v)) :
     Moist.Verified.Contextual.ObsRefines
       (.compute π ρ (.Apply (.Lam 0 t_body) t_rhs))
       (.compute π ρ (substTerm 1 t_rhs t_body)) := by
-  obtain ⟨fuel, value, reaches, _⟩ := h_rhs_halts []
-  have h_rhs_halt_ex : ∃ value, Reaches (.compute [] ρ t_rhs) (.halt value) :=
-    ⟨value, fuel + 1, by rw [steps_trans, reaches]; rfl⟩
-  obtain ⟨v_rhs, n_halt, hn_halt⟩ := h_rhs_halt_ex
-  obtain ⟨m_ret, _, v_ret, hm_ret⟩ :=
-    halt_descends_to_baseπ n_halt (.compute [] ρ t_rhs) v_rhs hn_halt ⟨[], rfl⟩
-  have h_rhs_ret_all := ret_on_all_stacks hm_ret
-  have hvwf : Moist.Verified.BetaValueRefines.ValueWellFormed v_ret := by
-    obtain ⟨m, hm⟩ := h_rhs_ret_all []
-    exact Moist.Verified.StepWellFormed.halt_value_wf
+  obtain ⟨v_ret, n_halt, hn_halt⟩ := h_halts
+  have h_rhs_ret_all := halt_on_all_stacks ⟨n_halt, hn_halt⟩
+  have hvwf : Moist.Verified.BetaValueRefines.ValueWellFormed v_ret :=
+    Moist.Verified.StepWellFormed.halt_value_wf
       (Moist.Verified.StepWellFormed.StateWellFormed.compute
-        Moist.Verified.BetaValueRefines.StackWellFormed.nil henv_wf hlen hclosed_rhs)
-      (show steps (m + 1) (.compute [] ρ t_rhs) = .halt v_ret by
-        rw [steps_trans, hm]; rfl)
-  have mk_multi (k : Nat) : ∀ (K : Nat) (ρ_ext : CekEnv),
-      (∀ n, 0 < n → n ≤ d → ρ_ext.lookup (n + K) = ρ.lookup n) →
-      ∀ π, ∃ m v',
-        steps m (.compute π ρ_ext
-          (Moist.Verified.SubstRefines.iterShift K t_rhs)) = .ret π v' ∧
-        Moist.Verified.Contextual.SoundnessRefines.ValueRefinesK k v_ret v' :=
-    fun K ρ_ext h_lookup π =>
-      shifted_halt_extend_multi (k := k) hclosed_rhs henv_wf h_rhs_ret_all hvwf h_lookup π
-  have h_body_obs : Moist.Verified.Contextual.ObsRefines
-      (.compute π (ρ.extend v_ret) t_body)
-      (.compute π ρ (substTerm 1 t_rhs t_body)) := by
-    constructor
-    · rintro ⟨v, n, hn⟩
-      have hπk := Moist.Verified.BetaValueRefines.stackRefK_refl n π hwf_π
-      have henv_refl := Moist.Verified.BetaValueRefines.envRefinesK_refl (k := n) henv_wf
-      have hvrefl := Moist.Verified.BetaValueRefines.valueRefinesK_refl n v_ret hvwf
-      have hsubst_env := Moist.Verified.InlineSoundness.Beta.substEnvRef_of_envRefinesK_extend henv_refl hvrefl
-      have hexact := Moist.Verified.BetaValueRefines.extend_lookup_one ρ v_ret
-      have h := body_subst_obsRefinesK_gen (sizeOf t_body) (Nat.le_refl _)
-        (by omega) (by omega) h_single hclosed_body hclosed_rhs
-        hsubst_env hexact (mk_multi n)
-        (by simp [CekEnv.extend, CekEnv.length]; omega) hlen hvwf
-        (Nat.le_refl n) hπk
-      exact h.1 v ⟨n, Nat.le_refl _, hn⟩
-    · rintro ⟨n, hn⟩
-      have hπk := Moist.Verified.BetaValueRefines.stackRefK_refl n π hwf_π
-      have henv_refl := Moist.Verified.BetaValueRefines.envRefinesK_refl (k := n) henv_wf
-      have hvrefl := Moist.Verified.BetaValueRefines.valueRefinesK_refl n v_ret hvwf
-      have hsubst_env := Moist.Verified.InlineSoundness.Beta.substEnvRef_of_envRefinesK_extend henv_refl hvrefl
-      have hexact := Moist.Verified.BetaValueRefines.extend_lookup_one ρ v_ret
-      have h := body_subst_obsRefinesK_gen (sizeOf t_body) (Nat.le_refl _)
-        (by omega) (by omega) h_single hclosed_body hclosed_rhs
-        hsubst_env hexact (mk_multi n)
-        (by simp [CekEnv.extend, CekEnv.length]; omega) hlen hvwf
-        (Nat.le_refl n) hπk
-      exact h.2 n (Nat.le_refl _) hn
+        Moist.Verified.BetaValueRefines.StackWellFormed.nil henv_wf hlen hclosed_rhs) hn_halt
+  have h_body (n : Nat) : Moist.Verified.Equivalence.ObsRefinesK n
+      (.compute π (ρ.extend v_ret) t_body) (.compute π ρ (substTerm 1 t_rhs t_body)) :=
+    body_subst_multi_obsRefinesK_gen (sizeOf t_body) (Nat.le_refl _)
+      (by omega) (by omega) hclosed_body hclosed_rhs
+      (Moist.Verified.BetaValueRefines.substEnvRef_of_envRefinesK_extend
+        (Moist.Verified.BetaValueRefines.envRefinesK_refl henv_wf)
+        (Moist.Verified.BetaValueRefines.valueRefinesK_refl n v_ret hvwf))
+      (Moist.Verified.BetaValueRefines.extend_lookup_one ρ v_ret)
+      (fun K ρ_ext h_lookup π =>
+        shifted_halt_extend_multi hclosed_rhs henv_wf h_rhs_ret_all hvwf h_lookup π)
+      (by simp [CekEnv.extend, CekEnv.length]; omega) hlen hvwf
+      (Nat.le_refl n) (Moist.Verified.BetaValueRefines.stackRefK_refl n π hwf_π)
   obtain ⟨m_rhs, hm_rhs⟩ := h_rhs_ret_all (Frame.funV (.VLam t_body ρ) :: π)
-  have h3 : steps 3 (.compute π ρ (.Apply (.Lam 0 t_body) t_rhs)) =
-      .compute (Frame.funV (.VLam t_body ρ) :: π) ρ t_rhs := by
-    simp [steps, step]
-  have h_funv_step : step (.ret (Frame.funV (.VLam t_body ρ) :: π) v_ret) =
-      .compute π (ρ.extend v_ret) t_body := rfl
-  let P := 3 + m_rhs + 1
-  have h_prefix : steps P (.compute π ρ (.Apply (.Lam 0 t_body) t_rhs)) =
-      .compute π (ρ.extend v_ret) t_body := by
-    show steps (3 + m_rhs + 1) _ = _
-    rw [show 3 + m_rhs + 1 = 3 + (m_rhs + 1) by omega, steps_trans, h3,
-        show m_rhs + 1 = m_rhs + 1 from rfl, steps_trans, hm_rhs]
-    exact h_funv_step
-  constructor
-  · rintro ⟨v, n, hn⟩
-    exact h_body_obs.halt ⟨v, by
-      by_cases hle : n ≤ P
-      · exfalso
-        have : P = n + (P - n) := by omega
-        rw [this, steps_trans] at h_prefix
-        rw [hn, steps_halt_fixed] at h_prefix
-        exact State.noConfusion h_prefix
-      · exact ⟨n - P, by
-          rw [show n = P + (n - P) by omega, steps_trans, h_prefix] at hn
-          exact hn⟩⟩
-  · rintro ⟨n, hn⟩
-    exact h_body_obs.error ⟨n - P, by
-      by_cases hle : n ≤ P
-      · exfalso
-        have : P = n + (P - n) := by omega
-        rw [this, steps_trans] at h_prefix
-        rw [hn, steps_error_fixed] at h_prefix
-        exact State.noConfusion h_prefix
-      · rw [show n = P + (n - P) by omega, steps_trans, h_prefix] at hn
-        exact hn⟩
+  apply Moist.Verified.BetaValueRefines.obsRefines_of_steps_left (n := 3 + (m_rhs + 1))
+  · rw [steps_trans, show steps 3 (.compute π ρ (.Apply (.Lam 0 t_body) t_rhs)) =
+      .compute (Frame.funV (.VLam t_body ρ) :: π) ρ t_rhs from rfl, steps_trans, hm_rhs]
+  · exact ⟨fun ⟨v, n, hn⟩ => (h_body n).1 v ⟨n, Nat.le_refl _, hn⟩,
+      fun ⟨n, hn⟩ => (h_body n).2 n (Nat.le_refl _) hn⟩
 
 theorem same_env_beta_multi_obsRefines {d : Nat} {t_body t_rhs : Term}
     (hclosed_body : closedAt (d + 1) t_body = true)
@@ -2233,89 +1287,27 @@ theorem same_env_beta_multi_obsRefines {d : Nat} {t_body t_rhs : Term}
       ∀ k ≤ m, steps k (.compute π' ρ t_rhs) ≠ .error) :
     Moist.Verified.Contextual.ObsRefines
       (.compute π ρ (.Apply (.Lam 0 t_body) t_rhs))
-      (.compute π ρ (substTerm 1 t_rhs t_body)) := by
-  obtain ⟨fuel, value, reaches, _⟩ := h_rhs_halts []
-  have h_rhs_halt_ex : ∃ value, Reaches (.compute [] ρ t_rhs) (.halt value) :=
-    ⟨value, fuel + 1, by rw [steps_trans, reaches]; rfl⟩
-  obtain ⟨v_rhs, n_halt, hn_halt⟩ := h_rhs_halt_ex
-  obtain ⟨m_ret, _, v_ret, hm_ret⟩ :=
-    halt_descends_to_baseπ n_halt (.compute [] ρ t_rhs) v_rhs hn_halt ⟨[], rfl⟩
-  have h_rhs_ret_all := ret_on_all_stacks hm_ret
-  have hvwf : Moist.Verified.BetaValueRefines.ValueWellFormed v_ret := by
-    obtain ⟨m, hm⟩ := h_rhs_ret_all []
-    exact Moist.Verified.StepWellFormed.halt_value_wf
-      (Moist.Verified.StepWellFormed.StateWellFormed.compute
-        Moist.Verified.BetaValueRefines.StackWellFormed.nil henv_wf hlen hclosed_rhs)
-      (show steps (m + 1) (.compute [] ρ t_rhs) = .halt v_ret by
-        rw [steps_trans, hm]; rfl)
-  have mk_multi (k : Nat) : ∀ (K : Nat) (ρ_ext : CekEnv),
-      (∀ n, 0 < n → n ≤ d → ρ_ext.lookup (n + K) = ρ.lookup n) →
-      ∀ π, ∃ m v',
-        steps m (.compute π ρ_ext
-          (Moist.Verified.SubstRefines.iterShift K t_rhs)) = .ret π v' ∧
-        Moist.Verified.Contextual.SoundnessRefines.ValueRefinesK k v_ret v' :=
-    fun K ρ_ext h_lookup π =>
-      shifted_halt_extend_multi (k := k) hclosed_rhs henv_wf h_rhs_ret_all hvwf h_lookup π
-  have h_body_obs : Moist.Verified.Contextual.ObsRefines
-      (.compute π (ρ.extend v_ret) t_body)
-      (.compute π ρ (substTerm 1 t_rhs t_body)) := by
-    constructor
-    · rintro ⟨v, n, hn⟩
-      have hπk := Moist.Verified.BetaValueRefines.stackRefK_refl n π hwf_π
-      have henv_refl := Moist.Verified.BetaValueRefines.envRefinesK_refl (k := n) henv_wf
-      have hvrefl := Moist.Verified.BetaValueRefines.valueRefinesK_refl n v_ret hvwf
-      have hsubst_env := Moist.Verified.InlineSoundness.Beta.substEnvRef_of_envRefinesK_extend henv_refl hvrefl
-      have hexact := Moist.Verified.BetaValueRefines.extend_lookup_one ρ v_ret
-      have h := body_subst_multi_obsRefinesK_gen (sizeOf t_body) (Nat.le_refl _)
-        (by omega) (by omega) hclosed_body hclosed_rhs
-        hsubst_env hexact (mk_multi n)
-        (by simp [CekEnv.extend, CekEnv.length]; omega) hlen hvwf
-        (Nat.le_refl n) hπk
-      exact h.1 v ⟨n, Nat.le_refl _, hn⟩
-    · rintro ⟨n, hn⟩
-      have hπk := Moist.Verified.BetaValueRefines.stackRefK_refl n π hwf_π
-      have henv_refl := Moist.Verified.BetaValueRefines.envRefinesK_refl (k := n) henv_wf
-      have hvrefl := Moist.Verified.BetaValueRefines.valueRefinesK_refl n v_ret hvwf
-      have hsubst_env := Moist.Verified.InlineSoundness.Beta.substEnvRef_of_envRefinesK_extend henv_refl hvrefl
-      have hexact := Moist.Verified.BetaValueRefines.extend_lookup_one ρ v_ret
-      have h := body_subst_multi_obsRefinesK_gen (sizeOf t_body) (Nat.le_refl _)
-        (by omega) (by omega) hclosed_body hclosed_rhs
-        hsubst_env hexact (mk_multi n)
-        (by simp [CekEnv.extend, CekEnv.length]; omega) hlen hvwf
-        (Nat.le_refl n) hπk
-      exact h.2 n (Nat.le_refl _) hn
-  obtain ⟨m_rhs, hm_rhs⟩ := h_rhs_ret_all (Frame.funV (.VLam t_body ρ) :: π)
-  have h3 : steps 3 (.compute π ρ (.Apply (.Lam 0 t_body) t_rhs)) =
-      .compute (Frame.funV (.VLam t_body ρ) :: π) ρ t_rhs := by
-    simp [steps, step]
-  have h_funv_step : step (.ret (Frame.funV (.VLam t_body ρ) :: π) v_ret) =
-      .compute π (ρ.extend v_ret) t_body := rfl
-  let P := 3 + m_rhs + 1
-  have h_prefix : steps P (.compute π ρ (.Apply (.Lam 0 t_body) t_rhs)) =
-      .compute π (ρ.extend v_ret) t_body := by
-    show steps (3 + m_rhs + 1) _ = _
-    rw [show 3 + m_rhs + 1 = 3 + (m_rhs + 1) by omega, steps_trans, h3,
-        show m_rhs + 1 = m_rhs + 1 from rfl, steps_trans, hm_rhs]
-    exact h_funv_step
-  constructor
-  · rintro ⟨v, n, hn⟩
-    exact h_body_obs.halt ⟨v, by
-      by_cases hle : n ≤ P
-      · exfalso
-        have : P = n + (P - n) := by omega
-        rw [this, steps_trans] at h_prefix
-        rw [hn, steps_halt_fixed] at h_prefix
-        exact State.noConfusion h_prefix
-      · exact ⟨n - P, by rw [show n = P + (n - P) by omega, steps_trans, h_prefix] at hn; exact hn⟩⟩
-  · rintro ⟨n, hn⟩
-    exact h_body_obs.error ⟨n - P, by
-      by_cases hle : n ≤ P
-      · exfalso
-        have : P = n + (P - n) := by omega
-        rw [this, steps_trans] at h_prefix
-        rw [hn, steps_error_fixed] at h_prefix
-        exact State.noConfusion h_prefix
-      · rw [show n = P + (n - P) by omega, steps_trans, h_prefix] at hn; exact hn⟩
+      (.compute π ρ (substTerm 1 t_rhs t_body)) :=
+  let ⟨m, v, returns, _⟩ := h_rhs_halts []
+  same_env_beta_of_halts hclosed_body hclosed_rhs ρ π henv_wf hlen hwf_π
+    ⟨v, m + 1, by rw [steps_trans, returns]; rfl⟩
+
+/-- The single-occurrence form is a special case of the multi-occurrence one. -/
+theorem same_env_beta_single_obsRefines {d : Nat} {t_body t_rhs : Term}
+    (_h_single : SingleOcc 1 t_body)
+    (hclosed_body : closedAt (d + 1) t_body = true)
+    (hclosed_rhs : closedAt d t_rhs = true)
+    (ρ : CekEnv) (π : Stack)
+    (henv_wf : Moist.Verified.BetaValueRefines.EnvWellFormed d ρ)
+    (hlen : d ≤ ρ.length)
+    (hwf_π : Moist.Verified.BetaValueRefines.StackWellFormed π)
+    (h_rhs_halts : ∀ π', ∃ (m : Nat) (v : CekValue),
+      steps m (.compute π' ρ t_rhs) = .ret π' v ∧
+      ∀ k ≤ m, steps k (.compute π' ρ t_rhs) ≠ .error) :
+    Moist.Verified.Contextual.ObsRefines
+      (.compute π ρ (.Apply (.Lam 0 t_body) t_rhs))
+      (.compute π ρ (substTerm 1 t_rhs t_body)) :=
+  same_env_beta_multi_obsRefines hclosed_body hclosed_rhs ρ π henv_wf hlen hwf_π h_rhs_halts
 
 end SameEnvBeta
 

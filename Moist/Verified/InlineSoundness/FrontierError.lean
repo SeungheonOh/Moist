@@ -9,12 +9,6 @@ open Moist.CEK Moist.Plutus.Term
 open Moist.Verified.Equivalence Moist.Verified.BetaValueRefines
 open Moist.Verified.InlineSoundness.Totality
 
-private theorem semantic_steps (fuel : Nat) (state : State) :
-    steps fuel state = Semantics.steps fuel state := by
-  induction fuel generalizing state with
-  | zero => rfl
-  | succ fuel inductionHypothesis => exact inductionHypothesis (step state)
-
 private theorem total_returns {term rhs : Term} (total : TotalTerm term)
     {position depth : Nat} (positive : 1 ≤ position) (bound : position ≤ depth + 1)
     (absent : StrictOcc.freeOf position term = true)
@@ -29,14 +23,14 @@ private theorem total_returns {term rhs : Term} (total : TotalTerm term)
     exact ⟨value, lookup⟩
   obtain ⟨value, fuel, halts⟩ := total.subst_halts positive bound absent closed rhsClosed environment sized
   have halts' : steps fuel (.compute [] environment (substTerm position rhs term)) = .halt value := by
-    rw [semantic_steps]; exact halts
+    rw [vstep_eq]; exact halts
   have valueWellFormed := StepWellFormed.halt_value_wf
     (StepWellFormed.StateWellFormed.compute .nil wellFormed length
       (closedAt_substTerm position rhs term depth positive bound rhsClosed closed)) halts'
   refine ⟨value, valueWellFormed, ?_⟩
   intro stack
   obtain ⟨returnFuel, returned⟩ := Purity.compute_to_ret_from_halt environment _ value stack ⟨fuel, halts⟩
-  exact ⟨returnFuel, by rw [semantic_steps]; exact returned⟩
+  exact ⟨returnFuel, by rw [vstep_eq]; exact returned⟩
 
 private theorem error_before {source target : State} (fuel : Nat)
     (prefixSteps : steps fuel source = target) (errors : Reaches target .error) :
@@ -154,5 +148,14 @@ theorem beta_evaluationPath_ctxRefines {depth : Nat} {body rhs : Term}
   intro environment stack wellFormed length _ errors
   exact evaluationPath_subst_errors path single (by omega) (by omega) bodyClosed rhsClosed
     environment wellFormed length errors stack
+
+/-- Beta with a total (pure) `rhs`. -/
+theorem beta_total_ctxRefines {depth : Nat} {body rhs : Term} (total : TotalTerm rhs)
+    (bodyClosed : closedAt (depth + 1) body = true) (rhsClosed : closedAt depth rhs = true) :
+    Contextual.CtxRefines (.Apply (.Lam 0 body) rhs) (substTerm 1 rhs body) :=
+  beta_ctxRefines_of_halts bodyClosed rhsClosed fun environment wellFormed _ => by
+    obtain ⟨value, fuel, halts⟩ := total.halts depth environment rhsClosed fun index positive bound =>
+      let ⟨value, lookup, _⟩ := envWellFormed_lookup depth wellFormed positive bound; ⟨value, lookup⟩
+    exact ⟨value, fuel, by rw [vstep_eq]; exact halts⟩
 
 end Moist.Verified.InlineSoundness.Frontier

@@ -403,6 +403,50 @@ theorem substEnvRef_extend {k pos d : Nat} {v_rhs : CekValue}
             rw [hk'_eq] at hm_cases
             exact hm_cases
 
+/-- Extending the left environment by a self-related value turns an
+    `EnvRefinesK` pair into a `SubstEnvRef` pair at position 1. -/
+theorem substEnvRef_of_envRefinesK_extend
+    {j d : Nat} {v₁ : CekValue} {ρ₁ ρ₂ : CekEnv}
+    (henv : EnvRefinesK j d ρ₁ ρ₂)
+    (hvrefl : ValueRefinesK j v₁ v₁) :
+    SubstEnvRef 1 v₁ j (d + 1) (ρ₁.extend v₁) ρ₂ := by
+  intro n hn hnd
+  by_cases h2 : n = 1
+  · subst h2
+    show match (ρ₁.extend v₁).lookup 1 with
+      | some v₁' => ValueRefinesK j v₁' v₁
+      | none => False
+    rw [extend_lookup_one]
+    exact hvrefl
+  · simp only [show ¬ n < 1 by omega, h2, ite_false]
+    match n, show n ≥ 2 by omega with
+    | m + 2, _ =>
+      obtain ⟨u₁, u₂, hl₁, hl₂, hrel⟩ := henv (m + 1) (by omega) (by omega)
+      show match (ρ₁.extend v₁).lookup (m + 2), ρ₂.lookup (m + 1) with
+        | some v₁', some v₂' => ValueRefinesK j v₁' v₂'
+        | _, _ => False
+      rw [extend_lookup_succ ρ₁ v₁ (m + 1) (by omega), hl₁, hl₂]
+      exact hrel
+
+/-- `n`-fold one-place shift. -/
+def iterShift : Nat → Term → Term
+  | 0, t => t
+  | n + 1, t => renameTerm (shiftRename 1) (iterShift n t)
+
+theorem iterShift_zero (t : Term) : iterShift 0 t = t := rfl
+
+theorem iterShift_succ (n : Nat) (t : Term) :
+    iterShift (n + 1) t = renameTerm (shiftRename 1) (iterShift n t) := rfl
+
+theorem iterShift_shift (n : Nat) (t : Term) :
+    iterShift n (renameTerm (shiftRename 1) t) = iterShift (n + 1) t := by
+  induction n with
+  | zero => rfl
+  | succ m ih =>
+    show renameTerm (shiftRename 1) (iterShift m (renameTerm (shiftRename 1) t)) =
+         renameTerm (shiftRename 1) (iterShift (m + 1) t)
+    rw [ih]
+
 --------------------------------------------------------------------------------
 -- 5. Bridge between the two copies of `steps`
 --------------------------------------------------------------------------------
@@ -1285,6 +1329,23 @@ theorem obsRefinesK_of_steps_left {k n : Nat} {s₁ s₁' s₂ : State}
       have hmn_le : n' - n ≤ k := by omega
       exact h.2 (n' - n) hmn_le h_s₁'_err
 
+/-- Unbounded leftward propagation through a deterministic prefix. -/
+theorem obsRefines_of_steps_left {n : Nat} {s₁ s₁' s₂ : State}
+    (h_steps : steps n s₁ = s₁') (h : Moist.Verified.Contextual.ObsRefines s₁' s₂) :
+    Moist.Verified.Contextual.ObsRefines s₁ s₂ := by
+  have after : ∀ {t}, step t = t → Reaches s₁ t → Reaches s₁' t := by
+    intro t fixed ⟨m, hm⟩
+    by_cases hmn : m ≤ n
+    · refine ⟨0, ?_⟩
+      have fixed' : ∀ j, steps j t = t := fun j => by
+        induction j with
+        | zero => rfl
+        | succ j ih => simp only [steps, fixed, ih]
+      rw [← h_steps, show n = m + (n - m) by omega, steps_trans, hm, fixed']
+      rfl
+    · exact ⟨m - n, by rw [← h_steps, ← steps_trans, show n + (m - n) = m by omega]; exact hm⟩
+  exact ⟨fun ⟨v, hv⟩ => h.halt ⟨v, after rfl hv⟩, fun he => h.error (after rfl he)⟩
+
 /-- Rightward propagation: if RHS reaches `s₂'` in `n` steps and `s₁`
     Obs-refines `s₂'`, then `s₁` also Obs-refines the pre-step `s₂`. -/
 theorem obsRefinesK_of_steps_right {k n : Nat} {s₁ s₂ s₂' : State}
@@ -1367,530 +1428,7 @@ theorem substTermList_getElem (pos : Nat) (r : Term) (ts : List Term) (i : Nat)
       simp only [Moist.Verified.substTermList, List.getElem_cons_succ]
       exact ih j (by simp at hi; omega)
 
---------------------------------------------------------------------------------
--- 15. Stack-suffix discipline inversion (public port from DeadLet.lean).
---
--- If CEK execution starting from a state whose stack has `baseπ` as a suffix
--- eventually halts, then the execution must pass through `ret baseπ v_inner`
--- for some value. This is the "stack base discipline" fact used by the
--- β-value refinement proof to extract the rhs's final value without a purity
--- precondition on rhs.
---------------------------------------------------------------------------------
-
-/-- Stack-suffix invariant: `s`'s stack contains `baseπ` as a suffix. -/
-def hasSuffix (baseπ : Stack) : State → Prop
-  | .compute π _ _ => ∃ rest, π = rest ++ baseπ
-  | .ret π _ => ∃ rest, π = rest ++ baseπ
-  | _ => False
-
-/-- `steps n .error = .error`. -/
-theorem steps_error_eq : ∀ (n : Nat), steps n (.error : State) = .error
-  | 0 => rfl
-  | n + 1 => by simp only [steps, step]; exact steps_error_eq n
-
-/-- Packaging: given that `s` steps to `s'` (via `hstep`), `s'` has the
-    invariant, and `ih` gives a witness for `s'` at halt time `n'`, produce
-    a witness for `s` at halt time `n' + 1`. -/
-private theorem halt_descends_package
-    {baseπ : Stack} {s s' : State} {n' : Nat} {v_halt : CekValue}
-    (hstep : step s = s')
-    (hs_next : steps n' s' = .halt v_halt)
-    (h_next_inv : hasSuffix baseπ s')
-    (ih : ∀ (s : State) (v_halt : CekValue),
-            steps n' s = .halt v_halt → hasSuffix baseπ s →
-            ∃ m, m ≤ n' ∧ ∃ v_inner, steps m s = .ret baseπ v_inner) :
-    ∃ m, m ≤ n' + 1 ∧ ∃ v_inner, steps m s = .ret baseπ v_inner := by
-  obtain ⟨m, hm_le, v_inner, hm_steps⟩ := ih s' v_halt hs_next h_next_inv
-  refine ⟨m + 1, by omega, v_inner, ?_⟩
-  show steps (m + 1) s = .ret baseπ v_inner
-  simp only [steps]
-  rw [hstep]
-  exact hm_steps
-
-/-- The inversion lemma. Proved by strong induction on `n` with explicit case
-    analysis on the state shape. For each state case, we compute `step s` via
-    direct reflexivity and recurse on the stepped state. -/
-theorem halt_descends_to_baseπ {baseπ : Stack} :
-    ∀ (n : Nat) (s : State) (v_halt : CekValue),
-      steps n s = .halt v_halt →
-      hasSuffix baseπ s →
-      ∃ m, m ≤ n ∧ ∃ v_inner, steps m s = .ret baseπ v_inner := by
-  intro n
-  induction n with
-  | zero =>
-    intro s v_halt hs hinv
-    simp only [steps] at hs
-    subst hs
-    cases hinv
-  | succ n' ih =>
-    intro s v_halt hs hinv
-    by_cases hat : ∃ v, s = .ret baseπ v
-    · obtain ⟨v, rfl⟩ := hat
-      exact ⟨0, by omega, v, by simp [steps]⟩
-    · have hs_next : steps n' (step s) = .halt v_halt := by
-        have heq : steps (n' + 1) s = steps n' (step s) := by simp only [steps]
-        rw [← heq]; exact hs
-      have h_not_err : step s ≠ .error := by
-        intro heq
-        rw [heq, steps_error_eq] at hs_next
-        exact State.noConfusion hs_next
-      -- Case analyze s. Use tactic `cases` throughout.
-      cases s with
-      | error => exact absurd hinv (by intro h; cases h)
-      | halt _ => exact absurd hinv (by intro h; cases h)
-      | compute π ρ t =>
-        obtain ⟨rest, hrest⟩ := hinv
-        subst hrest
-        cases t with
-        | Var x =>
-          cases hlk : ρ.lookup x with
-          | none =>
-            exfalso; apply h_not_err
-            show step (.compute (rest ++ baseπ) ρ (.Var x)) = .error
-            simp only [step, hlk]
-          | some v_val =>
-            have hstep : step (.compute (rest ++ baseπ) ρ (.Var x)) =
-                .ret (rest ++ baseπ) v_val := by
-              simp only [step, hlk]
-            exact halt_descends_package hstep (hstep ▸ hs_next) ⟨rest, rfl⟩ ih
-        | Constant c_pair =>
-          obtain ⟨c, ty⟩ := c_pair
-          have hstep : step (.compute (rest ++ baseπ) ρ (.Constant (c, ty))) =
-              .ret (rest ++ baseπ) (.VCon c) := rfl
-          exact halt_descends_package hstep (hstep ▸ hs_next) ⟨rest, rfl⟩ ih
-        | Builtin b =>
-          have hstep : step (.compute (rest ++ baseπ) ρ (.Builtin b)) =
-              .ret (rest ++ baseπ) (.VBuiltin b [] (expectedArgs b)) := rfl
-          exact halt_descends_package hstep (hstep ▸ hs_next) ⟨rest, rfl⟩ ih
-        | Lam name body =>
-          have hstep : step (.compute (rest ++ baseπ) ρ (.Lam name body)) =
-              .ret (rest ++ baseπ) (.VLam body ρ) := rfl
-          exact halt_descends_package hstep (hstep ▸ hs_next) ⟨rest, rfl⟩ ih
-        | Delay body =>
-          have hstep : step (.compute (rest ++ baseπ) ρ (.Delay body)) =
-              .ret (rest ++ baseπ) (.VDelay body ρ) := rfl
-          exact halt_descends_package hstep (hstep ▸ hs_next) ⟨rest, rfl⟩ ih
-        | Force e =>
-          have hstep : step (.compute (rest ++ baseπ) ρ (.Force e)) =
-              .compute (.force :: (rest ++ baseπ)) ρ e := rfl
-          have h_inv_next : hasSuffix baseπ (.compute (.force :: (rest ++ baseπ)) ρ e) := by
-            refine ⟨.force :: rest, ?_⟩
-            simp
-          exact halt_descends_package hstep (hstep ▸ hs_next) h_inv_next ih
-        | Apply f a =>
-          have hstep : step (.compute (rest ++ baseπ) ρ (.Apply f a)) =
-              .compute (.arg a ρ :: (rest ++ baseπ)) ρ f := rfl
-          have h_inv_next : hasSuffix baseπ (.compute (.arg a ρ :: (rest ++ baseπ)) ρ f) := by
-            refine ⟨.arg a ρ :: rest, ?_⟩
-            simp
-          exact halt_descends_package hstep (hstep ▸ hs_next) h_inv_next ih
-        | Constr tag fs =>
-          cases fs with
-          | nil =>
-            have hstep : step (.compute (rest ++ baseπ) ρ (.Constr tag [])) =
-                .ret (rest ++ baseπ) (.VConstr tag []) := rfl
-            exact halt_descends_package hstep (hstep ▸ hs_next) ⟨rest, rfl⟩ ih
-          | cons m ms =>
-            have hstep : step (.compute (rest ++ baseπ) ρ (.Constr tag (m :: ms))) =
-                .compute (.constrField tag [] ms ρ :: (rest ++ baseπ)) ρ m := rfl
-            have h_inv_next : hasSuffix baseπ
-                (.compute (.constrField tag [] ms ρ :: (rest ++ baseπ)) ρ m) := by
-              refine ⟨.constrField tag [] ms ρ :: rest, ?_⟩
-              simp
-            exact halt_descends_package hstep (hstep ▸ hs_next) h_inv_next ih
-        | Case scrut alts =>
-          have hstep : step (.compute (rest ++ baseπ) ρ (.Case scrut alts)) =
-              .compute (.caseScrutinee alts ρ :: (rest ++ baseπ)) ρ scrut := rfl
-          have h_inv_next : hasSuffix baseπ
-              (.compute (.caseScrutinee alts ρ :: (rest ++ baseπ)) ρ scrut) := by
-            refine ⟨.caseScrutinee alts ρ :: rest, ?_⟩
-            simp
-          exact halt_descends_package hstep (hstep ▸ hs_next) h_inv_next ih
-        | Error =>
-          exfalso; apply h_not_err
-          show step (.compute (rest ++ baseπ) ρ .Error) = .error
-          rfl
-      | ret π v =>
-        obtain ⟨rest, hrest⟩ := hinv
-        subst hrest
-        cases rest with
-        | nil => exact absurd ⟨v, rfl⟩ hat
-        | cons f rest' =>
-          cases f with
-          | force =>
-            cases v with
-            | VDelay body ρ_v =>
-              have hstep : step (.ret (.force :: rest' ++ baseπ) (.VDelay body ρ_v)) =
-                  .compute (rest' ++ baseπ) ρ_v body := rfl
-              exact halt_descends_package hstep (hstep ▸ hs_next) ⟨rest', rfl⟩ ih
-            | VBuiltin b args ea =>
-              have hstep_form : step (.ret (.force :: rest' ++ baseπ) (.VBuiltin b args ea)) =
-                  (match ea.head with
-                   | .argQ => (match ea.tail with
-                       | some r => (.ret (rest' ++ baseπ) (.VBuiltin b args r) : State)
-                       | none => (match evalBuiltin b args with
-                           | some v' => .ret (rest' ++ baseπ) v'
-                           | none => .error))
-                   | .argV => .error) := rfl
-              rw [hstep_form] at hs_next h_not_err
-              cases heh : ea.head with
-              | argV =>
-                rw [heh] at h_not_err
-                exact absurd rfl h_not_err
-              | argQ =>
-                rw [heh] at hs_next h_not_err
-                cases het : ea.tail with
-                | some r =>
-                  rw [het] at hs_next h_not_err
-                  have h_inv_next : hasSuffix baseπ
-                      (.ret (rest' ++ baseπ) (.VBuiltin b args r)) := ⟨rest', rfl⟩
-                  obtain ⟨m, hm_le, v_inner, hm_steps⟩ :=
-                    ih (.ret (rest' ++ baseπ) (.VBuiltin b args r)) v_halt hs_next h_inv_next
-                  refine ⟨m + 1, by omega, v_inner, ?_⟩
-                  show steps (m + 1) (.ret (.force :: rest' ++ baseπ) (.VBuiltin b args ea)) =
-                      .ret baseπ v_inner
-                  simp only [steps]
-                  rw [hstep_form, heh, het]
-                  exact hm_steps
-                | none =>
-                  rw [het] at hs_next h_not_err
-                  cases hev : evalBuiltin b args with
-                  | none =>
-                    rw [hev] at h_not_err
-                    exact absurd rfl h_not_err
-                  | some v' =>
-                    rw [hev] at hs_next h_not_err
-                    have h_inv_next : hasSuffix baseπ (.ret (rest' ++ baseπ) v') := ⟨rest', rfl⟩
-                    obtain ⟨m, hm_le, v_inner, hm_steps⟩ :=
-                      ih (.ret (rest' ++ baseπ) v') v_halt hs_next h_inv_next
-                    refine ⟨m + 1, by omega, v_inner, ?_⟩
-                    show steps (m + 1) (.ret (.force :: rest' ++ baseπ) (.VBuiltin b args ea)) =
-                        .ret baseπ v_inner
-                    simp only [steps]
-                    rw [hstep_form, heh, het, hev]
-                    exact hm_steps
-            | VCon c =>
-              exfalso; apply h_not_err
-              show step (.ret (.force :: rest' ++ baseπ) (.VCon c)) = .error
-              rfl
-            | VLam body ρ_l =>
-              exfalso; apply h_not_err
-              show step (.ret (.force :: rest' ++ baseπ) (.VLam body ρ_l)) = .error
-              rfl
-            | VConstr tag fields =>
-              exfalso; apply h_not_err
-              show step (.ret (.force :: rest' ++ baseπ) (.VConstr tag fields)) = .error
-              rfl
-          | arg a ρ_a =>
-            have hstep : step (.ret (.arg a ρ_a :: rest' ++ baseπ) v) =
-                .compute (.funV v :: (rest' ++ baseπ)) ρ_a a := rfl
-            have h_inv_next : hasSuffix baseπ
-                (.compute (.funV v :: (rest' ++ baseπ)) ρ_a a) := by
-              refine ⟨.funV v :: rest', ?_⟩
-              simp
-            exact halt_descends_package hstep (hstep ▸ hs_next) h_inv_next ih
-          | funV vf =>
-            cases vf with
-            | VLam body ρ_l =>
-              have hstep : step (.ret (.funV (.VLam body ρ_l) :: rest' ++ baseπ) v) =
-                  .compute (rest' ++ baseπ) (ρ_l.extend v) body := rfl
-              exact halt_descends_package hstep (hstep ▸ hs_next) ⟨rest', rfl⟩ ih
-            | VBuiltin b args ea =>
-              have hstep_form : step (.ret (.funV (.VBuiltin b args ea) :: rest' ++ baseπ) v) =
-                  (match ea.head with
-                   | .argV => (match ea.tail with
-                       | some r => (.ret (rest' ++ baseπ) (.VBuiltin b (v :: args) r) : State)
-                       | none => (match evalBuiltin b (v :: args) with
-                           | some v' => .ret (rest' ++ baseπ) v'
-                           | none => .error))
-                   | .argQ => .error) := rfl
-              rw [hstep_form] at hs_next h_not_err
-              cases heh : ea.head with
-              | argQ =>
-                rw [heh] at h_not_err
-                exact absurd rfl h_not_err
-              | argV =>
-                rw [heh] at hs_next h_not_err
-                cases het : ea.tail with
-                | some r =>
-                  rw [het] at hs_next h_not_err
-                  have h_inv_next : hasSuffix baseπ
-                      (.ret (rest' ++ baseπ) (.VBuiltin b (v :: args) r)) := ⟨rest', rfl⟩
-                  obtain ⟨m, hm_le, v_inner, hm_steps⟩ :=
-                    ih (.ret (rest' ++ baseπ) (.VBuiltin b (v :: args) r)) v_halt hs_next h_inv_next
-                  refine ⟨m + 1, by omega, v_inner, ?_⟩
-                  show steps (m + 1) (.ret (.funV (.VBuiltin b args ea) :: rest' ++ baseπ) v) =
-                      .ret baseπ v_inner
-                  simp only [steps]
-                  rw [hstep_form, heh, het]
-                  exact hm_steps
-                | none =>
-                  rw [het] at hs_next h_not_err
-                  cases hev : evalBuiltin b (v :: args) with
-                  | none =>
-                    rw [hev] at h_not_err
-                    exact absurd rfl h_not_err
-                  | some v' =>
-                    rw [hev] at hs_next h_not_err
-                    have h_inv_next : hasSuffix baseπ (.ret (rest' ++ baseπ) v') := ⟨rest', rfl⟩
-                    obtain ⟨m, hm_le, v_inner, hm_steps⟩ :=
-                      ih (.ret (rest' ++ baseπ) v') v_halt hs_next h_inv_next
-                    refine ⟨m + 1, by omega, v_inner, ?_⟩
-                    show steps (m + 1) (.ret (.funV (.VBuiltin b args ea) :: rest' ++ baseπ) v) =
-                        .ret baseπ v_inner
-                    simp only [steps]
-                    rw [hstep_form, heh, het, hev]
-                    exact hm_steps
-            | VCon c =>
-              exfalso; apply h_not_err
-              show step (.ret (.funV (.VCon c) :: rest' ++ baseπ) v) = .error
-              rfl
-            | VDelay body ρ_d =>
-              exfalso; apply h_not_err
-              show step (.ret (.funV (.VDelay body ρ_d) :: rest' ++ baseπ) v) = .error
-              rfl
-            | VConstr tag fields =>
-              exfalso; apply h_not_err
-              show step (.ret (.funV (.VConstr tag fields) :: rest' ++ baseπ) v) = .error
-              rfl
-          | applyArg vx =>
-            cases v with
-            | VLam body ρ_l =>
-              have hstep : step (.ret (.applyArg vx :: rest' ++ baseπ) (.VLam body ρ_l)) =
-                  .compute (rest' ++ baseπ) (ρ_l.extend vx) body := rfl
-              exact halt_descends_package hstep (hstep ▸ hs_next) ⟨rest', rfl⟩ ih
-            | VBuiltin b args ea =>
-              have hstep_form : step (.ret (.applyArg vx :: rest' ++ baseπ) (.VBuiltin b args ea)) =
-                  (match ea.head with
-                   | .argV => (match ea.tail with
-                       | some r => (.ret (rest' ++ baseπ) (.VBuiltin b (vx :: args) r) : State)
-                       | none => (match evalBuiltin b (vx :: args) with
-                           | some v' => .ret (rest' ++ baseπ) v'
-                           | none => .error))
-                   | .argQ => .error) := rfl
-              rw [hstep_form] at hs_next h_not_err
-              cases heh : ea.head with
-              | argQ =>
-                rw [heh] at h_not_err
-                exact absurd rfl h_not_err
-              | argV =>
-                rw [heh] at hs_next h_not_err
-                cases het : ea.tail with
-                | some r =>
-                  rw [het] at hs_next h_not_err
-                  have h_inv_next : hasSuffix baseπ
-                      (.ret (rest' ++ baseπ) (.VBuiltin b (vx :: args) r)) := ⟨rest', rfl⟩
-                  obtain ⟨m, hm_le, v_inner, hm_steps⟩ :=
-                    ih (.ret (rest' ++ baseπ) (.VBuiltin b (vx :: args) r)) v_halt hs_next h_inv_next
-                  refine ⟨m + 1, by omega, v_inner, ?_⟩
-                  show steps (m + 1) (.ret (.applyArg vx :: rest' ++ baseπ) (.VBuiltin b args ea)) =
-                      .ret baseπ v_inner
-                  simp only [steps]
-                  rw [hstep_form, heh, het]
-                  exact hm_steps
-                | none =>
-                  rw [het] at hs_next h_not_err
-                  cases hev : evalBuiltin b (vx :: args) with
-                  | none =>
-                    rw [hev] at h_not_err
-                    exact absurd rfl h_not_err
-                  | some v' =>
-                    rw [hev] at hs_next h_not_err
-                    have h_inv_next : hasSuffix baseπ (.ret (rest' ++ baseπ) v') := ⟨rest', rfl⟩
-                    obtain ⟨m, hm_le, v_inner, hm_steps⟩ :=
-                      ih (.ret (rest' ++ baseπ) v') v_halt hs_next h_inv_next
-                    refine ⟨m + 1, by omega, v_inner, ?_⟩
-                    show steps (m + 1) (.ret (.applyArg vx :: rest' ++ baseπ) (.VBuiltin b args ea)) =
-                        .ret baseπ v_inner
-                    simp only [steps]
-                    rw [hstep_form, heh, het, hev]
-                    exact hm_steps
-            | VCon c =>
-              exfalso; apply h_not_err
-              show step (.ret (.applyArg vx :: rest' ++ baseπ) (.VCon c)) = .error
-              rfl
-            | VDelay body ρ_d =>
-              exfalso; apply h_not_err
-              show step (.ret (.applyArg vx :: rest' ++ baseπ) (.VDelay body ρ_d)) = .error
-              rfl
-            | VConstr tag fields =>
-              exfalso; apply h_not_err
-              show step (.ret (.applyArg vx :: rest' ++ baseπ) (.VConstr tag fields)) = .error
-              rfl
-          | constrField tag done ms ρ_c =>
-            cases ms with
-            | nil =>
-              have hstep : step (.ret (.constrField tag done [] ρ_c :: rest' ++ baseπ) v) =
-                  .ret (rest' ++ baseπ) (.VConstr tag ((v :: done).reverse)) := rfl
-              exact halt_descends_package hstep (hstep ▸ hs_next) ⟨rest', rfl⟩ ih
-            | cons m ms_rest =>
-              have hstep : step (.ret (.constrField tag done (m :: ms_rest) ρ_c :: rest' ++ baseπ) v) =
-                  .compute (.constrField tag (v :: done) ms_rest ρ_c :: (rest' ++ baseπ)) ρ_c m := rfl
-              have h_inv_next : hasSuffix baseπ
-                  (.compute (.constrField tag (v :: done) ms_rest ρ_c :: (rest' ++ baseπ)) ρ_c m) := by
-                refine ⟨.constrField tag (v :: done) ms_rest ρ_c :: rest', ?_⟩
-                simp
-              exact halt_descends_package hstep (hstep ▸ hs_next) h_inv_next ih
-          | caseScrutinee alts ρ_cs =>
-            cases v with
-            | VConstr tag_v fields_v =>
-              have hstep_form :
-                  step (.ret (.caseScrutinee alts ρ_cs :: rest' ++ baseπ) (.VConstr tag_v fields_v)) =
-                  (match alts[tag_v]? with
-                   | some alt => (.compute (fields_v.map Frame.applyArg ++ (rest' ++ baseπ)) ρ_cs alt : State)
-                   | none => .error) := rfl
-              rw [hstep_form] at hs_next h_not_err
-              cases halts : alts[tag_v]? with
-              | none =>
-                rw [halts] at h_not_err
-                exact absurd rfl h_not_err
-              | some alt =>
-                rw [halts] at hs_next h_not_err
-                have h_inv_next : hasSuffix baseπ
-                    (.compute (fields_v.map Frame.applyArg ++ (rest' ++ baseπ)) ρ_cs alt) := by
-                  refine ⟨fields_v.map Frame.applyArg ++ rest', ?_⟩
-                  simp
-                obtain ⟨m, hm_le, v_inner, hm_steps⟩ :=
-                  ih (.compute (fields_v.map Frame.applyArg ++ (rest' ++ baseπ)) ρ_cs alt)
-                     v_halt hs_next h_inv_next
-                refine ⟨m + 1, by omega, v_inner, ?_⟩
-                show steps (m + 1)
-                    (.ret (.caseScrutinee alts ρ_cs :: rest' ++ baseπ) (.VConstr tag_v fields_v)) =
-                    .ret baseπ v_inner
-                simp only [steps]
-                rw [hstep_form, halts]
-                exact hm_steps
-            | VCon c =>
-              have hstep_form : step (.ret (.caseScrutinee alts ρ_cs :: rest' ++ baseπ) (.VCon c)) =
-                  (match constToTagAndFields c with
-                   | some (tag, numCtors, fields) =>
-                     (if numCtors > 0 && alts.length > numCtors then .error
-                      else match alts[tag]? with
-                        | some alt => (.compute (fields.map Frame.applyArg ++ (rest' ++ baseπ)) ρ_cs alt : State)
-                        | none => .error)
-                   | none => .error) := rfl
-              rw [hstep_form] at hs_next h_not_err
-              cases htag : constToTagAndFields c with
-              | none =>
-                rw [htag] at h_not_err
-                exact absurd rfl h_not_err
-              | some triple =>
-                obtain ⟨tag, numCtors, fields⟩ := triple
-                rw [htag] at hs_next h_not_err
-                dsimp only at hs_next h_not_err
-                cases hb : (numCtors > 0 && alts.length > numCtors : Bool) with
-                | true =>
-                  rw [hb] at h_not_err
-                  exact absurd rfl h_not_err
-                | false =>
-                  rw [hb] at hs_next h_not_err
-                  cases halts : alts[tag]? with
-                  | none =>
-                    rw [halts] at h_not_err
-                    exact absurd rfl h_not_err
-                  | some alt =>
-                    rw [halts] at hs_next h_not_err
-                    have h_inv_next : hasSuffix baseπ
-                        (.compute (fields.map Frame.applyArg ++ (rest' ++ baseπ)) ρ_cs alt) := by
-                      refine ⟨fields.map Frame.applyArg ++ rest', ?_⟩
-                      simp
-                    obtain ⟨m, hm_le, v_inner, hm_steps⟩ :=
-                      ih (.compute (fields.map Frame.applyArg ++ (rest' ++ baseπ)) ρ_cs alt)
-                         v_halt hs_next h_inv_next
-                    refine ⟨m + 1, by omega, v_inner, ?_⟩
-                    show steps (m + 1)
-                        (.ret (.caseScrutinee alts ρ_cs :: rest' ++ baseπ) (.VCon c)) =
-                        .ret baseπ v_inner
-                    simp only [steps]
-                    rw [hstep_form, htag]
-                    dsimp only
-                    rw [hb, halts]
-                    exact hm_steps
-            | VLam body ρ_l =>
-              exfalso; apply h_not_err
-              show step (.ret (.caseScrutinee alts ρ_cs :: rest' ++ baseπ) (.VLam body ρ_l)) = .error
-              rfl
-            | VDelay body ρ_d =>
-              exfalso; apply h_not_err
-              show step (.ret (.caseScrutinee alts ρ_cs :: rest' ++ baseπ) (.VDelay body ρ_d)) = .error
-              rfl
-            | VBuiltin b args ea =>
-              exfalso; apply h_not_err
-              show step (.ret (.caseScrutinee alts ρ_cs :: rest' ++ baseπ) (.VBuiltin b args ea)) = .error
-              rfl
-
---------------------------------------------------------------------------------
--- 16. Strengthened RHalts (RHaltsRel): halt-witness + ValueRefinesK to v_rhs.
---
--- This is the hypothesis shape consumed by the `Var n = pos` case of
--- `substRefinesR_body`. It strengthens the plain `RHalts` with the
--- conclusion `ValueRefinesK k v_rhs v_rhs'`, so the substitution FTLR
--- can close without needing a separate `halt_reach_shift`-style bridge
--- to relate LHS/RHS halt values.
---------------------------------------------------------------------------------
-
-/-- Strengthened `RHalts`: in addition to halt-no-error, the halt value
-    is `ValueRefinesK`-related to a fixed witness `v_rhs`. This form
-    provides the relation to a fixed witness value — exactly what the
-    substitution FTLR's `Var = pos` case needs. -/
-def RHaltsRel (t_rhs : Moist.Plutus.Term.Term) (v_rhs : CekValue) (k d : Nat) : Prop :=
-  ∀ (ρ : CekEnv) (π : Stack),
-    (∀ n, 0 < n → n ≤ d → ∃ v, ρ.lookup n = some v) →
-    ∃ (m : Nat) (v_rhs' : CekValue),
-      steps m (.compute π ρ t_rhs) = .ret π v_rhs' ∧
-      (∀ k' ≤ m, steps k' (.compute π ρ t_rhs) ≠ .error) ∧
-      ValueRefinesK k v_rhs v_rhs'
-
-/-- Monotonicity of `RHaltsRel` in the step index. -/
-theorem rHaltsRel_mono {j k d : Nat} (hjk : j ≤ k) {t_rhs : Moist.Plutus.Term.Term}
-    {v_rhs : CekValue} (h : RHaltsRel t_rhs v_rhs k d) :
-    RHaltsRel t_rhs v_rhs j d := by
-  intro ρ π hρ
-  obtain ⟨m, v_rhs', hm, hne, hrel⟩ := h ρ π hρ
-  exact ⟨m, v_rhs', hm, hne, valueRefinesK_mono hjk v_rhs v_rhs' hrel⟩
-
---------------------------------------------------------------------------------
--- 16c. Environment decomposition for `EnvWellFormed (d + 1)`.
---
--- A well-formed env at positive depth `d + 1` must have cons-structure
--- `.cons v rest`, with `v` well-formed and `rest` well-formed at depth `d`.
--- This decomposition is the foundation of the shift-lifting proof: given
--- a well-formed `ρ_full` at depth `d + 1`, we extract `v0` and `ρ_tail`
--- with `ρ_full = ρ_tail.extend v0`.
---------------------------------------------------------------------------------
-
---------------------------------------------------------------------------------
--- 16d. Step-composition helpers for halt-witness extraction.
---
--- Bridge `.ret [] v` halt traces (produced by `RHaltsRel` at π = []) to the
--- `.halt v` form consumed by `ObsRefinesK`'s halt clause: stepping a
--- `.ret [] v` state produces `.halt v`.
---------------------------------------------------------------------------------
-
---------------------------------------------------------------------------------
--- 16e. `rHalts_shift_WF` — state-level shift lemma.
---
--- STATUS: Proved CONDITIONALLY on an external `ValueShiftsPreserve`
--- hypothesis that delivers the `ValueRefinesK` and `ValueWellFormed`
--- conclusions on the RHS halt value. The halt-existence itself is
--- proved unconditionally via `halt_reach_shift` composed with the
--- `.ret [] v` → `.halt v` bridge, and lifted from π = [] to arbitrary
--- π via `value_stack_poly`.
---
--- The unconditional `rHalts_shift_WF` is blocked on the value-level
--- shift preservation (`valueRefinesK_shift_right`) — see memory notes
--- `rHalts_shift ValueRefinesK blocker` and `valueRefinesK_shift_right
--- blocker`. The state-level approach reaches the same fundamental wall:
--- halt values on both sides of the refinement are structurally distinct
--- (closures capture different envs: `ρ_tail` vs `ρ_tail.extend v0`),
--- and the only relation bridging them is `ValueRefinesK`, which is not
--- preserved by `shiftValue` in general without a deep step-indexed
--- induction.
---
--- The conditional form `rHalts_shift_WF_cond` below is fully usable by
--- callers: they supply the value-shift preservation as part of their
--- own preconditions.
---------------------------------------------------------------------------------
+-- 15. Shifting preserves closedness.
 
 /-- Closedness lift: if `t` is closed at depth `d`, then `shift t` is
     closed at depth `d + 1`. -/
@@ -1908,83 +1446,7 @@ theorem closedAt_shift {d : Nat} {t : Moist.Plutus.Term.Term}
     omega
 
 --------------------------------------------------------------------------------
--- 16f. `ValueRefinesK` inversions for constant witnesses.
---
--- When `v_rhs = .VCon c`, `ValueRefinesK k v_rhs v'` forces `v' = .VCon c`
--- at every step index. This makes the VCon case of `ValueShiftsPreserve`
--- reducible to a shape identification on the RHS halt value.
---------------------------------------------------------------------------------
-
---------------------------------------------------------------------------------
---------------------------------------------------------------------------------
--- 17. Value-level shift operations and step-level bisimulation
---
--- Lift CEK values, environments, frames, stacks, and states from a depth-`d`
--- world to a depth-`(d+1)` world by inserting a fresh position 1 value `v0`
--- and renaming all embedded terms through `shiftRename 1`. Prove that CEK
--- `step` commutes with `shiftState`: this is the foundational bisimulation
--- lemma used downstream by `rHalts_shift` and `substRefinesR_body`.
---------------------------------------------------------------------------------
-
-/-! ## Basic unfolding lemmas -/
-
-/-! ## Lookup: shifting an env commutes with lookup at shifted positions -/
-
-/-! ## `shiftValueList` structural lemmas -/
-
-/-! ## `extractConsts` preservation under shift -/
-
-/-! ## `evalBuiltinPassThrough` preservation under shift -/
-
-/-! ### passThrough case analysis.
-
-`evalBuiltinPassThrough b args` returns `none` except for these six builtins
-with specific arg patterns:
-- `IfThenElse [elseV, thenV, VCon (Bool cond)]` returns `thenV`/`elseV`
-- `ChooseUnit [result, VCon Unit]` returns `result`
-- `Trace [result, VCon (String _)]` returns `result`
-- `ChooseData [bC, iC, lC, mC, cC, VCon (Data d)]` returns one of bC..cC
-- `ChooseList [consC, nilC, VCon (ConstDataList _)]`/`[consC, nilC, VCon (ConstList _)]`
-  returns `consC`/`nilC`
-- `MkCons [VCon (ConstList _), VCon c]` returns `VCon (ConstList (c :: _))`
-
-We break the proof into one small lemma per builtin. -/
-
-/-! ## `fields.map Frame.applyArg ++ rest` case-rewriting -/
-
-/-! ## Projection helpers on `shiftState` -/
-
---------------------------------------------------------------------------------
--- 18. Value-level shift preservation for ValueRefinesK.
---
--- This section provides the supporting helpers for the value-level shift
--- refinement needed by downstream `rHalts_shift` and `substRefinesR_body`.
---
--- The helpers (`shiftEnv_length`, `shiftValue_wellFormed`,
--- `shiftEnv_wellFormed_body`, `shiftValueList_wellFormed`,
--- `shiftEnv_wellFormed`) are fully proved.
---
--- The main theorem `valueRefinesK_shift_right` is STATED but NOT CLOSED
--- inline due to fundamental infrastructure gaps. The VLam / VDelay cases
--- require a state-level rename bisim (`step_shift_bisim`) that would
--- require ~1500-2500 additional lines of CEK frame case analysis
--- (see memory notes `valueRefinesK_shift_right blocker` and
--- `step_shift_bisim unprovable syntactically`).
---
--- Specifically, the blocker is: unfolding `ValueRefinesK (k+1) v₁
--- (shiftValue v0 v₂)` at the VLam/VDelay case yields an `ObsRefinesK i`
--- obligation between LHS `compute π₁ ρ₁.extend(arg₁) body₁` and goal-RHS
--- `compute π₂ newEnv.extend(arg₂) renamedBody₂`. The hypothesis `href`
--- provides an intermediate `ObsRefinesK i` with the mid-state
--- `compute π₂ ρ₂.extend(arg₂) body₂`. Bridging mid → goal-RHS requires
--- `renameRefinesR` applied with `StackRefK V k' π₂ π₂` (stack self-ref
--- at arbitrary `k'`), which is not derivable from the goal's
--- `hπ : StackRefK V i π₁ π₂` without stack well-formedness — a hypothesis
--- absent from the theorem signature.
---------------------------------------------------------------------------------
-
---------------------------------------------------------------------------------
--- 19. Shift bisimulation (semantic).
+-- 16. Shift bisimulation (semantic).
 --
 -- Mutual inductive relation pairing "original" state with its "shifted"
 -- counterpart. Each closure-forming constructor existentially quantifies
