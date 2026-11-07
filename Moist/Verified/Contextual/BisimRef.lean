@@ -308,21 +308,19 @@ theorem localValueList_listRel : ∀ {xs ys : List CekValue},
   | _, _, .nil => trivial
   | _, _, .cons hv hr => ⟨hv, localValueList_listRel hr⟩
 
-/-- `evalBuiltin` is bisimulation-preserving under `LocalValueList`. -/
-theorem localValueList_evalBuiltin : ∀ {b : BuiltinFun} {args₁ args₂ : List CekValue},
-    LocalValueList args₁ args₂ →
-    (∀ v₁, evalBuiltin b args₁ = some v₁ →
-      ∃ v₂, evalBuiltin b args₂ = some v₂ ∧ LocalValue v₁ v₂) ∧
-    (evalBuiltin b args₁ = none ↔ evalBuiltin b args₂ = none) := by
-  intro b args₁ args₂ h
+/-- Builtin evaluation on `LocalValueList`-related arguments. -/
+theorem localState_evalBuiltin {b : BuiltinFun} {args₁ args₂ : List CekValue}
+    {π₁ π₂ : Stack} (h : LocalValueList args₁ args₂) (hπ : LocalStack π₁ π₂) :
+    LocalState (match evalBuiltin b args₁ with | some v => .ret π₁ v | none => .error)
+      (match evalBuiltin b args₂ with | some v => .ret π₂ v | none => .error) := by
   have hrel := evalBuiltin_rel (b := b) localValue_vcon_inv
     (fun h => localValue_vcon_inv (localValue_symm h)) LocalValue.vcon (localValueList_listRel h)
   revert hrel
   cases evalBuiltin b args₁ <;> cases evalBuiltin b args₂ <;> intro hrel
-  · exact ⟨fun _ h => (nomatch h), Iff.rfl⟩
+  · exact .error
   · exact absurd hrel id
   · exact absurd hrel id
-  · exact ⟨fun _ h => ⟨_, rfl, Option.some.inj h ▸ hrel⟩, ⟨fun h => (nomatch h), fun h => (nomatch h)⟩⟩
+  · exact .ret hrel hπ
 
 --------------------------------------------------------------------------------
 -- 7. constToTagAndFields field-list is `LocalValueList`-reflexive
@@ -331,84 +329,22 @@ theorem localValueList_evalBuiltin : ∀ {b : BuiltinFun} {args₁ args₂ : Lis
 -- values, so `LocalValueList fs fs` holds reflexively via `LocalValue.vcon`.
 --------------------------------------------------------------------------------
 
-/-- `constToTagAndFields c = some (tag, numCtors, fs)` implies `fs` is
-    `LocalValueList`-reflexive. Case split on `c` exhaustively: in each
-    successful case the fields are a literal list of `VCon` values. -/
+/-- `constToTagAndFields` fields are constants, hence `LocalValueList`-reflexive. -/
 theorem localValueList_constToTagAndFields_refl :
     ∀ {c : Const} {tag numCtors : Nat} {fs : List CekValue},
       constToTagAndFields c = some (tag, numCtors, fs) → LocalValueList fs fs := by
   intro c tag numCtors fs hc
-  cases c with
-  | Integer n =>
-    simp only [constToTagAndFields] at hc
-    split at hc
-    · simp only [Option.some.injEq, Prod.mk.injEq] at hc
-      obtain ⟨_, _, hfs⟩ := hc
-      subst hfs
-      exact LocalValueList.nil
-    · exact Option.noConfusion hc
-  | ByteString _ => simp [constToTagAndFields] at hc
-  | String _ => simp [constToTagAndFields] at hc
-  | Unit =>
-    simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
-    obtain ⟨_, _, hfs⟩ := hc
-    subst hfs
-    exact LocalValueList.nil
-  | Bool b =>
-    cases b <;>
-    · simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
-      obtain ⟨_, _, hfs⟩ := hc
-      subst hfs
-      exact LocalValueList.nil
-  | ConstList l =>
-    cases l with
-    | nil =>
-      simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
-      obtain ⟨_, _, hfs⟩ := hc
-      subst hfs
-      exact LocalValueList.nil
-    | cons head tail =>
-      simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
-      obtain ⟨_, _, hfs⟩ := hc
-      subst hfs
-      exact LocalValueList.cons (LocalValue.vcon _)
-              (LocalValueList.cons (LocalValue.vcon _) LocalValueList.nil)
-  | ConstDataList l =>
-    cases l with
-    | nil =>
-      simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
-      obtain ⟨_, _, hfs⟩ := hc
-      subst hfs
-      exact LocalValueList.nil
-    | cons head tail =>
-      simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
-      obtain ⟨_, _, hfs⟩ := hc
-      subst hfs
-      exact LocalValueList.cons (LocalValue.vcon _)
-              (LocalValueList.cons (LocalValue.vcon _) LocalValueList.nil)
-  | ConstPairDataList _ => simp [constToTagAndFields] at hc
-  | Pair p =>
-    obtain ⟨a, b⟩ := p
-    simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
-    obtain ⟨_, _, hfs⟩ := hc
-    subst hfs
-    exact LocalValueList.cons (LocalValue.vcon _)
-            (LocalValueList.cons (LocalValue.vcon _) LocalValueList.nil)
-  | PairData p =>
-    obtain ⟨a, b⟩ := p
-    simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
-    obtain ⟨_, _, hfs⟩ := hc
-    subst hfs
-    exact LocalValueList.cons (LocalValue.vcon _)
-            (LocalValueList.cons (LocalValue.vcon _) LocalValueList.nil)
-  | Data _ => simp [constToTagAndFields] at hc
-  | ConstArray _ => simp [constToTagAndFields] at hc
-  | Bls12_381_G1_element => simp [constToTagAndFields] at hc
-  | Bls12_381_G2_element => simp [constToTagAndFields] at hc
-  | Bls12_381_MlResult => simp [constToTagAndFields] at hc
+  have h := constToTagAndFields_fields_vcon c
+  rw [hc] at h
+  clear hc
+  induction fs with
+  | nil => exact .nil
+  | cons v vs ih =>
+    obtain ⟨c, rfl⟩ := h v (.head _)
+    exact .cons (.vcon c) (ih fun w hw => h w (.tail _ hw))
 
 --------------------------------------------------------------------------------
--- 10. step_preserves — main bisimulation theorem
+-- 8. step_preserves — main bisimulation theorem
 --------------------------------------------------------------------------------
 
 /-- The bisimulation is preserved by one CEK step. -/
@@ -523,24 +459,7 @@ theorem step_preserves : ∀ {s₁ s₂ : State},
             cases k with
             | argV => exact LocalState.error
             | argQ =>
-              -- step: match evalBuiltin b args with | some => ret | none => error
-              have ⟨h_some, h_none⟩ :=
-                @localValueList_evalBuiltin b args₁ args₂ h_args
-              cases he₁ : evalBuiltin b args₁ with
-              | some v₁ =>
-                obtain ⟨v₂, he₂, h_v_rel⟩ := h_some v₁ he₁
-                show LocalState
-                  (match evalBuiltin b args₁ with | some v => .ret π₁' v | none => .error)
-                  (match evalBuiltin b args₂ with | some v => .ret π₂' v | none => .error)
-                rw [he₁, he₂]
-                exact LocalState.ret h_v_rel h_rest
-              | none =>
-                have he₂ : evalBuiltin b args₂ = none := h_none.mp he₁
-                show LocalState
-                  (match evalBuiltin b args₁ with | some v => .ret π₁' v | none => .error)
-                  (match evalBuiltin b args₂ with | some v => .ret π₂' v | none => .error)
-                rw [he₁, he₂]
-                exact LocalState.error
+              exact localState_evalBuiltin h_args h_rest
           | more k rest =>
             cases k with
             | argV => exact LocalState.error
@@ -570,30 +489,7 @@ theorem step_preserves : ∀ {s₁ s₂ : State},
             cases k with
             | argQ => exact LocalState.error
             | argV =>
-              -- step: evalBuiltin b (v :: args)
-              have h_args' : LocalValueList (v₁ :: args₁) (v₂ :: args₂) :=
-                LocalValueList.cons h_v h_args
-              have ⟨h_some, h_none⟩ :=
-                @localValueList_evalBuiltin b (v₁ :: args₁) (v₂ :: args₂) h_args'
-              cases he₁ : evalBuiltin b (v₁ :: args₁) with
-              | some v_r₁ =>
-                obtain ⟨v_r₂, he₂, h_v_rel⟩ := h_some v_r₁ he₁
-                show LocalState
-                  (match evalBuiltin b (v₁ :: args₁) with
-                    | some v => .ret π₁' v | none => .error)
-                  (match evalBuiltin b (v₂ :: args₂) with
-                    | some v => .ret π₂' v | none => .error)
-                rw [he₁, he₂]
-                exact LocalState.ret h_v_rel h_rest
-              | none =>
-                have he₂ : evalBuiltin b (v₂ :: args₂) = none := h_none.mp he₁
-                show LocalState
-                  (match evalBuiltin b (v₁ :: args₁) with
-                    | some v => .ret π₁' v | none => .error)
-                  (match evalBuiltin b (v₂ :: args₂) with
-                    | some v => .ret π₂' v | none => .error)
-                rw [he₁, he₂]
-                exact LocalState.error
+              exact localState_evalBuiltin (.cons h_v h_args) h_rest
           | more k rest =>
             cases k with
             | argQ => exact LocalState.error
@@ -617,29 +513,7 @@ theorem step_preserves : ∀ {s₁ s₂ : State},
             cases k with
             | argQ => exact LocalState.error
             | argV =>
-              have h_args' : LocalValueList (v_x₁ :: args₁) (v_x₂ :: args₂) :=
-                LocalValueList.cons h_vx h_args
-              have ⟨h_some, h_none⟩ :=
-                @localValueList_evalBuiltin b (v_x₁ :: args₁) (v_x₂ :: args₂) h_args'
-              cases he₁ : evalBuiltin b (v_x₁ :: args₁) with
-              | some v_r₁ =>
-                obtain ⟨v_r₂, he₂, h_v_rel⟩ := h_some v_r₁ he₁
-                show LocalState
-                  (match evalBuiltin b (v_x₁ :: args₁) with
-                    | some v => .ret π₁' v | none => .error)
-                  (match evalBuiltin b (v_x₂ :: args₂) with
-                    | some v => .ret π₂' v | none => .error)
-                rw [he₁, he₂]
-                exact LocalState.ret h_v_rel h_rest
-              | none =>
-                have he₂ : evalBuiltin b (v_x₂ :: args₂) = none := h_none.mp he₁
-                show LocalState
-                  (match evalBuiltin b (v_x₁ :: args₁) with
-                    | some v => .ret π₁' v | none => .error)
-                  (match evalBuiltin b (v_x₂ :: args₂) with
-                    | some v => .ret π₂' v | none => .error)
-                rw [he₁, he₂]
-                exact LocalState.error
+              exact localState_evalBuiltin (.cons h_vx h_args) h_rest
           | more k rest =>
             cases k with
             | argQ => exact LocalState.error
@@ -724,7 +598,7 @@ theorem step_preserves : ∀ {s₁ s₂ : State},
         | vbuiltin _ _ _ => exact LocalState.error
 
 --------------------------------------------------------------------------------
--- 11. Iterated step preservation and halt/error inversion
+-- 9. Iterated step preservation and halt/error inversion
 --------------------------------------------------------------------------------
 
 open Moist.Verified.Equivalence (steps)

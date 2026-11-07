@@ -6,18 +6,12 @@ import Moist.Verified.Contextual.SoundnessRefines
 import Moist.Verified.Definitions.MIR
 import Moist.MIR.LowerTotal
 
-/-! # MIR-Level Equivalence and Refinement
+/-! # MIR-level refinement
 
-Lifts the unidirectional step-indexed logical relation from UPLC terms
-(defined in `Contextual/SoundnessRefines.lean`) to MIR expressions via
-`lowerTotalExpr`.
-
-The relations `MIROpenRefK` / `MIROpenRef` / `MIRRefines` quantify over
-arbitrary environments (no `WellSizedEnv` guard) and are unidirectional
-(refinement, not equivalence). They plug directly into
-`soundness_refines_d` to yield `CtxRefines` on the lowered terms at
-arbitrary depth — giving a clean `MIRRefines → MIRCtxRefines` bridge
-via `mirRefines_to_mirCtxRefines` (defined below in section 5).
+Lifts UPLC refinement to MIR expressions via `lowerTotalExpr`:
+reflexivity/transitivity of `MIRCtxRefines`, the `MIRRefines → MIRCtxRefines`
+bridge (`mirRefines_to_mirCtxRefines`, through `obsRefines_of_openRefines`),
+and `lowerTotalExpr` decomposition lemmas used by the congruences.
 -/
 
 namespace Moist.Verified.MIR
@@ -125,13 +119,6 @@ theorem lowerTotalExpr_closedAt {env : List VarId} {e : Expr} {t : Moist.Plutus.
   exact lowerTotal_closedAt env (Moist.MIR.expandFix e) t h
 
 --------------------------------------------------------------------------------
--- 1. LIFTING `OpenRefines` TO MIR
---
--- The relations `MIROpenRefK`, `MIROpenRef`, `MIRRefines` are now defined
--- in `Moist.Verified.Definitions.MIR`. Basic properties stay here.
---------------------------------------------------------------------------------
-
---------------------------------------------------------------------------------
 -- 3. BASIC PROPERTIES OF MIRCtxRefines
 --------------------------------------------------------------------------------
 
@@ -174,12 +161,11 @@ theorem mirCtxRefines_trans {m₁ m₂ m₃ : Expr} :
 -- `MIRRefines` is unidirectional and provides `MIROpenRef d` at every
 -- depth. For each env, we extract `MIROpenRef env.length`, derive
 -- `OpenRefines env.length` on the `env`-lowerings, and feed it through
--- `soundness_refines_d` (which now supports arbitrary `d`) to obtain
--- `ObsRefines` under any closing context.
+-- `obsRefines_of_openRefines` to obtain `ObsRefines` under any closing context.
 --------------------------------------------------------------------------------
 
 /-- From `MIRRefines m₁ m₂` to `MIRCtxRefines m₁ m₂`, via
-    `soundness_refines_d` at depth `env.length`. Requires an external
+    `obsRefines_of_openRefines` at depth `env.length`. Requires an external
     closedness-preservation hypothesis since `MIRRefines` is a purely
     semantic relation and the new `MIRCtxRefines` (backed by the strict
     `CtxRefines`) bundles closedness preservation into its observation
