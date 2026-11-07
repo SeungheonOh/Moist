@@ -1,6 +1,7 @@
 import Moist.MIR.Optimize.Advanced.Constants
 import Moist.MIR.Optimize.Advanced.Shapes
 import Moist.MIR.Optimize.Advanced.Allocations
+import Moist.MIR.Optimize.Advanced.Sharing
 import Moist.MIR.Optimize.Advanced.Products
 import Moist.MIR.Optimize.Advanced.Recursion
 import Moist.MIR.Optimize.Advanced.CheckedBranches

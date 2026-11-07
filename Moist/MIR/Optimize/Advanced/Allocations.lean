@@ -47,39 +47,4 @@ def eliminateDeadFixRoot (expression : Expr) : Expr :=
 def eliminateDeadFix (expression : Expr) : Expr :=
   rewriteBottomUp eliminateDeadFixRoot (exprSize expression) expression
 
-private partial def collectMatches (predicate : Expr → Bool) (expression : Expr) : List Expr :=
-  if predicate expression then [expression]
-  else (children expression).flatMap (collectMatches predicate)
-
-private partial def replaceMatches (replacements : List (Expr × VarId)) (expression : Expr) : Expr :=
-  match replacements.find? (fun entry => alphaEq entry.1 expression) with
-  | some (_, binder) => .Var binder
-  | none => mapChildren (replaceMatches replacements) expression
-
-private def shareClosed (predicate : Expr → Bool) (minimumUses : Nat) (expression : Expr) : Expr :=
-  let occurrences := collectMatches predicate expression
-  let unique := occurrences.foldl (fun result candidate =>
-    if result.any (alphaEq candidate) then result else result ++ [candidate]) []
-  let selected := unique.filter (fun candidate =>
-    (occurrences.filter (alphaEq candidate)).length >= minimumUses)
-  let start := maxUidExpr expression + 1
-  let replacements := selected.zipIdx |>.map fun (candidate, index) =>
-    (candidate, { uid := start + index, origin := .gen, hint := "shared" : VarId })
-  if replacements.isEmpty then expression
-  else .Let (replacements.map fun (rhs, binder) => (binder, rhs, false))
-    (replaceMatches replacements expression)
-
-def hoistBuiltinStates (minimumUses : Nat := 2) (expression : Expr) : Expr :=
-  shareClosed (fun candidate =>
-    !candidate.isAtom && (freeVars candidate).data.isEmpty &&
-    (builtinRemainder candidate).isSome) minimumUses expression
-
-def poolConstants (minimumBytes : Nat := 32) (expression : Expr) : Expr :=
-  shareClosed (fun candidate =>
-    match candidate with
-    | .Lit literal =>
-      (Moist.Plutus.Encode.encode_program
-        (.Program (.Version 1 1 0) (.Constant literal))).toByteList.length >= minimumBytes
-    | _ => false) 2 expression
-
 end Moist.MIR.Advanced
