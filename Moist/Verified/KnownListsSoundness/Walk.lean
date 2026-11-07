@@ -107,6 +107,76 @@ theorem listPositions_spec {env : List (VarId × Expr)} {lists : List VarId} {f 
       | none => simp
       | some a => intro hk; exact ⟨a, rfl, by simpa using hk⟩
 
+theorem letStable_spec (env : List (VarId × Expr)) (lists : List VarId) (g f : VarId)
+    (params : List VarId) (inner scope : Expr) :
+    ∀ (fuel : Nat) (ps : List Nat),
+      letFixPositions.stable env lists g f params inner scope fuel ps = [] ∨
+        (listCallsOK f params.length (letFixPositions.stable env lists g f params inner scope fuel ps)
+            (listedParameters params (letFixPositions.stable env lists g f params inner scope fuel ps)
+              ++ lists) inner = true ∧
+          listCallsOK g params.length (letFixPositions.stable env lists g f params inner scope fuel ps)
+            (environmentLists env lists ++ lists) scope = true)
+  | 0, ps => .inl (by simp [letFixPositions.stable])
+  | fuel + 1, ps => by
+    simp only [letFixPositions.stable]
+    split
+    · exact .inl rfl
+    · split
+      · split
+        · rename_i h
+          simp only [Bool.and_eq_true] at h
+          exact .inr h
+        · exact .inl rfl
+      · exact letStable_spec env lists g f params inner scope fuel _
+
+theorem letFixPositions_spec {env : List (VarId × Expr)} {lists : List VarId} {g f : VarId}
+    {params : List VarId} {inner scope : Expr}
+    (hne : letFixPositions env lists g f params inner scope ≠ []) :
+    listCallsOK f params.length (letFixPositions env lists g f params inner scope)
+        (listedParameters params (letFixPositions env lists g f params inner scope) ++ lists)
+        inner = true ∧
+      listCallsOK g params.length (letFixPositions env lists g f params inner scope)
+        (environmentLists env lists ++ lists) scope = true := by
+  unfold letFixPositions at hne ⊢
+  rcases letStable_spec env lists g f params inner scope _ _ with h | h
+  · exact absurd h hne
+  · exact h
+
+theorem beq_congr_right {x y : VarId} (hxy : (x == y) = true) (z : VarId) :
+    (z == x) = (z == y) := by
+  obtain ⟨ho, hu⟩ := (VarId.beq_true_iff x y).mp hxy
+  show (z.origin == x.origin && z.uid == x.uid) = (z.origin == y.origin && z.uid == y.uid)
+  rw [ho, hu]
+
+theorem beq_congr_left {x y : VarId} (hxy : (x == y) = true) (z : VarId) :
+    (x == z) = (y == z) := by
+  obtain ⟨ho, hu⟩ := (VarId.beq_true_iff x y).mp hxy
+  show (x.origin == z.origin && x.uid == z.uid) = (y.origin == z.origin && y.uid == z.uid)
+  rw [ho, hu]
+
+theorem listKnown_congr {Γ : List (VarId × Expr)} {L : List VarId} {x y : VarId}
+    (hxy : (x == y) = true) : listKnown Γ L (.Var x) = listKnown Γ L (.Var y) := by
+  have hc : L.contains x = L.contains y := by
+    simp only [List.contains_eq_any_beq]
+    congr 1; funext z; exact beq_congr_left hxy z
+  have hf : Γ.find? (fun entry => entry.1 == x) = Γ.find? (fun entry => entry.1 == y) := by
+    congr 1; funext entry; exact beq_congr_right hxy entry.1
+  show (L.contains x || _) = (L.contains y || _)
+  rw [hc, hf]
+
+theorem environmentLists_known {Γ : List (VarId × Expr)} {L : List VarId} {y : VarId}
+    (h : (environmentLists Γ L ++ L).contains y = true) : listKnown Γ L (.Var y) = true := by
+  obtain ⟨y', hy', hyy'⟩ := List.contains_iff_exists_mem_beq.mp h
+  rw [listKnown_congr hyy']
+  rcases List.mem_append.mp hy' with hy' | hy'
+  · simp only [environmentLists, List.mem_filterMap] at hy'
+    obtain ⟨entry, _, he⟩ := hy'
+    split at he
+    · cases he; assumption
+    · cases he
+  · show (L.contains y' || _) = true
+    rw [List.contains_iff_exists_mem_beq.mpr ⟨y', hy', varId_beq_self y'⟩]; rfl
+
 theorem beq_nullList {x : Expr} (h : (x == Expr.Force (.Builtin .NullList)) = true) :
     x = .Force (.Builtin .NullList) := by
   cases x with
@@ -191,31 +261,52 @@ theorem knownListWalk_rel (e : Expr) (Γ : List (VarId × Expr)) (L : List VarId
     exact (knownListWalk_rel body Γ L).congr_left (fun env => lowerTotalExpr_let_nil env body)
       (fun avoid => freshIn_let_nil avoid body)
   | .Let ((x, r, er) :: rest) body =>
-    rw [knownListWalk.eq_7]
-    exact (KnownRel.let_single (knownListWalk Γ L r) (.inr rfl) (knownListWalk_rel r Γ L)
-      (knownListWalk_rel (.Let rest body) _ L)).congr_left
-      (fun env => lowerTotalExpr_let_cons env _ _ _) (fun avoid => freshIn_let_cons avoid _ _ _)
-  | .Lam x b => rw [knownListWalk.eq_8]; exact (knownListWalk_rel b Γ L).lam
+    by_cases hr : ∃ recursive parameter fixBody, r = .Fix recursive (.Lam parameter fixBody)
+    · obtain ⟨recursive, parameter, fixBody, rfl⟩ := hr
+      rw [knownListWalk.eq_7]
+      split
+      · exact (KnownRel.let_single _ (.inr rfl) (knownListWalk_rel _ Γ L)
+          (knownListWalk_rel (.Let rest body) _ L)).congr_left
+          (fun env => lowerTotalExpr_let_cons env _ _ _) (fun avoid => freshIn_let_cons avoid _ _ _)
+      · rename_i hne
+        simp only
+        have hP : letFixPositions Γ L x recursive (parameter :: (lambdaChain fixBody).1)
+            (lambdaChain fixBody).2 (.Let rest body) ≠ [] := by
+          intro h; rw [h] at hne; exact hne rfl
+        obtain ⟨hcheck, hcheckBody⟩ := letFixPositions_spec hP
+        have hwrap : Expr.Fix recursive (.Lam parameter fixBody) = .Fix recursive
+            (Advanced.lambdaWrap (parameter :: (lambdaChain fixBody).1) (lambdaChain fixBody).2) := by
+          rw [Advanced.lambdaWrap, lambdaChain_wrap]
+        rw [hwrap]
+        exact (KnownRel.letFix (by simp) hcheck (knownListWalk_rel (lambdaChain fixBody).2 Γ _)
+          hcheckBody (fun y hy => environmentLists_known hy)
+          (knownListWalk_rel (.Let rest body) _ L)).congr_left
+          (fun env => lowerTotalExpr_let_cons env _ _ _) (fun avoid => freshIn_let_cons avoid _ _ _)
+    · rw [knownListWalk.eq_8 _ _ _ _ _ _ _ (fun a b c h => hr ⟨a, b, c, h⟩)]
+      exact (KnownRel.let_single (knownListWalk Γ L r) (.inr rfl) (knownListWalk_rel r Γ L)
+        (knownListWalk_rel (.Let rest body) _ L)).congr_left
+        (fun env => lowerTotalExpr_let_cons env _ _ _) (fun avoid => freshIn_let_cons avoid _ _ _)
+  | .Lam x b => rw [knownListWalk.eq_9]; exact (knownListWalk_rel b Γ L).lam
   | .Fix f b =>
-    rw [knownListWalk.eq_9]
+    rw [knownListWalk.eq_10]
     cases b with
     | Lam x inner =>
-      rw [knownListWalk.eq_8]
+      rw [knownListWalk.eq_9]
       exact (knownListWalk_rel inner Γ L).fix_lam
     | _ =>
       intro env t _ _ _ _ _ hlow
       rw [Moist.Verified.MIR.lowerTotalExpr_fix_nonlam_none env f _ (by intros; simp)] at hlow
       cases hlow
-  | .Force b => rw [knownListWalk.eq_10]; exact (knownListWalk_rel b Γ L).force
-  | .Delay b => rw [knownListWalk.eq_11]; exact (knownListWalk_rel b Γ L).delay
+  | .Force b => rw [knownListWalk.eq_11]; exact (knownListWalk_rel b Γ L).force
+  | .Delay b => rw [knownListWalk.eq_12]; exact (knownListWalk_rel b Γ L).delay
   | .Constr tag fields =>
-    rw [knownListWalk.eq_12]
+    rw [knownListWalk.eq_13]
     exact KnownRel.constr
       (listRel_known_attach_map fields (knownListWalk Γ L) fun a _ => knownListWalk_rel a Γ L)
-  | .Var _ => rw [knownListWalk.eq_13]; exact KnownRel.refl _ _ _
-  | .Lit _ => rw [knownListWalk.eq_14]; exact KnownRel.refl _ _ _
-  | .Builtin _ => rw [knownListWalk.eq_15]; exact KnownRel.refl _ _ _
-  | .Error => rw [knownListWalk.eq_16]; exact KnownRel.refl _ _ _
+  | .Var _ => rw [knownListWalk.eq_14]; exact KnownRel.refl _ _ _
+  | .Lit _ => rw [knownListWalk.eq_15]; exact KnownRel.refl _ _ _
+  | .Builtin _ => rw [knownListWalk.eq_16]; exact KnownRel.refl _ _ _
+  | .Error => rw [knownListWalk.eq_17]; exact KnownRel.refl _ _ _
 termination_by exprSize e
 decreasing_by
   all_goals first
@@ -228,6 +319,9 @@ decreasing_by
     | (simp only [exprSize]; omega)
     | (simp only [exprSize, exprSizeBinds]; omega)
     | (simp only [exprSize, exprSizeBinds]; have := exprSize_pos r; omega)
+    | (have := exprSize_lambdaChain fixBody; simp only [exprSize, exprSizeBinds]; omega)
+    | (subst_vars; have := exprSize_lambdaChain fixBody; simp only [exprSize, exprSizeBinds] at *; omega)
+    | (subst_vars; simp only [exprSize, exprSizeBinds]; omega)
     | (have := exprSize_lt_of_mem (by assumption); simp only [exprSize, exprSizeList] at *; omega)
     | (have := exprSize_lt_of_mem (by assumption); simp only [exprSize]; omega)
 

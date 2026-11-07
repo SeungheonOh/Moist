@@ -38,40 +38,40 @@ def ArgOK (P : List Nat) (Ls : List Nat) (position : Nat) (a : Term) : Prop :=
 def shiftLs (n : Nat) (Ls : List Nat) : List Nat := Ls.map (· + n)
 
 mutual
-  inductive Calls (P : List Nat) (m : Nat) : Nat → List Nat → Term → Prop
-    | var {F : Nat} {Ls : List Nat} {i : Nat} : i ≠ F → i ≠ F + 1 → Calls P m F Ls (.Var i)
-    | constant {F : Nat} {Ls : List Nat} {c : Const × BuiltinType} : Calls P m F Ls (.Constant c)
-    | builtin {F : Nat} {Ls : List Nat} {b : BuiltinFun} : Calls P m F Ls (.Builtin b)
-    | error {F : Nat} {Ls : List Nat} : Calls P m F Ls .Error
-    | lam {F : Nat} {Ls : List Nat} {x : Nat} {b : Term} :
-        Calls P m (F + 1) (shiftLs 1 Ls) b → Calls P m F Ls (.Lam x b)
-    | apply {F : Nat} {Ls : List Nat} {f a : Term} :
-        Calls P m F Ls f → Calls P m F Ls a → Calls P m F Ls (.Apply f a)
-    | call {F : Nat} {Ls : List Nat} {f a : Term} :
-        Spine P m F Ls 1 f → Calls P m F Ls a → ArgOK P Ls (m - 1) a →
-        Calls P m F Ls (.Apply f a)
-    | force {F : Nat} {Ls : List Nat} {t : Term} : Calls P m F Ls t → Calls P m F Ls (.Force t)
-    | delay {F : Nat} {Ls : List Nat} {t : Term} : Calls P m F Ls t → Calls P m F Ls (.Delay t)
-    | constr {F : Nat} {Ls : List Nat} {tag : Nat} {ts : List Term} :
-        CallsList P m F Ls ts → Calls P m F Ls (.Constr tag ts)
-    | case {F : Nat} {Ls : List Nat} {s : Term} {alts : List Term} :
-        Calls P m F Ls s → CallsList P m F Ls alts → Calls P m F Ls (.Case s alts)
-    | listCase {F : Nat} {Ls : List Nat} {z x y : Nat} {C : Term} {rest : List Term} :
-        z ∈ Ls → Calls P m (F + 2) (1 :: shiftLs 2 Ls) C → CallsList P m F Ls rest →
-        Calls P m F Ls (.Case (.Var z) (.Lam x (.Lam y C) :: rest))
+  inductive Calls (P : List Nat) (m : Nat) : Nat → List Nat → List Nat → Term → Prop
+    | var {F : Nat} {X Ls : List Nat} {i : Nat} : i ≠ F → i ∉ X → Calls P m F X Ls (.Var i)
+    | constant {F : Nat} {X Ls : List Nat} {c : Const × BuiltinType} : Calls P m F X Ls (.Constant c)
+    | builtin {F : Nat} {X Ls : List Nat} {b : BuiltinFun} : Calls P m F X Ls (.Builtin b)
+    | error {F : Nat} {X Ls : List Nat} : Calls P m F X Ls .Error
+    | lam {F : Nat} {X Ls : List Nat} {x : Nat} {b : Term} :
+        Calls P m (F + 1) (shiftLs 1 X) (shiftLs 1 Ls) b → Calls P m F X Ls (.Lam x b)
+    | apply {F : Nat} {X Ls : List Nat} {f a : Term} :
+        Calls P m F X Ls f → Calls P m F X Ls a → Calls P m F X Ls (.Apply f a)
+    | call {F : Nat} {X Ls : List Nat} {f a : Term} :
+        Spine P m F X Ls 1 f → Calls P m F X Ls a → ArgOK P Ls (m - 1) a →
+        Calls P m F X Ls (.Apply f a)
+    | force {F : Nat} {X Ls : List Nat} {t : Term} : Calls P m F X Ls t → Calls P m F X Ls (.Force t)
+    | delay {F : Nat} {X Ls : List Nat} {t : Term} : Calls P m F X Ls t → Calls P m F X Ls (.Delay t)
+    | constr {F : Nat} {X Ls : List Nat} {tag : Nat} {ts : List Term} :
+        CallsList P m F X Ls ts → Calls P m F X Ls (.Constr tag ts)
+    | case {F : Nat} {X Ls : List Nat} {s : Term} {alts : List Term} :
+        Calls P m F X Ls s → CallsList P m F X Ls alts → Calls P m F X Ls (.Case s alts)
+    | listCase {F : Nat} {X Ls : List Nat} {z x y : Nat} {C : Term} {rest : List Term} :
+        z ∈ Ls → Calls P m (F + 2) (shiftLs 2 X) (1 :: shiftLs 2 Ls) C → CallsList P m F X Ls rest →
+        Calls P m F X Ls (.Case (.Var z) (.Lam x (.Lam y C) :: rest))
 
-  /-- `Spine P m F Ls r t`: `t` is the recursive function applied to its first
+  /-- `Spine P m F X Ls r t`: `t` is the recursive function applied to its first
       `m - r` arguments. -/
-  inductive Spine (P : List Nat) (m : Nat) : Nat → List Nat → Nat → Term → Prop
-    | head {F : Nat} {Ls : List Nat} : Spine P m F Ls m (.Var F)
-    | arg {F : Nat} {Ls : List Nat} {r : Nat} {f a : Term} :
-        Spine P m F Ls (r + 2) f → Calls P m F Ls a → ArgOK P Ls (m - (r + 2)) a →
-        Spine P m F Ls (r + 1) (.Apply f a)
+  inductive Spine (P : List Nat) (m : Nat) : Nat → List Nat → List Nat → Nat → Term → Prop
+    | head {F : Nat} {X Ls : List Nat} : Spine P m F X Ls m (.Var F)
+    | arg {F : Nat} {X Ls : List Nat} {r : Nat} {f a : Term} :
+        Spine P m F X Ls (r + 2) f → Calls P m F X Ls a → ArgOK P Ls (m - (r + 2)) a →
+        Spine P m F X Ls (r + 1) (.Apply f a)
 
-  inductive CallsList (P : List Nat) (m : Nat) : Nat → List Nat → List Term → Prop
-    | nil {F : Nat} {Ls : List Nat} : CallsList P m F Ls []
-    | cons {F : Nat} {Ls : List Nat} {t : Term} {ts : List Term} :
-        Calls P m F Ls t → CallsList P m F Ls ts → CallsList P m F Ls (t :: ts)
+  inductive CallsList (P : List Nat) (m : Nat) : Nat → List Nat → List Nat → List Term → Prop
+    | nil {F : Nat} {X Ls : List Nat} : CallsList P m F X Ls []
+    | cons {F : Nat} {X Ls : List Nat} {t : Term} {ts : List Term} :
+        Calls P m F X Ls t → CallsList P m F X Ls ts → CallsList P m F X Ls (t :: ts)
 end
 
 /-! ## Functions agreeing on list arguments -/
@@ -128,15 +128,15 @@ theorem ContOf_wf {P : List Nat} {m r j : Nat} {π₁ π₂ : Stack} (h : ContOf
 
 /-! ## Environments -/
 
-structure EnvOK (P : List Nat) (m : Nat) (k D F : Nat) (Ls : List Nat) (ρ₁ ρ₂ : CekEnv) : Prop where
-  other : ∀ n, 0 < n → n ≤ D → n ≠ F → n ≠ F + 1 →
+structure EnvOK (P : List Nat) (m : Nat) (k D F : Nat) (X Ls : List Nat) (ρ₁ ρ₂ : CekEnv) : Prop where
+  other : ∀ n, 0 < n → n ≤ D → n ≠ F → n ∉ X →
     ∃ v₁ v₂, ρ₁.lookup n = some v₁ ∧ ρ₂.lookup n = some v₂ ∧ ValueRel wfGuard k v₁ v₂
   lists : ∀ i ∈ Ls, ∃ l, ρ₁.lookup i = some l ∧ ρ₂.lookup i = some l ∧ ListValue l
   recursive : ∃ r₁ r₂, ρ₁.lookup F = some r₁ ∧ ρ₂.lookup F = some r₂ ∧ PR P m m k r₁ r₂ ∧
     ValueWellFormed r₁ ∧ ValueWellFormed r₂
 
-theorem EnvOK.mono {P : List Nat} {m j k D F : Nat} {Ls : List Nat} {ρ₁ ρ₂ : CekEnv}
-    (hjk : j ≤ k) (h : EnvOK P m k D F Ls ρ₁ ρ₂) : EnvOK P m j D F Ls ρ₁ ρ₂ := by
+theorem EnvOK.mono {P : List Nat} {m j k D F : Nat} {X Ls : List Nat} {ρ₁ ρ₂ : CekEnv}
+    (hjk : j ≤ k) (h : EnvOK P m k D F X Ls ρ₁ ρ₂) : EnvOK P m j D F X Ls ρ₁ ρ₂ := by
   refine ⟨fun n hn hnd h₁ h₂ => ?_, h.lists, ?_⟩
   · obtain ⟨v₁, v₂, e₁, e₂, hv⟩ := h.other n hn hnd h₁ h₂
     exact ⟨v₁, v₂, e₁, e₂, valueRel_mono hjk hv⟩
@@ -156,24 +156,29 @@ theorem mem_shiftLs {n i : Nat} {Ls : List Nat} : i ∈ shiftLs n Ls ↔ ∃ j �
   · rintro ⟨j, hj, rfl⟩; exact ⟨j, hj, rfl⟩
   · rintro ⟨j, hj, rfl⟩; exact ⟨j, hj, rfl⟩
 
-theorem EnvOK.lists_pos {P : List Nat} {m k D F : Nat} {Ls : List Nat} {ρ₁ ρ₂ : CekEnv}
-    (h : EnvOK P m k D F Ls ρ₁ ρ₂) : ∀ i ∈ Ls, 0 < i := by
+theorem shiftLs_shiftLs (a b : Nat) (X : List Nat) : shiftLs a (shiftLs b X) = shiftLs (b + a) X := by
+  simp only [shiftLs, List.map_map]
+  congr 1; funext x; simp [Nat.add_assoc]
+
+theorem EnvOK.lists_pos {P : List Nat} {m k D F : Nat} {X Ls : List Nat} {ρ₁ ρ₂ : CekEnv}
+    (h : EnvOK P m k D F X Ls ρ₁ ρ₂) : ∀ i ∈ Ls, 0 < i := by
   intro i hi
   obtain ⟨l, h₁, _, _⟩ := h.lists i hi
   cases i with
   | zero => cases ρ₁ <;> simp [CekEnv.lookup] at h₁
   | succ i => omega
 
-theorem EnvOK.extend {P : List Nat} {m k D F : Nat} {Ls : List Nat} {ρ₁ ρ₂ : CekEnv}
-    {w₁ w₂ : CekValue} (h : EnvOK P m k D F Ls ρ₁ ρ₂) (hw : ValueRel wfGuard k w₁ w₂) :
-    EnvOK P m k (D + 1) (F + 1) (shiftLs 1 Ls) (ρ₁.extend w₁) (ρ₂.extend w₂) := by
+theorem EnvOK.extend {P : List Nat} {m k D F : Nat} {X Ls : List Nat} {ρ₁ ρ₂ : CekEnv}
+    {w₁ w₂ : CekValue} (h : EnvOK P m k D F X Ls ρ₁ ρ₂) (hw : ValueRel wfGuard k w₁ w₂) :
+    EnvOK P m k (D + 1) (F + 1) (shiftLs 1 X) (shiftLs 1 Ls) (ρ₁.extend w₁) (ρ₂.extend w₂) := by
   have hpos := h.lists_pos
   refine ⟨fun n hn hnd h₁ h₂ => ?_, fun i hi => ?_, ?_⟩
   · by_cases h1 : n = 1
     · subst h1; exact ⟨w₁, w₂, rfl, rfl, hw⟩
     · obtain ⟨n', rfl⟩ : ∃ n', n = n' + 1 := ⟨n - 1, by omega⟩
       rw [lookup_extend_succ _ _ _ (by omega), lookup_extend_succ _ _ _ (by omega)]
-      exact h.other n' (by omega) (by omega) (by omega) (by omega)
+      exact h.other n' (by omega) (by omega) (by omega)
+        (fun hx => h₂ (mem_shiftLs.mpr ⟨n', hx, rfl⟩))
   · obtain ⟨j, hj, rfl⟩ := mem_shiftLs.mp hi
     rw [lookup_extend_succ _ _ _ (hpos j hj), lookup_extend_succ _ _ _ (hpos j hj)]
     exact h.lists j hj
@@ -186,10 +191,10 @@ theorem EnvOK.extend {P : List Nat} {m k D F : Nat} {Ls : List Nat} {ρ₁ ρ₂
     exact ⟨r₁, r₂, e₁, e₂, hr, v₁, v₂⟩
 
 /-- Entering the alternative of a list `case` that binds the head and tail. -/
-theorem EnvOK.extendCons {P : List Nat} {m k D F : Nat} {Ls : List Nat} {ρ₁ ρ₂ : CekEnv}
-    {h t : CekValue} (henv : EnvOK P m k D F Ls ρ₁ ρ₂) (hh : ValueRel wfGuard k h h)
+theorem EnvOK.extendCons {P : List Nat} {m k D F : Nat} {X Ls : List Nat} {ρ₁ ρ₂ : CekEnv}
+    {h t : CekValue} (henv : EnvOK P m k D F X Ls ρ₁ ρ₂) (hh : ValueRel wfGuard k h h)
     (ht : ListValue t) :
-    EnvOK P m k (D + 2) (F + 2) (1 :: shiftLs 2 Ls) ((ρ₁.extend h).extend t)
+    EnvOK P m k (D + 2) (F + 2) (shiftLs 2 X) (1 :: shiftLs 2 Ls) ((ρ₁.extend h).extend t)
       ((ρ₂.extend h).extend t) := by
   have h₁ := henv.extend hh
   have htt : ValueRel wfGuard k t t := by
@@ -197,6 +202,7 @@ theorem EnvOK.extendCons {P : List Nat} {m k D F : Nat} {Ls : List Nat} {ρ₁ �
     | VCon c => exact valueRel_vcon k c
     | _ => exact absurd ht id
   have h₂ := h₁.extend htt
+  rw [shiftLs_shiftLs] at h₂
   refine ⟨h₂.other, fun i hi => ?_, h₂.recursive⟩
   rcases List.mem_cons.mp hi with rfl | hi
   · exact ⟨t, rfl, rfl, ht⟩
@@ -261,8 +267,8 @@ theorem listCase_dispatch {v : CekValue} (hv : ListValue v) :
 /-! ## Evaluation -/
 
 /-- Applying a partial call to one more argument. -/
-theorem apply_spine {P : List Nat} {m F r k D : Nat} {Ls : List Nat} {ρ₁ ρ₂ : CekEnv} {f a : Term}
-    (henv : EnvOK P m k D F Ls ρ₁ ρ₂)
+theorem apply_spine {P : List Nat} {m F r k D : Nat} {X Ls : List Nat} {ρ₁ ρ₂ : CekEnv} {f a : Term}
+    (henv : EnvOK P m k D F X Ls ρ₁ ρ₂)
     (hf : ∀ j ≤ k, ∀ π₁ π₂, ContOf P m (r + 1) j π₁ π₂ →
       wfGuard.St (.compute π₁ ρ₁ f) → wfGuard.St (.compute π₂ ρ₂ f) →
       ObsRefinesK j (.compute π₁ ρ₁ f) (.compute π₂ ρ₂ f))
@@ -304,9 +310,9 @@ theorem apply_spine {P : List Nat} {m F r k D : Nat} {Ls : List Nat} {ρ₁ ρ�
       (ContOf_mono (by omega) hπ')
 
 mutual
-  theorem calls_eval {P : List Nat} {m F : Nat} {Ls : List Nat} {t : Term}
-      (h : Calls P m F Ls t) {k D : Nat} {ρ₁ ρ₂ : CekEnv} (ht : closedAt D t = true)
-      (henv : EnvOK P m k D F Ls ρ₁ ρ₂) : Eval wfGuard k ρ₁ ρ₂ t t := by
+  theorem calls_eval {P : List Nat} {m F : Nat} {X Ls : List Nat} {t : Term}
+      (h : Calls P m F X Ls t) {k D : Nat} {ρ₁ ρ₂ : CekEnv} (ht : closedAt D t = true)
+      (henv : EnvOK P m k D F X Ls ρ₁ ρ₂) : Eval wfGuard k ρ₁ ρ₂ t t := by
     match h with
     | .var (i := n) hF hS =>
       refine eval_of_step fun j hj π₁ π₂ hπ hst₁ hst₂ => ?_
@@ -425,9 +431,9 @@ mutual
             exact calls_eval halt htrest.1 (henv.mono (by omega)) j (Nat.le_refl _) π₁ π₂
               (stackRel_mono (by omega) hπ) hd₁ hd₂
 
-  theorem spine_eval {P : List Nat} {m F r : Nat} {Ls : List Nat} {t : Term}
-      (h : Spine P m F Ls r t) (hr : 0 < r) {k D : Nat} {ρ₁ ρ₂ : CekEnv}
-      (ht : closedAt D t = true) (henv : EnvOK P m k D F Ls ρ₁ ρ₂) :
+  theorem spine_eval {P : List Nat} {m F r : Nat} {X Ls : List Nat} {t : Term}
+      (h : Spine P m F X Ls r t) (hr : 0 < r) {k D : Nat} {ρ₁ ρ₂ : CekEnv}
+      (ht : closedAt D t = true) (henv : EnvOK P m k D F X Ls ρ₁ ρ₂) :
       ∀ j ≤ k, ∀ π₁ π₂, ContOf P m r j π₁ π₂ →
         wfGuard.St (.compute π₁ ρ₁ t) → wfGuard.St (.compute π₂ ρ₂ t) →
         ObsRefinesK j (.compute π₁ ρ₁ t) (.compute π₂ ρ₂ t) := by
@@ -448,9 +454,9 @@ mutual
           spine_eval hs (by omega) ht.1 henv j hj π₁ π₂ hπ hst₁ hst₂)
         (calls_eval ha ht.2 henv) hok
 
-  theorem callsList_eval {P : List Nat} {m F : Nat} {Ls : List Nat} {ts : List Term}
-      (h : CallsList P m F Ls ts) {k D : Nat} {ρ₁ ρ₂ : CekEnv} (hts : closedAtList D ts = true)
-      (henv : EnvOK P m k D F Ls ρ₁ ρ₂) : ListRel (Eval wfGuard k ρ₁ ρ₂) ts ts := by
+  theorem callsList_eval {P : List Nat} {m F : Nat} {X Ls : List Nat} {ts : List Term}
+      (h : CallsList P m F X Ls ts) {k D : Nat} {ρ₁ ρ₂ : CekEnv} (hts : closedAtList D ts = true)
+      (henv : EnvOK P m k D F X Ls ρ₁ ρ₂) : ListRel (Eval wfGuard k ρ₁ ρ₂) ts ts := by
     match h with
     | .nil => exact trivial
     | .cons ht hts' =>

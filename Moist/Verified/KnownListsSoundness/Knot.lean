@@ -323,7 +323,7 @@ theorem partial_PR (k : Nat) (ih : ∀ j < k, Knot P m tB₁ tB₂ T₁ T₂ ρ 
     · simp only [steps, step, extendAll_snoc, show r + 1 - 1 = r by omega]
 
 /-- The knot at every index. -/
-theorem knot (hcalls : Calls P m (m + 1) Ls T₁)
+theorem knot (hcalls : Calls P m (m + 1) [m + 2] Ls T₁)
     (hLs : ∀ i ∈ Ls, (0 < i ∧ i ≤ m ∧ m - i ∈ P) ∨
       (m + 2 < i ∧ ∃ l, ρ.lookup (i - (m + 2)) = some l ∧ ListValue l))
     (hbody : ∀ as : List CekValue, as.length = m → (∀ a ∈ as, ValueWellFormed a) →
@@ -361,10 +361,11 @@ theorem knot (hcalls : Calls P m (m + 1) Ls T₁)
       (extendAll (fixEnv tB ρ) as).lookup (m + 1) = some (recVal tB ρ) := by
     intro tB as hl
     rw [extendAll_lookup_high _ as (m + 1) (by omega), hl, show m + 1 - m = 1 by omega]; rfl
-  have henv : EnvOK P m k (d + 2 + m) (m + 1) Ls (extendAll (fixEnv tB₁ ρ) as₁)
+  have henv : EnvOK P m k (d + 2 + m) (m + 1) [m + 2] Ls (extendAll (fixEnv tB₁ ρ) as₁)
       (extendAll (fixEnv tB₂ ρ) as₂) := by
     refine ⟨fun n hn hnd hF hS => ?_, fun i hi => ?_, ?_⟩
-    · by_cases hnm : n ≤ m
+    · have hS' : n ≠ m + 2 := fun h => hS (by simp [h])
+      by_cases hnm : n ≤ m
       · rw [hlookup_low _ as₁ hlen₁ n hn hnm, hlookup_low _ as₂ hlen₂ n hn hnm]
         rcases listRel_getElem? hrel (m - n) with ⟨h₁, _⟩ | ⟨x, y, h₁, h₂, hxy⟩
         · rw [List.getElem?_eq_none_iff] at h₁; omega

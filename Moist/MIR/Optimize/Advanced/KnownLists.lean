@@ -166,6 +166,31 @@ where
           if listCallsOK recursive parameters.length positions assumed body then positions else []
         else stable fuel kept
 
+/-- Names bound by `environment` to known lists. -/
+def environmentLists (environment : List (VarId × Expr)) (lists : List VarId) : List VarId :=
+  environment.filterMap fun entry =>
+    if listKnown environment lists (.Var entry.1) then some entry.1 else none
+
+/-- Positions of a let-bound recursive function's parameters holding lists in
+    every call: the calls in the scope of the binding and the recursive calls. -/
+def letFixPositions (environment : List (VarId × Expr)) (lists : List VarId) (binder recursive : VarId)
+    (parameters : List VarId) (inner scope : Expr) : List Nat :=
+  stable (parameters.length + 1) (List.range parameters.length)
+where
+  stable : Nat → List Nat → List Nat
+    | 0, _ => []
+    | fuel + 1, positions =>
+      if positions.isEmpty then [] else
+        let assumed := listedParameters parameters positions ++ lists
+        let outer := environmentLists environment lists ++ lists
+        let kept := positions.filter fun position =>
+          listCallsOK recursive parameters.length [position] assumed inner &&
+            listCallsOK binder parameters.length [position] outer scope
+        if kept.length == positions.length then
+          if listCallsOK recursive parameters.length positions assumed inner &&
+              listCallsOK binder parameters.length positions outer scope then positions else []
+        else stable fuel kept
+
 /-- A recursive function applied to at least one argument. -/
 def fixApplication : Expr → List Expr → Option (VarId × VarId × Expr × List Expr)
   | .App function argument, arguments => fixApplication function (argument :: arguments)
@@ -276,8 +301,21 @@ def knownListWalk (environment : List (VarId × Expr)) (lists : List VarId) (exp
         (alternatives.attach.map fun ⟨alternative, _⟩ => knownListWalk environment lists alternative)
   | .Let [] body => knownListWalk environment lists body
   | .Let ((binder, rhs, erased) :: rest) body =>
-    let rhs' := knownListWalk environment lists rhs
-    .Let [(binder, rhs', erased)] (knownListWalk ((binder, rhs') :: environment) lists (.Let rest body))
+    match hr : rhs with
+    | .Fix recursive (.Lam parameter fixBody) =>
+      let parameters := parameter :: (lambdaChain fixBody).1
+      let inner := (lambdaChain fixBody).2
+      let positions := letFixPositions environment lists binder recursive parameters inner (.Let rest body)
+      if positions.isEmpty then
+        let rhs' := knownListWalk environment lists (.Fix recursive (.Lam parameter fixBody))
+        .Let [(binder, rhs', erased)] (knownListWalk ((binder, rhs') :: environment) lists (.Let rest body))
+      else
+        let rhs' := Expr.Fix recursive (lambdaWrap parameters
+          (knownListWalk environment (listedParameters parameters positions ++ lists) inner))
+        .Let [(binder, rhs', erased)] (knownListWalk ((binder, rhs') :: environment) lists (.Let rest body))
+    | other =>
+      let rhs' := knownListWalk environment lists other
+      .Let [(binder, rhs', erased)] (knownListWalk ((binder, rhs') :: environment) lists (.Let rest body))
   | .Lam binder body => .Lam binder (knownListWalk environment lists body)
   | .Fix binder body => .Fix binder (knownListWalk environment lists body)
   | .Force body => .Force (knownListWalk environment lists body)
@@ -296,6 +334,9 @@ decreasing_by
     | (subst_vars; simp only [exprSize, exprSizeList]; omega)
     | (simp only [exprSize, exprSizeBinds]; omega)
     | (simp only [exprSize, exprSizeBinds]; have := exprSize_pos rhs; omega)
+    | (subst_vars; have := exprSize_lambdaChain fixBody; simp only [exprSize, exprSizeBinds] at *; omega)
+    | (subst_vars; simp only [exprSize, exprSizeBinds]; omega)
+    | (simp only [exprSize, exprSizeBinds]; have := exprSize_pos other; omega)
     | (subst_vars; have := exprSize_lt_of_mem (by assumption); simp only [exprSize, exprSizeList]; omega)
     | (subst_vars; have := exprSize_lt_of_mem (by assumption); simp only [exprSize, exprSizeList] at *; omega)
     | (have := exprSize_lt_of_mem (by assumption); simp only [exprSize]; omega)
