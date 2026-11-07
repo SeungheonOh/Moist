@@ -2,7 +2,6 @@ import Moist.Verified.Equivalence
 import Moist.Verified.ClosedAt
 import Moist.Verified.Contextual
 import Moist.Verified.Contextual.Congruence
-import Moist.Verified.Contextual.Soundness
 import Moist.Verified.Contextual.SoundnessRefines
 import Moist.Verified.Definitions.MIR
 import Moist.MIR.LowerTotal
@@ -36,7 +35,7 @@ open Moist.Verified.Contextual
    ctxRefines_constr_one ctxRefines_constr ctxRefines_case_scrut
    ctxRefines_case_one_alt ctxRefines_case)
 open Moist.Verified.Equivalence (ObsEq ListRel)
-open Moist.Verified.Contextual.Soundness (soundness)
+
 open Moist.Verified.Contextual.SoundnessRefines
   (EnvRefinesK BehRefinesK ValueRefinesK StackRefK OpenRefinesK OpenRefines
    soundness_refines obsRefines_of_openRefines)
@@ -138,22 +137,6 @@ theorem lowerTotalExpr_closedAt {env : List VarId} {e : Expr} {t : Moist.Plutus.
 -- in `Moist.Verified.Definitions.MIR`. Basic properties stay here.
 --------------------------------------------------------------------------------
 
-private theorem mirOpenRefK_lower {k d : Nat} {m₁ m₂ : Expr} {env : List VarId}
-    {t₁ t₂ : Moist.Plutus.Term.Term}
-    (h : MIROpenRefK k d m₁ m₂) (hlen : env.length = d)
-    (h₁ : lowerTotalExpr env m₁ = some t₁) (h₂ : lowerTotalExpr env m₂ = some t₂) :
-    ∀ j ≤ k, ∀ ρ₁ ρ₂, EnvRefinesK j d ρ₁ ρ₂ →
-      BehRefinesK ValueRefinesK j ρ₁ ρ₂ t₁ t₂ := by
-  have := h env hlen; simp only [h₁, h₂] at this; exact this
-
-theorem mirOpenRefK_mono {j k d : Nat} {m₁ m₂ : Expr}
-    (hjk : j ≤ k) (h : MIROpenRefK k d m₁ m₂) : MIROpenRefK j d m₁ m₂ := by
-  intro env hlen
-  cases h₁ : lowerTotalExpr env m₁ <;> cases h₂ : lowerTotalExpr env m₂ <;>
-    simp only [] <;> try trivial
-  have := mirOpenRefK_lower h hlen h₁ h₂
-  exact fun j' hj' => this j' (by omega)
-
 --------------------------------------------------------------------------------
 -- 2. CONTEXTUAL EQUIVALENCE & REFINEMENT
 --
@@ -198,105 +181,9 @@ theorem mirCtxRefines_trans {m₁ m₂ m₃ : Expr} :
         show CtxRefines t₁ t₃
         exact ctxRefines_trans hctx12 hctx23
 
-/-- Reflexivity of `MIRCtxEq`. -/
-theorem mirCtxEq_refl (m : Expr) : MIRCtxEq m m := by
-  intro env
-  refine ⟨Iff.rfl, ?_⟩
-  cases h : lowerTotalExpr env m with
-  | none => trivial
-  | some _ => exact ctxEq_refl _
-
-/-- Symmetry of `MIRCtxEq`. Uses `ctxEq_symm` from `Contextual.lean`. -/
-theorem mirCtxEq_symm {m₁ m₂ : Expr} :
-    MIRCtxEq m₁ m₂ → MIRCtxEq m₂ m₁ := by
-  intro h env
-  obtain ⟨hiff, hctx⟩ := h env
-  refine ⟨hiff.symm, ?_⟩
-  cases h₁ : lowerTotalExpr env m₁ with
-  | none =>
-    cases h₂ : lowerTotalExpr env m₂ with
-    | none => trivial
-    | some _ => trivial
-  | some t₁ =>
-    cases h₂ : lowerTotalExpr env m₂ with
-    | none => trivial
-    | some t₂ =>
-      rw [h₁, h₂] at hctx
-      -- hctx : CtxEq t₁ t₂
-      show CtxEq t₂ t₁
-      exact ctxEq_symm hctx
-
-/-- Transitivity of `MIRCtxEq`. Takes the same middle-closedness side
-    condition as `ctxEq_trans` in `Contextual.lean` (since `CtxEq` is
-    closedness-agnostic and can't derive middle closedness on its own). -/
-theorem mirCtxEq_trans {m₁ m₂ m₃ : Expr}
-    (h_closed_mid : ∀ env C,
-      (∀ t₁, lowerTotalExpr env m₁ = some t₁ → closedAt 0 (fill C t₁) = true) →
-      (∀ t₃, lowerTotalExpr env m₃ = some t₃ → closedAt 0 (fill C t₃) = true) →
-      ∀ t₂, lowerTotalExpr env m₂ = some t₂ → closedAt 0 (fill C t₂) = true) :
-    MIRCtxEq m₁ m₂ → MIRCtxEq m₂ m₃ → MIRCtxEq m₁ m₃ := by
-  intro h12 h23 env
-  obtain ⟨hiff12, hctx12⟩ := h12 env
-  obtain ⟨hiff23, hctx23⟩ := h23 env
-  refine ⟨hiff12.trans hiff23, ?_⟩
-  cases h₁ : lowerTotalExpr env m₁ with
-  | none => trivial
-  | some t₁ =>
-    cases h₃ : lowerTotalExpr env m₃ with
-    | none => trivial
-    | some t₃ =>
-      have hsome2 : (lowerTotalExpr env m₂).isSome := hiff12.mp (by rw [h₁]; trivial)
-      cases h₂ : lowerTotalExpr env m₂ with
-      | none => rw [h₂] at hsome2; exact absurd hsome2 (by simp)
-      | some t₂ =>
-        rw [h₁, h₂] at hctx12
-        rw [h₂, h₃] at hctx23
-        -- hctx12 : CtxEq t₁ t₂, hctx23 : CtxEq t₂ t₃
-        show CtxEq t₁ t₃
-        refine ctxEq_trans ?_ hctx12 hctx23
-        intro C hC1 hC3
-        exact h_closed_mid env C
-          (fun _ heq => by cases heq.symm.trans h₁; exact hC1)
-          (fun _ heq => by cases heq.symm.trans h₃; exact hC3)
-          t₂ h₂
-
 --------------------------------------------------------------------------------
 -- 4. MIRCtxEq ↔ bidirectional MIRCtxRefines
 --------------------------------------------------------------------------------
-
-/-- Bidirectional `MIRCtxRefines` collapses to `MIRCtxEq`.
-
-    (The converse `MIRCtxEq → bidirectional MIRCtxRefines` is *not*
-    automatic: the new `CtxRefines` bundles closedness preservation, but
-    `CtxEq` is closedness-agnostic by design — so the forward direction
-    would need additional external closedness-preservation hypotheses.
-    Removed for simplicity; downstream consumers that need it can bridge
-    via `CtxEq.toCtxRefines` + their own closedness preservation.) -/
-theorem mirCtxEq_of_mirCtxRefines_bidir {m₁ m₂ : Expr}
-    (h12 : MIRCtxRefines m₁ m₂) (h21 : MIRCtxRefines m₂ m₁) :
-    MIRCtxEq m₁ m₂ := by
-  intro env
-  obtain ⟨hsome12, hctx12⟩ := h12 env
-  obtain ⟨hsome21, hctx21⟩ := h21 env
-  refine ⟨⟨hsome12, hsome21⟩, ?_⟩
-  cases h₁ : lowerTotalExpr env m₁ with
-  | none =>
-    cases h₂ : lowerTotalExpr env m₂ with
-    | none => trivial
-    | some _ => trivial
-  | some t₁ =>
-    cases h₂ : lowerTotalExpr env m₂ with
-    | none => trivial
-    | some t₂ =>
-      rw [h₁, h₂] at hctx12
-      rw [h₁, h₂] at hctx21
-      -- hctx12 : CtxRefines t₁ t₂, hctx21 : CtxRefines t₂ t₁
-      intro C hC1 hC2
-      obtain ⟨_, ref12⟩ := hctx12 C hC1
-      obtain ⟨_, ref21⟩ := hctx21 C hC2
-      exact ObsEq.mk
-        (Iff.intro ref12.halt ref21.halt)
-        (Iff.intro ref12.error ref21.error)
 
 --------------------------------------------------------------------------------
 -- 5. BRIDGE: `MIRRefines` → `MIRCtxRefines`.
@@ -411,22 +298,6 @@ theorem lowerTotalExpr_case (env : List VarId) (scrut : Expr) (alts : List Expr)
 
 /-! ### 6b. Projections from `MIRCtxEq` -/
 
-/-- Extract `CtxEq` on the lowered UPLC terms from `MIRCtxEq` at a specific
-    env, given that both sides lower successfully. -/
-theorem MIRCtxEq.toCtxEq {m₁ m₂ : Expr} {env : List VarId}
-    {t₁ t₂ : Moist.Plutus.Term.Term}
-    (h : MIRCtxEq m₁ m₂)
-    (hlow₁ : lowerTotalExpr env m₁ = some t₁)
-    (hlow₂ : lowerTotalExpr env m₂ = some t₂) : CtxEq t₁ t₂ := by
-  have ⟨_, hctx⟩ := h env
-  rw [hlow₁, hlow₂] at hctx
-  exact hctx
-
-/-- Extract the compile-status iff from `MIRCtxEq` at a specific env. -/
-theorem MIRCtxEq.toIff {m₁ m₂ : Expr} (env : List VarId) (h : MIRCtxEq m₁ m₂) :
-    (lowerTotalExpr env m₁).isSome ↔ (lowerTotalExpr env m₂).isSome :=
-  (h env).1
-
 /-! ### 6c. Unary / binary constructor congruences for `MIRCtxEq`
     → moved to `Moist.Verified.MIR.Congruence`. -/
 
@@ -448,89 +319,6 @@ theorem lowerTotalExprList_cons (env : List VarId) (e : Expr) (es : List Expr) :
           some (t :: ts)) := by
   simp only [lowerTotalExprList, lowerTotalExpr,
              Moist.MIR.expandFixList, Moist.MIR.lowerTotalList]
-
-/-- `MIRCtxEq`-related lists have matching `lowerTotalExprList` success. -/
-theorem listRel_mirCtxEq_isSome_iff :
-    ∀ {args₁ args₂ : List Expr},
-      ListRel MIRCtxEq args₁ args₂ →
-      ∀ env, (lowerTotalExprList env args₁).isSome ↔ (lowerTotalExprList env args₂).isSome
-  | [], [], _, _ => by simp [lowerTotalExprList_nil]
-  | _ :: _, [], h, _ => absurd h id
-  | [], _ :: _, h, _ => absurd h id
-  | e₁ :: es₁, e₂ :: es₂, ⟨hhead, htail⟩, env => by
-      rw [lowerTotalExprList_cons, lowerTotalExprList_cons]
-      have hhead_iff := hhead.toIff env
-      have htail_iff := listRel_mirCtxEq_isSome_iff htail env
-      cases h₁ : lowerTotalExpr env e₁ with
-      | none =>
-        have hf₂ : lowerTotalExpr env e₂ = none := by
-          cases heq : lowerTotalExpr env e₂
-          · rfl
-          · exfalso
-            have : (lowerTotalExpr env e₁).isSome := hhead_iff.mpr (by rw [heq]; rfl)
-            rw [h₁] at this; exact absurd this (by simp)
-        rw [hf₂]; simp
-      | some t₁ =>
-        have hsome₂ : (lowerTotalExpr env e₂).isSome :=
-          hhead_iff.mp (by rw [h₁]; rfl)
-        cases h₂ : lowerTotalExpr env e₂ with
-        | none => rw [h₂] at hsome₂; exact absurd hsome₂ (by simp)
-        | some t₂ =>
-          -- After binding both heads, the goal depends only on the tails
-          cases hr₁ : lowerTotalExprList env es₁ with
-          | none =>
-            have hn₂ : lowerTotalExprList env es₂ = none := by
-              cases heq : lowerTotalExprList env es₂
-              · rfl
-              · exfalso
-                have : (lowerTotalExprList env es₁).isSome :=
-                  htail_iff.mpr (by rw [heq]; rfl)
-                rw [hr₁] at this; exact absurd this (by simp)
-            rw [hn₂]; simp
-          | some tr₁ =>
-            have hsome_r₂ : (lowerTotalExprList env es₂).isSome :=
-              htail_iff.mp (by rw [hr₁]; rfl)
-            cases hr₂ : lowerTotalExprList env es₂ with
-            | none => rw [hr₂] at hsome_r₂; exact absurd hsome_r₂ (by simp)
-            | some tr₂ => simp
-
-/-- From `ListRel MIRCtxEq args₁ args₂` and both lists lowering, get
-    `ListRel CtxEq` on the lowered lists. -/
-theorem listRel_mirCtxEq_toListCtxEq :
-    ∀ {args₁ args₂ : List Expr} {env : List VarId}
-      {ts₁ ts₂ : List Moist.Plutus.Term.Term},
-      ListRel MIRCtxEq args₁ args₂ →
-      lowerTotalExprList env args₁ = some ts₁ →
-      lowerTotalExprList env args₂ = some ts₂ →
-      ListRel CtxEq ts₁ ts₂
-  | [], [], env, ts₁, ts₂, _, hlow₁, hlow₂ => by
-      simp only [lowerTotalExprList_nil, Option.some.injEq] at hlow₁ hlow₂
-      subst hlow₁; subst hlow₂
-      exact True.intro
-  | _ :: _, [], _, _, _, h, _, _ => absurd h id
-  | [], _ :: _, _, _, _, h, _, _ => absurd h id
-  | e₁ :: es₁, e₂ :: es₂, env, ts₁, ts₂, ⟨hhead, htail⟩, hlow₁, hlow₂ => by
-      rw [lowerTotalExprList_cons] at hlow₁ hlow₂
-      cases hlow_e₁ : lowerTotalExpr env e₁ with
-      | none => rw [hlow_e₁] at hlow₁; simp at hlow₁
-      | some t_e₁ =>
-        cases hlow_es₁ : lowerTotalExprList env es₁ with
-        | none => rw [hlow_e₁, hlow_es₁] at hlow₁; simp at hlow₁
-        | some t_es₁ =>
-          cases hlow_e₂ : lowerTotalExpr env e₂ with
-          | none => rw [hlow_e₂] at hlow₂; simp at hlow₂
-          | some t_e₂ =>
-            cases hlow_es₂ : lowerTotalExprList env es₂ with
-            | none => rw [hlow_e₂, hlow_es₂] at hlow₂; simp at hlow₂
-            | some t_es₂ =>
-              rw [hlow_e₁, hlow_es₁] at hlow₁
-              rw [hlow_e₂, hlow_es₂] at hlow₂
-              -- hlow₁ : some (t_e₁ :: t_es₁) = some ts₁
-              -- hlow₂ : some (t_e₂ :: t_es₂) = some ts₂
-              cases hlow₁
-              cases hlow₂
-              exact ⟨hhead.toCtxEq hlow_e₁ hlow_e₂,
-                     listRel_mirCtxEq_toListCtxEq htail hlow_es₁ hlow_es₂⟩
 
 /-! ### 6e. Constr / Case congruences -/
 

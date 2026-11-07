@@ -1216,39 +1216,4 @@ theorem mirCtxRefines_flattenLetBinds_bwd (body : Expr) :
       mirCtxRefines_let_cons_split_bwd _ _ _
     exact mirCtxRefines_trans h4 (mirCtxRefines_trans h3 h1)
 
-/-- `flattenLetBinds` preserves the `maxUidExprBinds` bound: the flattened
-    list has max uid bounded by the original. The variables are redistributed
-    but not changed, so uids are preserved exactly. -/
-theorem maxUidExprBinds_flattenLetBinds_le :
-    ∀ (binds : List (VarId × Expr × Bool)),
-      maxUidExprBinds (flattenLetBinds binds) ≤
-      maxUidExprBinds binds
-  | [] => by simp [flattenLetBinds, maxUidExprBinds]
-  | (v, e', er) :: rest => by
-    have ih : maxUidExprBinds (flattenLetBinds rest) ≤
-              maxUidExprBinds rest :=
-      maxUidExprBinds_flattenLetBinds_le rest
-    show maxUidExprBinds
-      (flattenLetBindsStep (v, e', er) (flattenLetBinds rest)) ≤
-      maxUidExprBinds ((v, e', er) :: rest)
-    unfold flattenLetBindsStep
-    cases e' with
-    | Let ibs ibody =>
-      have h_append := maxUidExprBinds_append ibs
-        ((v, ibody, er) :: flattenLetBinds rest)
-      have h_rest_cons : maxUidExprBinds
-          ((v, ibody, er) :: flattenLetBinds rest) =
-          max v.uid (max (maxUidExpr ibody)
-            (maxUidExprBinds (flattenLetBinds rest))) := by
-        simp only [maxUidExprBinds]
-      rw [h_rest_cons] at h_append
-      simp only [maxUidExpr, maxUidExprBinds] at h_append ⊢
-      omega
-    | Var _ | Lit _ | Builtin _ | Error | Lam _ _ | Fix _ _
-    | App _ _ | Force _ | Delay _ | Case _ _ | Constr _ _ =>
-      show maxUidExprBinds
-        ((v, _, er) :: flattenLetBinds rest) ≤
-        maxUidExprBinds ((v, _, er) :: rest)
-      simp only [maxUidExprBinds]
-      omega
 end Moist.Verified.MIR

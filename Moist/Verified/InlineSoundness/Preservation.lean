@@ -534,36 +534,6 @@ end
 -- freeVars(renameBinds old new bs) + freeVars(rename old new body) bound
 --------------------------------------------------------------------------------
 
-private theorem freeVarsLet_renameBinds_bound_core (old new_ : VarId)
-    (binds : List (VarId × Expr × Bool)) (body : Expr) (w : VarId)
-    (hw : (freeVarsLet (renameBinds old new_ binds) (rename old new_ body)).contains w = true) :
-    ((freeVarsLet binds body).erase old).contains w = true ∨ (w == new_) = true := by
-  induction binds with
-  | nil =>
-    rw [show renameBinds old new_ [] = ([] : List (VarId × Expr × Bool)) from rfl] at hw
-    rw [Moist.MIR.freeVarsLet.eq_1] at hw ⊢
-    exact freeVars_rename_bound_core old new_ body w hw
-  | cons bd rest ih =>
-    obtain ⟨x, rhs, er⟩ := bd
-    rw [show renameBinds old new_ ((x, rhs, er) :: rest) =
-        (x, rename old new_ rhs, er) :: renameBinds old new_ rest from rfl] at hw
-    rw [Moist.MIR.freeVarsLet.eq_2] at hw ⊢
-    rcases contains_union_elim hw with h | h
-    · rcases freeVars_rename_bound_core old new_ rhs w h with h | h
-      · exact Or.inl (erase_mono (fun w h => contains_union_left _ _ _ h) w h)
-      · exact Or.inr h
-    · have hw_inner := contains_of_contains_erase h
-      have hne_xw : (x == w) = false := by
-        cases h' : (x == w); rfl
-        rw [erase_contains_beq_false _ x w h'] at h; exact Bool.noConfusion h
-      rcases ih hw_inner with h' | h'
-      · exact Or.inl (erase_contains_ne_of_contains
-          (contains_union_right _ _ _ (erase_contains_ne_of_contains
-            (contains_of_contains_erase h') hne_xw))
-          (by cases h'' : (old == w); rfl
-              rw [erase_contains_beq_false _ old w h''] at h'; exact Bool.noConfusion h'))
-      · exact Or.inr h'
-
 --------------------------------------------------------------------------------
 -- Free variables of subst are bounded by (freeVars e \ {v}) ∪ freeVars rhs.
 --------------------------------------------------------------------------------
@@ -909,7 +879,6 @@ private theorem inlinePass_leaf_eq {e : Expr}
         (fun t args heq => hconstr t args heq)
         (fun sc alts heq => hcase sc alts heq)]
   rfl
-
 
 -- betaReduce freeVars bound
 private theorem betaReduce_fv_sub (f' x' : Expr) (s : Moist.MIR.FreshState) (w : VarId)
@@ -1338,13 +1307,6 @@ end
 theorem inlinePass_fvsub (fv : VarSet) (e : Expr) (s : Moist.MIR.FreshState)
     (hfv : FVSub fv e) : FVSub fv (inlinePass e s).1.1 :=
   fun w hw => hfv w (freeVars_nonincreasing e s w hw)
-
-theorem inlineBindings_fvsub (fv : VarSet) (binds : List (VarId × Expr × Bool))
-    (s : Moist.MIR.FreshState) (hfv : ∀ b ∈ binds, FVSub fv b.2.1) :
-    ∀ b ∈ (inlineBindings binds s).1.1, FVSub fv b.2.1 := by
-  intro b hb w hw
-  have ⟨b', hb'mem, hb'w⟩ := freeVarsBindings_nonincreasing binds s b hb w hw
-  exact hfv b' hb'mem w hb'w
 
 --------------------------------------------------------------------------------
 -- NC preservation through inlinePass
@@ -2136,9 +2098,6 @@ theorem inlinePass_pairwiseNC_cross
 theorem nc_wellScoped_app (f x : Expr) (hws : wellScoped (.App f x) = true) :
     NC (freeVars (.App f x)) f ∧ NC (freeVars (.App f x)) x :=
   noCaptureFrom_app (wellScoped_noCaptureFrom hws)
-
-theorem fvSub_app_left (f x : Expr) : FVSub (freeVars (.App f x)) f :=
-  fun w hw => by rw [Moist.MIR.freeVars.eq_7]; exact contains_union_left _ _ _ hw
 
 theorem fvSub_app_right (f x : Expr) : FVSub (freeVars (.App f x)) x :=
   fun w hw => by rw [Moist.MIR.freeVars.eq_7]; exact contains_union_right _ _ _ hw

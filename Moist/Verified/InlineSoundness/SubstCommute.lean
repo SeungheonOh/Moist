@@ -4,7 +4,6 @@ import Moist.Verified.InlineSoundness.Beta
 import Moist.Verified.InlineSoundness.StrictOcc
 import Moist.Verified.InlineSoundness.SubstRefinesExt
 import Moist.Verified.FundamentalRefines
-import Moist.Verified.Definitions.BudgetExhaustion
 import Moist.Verified.TermObsRefinesWF
 import Moist.Verified.FundamentalRefinesWF
 import Moist.MIR.Optimize.Inline
@@ -28,20 +27,16 @@ open Moist.Verified.Contextual.SoundnessRefines
    StackRefK soundness_refines)
 open Moist.Verified.InlineSoundness.StrictOcc
   (StrictSingleOcc StrictSingleOccList SingleOcc SingleOccList freeOf freeOfList
-   strict_subst_reaches_error same_env_beta_obsRefines same_env_beta_single_obsRefines
+   same_env_beta_single_obsRefines
    same_env_beta_multi_obsRefines)
 
 /-! ## 3. UPLC-level beta rules at OpenRefines level
-
-Branch C (impure strict): uses `budget_exhaustion` + `StrictSingleOcc`.
-For each (ρ₁, π₁), case-split on whether t_rhs halts via `halt_or_error`.
 
 Branches A/B (atoms, values, pure): use `uplc_beta_refines` from Beta.lean
 directly — those terms always halt, so `h_rhalts_maker` is satisfiable. -/
 
 section BranchC
 
-open Moist.Verified (halt_or_error)
 open Moist.Verified.BetaValueRefines (steps_trans steps_error_fixed
   steps_halt_fixed hasSuffix halt_descends_to_baseπ)
 
@@ -52,63 +47,6 @@ private theorem reaches_halt_not_error {s : State} {v : CekValue}
   have h2 : steps (n + m) s = .error := by rw [steps_trans, hn, steps_error_fixed]
   rw [show m + n = n + m from Nat.add_comm m n] at h1; rw [h1] at h2
   exact State.noConfusion h2
-
-private theorem error_of_halt_then_error {s : State} {n m : Nat} {v : CekValue}
-    (h_halt : steps n s = .halt v) (h_err : steps m s = .error) : False := by
-  by_cases hle : n ≤ m
-  · have : m = n + (m - n) := by omega
-    rw [this, steps_trans, h_halt, steps_halt_fixed] at h_err
-    exact State.noConfusion h_err
-  · have : n = m + (n - m) := by omega
-    rw [this, steps_trans, h_err, steps_error_fixed] at h_halt
-    exact State.noConfusion h_halt
-
-private theorem steps_equiv : ∀ (n : Nat) (s : State),
-    Moist.Verified.Equivalence.steps n s = Moist.Verified.Semantics.steps n s := by
-  intro n; induction n with
-  | zero => intro s; rfl
-  | succ m ih => intro s; show steps m (step s) = Moist.Verified.Semantics.steps m (step s); exact ih _
-
-private theorem reaches_equiv {s s' : State} :
-    Moist.Verified.Equivalence.Reaches s s' ↔ Moist.Verified.Semantics.Reaches s s' := by
-  constructor
-  · rintro ⟨n, hn⟩; exact ⟨n, by rw [← steps_equiv]; exact hn⟩
-  · rintro ⟨n, hn⟩; exact ⟨n, by rw [steps_equiv]; exact hn⟩
-
-theorem uplc_beta_impure_strict_openRefines {d : Nat} {t_body t_rhs : Term}
-    (hclosed_body : closedAt (d + 1) t_body = true)
-    (hclosed_rhs : closedAt d t_rhs = true)
-    (h_strict : StrictSingleOcc 1 t_body) :
-    CtxRefines (.Apply (.Lam 0 t_body) t_rhs) (substTerm 1 t_rhs t_body) := by
-  apply Moist.Verified.TermObsRefinesWF.soundness_refinesWF (d := d)
-  · intro k j hj ρ₁ ρ₂ henv henv_wf_l hlen_l henv_wf_r hlen_r i hi π₁ π₂ hwf_π₁ hwf_π₂ hπ
-    have h_apply_closed : closedAt d (.Apply (.Lam 0 t_body) t_rhs) = true := by
-      simp [closedAt]; exact ⟨hclosed_body, hclosed_rhs⟩
-    have h_beta : ObsRefines
-        (.compute π₂ ρ₂ (.Apply (.Lam 0 t_body) t_rhs))
-        (.compute π₂ ρ₂ (substTerm 1 t_rhs t_body)) :=
-      same_env_beta_obsRefines h_strict hclosed_body hclosed_rhs ρ₂ π₂
-        henv_wf_r hlen_r hwf_π₂
-    have h_self_refine : ObsRefinesK i
-        (.compute π₁ ρ₁ (.Apply (.Lam 0 t_body) t_rhs))
-        (.compute π₂ ρ₂ (.Apply (.Lam 0 t_body) t_rhs)) :=
-      Moist.Verified.FundamentalRefinesWF.ftlr_wf d _ h_apply_closed k j hj ρ₁ ρ₂
-        henv henv_wf_l hlen_l henv_wf_r hlen_r i hi π₁ π₂ hwf_π₁ hwf_π₂ hπ
-    exact Moist.Verified.InlineSoundness.SubstRefinesExt.obsRefinesK_compose_obsRefines_right
-      h_self_refine h_beta
-  · intro C hC1
-    have h_apply_closed := (Moist.Verified.Contextual.fill_closedAt_iff C _ 0).mp hC1
-    simp only [Nat.zero_add] at h_apply_closed
-    have hC_outer := h_apply_closed.1
-    have h_inner := h_apply_closed.2
-    simp only [closedAt, Bool.and_eq_true] at h_inner
-    have hbody_closed := h_inner.1
-    have hrhs_closed := h_inner.2
-    have h_subst_closed : closedAt C.binders (substTerm 1 t_rhs t_body) = true :=
-      Moist.Verified.BetaValueRefines.closedAt_substTerm 1 t_rhs t_body C.binders
-        (by omega) (by omega) hrhs_closed hbody_closed
-    exact (Moist.Verified.Contextual.fill_closedAt_iff C _ 0).mpr
-      ⟨hC_outer, by simpa [Nat.zero_add] using h_subst_closed⟩
 
 end BranchC
 
@@ -335,13 +273,6 @@ theorem uplc_beta_ctxRefines_halting {d : Nat} {t_body t_rhs : Term}
       (by omega) (by omega) hrhs_closed hbody_closed
   exact (Moist.Verified.Contextual.fill_closedAt_iff C _ 0).mpr
     ⟨hC_outer, by simpa [Nat.zero_add] using h_subst_closed⟩
-
-theorem uplc_beta_ctxRefines_impure_strict {d : Nat} {t_body t_rhs : Term}
-    (hclosed_body : closedAt (d + 1) t_body = true)
-    (hclosed_rhs : closedAt d t_rhs = true)
-    (h_strict : StrictSingleOcc 1 t_body) :
-    CtxRefines (.Apply (.Lam 0 t_body) t_rhs) (substTerm 1 t_rhs t_body) :=
-  uplc_beta_impure_strict_openRefines hclosed_body hclosed_rhs h_strict
 
 theorem uplc_beta_single_pure_openRefines {d : Nat} {t_body t_rhs : Term}
     (hclosed_body : closedAt (d + 1) t_body = true)
@@ -1831,72 +1762,6 @@ end
 
 -- === Section 5.3: Alpha-rename prefix freshening ===
 
-/-- Given `prefix_env` and a FreshState `s` whose `next` bounds all uids in
-    `body`, `rhs`, `env`, and `v`, produce a fresh prefix env plus a rename
-    substitution σ (as a list of `(old, new)` pairs). Each new binder has
-    `.gen` origin and uid ≥ `s.next`, making them disjoint from every uid
-    in the ambient context. Matches the `SubstFreshAbove` shape used by
-    `alphaRename_lowerTotal_eq` in `AlphaRenameSoundness`. -/
-private def freshenPrefix :
-    List VarId → Moist.MIR.FreshState →
-    (List (VarId × VarId) × List VarId) × Moist.MIR.FreshState
-  | [], s => (([], []), s)
-  | w :: rest, s =>
-    let w' : VarId := { uid := s.next, origin := .gen, hint := w.hint }
-    let s' : Moist.MIR.FreshState := ⟨s.next + 1⟩
-    let ⟨⟨σ_rest, prefix_fresh_rest⟩, s''⟩ := freshenPrefix rest s'
-    (((w, w') :: σ_rest, w' :: prefix_fresh_rest), s'')
-
-/-- `freshenPrefix` preserves list length. -/
-private theorem freshenPrefix_length (prefix_env : List VarId)
-    (s : Moist.MIR.FreshState) :
-    (freshenPrefix prefix_env s).1.2.length = prefix_env.length := by
-  induction prefix_env generalizing s with
-  | nil => rfl
-  | cons w rest ih =>
-    show (_ :: (freshenPrefix rest ⟨s.next + 1⟩).1.2).length = (w :: rest).length
-    rw [List.length_cons, List.length_cons]
-    exact congrArg (· + 1) (ih _)
-
-/-- Every binder produced by `freshenPrefix` has uid ≥ `s.next` and `.gen` origin. -/
-private theorem freshenPrefix_fresh_bound (prefix_env : List VarId)
-    (s : Moist.MIR.FreshState) :
-    ∀ w ∈ (freshenPrefix prefix_env s).1.2, s.next ≤ w.uid ∧ w.origin = .gen := by
-  induction prefix_env generalizing s with
-  | nil => intro w hw; exact absurd hw List.not_mem_nil
-  | cons w rest ih =>
-    intro w0 hw0
-    have hw0' : w0 ∈ ({ uid := s.next, origin := .gen, hint := w.hint } ::
-                     (freshenPrefix rest ⟨s.next + 1⟩).1.2) := hw0
-    rcases List.mem_cons.mp hw0' with hhead | htail
-    · subst hhead; exact ⟨Nat.le_refl _, rfl⟩
-    · have ih' := ih (s := ⟨s.next + 1⟩) w0 htail
-      refine ⟨?_, ih'.2⟩
-      have hub := ih'.1
-      show s.next ≤ w0.uid
-      have : (⟨s.next + 1⟩ : Moist.MIR.FreshState).next = s.next + 1 := rfl
-      rw [this] at hub
-      omega
-
-/-- The rename σ returned by `freshenPrefix` maps exactly the elements of
-    `prefix_env` (in order) to their fresh counterparts. -/
-private theorem freshenPrefix_sigma_image (prefix_env : List VarId)
-    (s : Moist.MIR.FreshState) :
-    (freshenPrefix prefix_env s).1.1.map Prod.fst = prefix_env ∧
-    (freshenPrefix prefix_env s).1.1.map Prod.snd = (freshenPrefix prefix_env s).1.2 := by
-  induction prefix_env generalizing s with
-  | nil => exact ⟨rfl, rfl⟩
-  | cons w rest ih =>
-    have ih' := ih (s := ⟨s.next + 1⟩)
-    refine ⟨?_, ?_⟩
-    · show ((w, _) :: (freshenPrefix rest _).1.1).map Prod.fst = w :: rest
-      simp only [List.map_cons]
-      exact congrArg (w :: ·) ih'.1
-    · show ((w, _) :: (freshenPrefix rest _).1.1).map Prod.snd =
-            _ :: (freshenPrefix rest _).1.2
-      simp only [List.map_cons]
-      exact congrArg (_ :: ·) ih'.2
-
 -- === Section 5.4: Main theorem via alpha-rename routing ===
 
 /-- Phase 2a main theorem. Takes freshness preconditions to forward to
@@ -1919,20 +1784,6 @@ private theorem subst_lowerTotal_comm_gen
                       (iterShift prefix_env.length t_rhs) t_body) :=
   subst_lowerTotal_comm_fresh v rhs body prefix_env env s t_body t_rhs
     hv_notin hfresh h_nc h_body h_rhs
-
-/-- Phase 2a (direct form: empty prefix env). -/
-private theorem subst_lowerTotal_comm
-    (v : VarId) (rhs body : Expr)
-    (env : List VarId) (s : Moist.MIR.FreshState)
-    (t_body t_rhs : Term)
-    (h_nc : noCaptureFrom (Moist.MIR.freeVars rhs) body = true)
-    (h_body : Moist.MIR.lowerTotal (v :: env) (Moist.MIR.expandFix body) = some t_body)
-    (h_rhs : Moist.MIR.lowerTotal env (Moist.MIR.expandFix rhs) = some t_rhs) :
-    Moist.MIR.lowerTotal env (Moist.MIR.expandFix (Moist.MIR.subst v rhs body s).1) =
-      some (substTerm 1 t_rhs t_body) := by
-  have h := subst_lowerTotal_comm_gen v rhs body [] env s t_body t_rhs rfl
-              (by intro w hw; exact absurd hw List.not_mem_nil) h_nc h_body h_rhs
-  simpa [iterShift_zero] using h
 
 /-- Phase 2b (generalized with prefix env).
 

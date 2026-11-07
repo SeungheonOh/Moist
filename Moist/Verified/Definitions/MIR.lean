@@ -50,22 +50,6 @@ scoped infix:50 " ⊑ᴹ " => MIRRefines
 
 /-! ## MIR contextual equivalence / refinement -/
 
-/-- Contextual equivalence of MIR expressions: for every variable
-    environment `env`, the two expressions have the same compile status,
-    and (when both compile) their lowered UPLC terms are in the `CtxEq`
-    relation. The observation clause uses the *same* `env` as the
-    compile-status clause — the lowering is sensitive to the env, so
-    pinning to `[]` would miss equivalences that only hold under
-    non-empty envs. -/
-def MIRCtxEq (m₁ m₂ : Expr) : Prop :=
-  ∀ (env : List VarId),
-    ((lowerTotalExpr env m₁).isSome ↔ (lowerTotalExpr env m₂).isSome) ∧
-    match lowerTotalExpr env m₁, lowerTotalExpr env m₂ with
-    | some t₁, some t₂ => CtxEq t₁ t₂
-    | _, _ => True
-
-scoped infix:50 " ≈Ctxᴹ " => MIRCtxEq
-
 /-- Contextual refinement of MIR expressions: for every variable
     environment `env`, compile status is preserved (left compiles → right
     compiles), and (when both compile) the lowered UPLC terms are in the

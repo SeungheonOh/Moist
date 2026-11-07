@@ -193,15 +193,6 @@ theorem envLookupT_cons_same_uid (v w : VarId) (env : List VarId)
         else envLookupT.go w env (0 + 1)) = some 0
   rw [if_pos hbeq]
 
-theorem envLookupT_cons_diff_uid (v w : VarId) (env : List VarId)
-    (h : v.uid ≠ w.uid) :
-    envLookupT (v :: env) w = (envLookupT env w).map (· + 1) := by
-  have hbeq : (v == w) = false := by
-    show (v.origin == w.origin && v.uid == w.uid) = false
-    rw [Bool.and_eq_false_iff]
-    exact Or.inr (decide_eq_false h)
-  exact Moist.MIR.envLookupT_cons_neq v w env hbeq
-
 /-! ## Main soundness theorem -/
 
 /-- An auxiliary equation lemma: running `alphaRename (substShadow σ v) body`
@@ -898,27 +889,5 @@ theorem alphaRenameTop_lowerTotalExpr_eq (e : Expr) (K : Moist.MIR.FreshState)
     Moist.MIR.lowerTotalExpr_eq_lowerTotal env _ h_rename_fix_free
   rw [h1, h2]
   exact alphaRenameTop_lowerTotal_eq e K hK env
-
-/-- Alpha-rename establishes MIRCtxEq for Fix-free expressions. -/
-theorem alphaRenameTop_mirCtxEq (e : Expr) (K : Moist.MIR.FreshState)
-    (hK : maxUidExpr e < K.next)
-    (hFixFree : fixCount e = 0) :
-    MIRCtxEq e (Moist.MIR.alphaRenameTop e K).1 := by
-  have h_rename_fix_free : fixCount (Moist.MIR.alphaRenameTop e K).1 = 0 :=
-    alphaRename_fixCount_zero [] e K hFixFree
-  intro env
-  have h1 : lowerTotalExpr env e = lowerTotal env e :=
-    Moist.MIR.lowerTotalExpr_eq_lowerTotal env e hFixFree
-  have h2 : lowerTotalExpr env (Moist.MIR.alphaRenameTop e K).1 =
-            lowerTotal env (Moist.MIR.alphaRenameTop e K).1 :=
-    Moist.MIR.lowerTotalExpr_eq_lowerTotal env _ h_rename_fix_free
-  have hlow_eq := alphaRenameTop_lowerTotal_eq e K hK env
-  refine ⟨?_, ?_⟩
-  · rw [h1, h2, hlow_eq]
-  · rw [h1, h2, hlow_eq]
-    -- Both sides are identical after the rewrites: fold into reflexivity.
-    cases h : lowerTotal env (Moist.MIR.alphaRenameTop e K).1 with
-    | none => trivial
-    | some t => exact Moist.Verified.Contextual.ctxEq_refl t
 
 end Moist.Verified.MIR

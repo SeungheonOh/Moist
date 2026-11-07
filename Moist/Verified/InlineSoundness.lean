@@ -20,8 +20,7 @@ every MIR expression `e` and fresh-variable state `s`. The recursive worker's
 The impure branch retains the production evaluation-frontier guard. `Totality`,
 `EvaluationPath`, and `FrontierError` prove that its pure predecessors terminate,
 its occurrence survives lowering, and substitution preserves RHS errors even
-under nested bindings. The whole-pass theorem does not use the false legacy
-`budget_exhaustion` axiom. Its contract is contextual halting/error refinement
+under nested bindings. Its contract is contextual halting/error refinement
 through `lowerTotalExpr`, not a certificate for the native execution pipeline.
 
 ## Overview
@@ -79,14 +78,6 @@ open Moist.Verified.Contextual
   (Context fill ObsRefines CtxRefines
    ctxRefines_refl ctxRefines_trans)
 open Moist.Verified.Equivalence (ListRel)
-
-private def vs_union_l := @Moist.MIR.VarSet.contains_union_left
-private def vs_union_r := @Moist.MIR.VarSet.contains_union_right
-private def vs_union_split := @Moist.MIR.VarSet.union_not_contains'
-private def vs_erase_split := @Moist.MIR.VarSet.erase_not_contains_imp'
-private def vs_erase_ne := @Moist.MIR.VarSet.contains_erase_ne
-private def efv := @Moist.MIR.expandFix_freeVars_not_contains
-private def fv_subst_nc := @Moist.Verified.InlineSoundness.SubstCommute.freeVars_subst_not_contains
 
 --------------------------------------------------------------------------------
 -- 1. Definitional unfolding equations for `inlinePass` (on the `.1.1` projection)
@@ -739,7 +730,6 @@ theorem inlineBindings_preserves_distinctBinders
 
 private def pc := @Moist.Verified.InlineSoundness.Preservation.PairwiseNC
 private def pc_tail := @Moist.Verified.InlineSoundness.Preservation.pairwiseNC_tail
-private def pc_ws := @Moist.Verified.InlineSoundness.Preservation.pairwiseNC_of_wellScoped
 private def pc_subst := @Moist.Verified.InlineSoundness.Preservation.pairwiseNC_subst
 private def sb_nc := @Moist.Verified.InlineSoundness.Preservation.substInBindings_nc_names
 private def ib_names := @Moist.Verified.InlineSoundness.Preservation.inlineBindings_names

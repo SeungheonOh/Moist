@@ -43,21 +43,6 @@ end Composition
 
 section ShiftBisimObsRefines
 
-/-- ShiftBisim-related states have the same halting behavior (forward). -/
-theorem obsRefines_of_shiftBisimState {s₁ s₂ : State}
-    (h : ShiftBisimState s₁ s₂) :
-    ObsRefines s₁ s₂ := by
-  constructor
-  · rintro ⟨v₁, n, hn⟩
-    have h_n := shiftBisimState_steps_preserves n h
-    rw [hn] at h_n
-    obtain ⟨v', hv_eq, _⟩ := shiftBisimState_halt_inv h_n
-    exact ⟨v', n, hv_eq⟩
-  · rintro ⟨n, hn⟩
-    have h_n := shiftBisimState_steps_preserves n h
-    rw [hn] at h_n
-    exact ⟨n, shiftBisimState_error_inv h_n⟩
-
 end ShiftBisimObsRefines
 
 end Moist.Verified.InlineSoundness.SubstRefinesExt

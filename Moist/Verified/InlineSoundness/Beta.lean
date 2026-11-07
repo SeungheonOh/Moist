@@ -33,13 +33,6 @@ private theorem envRefinesK_sized_left {j d : Nat} {ρ₁ ρ₂ : CekEnv}
   obtain ⟨v₁, _, hl₁, _, _⟩ := h n hn hnd
   exact ⟨v₁, hl₁⟩
 
-private theorem envRefinesK_sized_right {j d : Nat} {ρ₁ ρ₂ : CekEnv}
-    (h : EnvRefinesK j d ρ₁ ρ₂) :
-    ∀ n, 0 < n → n ≤ d → ∃ v, ρ₂.lookup n = some v := by
-  intro n hn hnd
-  obtain ⟨_, v₂, _, hl₂, _⟩ := h n hn hnd
-  exact ⟨v₂, hl₂⟩
-
 theorem substEnvRef_of_envRefinesK_extend
     {j d : Nat} {v₁ : CekValue} {ρ₁ ρ₂ : CekEnv}
     (henv : EnvRefinesK j d ρ₁ ρ₂)
@@ -215,53 +208,6 @@ theorem rHaltsRelN_builtin (b : BuiltinFun) (k d : Nat) :
 end RHaltsConstructors
 
 section ConcreteInstances
-
-/-- Beta refinement for constant rhs: `Apply (Lam 0 body) (Constant c)`
-    refines `substTerm 1 (Constant c) body`. -/
-theorem uplc_beta_constant {d : Nat} {t_body : Term} {c : Const} {ty : BuiltinType}
-    (hclosed : closedAt (d + 1) t_body = true) :
-    ∀ k j, j ≤ k → ∀ ρ₁ ρ₂, EnvRefinesK j d ρ₁ ρ₂ →
-      ∀ i ≤ j, ∀ π₁ π₂, StackRefK ValueRefinesK i π₁ π₂ →
-        ObsRefinesK i
-          (.compute π₁ ρ₁ (.Apply (.Lam 0 t_body) (.Constant (c, ty))))
-          (.compute π₂ ρ₂ (substTerm 1 (.Constant (c, ty)) t_body)) := by
-  intro k
-  apply uplc_beta_refines hclosed (by simp [closedAt])
-  intro ρ₁ _ π
-  refine ⟨1, .VCon c, ?_, ?_, ?_, ?_⟩
-  · show step (.compute π ρ₁ (.Constant (c, ty))) = .ret π (.VCon c)
-    simp only [step]
-  · intro k' hk'
-    match k' with
-    | 0 => simp [steps]
-    | 1 =>
-      show step (.compute π ρ₁ (.Constant (c, ty))) ≠ .error
-      simp only [step]; exact State.noConfusion
-  · exact ValueWellFormed.vcon c
-  · exact rHaltsRelN_constant c ty k d
-
-/-- Beta refinement for builtin rhs. -/
-theorem uplc_beta_builtin {d : Nat} {t_body : Term} {b : BuiltinFun}
-    (hclosed : closedAt (d + 1) t_body = true) :
-    ∀ k j, j ≤ k → ∀ ρ₁ ρ₂, EnvRefinesK j d ρ₁ ρ₂ →
-      ∀ i ≤ j, ∀ π₁ π₂, StackRefK ValueRefinesK i π₁ π₂ →
-        ObsRefinesK i
-          (.compute π₁ ρ₁ (.Apply (.Lam 0 t_body) (.Builtin b)))
-          (.compute π₂ ρ₂ (substTerm 1 (.Builtin b) t_body)) := by
-  intro k
-  apply uplc_beta_refines hclosed (by simp [closedAt])
-  intro ρ₁ _ π
-  refine ⟨1, .VBuiltin b [] (expectedArgs b), ?_, ?_, ?_, ?_⟩
-  · show step (.compute π ρ₁ (.Builtin b)) = .ret π (.VBuiltin b [] (expectedArgs b))
-    simp only [step]
-  · intro k' hk'
-    match k' with
-    | 0 => simp [steps]
-    | 1 =>
-      show step (.compute π ρ₁ (.Builtin b)) ≠ .error
-      simp only [step]; exact State.noConfusion
-  · exact ValueWellFormed.vbuiltin b (expectedArgs b) ValueListWellFormed.nil
-  · exact rHaltsRelN_builtin b k d
 
 end ConcreteInstances
 

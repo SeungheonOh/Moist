@@ -71,73 +71,6 @@ theorem fill_compose (outer inner : Context) (t : Term) :
   | Case C alts ih => simp [Context.compose, fill, ih]
   | CaseAlt scrut lefts C rights ih => simp [Context.compose, fill, ih]
 
-/-- Number of binders is additive under composition (since the inner context's
-    binders are nested below the outer's). -/
-theorem Context.compose_binders (outer inner : Context) :
-    (Context.compose outer inner).binders = outer.binders + inner.binders := by
-  induction outer with
-  | Hole => simp [Context.compose, Context.binders]
-  | Lam x C ih =>
-    simp [Context.compose, Context.binders, ih]; omega
-  | AppLeft C e ih => simp [Context.compose, Context.binders, ih]
-  | AppRight e C ih => simp [Context.compose, Context.binders, ih]
-  | Delay C ih => simp [Context.compose, Context.binders, ih]
-  | Force C ih => simp [Context.compose, Context.binders, ih]
-  | Constr tag lefts C rights ih => simp [Context.compose, Context.binders, ih]
-  | Case C alts ih => simp [Context.compose, Context.binders, ih]
-  | CaseAlt scrut lefts C rights ih => simp [Context.compose, Context.binders, ih]
-
-/-- Closedness of a composed context: the outer must be closed at `d`, and the
-    inner must be closed at `d + outer.binders` (the depth at which it sits). -/
-theorem Context.compose_closedAt {outer inner : Context} :
-    ∀ {d : Nat}, outer.closedAt d = true →
-      inner.closedAt (d + outer.binders) = true →
-      (Context.compose outer inner).closedAt d = true := by
-  induction outer with
-  | Hole =>
-    intro d _ hinner
-    simpa [Context.compose, Context.binders] using hinner
-  | Lam x C ih =>
-    intro d houter hinner
-    -- (.Lam x C).closedAt d = C.closedAt (d+1)
-    -- (.Lam x C).binders = C.binders + 1
-    -- need: (compose (.Lam x C) inner).closedAt d = (.Lam x (compose C inner)).closedAt d
-    --     = (compose C inner).closedAt (d+1)
-    have hC : C.closedAt (d + 1) = true := houter
-    have hi : inner.closedAt ((d + 1) + C.binders) = true := by
-      have : (d + 1) + C.binders = d + (C.binders + 1) := by omega
-      rw [this]; exact hinner
-    show (Context.compose C inner).closedAt (d + 1) = true
-    exact ih hC hi
-  | AppLeft C e ih =>
-    intro d houter hinner
-    simp [Context.closedAt, Context.compose, Context.binders] at houter hinner ⊢
-    exact ⟨ih houter.1 hinner, houter.2⟩
-  | AppRight e C ih =>
-    intro d houter hinner
-    simp [Context.closedAt, Context.compose, Context.binders] at houter hinner ⊢
-    exact ⟨houter.1, ih houter.2 hinner⟩
-  | Delay C ih =>
-    intro d houter hinner
-    show (Context.compose C inner).closedAt d = true
-    exact ih houter hinner
-  | Force C ih =>
-    intro d houter hinner
-    show (Context.compose C inner).closedAt d = true
-    exact ih houter hinner
-  | Constr tag lefts C rights ih =>
-    intro d houter hinner
-    simp [Context.closedAt, Context.compose, Context.binders] at houter hinner ⊢
-    exact ⟨⟨houter.1.1, ih houter.1.2 hinner⟩, houter.2⟩
-  | Case C alts ih =>
-    intro d houter hinner
-    simp [Context.closedAt, Context.compose, Context.binders] at houter hinner ⊢
-    exact ⟨ih houter.1 hinner, houter.2⟩
-  | CaseAlt scrut lefts C rights ih =>
-    intro d houter hinner
-    simp [Context.closedAt, Context.compose, Context.binders] at houter hinner ⊢
-    exact ⟨⟨⟨houter.1.1.1, houter.1.1.2⟩, ih houter.1.2 hinner⟩, houter.2⟩
-
 /-- `closedAtList` distributes over list concatenation. -/
 theorem closedAtList_append (d : Nat) (xs ys : List Term) :
     closedAtList d (xs ++ ys) = true ↔
@@ -341,27 +274,6 @@ theorem CtxEq.toCtxRefines {t₁ t₂ : Term} (h : CtxEq t₁ t₂)
   have hC2 := h_close C hC1
   have obs := h C hC1 hC2
   exact ⟨hC2, ObsRefines.mk obs.halt.mp obs.error.mp⟩
-
-/-- Equivalence subsumes refinement (backward direction). Requires an
-    external proof that `CtxEq` preserves closedness in the backward
-    direction. -/
-theorem CtxEq.toCtxRefines_symm {t₁ t₂ : Term} (h : CtxEq t₁ t₂)
-    (h_close : ∀ C, closedAt 0 (fill C t₂) = true → closedAt 0 (fill C t₁) = true) :
-    CtxRefines t₂ t₁ := by
-  intro C hC2
-  have hC1 := h_close C hC2
-  have obs := h C hC1 hC2
-  exact ⟨hC1, ObsRefines.mk obs.halt.mpr obs.error.mpr⟩
-
-/-- Antisymmetry: bidirectional refinement gives equivalence. -/
-theorem ctxRefines_antisymm {t₁ t₂ : Term} :
-    CtxRefines t₁ t₂ → CtxRefines t₂ t₁ → CtxEq t₁ t₂ := by
-  intro h12 h21 C hC1 hC2
-  obtain ⟨_, ref12⟩ := h12 C hC1
-  obtain ⟨_, ref21⟩ := h21 C hC2
-  exact ObsEq.mk
-    (Iff.intro ref12.halt ref21.halt)
-    (Iff.intro ref12.error ref21.error)
 
 --------------------------------------------------------------------------------
 -- CONGRUENCE THEOREMS FOR CtxRefines

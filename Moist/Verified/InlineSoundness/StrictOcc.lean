@@ -1,7 +1,6 @@
 import Moist.Verified.RenameBase
 import Moist.Verified.ClosedAt
 import Moist.Verified.FundamentalRefines
-import Moist.Verified.Definitions.BudgetExhaustion
 import Moist.Verified.BetaValueRefines
 import Moist.Verified.StepWellFormed
 import Moist.Verified.SubstRefines
@@ -129,19 +128,12 @@ it just decrements variable indices above `pos`. This matches
 def unshiftRename (pos : Nat) (n : Nat) : Nat :=
   if n > pos then n - 1 else n
 
-theorem unshiftRename_zero (pos : Nat) : unshiftRename pos 0 = 0 := by
-  simp [unshiftRename]
-
 theorem unshiftRename_ge1 {pos n : Nat} (hpos : pos ≥ 1) (hn : n ≥ 1) :
     unshiftRename pos n ≥ 1 := by
   simp only [unshiftRename]
   split
   · omega
   · exact hn
-
-theorem is0preserving_unshiftRename {pos : Nat} (hpos : pos ≥ 1) :
-    Is0Preserving (unshiftRename pos) :=
-  ⟨unshiftRename_zero pos, fun _ hn => unshiftRename_ge1 hpos hn⟩
 
 theorem liftRename_unshiftRename {pos : Nat} (hpos : pos ≥ 1) :
     liftRename (unshiftRename pos) = unshiftRename (pos + 1) := by
@@ -232,14 +224,6 @@ end
 
 `renameTerm (shiftRename pos) (substTerm pos r t) = t` when `freeOf pos t`. -/
 
-private theorem shift_unshift_var {pos n : Nat} (hpos : pos ≥ 1) (hne : n ≠ pos) :
-    shiftRename pos (unshiftRename pos n) = n := by
-  simp only [unshiftRename, shiftRename]
-  by_cases hgt : n > pos
-  · simp [if_pos hgt, show n - 1 ≥ pos by omega]; omega
-  · have hlt : n < pos := by omega
-    simp [if_neg hgt, show ¬(n ≥ pos) by omega]
-
 mutual
   theorem freeOf_shift_substTerm {pos : Nat} {t : Term} {r : Term}
       (hpos : pos ≥ 1) (hfree : freeOf pos t = true) :
@@ -304,12 +288,6 @@ end
 
 /-! ## closedAt for substTerm of FreeOf terms -/
 
-theorem freeOf_closedAt_substTerm {pos d : Nat} {t r : Term}
-    (hpos : pos ≥ 1) (hposd : pos ≤ d + 1) (_hfree : freeOf pos t = true)
-    (hclosed_t : closedAt (d + 1) t = true) (hclosed_r : closedAt d r = true) :
-    closedAt d (substTerm pos r t) = true :=
-  Moist.Verified.BetaValueRefines.closedAt_substTerm pos r t d hpos hposd hclosed_r hclosed_t
-
 /-! ## Strict evaluation order: error propagation
 
 If `t_rhs` errors in env `ρ` on all stacks, and `t_rhs` occurs once in
@@ -319,9 +297,7 @@ section ErrorPropagation
 
 open Moist.CEK (State CekEnv CekValue Stack Frame step)
 open Moist.Verified.Equivalence (Reaches steps)
-open Moist.Verified (halt_or_error)
-open Moist.Verified.BetaValueRefines (steps_trans steps_error_fixed
-  steps_halt_fixed)
+open Moist.Verified.BetaValueRefines (steps_trans steps_error_fixed steps_halt_fixed)
 
 private theorem reaches_halt_not_error {s : State} {v : CekValue}
     (hv : Reaches s (.halt v)) (he : Reaches s .error) : False := by
@@ -330,131 +306,6 @@ private theorem reaches_halt_not_error {s : State} {v : CekValue}
   have h2 : steps (n + m) s = .error := by rw [steps_trans, hn, steps_error_fixed]
   rw [show m + n = n + m from Nat.add_comm m n] at h1; rw [h1] at h2
   exact State.noConfusion h2
-
-private theorem reaches_error_of_step {s s' : State}
-    (hstep : step s = s') (h : Reaches s' .error) : Reaches s .error := by
-  obtain ⟨n, hn⟩ := h
-  exact ⟨n + 1, by rw [show n + 1 = 1 + n by omega, steps_trans]; simp [steps]; rw [hstep, hn]⟩
-
-private theorem error_of_halt_then_error {s : State} {n m : Nat} {v : CekValue}
-    (h_halt : steps n s = .halt v) (h_err : steps m s = .error) : False := by
-  by_cases hle : n ≤ m
-  · have : m = n + (m - n) := by omega
-    rw [this, steps_trans, h_halt, steps_halt_fixed] at h_err
-    exact State.noConfusion h_err
-  · have : n = m + (n - m) := by omega
-    rw [this, steps_trans, h_err, steps_error_fixed] at h_halt
-    exact State.noConfusion h_halt
-
-private theorem apply_step (π : Stack) (ρ : CekEnv) (f x : Term) :
-    step (.compute π ρ (.Apply f x)) =
-      .compute (Frame.arg x ρ :: π) ρ f := by rfl
-
-private theorem force_step (π : Stack) (ρ : CekEnv) (e : Term) :
-    step (.compute π ρ (.Force e)) =
-      .compute (Frame.force :: π) ρ e := by rfl
-
-private theorem case_step (π : Stack) (ρ : CekEnv) (scrut : Term) (alts : List Term) :
-    step (.compute π ρ (.Case scrut alts)) =
-      .compute (Frame.caseScrutinee alts ρ :: π) ρ scrut := by rfl
-
-private theorem constr_cons_step (π : Stack) (ρ : CekEnv) (tag : Nat) (m : Term) (ms : List Term) :
-    step (.compute π ρ (.Constr tag (m :: ms))) =
-      .compute (Frame.constrField tag [] ms ρ :: π) ρ m := by rfl
-
-private theorem constrField_list_reaches_error {pos d : Nat} {t_rhs : Term}
-    {ρ : CekEnv} {tag : Nat} {done : List CekValue}
-    {t : Term} {ts : List Term} {bound : Nat}
-    (h_occ : StrictSingleOccList pos (t :: ts))
-    (h_rhs_err : ∀ π, Reaches (.compute π ρ t_rhs) .error)
-    (hclosed_list : Moist.Verified.closedAtList (d + 1) (t :: ts) = true)
-    (ih : ∀ {u : Term}, StrictSingleOcc pos u →
-      Moist.Verified.closedAt (d + 1) u = true → sizeOf u < bound →
-      ∀ π, Reaches (.compute π ρ (substTerm pos t_rhs u)) .error)
-    (h_list_bound : 1 + sizeOf t + sizeOf ts ≤ bound) :
-    ∀ π, Reaches
-      (.compute (Frame.constrField tag done (substTermList pos t_rhs ts) ρ :: π) ρ
-        (substTerm pos t_rhs t)) .error := by
-  intro π
-  have hclosed_t : Moist.Verified.closedAt (d + 1) t = true := by
-    simp [Moist.Verified.closedAtList] at hclosed_list; exact hclosed_list.1
-  have hclosed_ts : Moist.Verified.closedAtList (d + 1) ts = true := by
-    simp [Moist.Verified.closedAtList] at hclosed_list; exact hclosed_list.2
-  match h_occ with
-  | .head h_t _ => exact ih h_t hclosed_t (by omega) _
-  | .tail h_free_t h_rest =>
-    apply Moist.Verified.budget_exhaustion
-    intro v ⟨n, hn⟩
-    have h_suffix : Moist.Verified.BetaValueRefines.hasSuffix
-        (Frame.constrField tag done (substTermList pos t_rhs ts) ρ :: π)
-        (.compute (Frame.constrField tag done (substTermList pos t_rhs ts) ρ :: π) ρ
-          (substTerm pos t_rhs t)) := ⟨[], rfl⟩
-    obtain ⟨m₁, _, v_t, hm₁⟩ :=
-      Moist.Verified.BetaValueRefines.halt_descends_to_baseπ n _ v hn h_suffix
-    match ts, h_rest, h_list_bound, hclosed_ts with
-    | u :: us, h_rest', h_lb, hclosed_us =>
-      have h_cf_step : step (.ret
-          (Frame.constrField tag done
-            (substTerm pos t_rhs u :: substTermList pos t_rhs us) ρ :: π) v_t) =
-          .compute (Frame.constrField tag (v_t :: done)
-            (substTermList pos t_rhs us) ρ :: π) ρ
-            (substTerm pos t_rhs u) := rfl
-      have h_list_sizeof : sizeOf (u :: us) = 1 + sizeOf u + sizeOf us := by
-        simp
-      have h_next_err := @constrField_list_reaches_error pos d t_rhs ρ tag (v_t :: done)
-        u us bound h_rest' h_rhs_err hclosed_us ih (by omega) π
-      obtain ⟨q, hq⟩ := h_next_err
-      have h_subst_cons : substTermList pos t_rhs (u :: us) =
-          substTerm pos t_rhs u :: substTermList pos t_rhs us := by
-        simp [substTermList]
-      rw [h_subst_cons] at hm₁ hn
-      have h_err_at : steps (m₁ + 1 + q)
-          (.compute (Frame.constrField tag done
-            (substTerm pos t_rhs u :: substTermList pos t_rhs us) ρ :: π) ρ
-            (substTerm pos t_rhs t)) = .error := by
-        rw [show m₁ + 1 + q = m₁ + (1 + q) by omega, steps_trans, hm₁,
-            show 1 + q = 1 + q from rfl, steps_trans]
-        simp [steps, h_cf_step]; exact hq
-      exact error_of_halt_then_error hn h_err_at
-
-private theorem apply_r_error_propagation {pos : Nat} {f x t_rhs : Term}
-    {ρ : CekEnv}
-    (_h_free_f : freeOf pos f = true)
-    (_h_x : StrictSingleOcc pos x)
-    (_h_rhs_err : ∀ π, Reaches (.compute π ρ t_rhs) .error)
-    (ih_x : ∀ π, Reaches (.compute π ρ (substTerm pos t_rhs x)) .error) :
-    ∀ π, Reaches
-      (.compute π ρ (.Apply (substTerm pos t_rhs f) (substTerm pos t_rhs x))) .error := by
-  intro π
-  let subst_x := substTerm pos t_rhs x
-  let subst_f := substTerm pos t_rhs f
-  apply Moist.Verified.budget_exhaustion
-  intro v ⟨n, hn⟩
-  have h1 : step (.compute π ρ (.Apply subst_f subst_x)) =
-      .compute (Frame.arg subst_x ρ :: π) ρ subst_f := rfl
-  have hn' : n ≥ 1 := by
-    match n with
-    | 0 => simp [steps] at hn
-    | n' + 1 => omega
-  have h_after_step : steps (n - 1) (.compute (Frame.arg subst_x ρ :: π) ρ subst_f) = .halt v := by
-    have : n = 1 + (n - 1) := by omega
-    rw [this, steps_trans] at hn; simp [steps] at hn; exact hn
-  have h_suffix : Moist.Verified.BetaValueRefines.hasSuffix (Frame.arg subst_x ρ :: π)
-      (.compute (Frame.arg subst_x ρ :: π) ρ subst_f) := ⟨[], rfl⟩
-  obtain ⟨m₁, _, v_f, hm₁⟩ :=
-    Moist.Verified.BetaValueRefines.halt_descends_to_baseπ (n - 1)
-      (.compute (Frame.arg subst_x ρ :: π) ρ subst_f) v h_after_step h_suffix
-  have h_arg_step : step (.ret (Frame.arg subst_x ρ :: π) v_f) =
-      .compute (Frame.funV v_f :: π) ρ subst_x := rfl
-  obtain ⟨q, hq⟩ := ih_x (Frame.funV v_f :: π)
-  have h_err : steps (m₁ + 1 + q) (.compute (Frame.arg subst_x ρ :: π) ρ subst_f) = .error := by
-    rw [show m₁ + 1 + q = m₁ + (1 + q) by omega, steps_trans, hm₁]
-    rw [show 1 + q = 1 + q from rfl, steps_trans]; simp [steps, h_arg_step]; exact hq
-  have h_err_full : steps (1 + (m₁ + 1 + q)) (.compute π ρ (.Apply subst_f subst_x)) = .error := by
-    rw [steps_trans]; simp [steps, h1]; exact h_err
-  have h_halt_full : steps n (.compute π ρ (.Apply subst_f subst_x)) = .halt v := hn
-  exact absurd h_halt_full (by
-    intro h; exact error_of_halt_then_error h h_err_full)
 
 end ErrorPropagation
 
@@ -570,8 +421,8 @@ section StrictSubstErrorProp
 open Moist.CEK (State CekEnv CekValue Stack Frame step)
 open Moist.Verified.Equivalence (Reaches steps)
 open Moist.Verified (closedAt closedAtList)
-open Moist.Verified.BetaValueRefines (steps_trans steps_error_fixed
-  steps_halt_fixed hasSuffix halt_descends_to_baseπ)
+open Moist.Verified.BetaValueRefines (steps_trans steps_error_fixed steps_halt_fixed
+  hasSuffix halt_descends_to_baseπ)
 
 /-- Error on `t_rhs` under `ρ` lifts to error on the shifted term under the
     extended env `ρ.extend w`. Uses `renameRefinesR_shift1` on the empty
@@ -607,235 +458,12 @@ theorem shift_rhs_reaches_error {d : Nat} {t_rhs : Term} {ρ : CekEnv}
       .error := h_obs.2 n (Nat.le_refl _) hn
   exact error_on_all_stacks h_err_nil
 
-private theorem strict_subst_reaches_error_aux (sz : Nat) {pos : Nat} {t_rhs : Term}
-    {d : Nat} {ρ : CekEnv} {t_body : Term}
-    (h_sz : sizeOf t_body ≤ sz)
-    (h_strict : StrictSingleOcc pos t_body)
-    (hpos : 1 ≤ pos)
-    (hposd : pos ≤ d + 1)
-    (hclosed_body : closedAt (d + 1) t_body = true)
-    (hclosed_rhs : closedAt d t_rhs = true)
-    (henv_wf : Moist.Verified.BetaValueRefines.EnvWellFormed d ρ)
-    (hlen : d ≤ ρ.length)
-    (h_rhs_err : ∀ π, Reaches (.compute π ρ t_rhs) .error) :
-    ∀ π, Reaches (.compute π ρ (substTerm pos t_rhs t_body)) .error := by
-  induction sz generalizing pos t_rhs d ρ t_body with
-  | zero =>
-    exfalso; cases h_strict <;> simp [Term._sizeOf_inst] at h_sz
-  | succ n ih =>
-    intro π
-    match h_strict with
-    | .var =>
-      simp [substTerm]; exact h_rhs_err π
-    | .apply_l (f := f) (x := x) h_f _ =>
-      have hsz : sizeOf f ≤ n := by
-        have : sizeOf (Term.Apply f x) = 1 + sizeOf f + sizeOf x := rfl; omega
-      have hclosed_f : closedAt (d + 1) f = true := by
-        simp [closedAt] at hclosed_body; exact hclosed_body.1
-      simp only [substTerm]
-      apply reaches_error_of_step (apply_step π ρ _ _)
-      exact ih hsz h_f hpos hposd hclosed_f hclosed_rhs henv_wf hlen h_rhs_err _
-    | .apply_r (f := f) (x := x) h_free_f h_x =>
-      have hsz : sizeOf x ≤ n := by
-        have : sizeOf (Term.Apply f x) = 1 + sizeOf f + sizeOf x := rfl; omega
-      have hclosed_x : closedAt (d + 1) x = true := by
-        simp [closedAt] at hclosed_body; exact hclosed_body.2
-      simp only [substTerm]
-      exact apply_r_error_propagation h_free_f h_x h_rhs_err
-        (ih hsz h_x hpos hposd hclosed_x hclosed_rhs henv_wf hlen h_rhs_err) π
-    | .force (e := e) h_e =>
-      have hsz : sizeOf e ≤ n := by
-        have : sizeOf (Term.Force e) = 1 + sizeOf e := rfl; omega
-      have hclosed_e : closedAt (d + 1) e = true := by
-        simp [closedAt] at hclosed_body; exact hclosed_body
-      simp only [substTerm]
-      apply reaches_error_of_step (force_step π ρ _)
-      exact ih hsz h_e hpos hposd hclosed_e hclosed_rhs henv_wf hlen h_rhs_err _
-    | .constr (tag := tag) (args := t :: ts) h_args =>
-      have h_args_sz : sizeOf t + sizeOf ts ≤ n := by
-        have : sizeOf (Term.Constr tag (t :: ts)) =
-            1 + sizeOf tag + (1 + sizeOf t + sizeOf ts) := by
-          simp [Term._sizeOf_inst, instSizeOfNat, List._sizeOf_inst]
-        omega
-      have hclosed_args : closedAtList (d + 1) (t :: ts) = true := by
-        simp [closedAt] at hclosed_body; exact hclosed_body
-      simp only [substTerm, substTermList]
-      apply reaches_error_of_step (constr_cons_step π ρ tag _ _)
-      exact constrField_list_reaches_error h_args h_rhs_err hclosed_args
-        (fun h_so hcl (h_esz : sizeOf _ < _) =>
-          ih (show sizeOf _ ≤ n by omega) h_so hpos hposd hcl hclosed_rhs henv_wf hlen h_rhs_err)
-        (show 1 + sizeOf t + sizeOf ts ≤ 1 + sizeOf t + sizeOf ts by omega) _
-    | .case_scrut (scrut := scrut) (alts := alts) h_scrut _ =>
-      have hsz : sizeOf scrut ≤ n := by
-        have : sizeOf (Term.Case scrut alts) =
-            1 + sizeOf scrut + sizeOf alts := by
-          simp [Term._sizeOf_inst, List._sizeOf_inst]
-        omega
-      have hclosed_scrut : closedAt (d + 1) scrut = true := by
-        simp [closedAt] at hclosed_body; exact hclosed_body.1
-      simp only [substTerm]
-      apply reaches_error_of_step (case_step π ρ _ _)
-      exact ih hsz h_scrut hpos hposd hclosed_scrut hclosed_rhs henv_wf hlen h_rhs_err _
-    | .let_body (body := body) (rhs := rhs_inner) h_body h_free =>
-      -- t_body = Apply (Lam 0 body) rhs_inner
-      -- After simp: Apply (Lam 0 subst_body) subst_rhs_inner
-      -- where subst_body = substTerm (pos+1) (shifted t_rhs) body
-      --       subst_rhs_inner = substTerm pos t_rhs rhs_inner
-      have hsz_body : sizeOf body ≤ n := by
-        have h_apply : sizeOf (Term.Apply (Term.Lam 0 body) rhs_inner) =
-            1 + sizeOf (Term.Lam 0 body) + sizeOf rhs_inner := rfl
-        have h_lam : sizeOf (Term.Lam 0 body) = 1 + sizeOf (0 : Nat) + sizeOf body := rfl
-        have h_zero : sizeOf (0 : Nat) = 0 := rfl
-        omega
-      have hsz_rhs_inner : sizeOf rhs_inner ≤ n := by
-        have h_apply : sizeOf (Term.Apply (Term.Lam 0 body) rhs_inner) =
-            1 + sizeOf (Term.Lam 0 body) + sizeOf rhs_inner := rfl
-        have h_lam_pos : sizeOf (Term.Lam 0 body) ≥ 1 := by
-          have : sizeOf (Term.Lam 0 body) = 1 + sizeOf (0 : Nat) + sizeOf body := rfl
-          omega
-        omega
-      have hclosed_body_body : closedAt (d + 2) body = true := by
-        simp [closedAt] at hclosed_body; exact hclosed_body.1
-      have hclosed_rhs_inner : closedAt (d + 1) rhs_inner = true := by
-        simp [closedAt] at hclosed_body; exact hclosed_body.2
-      -- Reduce arbitrary-stack goal to empty-stack case via error_on_all_stacks
-      -- Show Reaches (compute [] ρ (substTerm ...)) .error first.
-      suffices h_nil : Reaches
-          (.compute ([] : Stack) ρ
-            (substTerm pos t_rhs (Term.Apply (Term.Lam 0 body) rhs_inner))) .error by
-        exact error_on_all_stacks h_nil π
-      -- Unfold substTerm once on goal
-      simp only [substTerm]
-      -- Use budget_exhaustion: assume halts, derive contradiction
-      apply Moist.Verified.budget_exhaustion
-      intro v_final h_halt
-      obtain ⟨N, hN⟩ := h_halt
-      -- Define abbreviations
-      let subst_body : Term := substTerm (pos + 1)
-        (Moist.Verified.renameTerm (Moist.Verified.shiftRename 1) t_rhs) body
-      let subst_rhs_inner : Term := substTerm pos t_rhs rhs_inner
-      -- First 3 steps are deterministic
-      have h3 : steps 3
-          (.compute [] ρ (.Apply (.Lam 0 subst_body) subst_rhs_inner)) =
-          .compute [Frame.funV (.VLam subst_body ρ)] ρ subst_rhs_inner := by
-        simp [steps, step, subst_body, subst_rhs_inner]
-      have hN_ge_3 : N ≥ 3 := by
-        rcases N with _ | _ | _ | N''
-        · simp only [steps] at hN; exact absurd hN State.noConfusion
-        · simp only [steps, step] at hN; exact absurd hN State.noConfusion
-        · simp only [steps, step] at hN; exact absurd hN State.noConfusion
-        · omega
-      have h_after_3 :
-          steps (N - 3) (.compute [Frame.funV (.VLam subst_body ρ)] ρ subst_rhs_inner) =
-            .halt v_final := by
-        have heq : N = 3 + (N - 3) := by omega
-        rw [heq, steps_trans] at hN
-        rw [h3] at hN
-        exact hN
-      -- Extract intermediate ret on the base stack [funV ...]
-      have h_suffix : hasSuffix [Frame.funV (.VLam subst_body ρ)]
-          (.compute [Frame.funV (.VLam subst_body ρ)] ρ subst_rhs_inner) :=
-        ⟨[], rfl⟩
-      obtain ⟨m₁, hm₁_le, v_inner, hm₁⟩ :=
-        halt_descends_to_baseπ (N - 3)
-          (.compute [Frame.funV (.VLam subst_body ρ)] ρ subst_rhs_inner)
-          v_final h_after_3 h_suffix
-      -- closedness of shifted t_rhs
-      have hclosed_shifted_t_rhs : closedAt (d + 1)
-          (Moist.Verified.renameTerm (Moist.Verified.shiftRename 1) t_rhs) = true :=
-        Moist.Verified.BetaValueRefines.closedAt_shift hclosed_rhs
-      -- closedness of subst_body
-      have hclosed_subst_body : closedAt (d + 1) subst_body = true :=
-        Moist.Verified.BetaValueRefines.closedAt_substTerm
-          (pos + 1) _ body (d + 1)
-          (by omega) (by omega) hclosed_shifted_t_rhs hclosed_body_body
-      -- VLam subst_body ρ is WellFormed
-      have hvlam_wf : Moist.Verified.BetaValueRefines.ValueWellFormed
-          (CekValue.VLam subst_body ρ) :=
-        Moist.Verified.BetaValueRefines.ValueWellFormed.vlam henv_wf hlen hclosed_subst_body
-      -- Stack [funV (VLam ...)] is WellFormed
-      have hstack_wf :
-          Moist.Verified.BetaValueRefines.StackWellFormed
-            [Frame.funV (.VLam subst_body ρ)] :=
-        Moist.Verified.BetaValueRefines.StackWellFormed.cons
-          (Moist.Verified.BetaValueRefines.FrameWellFormed.funV hvlam_wf)
-          Moist.Verified.BetaValueRefines.StackWellFormed.nil
-      -- closedness of subst_rhs_inner
-      have hclosed_subst_rhs_inner : closedAt d subst_rhs_inner = true :=
-        Moist.Verified.BetaValueRefines.closedAt_substTerm
-          pos t_rhs rhs_inner d hpos hposd hclosed_rhs hclosed_rhs_inner
-      -- State at step 0 is WellFormed
-      have hstate_wf : Moist.Verified.StepWellFormed.StateWellFormed
-          (.compute [Frame.funV (.VLam subst_body ρ)] ρ subst_rhs_inner) :=
-        Moist.Verified.StepWellFormed.StateWellFormed.compute hstack_wf henv_wf hlen
-          hclosed_subst_rhs_inner
-      -- v_inner is WellFormed (since the state hits halt via step m₁+1)
-      have hv_inner_wf : Moist.Verified.BetaValueRefines.ValueWellFormed v_inner := by
-        have h_after_m : Moist.Verified.StepWellFormed.StateWellFormed
-            (steps m₁ (.compute [Frame.funV (.VLam subst_body ρ)] ρ subst_rhs_inner)) :=
-          Moist.Verified.StepWellFormed.steps_preserves_wf m₁ _ hstate_wf
-        rw [hm₁] at h_after_m
-        cases h_after_m with
-        | ret _ hv => exact hv
-      -- One more step from hm₁: ret → compute (ρ.extend v_inner) subst_body on empty stack
-      have h_funv_step :
-          step (.ret [Frame.funV (.VLam subst_body ρ)] v_inner) =
-            .compute [] (ρ.extend v_inner) subst_body := rfl
-      -- m₁ < N - 3 (otherwise halt = ret, contradiction)
-      have hm₁_lt : m₁ < N - 3 := by
-        rcases Nat.lt_or_ge m₁ (N - 3) with hlt | hge
-        · exact hlt
-        · exfalso
-          have hm₁_eq : m₁ = N - 3 := Nat.le_antisymm hm₁_le hge
-          rw [hm₁_eq] at hm₁
-          rw [hm₁] at h_after_3
-          exact State.noConfusion h_after_3
-      -- Remaining halt on compute subst_body under ρ.extend v_inner
-      have h_remain_halt : steps ((N - 3) - m₁ - 1)
-          (.compute [] (ρ.extend v_inner) subst_body) = .halt v_final := by
-        have heq : N - 3 = m₁ + 1 + ((N - 3) - m₁ - 1) := by omega
-        rw [heq, steps_trans, steps_trans, hm₁] at h_after_3
-        simp only [steps, h_funv_step] at h_after_3
-        exact h_after_3
-      -- Derive error via IH
-      have henv_wf' : Moist.Verified.BetaValueRefines.EnvWellFormed
-          (d + 1) (ρ.extend v_inner) :=
-        Moist.Verified.BetaValueRefines.envWellFormed_extend d henv_wf hlen hv_inner_wf
-      have hlen' : d + 1 ≤ (ρ.extend v_inner).length := by
-        show d + 1 ≤ ρ.length + 1
-        omega
-      have h_shifted_err :
-          ∀ π', Reaches (.compute π' (ρ.extend v_inner)
-              (Moist.Verified.renameTerm (Moist.Verified.shiftRename 1) t_rhs)) .error :=
-        shift_rhs_reaches_error hclosed_rhs henv_wf h_rhs_err v_inner
-      have h_body_err :
-          ∀ π', Reaches (.compute π' (ρ.extend v_inner) subst_body) .error :=
-        ih hsz_body h_body (by omega) (by omega)
-          hclosed_body_body hclosed_shifted_t_rhs henv_wf' hlen' h_shifted_err
-      obtain ⟨q, hq⟩ := h_body_err []
-      exact error_of_halt_then_error h_remain_halt hq
-
-theorem strict_subst_reaches_error {pos : Nat} {t_body t_rhs : Term}
-    {d : Nat} {ρ : CekEnv}
-    (h_strict : StrictSingleOcc pos t_body)
-    (hpos : 1 ≤ pos)
-    (hposd : pos ≤ d + 1)
-    (hclosed_body : closedAt (d + 1) t_body = true)
-    (hclosed_rhs : closedAt d t_rhs = true)
-    (henv_wf : Moist.Verified.BetaValueRefines.EnvWellFormed d ρ)
-    (hlen : d ≤ ρ.length)
-    (h_rhs_err : ∀ π, Reaches (.compute π ρ t_rhs) .error) :
-    ∀ π, Reaches (.compute π ρ (substTerm pos t_rhs t_body)) .error :=
-  strict_subst_reaches_error_aux (sizeOf t_body) (Nat.le_refl _) h_strict hpos hposd
-    hclosed_body hclosed_rhs henv_wf hlen h_rhs_err
-
 end StrictSubstErrorProp
 
 /-! ## Same-env ObsRefines: Apply vs substTerm
 
 For the same env ρ and stack π, `Apply (Lam 0 t_body) t_rhs` ObsRefines
-`substTerm 1 t_rhs t_body` when `StrictSingleOcc 1 t_body`. Uses stack
-independence + budget_exhaustion + strict_subst_reaches_error. -/
+`substTerm 1 t_rhs t_body`. -/
 
 section SameEnvBeta
 
@@ -843,36 +471,6 @@ open Moist.CEK (State CekEnv CekValue Stack Frame step)
 open Moist.Verified.Equivalence (Reaches steps)
 open Moist.Verified.BetaValueRefines (steps_trans steps_error_fixed steps_halt_fixed
   hasSuffix halt_descends_to_baseπ)
-
-private theorem reaches_of_steps_reaches {s s' t : State} {m : Nat}
-    (h_steps : steps m s = s') (h : Reaches s' t) : Reaches s t := by
-  obtain ⟨n, hn⟩ := h; exact ⟨m + n, by rw [steps_trans, h_steps, hn]⟩
-
-private theorem freeOf_obsRefines_fwd (sz : Nat) {sub t_rhs : Term}
-    (_h_sz : sizeOf sub ≤ sz) (hfree : freeOf 1 sub = true)
-    (hclosed_sub : closedAt (d + 1) sub = true) (hclosed_rhs : closedAt d t_rhs = true)
-    {ρ : CekEnv} {v : CekValue}
-    (henv_wf : Moist.Verified.BetaValueRefines.EnvWellFormed d ρ)
-    (_hlen : d ≤ ρ.length)
-    (_hvwf : Moist.Verified.BetaValueRefines.ValueWellFormed v) :
-    ∀ k j, j ≤ k → ∀ i, i ≤ j → ∀ π₁ π₂,
-      Moist.Verified.Contextual.SoundnessRefines.StackRefK
-        Moist.Verified.Contextual.SoundnessRefines.ValueRefinesK i π₁ π₂ →
-      Moist.Verified.Equivalence.ObsRefinesK i
-        (.compute π₁ (ρ.extend v) sub)
-        (.compute π₂ ρ (substTerm 1 t_rhs sub)) := by
-  intro k j hj i hi π₁ π₂ hπ
-  have h_closed_sub' : closedAt d (substTerm 1 t_rhs sub) = true :=
-    Moist.Verified.BetaValueRefines.closedAt_substTerm 1 t_rhs sub d
-      (by omega) (by omega) hclosed_rhs hclosed_sub
-  have h_shift := freeOf_shift_substTerm (by omega : (1 : Nat) ≥ 1) hfree (r := t_rhs)
-  conv at h_shift => lhs; rw [show shiftRename 1 = Moist.Verified.shiftRename 1 from rfl]
-  have h_rename := Moist.Verified.FundamentalRefines.renameRefines_shift1 d
-    (substTerm 1 t_rhs sub) h_closed_sub' k j hj (ρ.extend v) ρ
-    (Moist.Verified.FundamentalRefines.envRefinesK_to_renameEnvRef_shift
-      (Moist.Verified.BetaValueRefines.envRefinesK_refl henv_wf))
-    i hi π₁ π₂ hπ
-  rwa [h_shift] at h_rename
 
 private theorem term_sizeOf_pos (t : Term) : sizeOf t ≥ 1 := by
   cases t <;> simp [Term._sizeOf_inst, instSizeOfNat] <;> omega
@@ -2522,143 +2120,6 @@ private theorem body_subst_multi_obsRefinesK_gen (sz : Nat) {d pos : Nat}
                 simp only [ValueRefinesK] at hv
           exact ih_sz hsz_scrut hclosed_scrut (by omega) hπ_case
 termination_by sz
-
-theorem body_subst_obsRefines {d : Nat} {t_body t_rhs : Term}
-    (h_strict : StrictSingleOcc 1 t_body)
-    (hclosed_body : closedAt (d + 1) t_body = true)
-    (hclosed_rhs : closedAt d t_rhs = true)
-    {ρ : CekEnv} {v_ret : CekValue}
-    (h_ret : ∀ π, ∃ m, steps m (.compute π ρ t_rhs) = .ret π v_ret)
-    (henv_wf : Moist.Verified.BetaValueRefines.EnvWellFormed d ρ)
-    (hlen : d ≤ ρ.length)
-    (hvwf : Moist.Verified.BetaValueRefines.ValueWellFormed v_ret)
-    (hwf_π : Moist.Verified.BetaValueRefines.StackWellFormed π) :
-    Moist.Verified.Contextual.ObsRefines
-      (.compute π (ρ.extend v_ret) t_body)
-      (.compute π ρ (substTerm 1 t_rhs t_body)) := by
-  -- Build SubstEnvRef 1 v_ret n (d+1) (ρ.extend v_ret) ρ and invoke gen at pos=1.
-  have henv_wf_L : Moist.Verified.BetaValueRefines.EnvWellFormed (d + 1) (ρ.extend v_ret) :=
-    Moist.Verified.BetaValueRefines.envWellFormed_extend d henv_wf hlen hvwf
-  have hlen_L : d + 1 ≤ (ρ.extend v_ret).length := by
-    show d + 1 ≤ ρ.length + 1; omega
-  have mk_multi (k : Nat) : ∀ (K : Nat) (ρ_ext : CekEnv),
-      (∀ n, 0 < n → n ≤ d → ρ_ext.lookup (n + K) = ρ.lookup n) →
-      ∀ π, ∃ m v',
-        steps m (.compute π ρ_ext
-          (Moist.Verified.SubstRefines.iterShift K t_rhs)) = .ret π v' ∧
-        Moist.Verified.Contextual.SoundnessRefines.ValueRefinesK k v_ret v' :=
-    fun K ρ_ext h_lookup π =>
-      shifted_halt_extend_multi (k := k) hclosed_rhs henv_wf h_ret hvwf h_lookup π
-  constructor
-  · rintro ⟨v, n, hn⟩
-    have hπ := Moist.Verified.BetaValueRefines.stackRefK_refl n π hwf_π
-    have henv_refl := Moist.Verified.BetaValueRefines.envRefinesK_refl (k := n) henv_wf
-    have hvrefl : Moist.Verified.Contextual.SoundnessRefines.ValueRefinesK n v_ret v_ret :=
-      Moist.Verified.BetaValueRefines.valueRefinesK_refl n v_ret hvwf
-    have hsubst_env :
-        Moist.Verified.BetaValueRefines.SubstEnvRef 1 v_ret n (d + 1) (ρ.extend v_ret) ρ :=
-      Moist.Verified.InlineSoundness.Beta.substEnvRef_of_envRefinesK_extend henv_refl hvrefl
-    have hexact : (ρ.extend v_ret).lookup 1 = some v_ret :=
-      Moist.Verified.BetaValueRefines.extend_lookup_one ρ v_ret
-    have h := body_subst_obsRefinesK_gen (sizeOf t_body) (Nat.le_refl _)
-      (by omega) (by omega) h_strict.toSingleOcc hclosed_body hclosed_rhs
-      hsubst_env hexact (mk_multi n) hlen_L hlen hvwf
-      (Nat.le_refl n) hπ
-    exact h.1 v ⟨n, Nat.le_refl _, hn⟩
-  · intro ⟨n, hn⟩
-    have hπ := Moist.Verified.BetaValueRefines.stackRefK_refl n π hwf_π
-    have henv_refl := Moist.Verified.BetaValueRefines.envRefinesK_refl (k := n) henv_wf
-    have hvrefl : Moist.Verified.Contextual.SoundnessRefines.ValueRefinesK n v_ret v_ret :=
-      Moist.Verified.BetaValueRefines.valueRefinesK_refl n v_ret hvwf
-    have hsubst_env :
-        Moist.Verified.BetaValueRefines.SubstEnvRef 1 v_ret n (d + 1) (ρ.extend v_ret) ρ :=
-      Moist.Verified.InlineSoundness.Beta.substEnvRef_of_envRefinesK_extend henv_refl hvrefl
-    have hexact : (ρ.extend v_ret).lookup 1 = some v_ret :=
-      Moist.Verified.BetaValueRefines.extend_lookup_one ρ v_ret
-    have h := body_subst_obsRefinesK_gen (sizeOf t_body) (Nat.le_refl _)
-      (by omega) (by omega) h_strict.toSingleOcc hclosed_body hclosed_rhs
-      hsubst_env hexact (mk_multi n) hlen_L hlen hvwf
-      (Nat.le_refl n) hπ
-    exact h.2 n (Nat.le_refl _) hn
-
-theorem same_env_beta_obsRefines {d : Nat} {t_body t_rhs : Term}
-    (h_strict : StrictSingleOcc 1 t_body)
-    (hclosed_body : closedAt (d + 1) t_body = true)
-    (hclosed_rhs : closedAt d t_rhs = true)
-    (ρ : CekEnv) (π : Stack)
-    (henv_wf : Moist.Verified.BetaValueRefines.EnvWellFormed d ρ)
-    (hlen : d ≤ ρ.length)
-    (hwf_π : Moist.Verified.BetaValueRefines.StackWellFormed π) :
-    Moist.Verified.Contextual.ObsRefines
-      (.compute π ρ (.Apply (.Lam 0 t_body) t_rhs))
-      (.compute π ρ (substTerm 1 t_rhs t_body)) := by
-  have h_rhs_fate := Moist.Verified.halt_or_error (.compute [] ρ t_rhs)
-  cases h_rhs_fate with
-  | inr h_rhs_err_empty =>
-    have h_rhs_err_all := error_on_all_stacks h_rhs_err_empty
-    constructor
-    · rintro ⟨v, n, hn⟩
-      exfalso
-      have h3 : steps 3 (.compute π ρ (.Apply (.Lam 0 t_body) t_rhs)) =
-          .compute (Frame.funV (.VLam t_body ρ) :: π) ρ t_rhs := by
-        simp [steps, step]
-      obtain ⟨n_err, hn_err⟩ := h_rhs_err_all (Frame.funV (.VLam t_body ρ) :: π)
-      have h_apply_err : steps (3 + n_err) (.compute π ρ (.Apply (.Lam 0 t_body) t_rhs)) = .error := by
-        rw [steps_trans, h3, hn_err]
-      exact error_of_halt_then_error hn h_apply_err
-    · intro h_err
-      exact strict_subst_reaches_error h_strict (by omega : (1:Nat) ≤ 1) (by omega : (1:Nat) ≤ d + 1)
-        hclosed_body hclosed_rhs henv_wf hlen h_rhs_err_all π
-  | inl h_rhs_halt_ex =>
-    obtain ⟨v_rhs, n_halt, hn_halt⟩ := h_rhs_halt_ex
-    obtain ⟨m_ret, _, v_ret, hm_ret⟩ :=
-      halt_descends_to_baseπ n_halt (.compute [] ρ t_rhs) v_rhs hn_halt ⟨[], rfl⟩
-    have h_rhs_ret_all := ret_on_all_stacks hm_ret
-    have hvwf : Moist.Verified.BetaValueRefines.ValueWellFormed v_ret := by
-      obtain ⟨m, hm⟩ := h_rhs_ret_all []
-      exact Moist.Verified.StepWellFormed.halt_value_wf
-        (Moist.Verified.StepWellFormed.StateWellFormed.compute
-          Moist.Verified.BetaValueRefines.StackWellFormed.nil henv_wf hlen hclosed_rhs)
-        (show steps (m + 1) (.compute [] ρ t_rhs) = .halt v_ret by
-          rw [steps_trans, hm]; rfl)
-    have h_body_obs := body_subst_obsRefines h_strict hclosed_body hclosed_rhs
-      h_rhs_ret_all henv_wf hlen hvwf hwf_π
-    obtain ⟨m_rhs, hm_rhs⟩ := h_rhs_ret_all (Frame.funV (.VLam t_body ρ) :: π)
-    have h3 : steps 3 (.compute π ρ (.Apply (.Lam 0 t_body) t_rhs)) =
-        .compute (Frame.funV (.VLam t_body ρ) :: π) ρ t_rhs := by
-      simp [steps, step]
-    have h_funv_step : step (.ret (Frame.funV (.VLam t_body ρ) :: π) v_ret) =
-        .compute π (ρ.extend v_ret) t_body := rfl
-    let P := 3 + m_rhs + 1
-    have h_prefix : steps P (.compute π ρ (.Apply (.Lam 0 t_body) t_rhs)) =
-        .compute π (ρ.extend v_ret) t_body := by
-      show steps (3 + m_rhs + 1) _ = _
-      rw [show 3 + m_rhs + 1 = 3 + (m_rhs + 1) by omega, steps_trans, h3,
-          show m_rhs + 1 = m_rhs + 1 from rfl, steps_trans, hm_rhs]
-      exact h_funv_step
-    constructor
-    · rintro ⟨v, n, hn⟩
-      exact h_body_obs.halt ⟨v, by
-        by_cases hle : n ≤ P
-        · exfalso
-          have : P = n + (P - n) := by omega
-          rw [this, steps_trans] at h_prefix
-          have : steps n (.compute π ρ (.Apply (.Lam 0 t_body) t_rhs)) = .halt v := hn
-          rw [this, steps_halt_fixed] at h_prefix
-          exact State.noConfusion h_prefix
-        · exact ⟨n - P, by
-            rw [show n = P + (n - P) by omega, steps_trans, h_prefix] at hn
-            exact hn⟩⟩
-    · rintro ⟨n, hn⟩
-      exact h_body_obs.error ⟨n - P, by
-        by_cases hle : n ≤ P
-        · exfalso
-          have : P = n + (P - n) := by omega
-          rw [this, steps_trans] at h_prefix
-          rw [hn, steps_error_fixed] at h_prefix
-          exact State.noConfusion h_prefix
-        · rw [show n = P + (n - P) by omega, steps_trans, h_prefix] at hn
-          exact hn⟩
 
 theorem same_env_beta_single_obsRefines {d : Nat} {t_body t_rhs : Term}
     (h_single : SingleOcc 1 t_body)

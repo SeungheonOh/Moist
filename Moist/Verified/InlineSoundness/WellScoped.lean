@@ -28,7 +28,6 @@ private theorem contains_of_beq (s : VarSet) {v w : VarId}
   rw [← Array.any_toList] at h ⊢
   exact Moist.MIR.List.any_beq_varid_trans _ _ _ hvw h
 
-
 /-! ## Anti-monotonicity helpers -/
 
 private theorem barrier_insert (seen₁ seen₂ fv₁ fv₂ : VarSet) (b : VarId)
@@ -188,13 +187,6 @@ private theorem wellScopedAux_weaken' (seen₁ seen₂ fv₁ fv₂ : VarSet) (e 
   rw [isSome_iff] at h; obtain ⟨s₁, hs₁⟩ := h
   have ⟨s₂, hs₂, _⟩ := wellScopedAux_weaken seen₁ seen₂ fv₁ fv₂ e hbar s₁ hs₁
   rw [isSome_iff]; exact ⟨s₂, hs₂⟩
-
-private theorem wellScopedAux_seen_equiv (seen₁ seen₂ fv : VarSet) (e : Expr)
-    (hbar : ∀ v, seen₂.contains v = true → seen₁.contains v = true)
-    (h : (wellScopedAux seen₁ fv e).isSome = true) :
-    (wellScopedAux seen₂ fv e).isSome = true := by
-  exact wellScopedAux_weaken' seen₁ seen₂ fv fv e
-    (fun v hv => hv.elim (fun h => Or.inl (hbar v h)) Or.inr) h
 
 /-! ## seen-monotonicity: wellScopedAux preserves seen membership -/
 
@@ -821,60 +813,7 @@ private theorem freeVars_mem_sub_freeVarsList (es : List Expr) (e : Expr) (he : 
 
 /-! ## wellScoped for Let sub-expressions -/
 
-private theorem wellScopedLetAux_body_wellScoped (seen fv : VarSet)
-    (binds : List (VarId × Expr × Bool)) (body : Expr)
-    (s : VarSet) (h : wellScopedLetAux seen fv binds body = some s)
-    (hfv : ∀ v, (Moist.MIR.freeVars body).contains v = true → fv.contains v = true) :
-    wellScoped body = true := by
-  cases binds with
-  | nil =>
-    unfold wellScopedLetAux at h
-    exact wellScoped_of_wellScopedAux_fv_sub seen fv body s h hfv
-  | cons b rest =>
-    have := sizeOf_rhs_lt b rest body
-    unfold wellScopedLetAux at h; simp only [bind, Option.bind] at h
-    split at h
-    · simp at h
-    · rename_i mid hmid
-      have hc₁ : (mid.contains b.1 || fv.contains b.1) = false := by
-        cases hc : (mid.contains b.1 || fv.contains b.1) <;> simp [hc] at h ⊢
-      simp only [hc₁] at h
-      exact wellScopedLetAux_body_wellScoped _ fv rest body s h hfv
-termination_by sizeOf binds + sizeOf body
-
-private theorem wellScopedLetAux_each_bind_wellScoped (seen fv : VarSet)
-    (binds : List (VarId × Expr × Bool)) (body : Expr)
-    (s : VarSet) (h : wellScopedLetAux seen fv binds body = some s)
-    (hfv : ∀ b, b ∈ binds → ∀ v, (Moist.MIR.freeVars b.2.1).contains v = true → fv.contains v = true) :
-    ∀ b, b ∈ binds → wellScoped b.2.1 = true := by
-  cases binds with
-  | nil => intro b hb; simp at hb
-  | cons bd rest =>
-    have := sizeOf_rhs_lt bd rest body
-    unfold wellScopedLetAux at h; simp only [bind, Option.bind] at h
-    split at h
-    · simp at h
-    · rename_i mid hmid
-      have hc₁ : (mid.contains bd.1 || fv.contains bd.1) = false := by
-        cases hc : (mid.contains bd.1 || fv.contains bd.1) <;> simp [hc] at h ⊢
-      simp only [hc₁] at h
-      intro b hb
-      rcases List.mem_cons.mp hb with rfl | hb
-      · exact wellScoped_of_wellScopedAux_fv_sub seen fv b.2.1 mid hmid
-          (hfv b (List.mem_cons_self ..))
-      · exact wellScopedLetAux_each_bind_wellScoped _ fv rest body s h
-          (fun b' hb' v hv => hfv b' (List.mem_cons_of_mem _ hb') v hv)
-          b hb
-termination_by sizeOf binds + sizeOf body
-
 /-! ## freeVars subset lemmas for Let -/
-
-private theorem freeVars_rhs_sub_freeVarsLet (b : VarId × Expr × Bool)
-    (rest : List (VarId × Expr × Bool)) (body : Expr) (v : VarId)
-    (hv : (Moist.MIR.freeVars b.2.1).contains v = true) :
-    (Moist.MIR.freeVarsLet (b :: rest) body).contains v = true := by
-  unfold Moist.MIR.freeVarsLet
-  exact VarSet.contains_union_left _ _ _ hv
 
 /-! ## Main theorems -/
 
@@ -939,18 +878,6 @@ theorem wellScoped_let_peel {v : VarId} {rhs : Expr} {er : Bool}
               exact Or.inr (by unfold Moist.MIR.freeVarsLet; exact VarSet.contains_union_right _ _ _ (VarSet.contains_erase_ne _ v w hvw hw)))
         s hs
       exact ⟨s₂, hs₂⟩
-
-theorem wellScoped_let_drop_prefix
-    (pref binds : List (VarId × Expr × Bool)) (body : Expr)
-    (h : wellScoped (.Let (pref ++ binds) body) = true) :
-    wellScoped (.Let binds body) = true := by
-  induction pref generalizing binds body with
-  | nil =>
-    simpa using h
-  | cons b pref ih =>
-    obtain ⟨v, rhs, er⟩ := b
-    simp only [List.cons_append] at h
-    exact ih _ _ (wellScoped_let_peel h).2
 
 theorem wellScoped_sub_let {binds : List (VarId × Expr × Bool)} {body : Expr}
     (h : wellScoped (.Let binds body) = true) :
@@ -1038,8 +965,6 @@ theorem wellScoped_noCaptureFrom {e : Expr}
   unfold wellScoped at h
   rw [isSome_iff] at h; obtain ⟨s, hs⟩ := h
   exact wellScopedAux_noCaptureFrom _ _ _ e (fun v hv => hv) s hs
-
-
 
 /-! ## noCaptureFrom monotonicity: smaller fv → still no capture -/
 
@@ -1500,25 +1425,6 @@ private theorem freeVars_rhs_in_fvlet_or_bindname
       · exact Or.inr ⟨b', List.mem_cons_of_mem _ hb', hbx⟩
 
 /-! ## Binding names not in mid (after processing RHS) -/
-
-private theorem wellScopedLetAux_all_bindnames_not_in_mid
-    (fv : VarSet) (hd : VarId × Expr × Bool) (rest : List (VarId × Expr × Bool))
-    (body : Expr) (s mid : VarSet)
-    (hmid : wellScopedAux VarSet.empty fv hd.2.1 = some mid)
-    (hcheck : (mid.contains hd.1 || fv.contains hd.1) = false)
-    (hrest : wellScopedLetAux (mid.insert hd.1) fv rest body = some s) :
-    ∀ b ∈ (hd :: rest), mid.contains b.1 = false := by
-  intro b hb
-  rcases List.mem_cons.mp hb with rfl | hb
-  · simp only [Bool.or_eq_false_iff] at hcheck; exact hcheck.1
-  · have hbnot := wellScopedLetAux_binders_not_in_seen (mid.insert hd.1) fv rest body s hrest
-    rw [List.all_eq_true] at hbnot
-    have hb_not_ins := hbnot b hb
-    simp only [Bool.not_eq_true'] at hb_not_ins
-    cases hmid_b : mid.contains b.1
-    · rfl
-    · exfalso; exact absurd (VarSet.contains_insert_of_contains mid hd.1 b.1 hmid_b)
-        (by simp [hb_not_ins])
 
 /-! ## NC from seen membership: if v ∈ seen, then NC {v} for all RHS -/
 

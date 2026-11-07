@@ -29,17 +29,6 @@ open Moist.Verified
 open Moist.Verified.Equivalence
 open Moist.Verified.Contextual.SoundnessRefines
 
-/-- Extending the CEK environment with a single value corresponds
-    exactly to a `shiftRename 1` renaming of lookups: the shifted
-    index into the extended env is identical to the original index
-    into the base env. -/
-private theorem extend_lookup_shift (ρ : CekEnv) (v : CekValue) (n : Nat) :
-    (ρ.extend v).lookup (Moist.Verified.shiftRename 1 n) = ρ.lookup n := by
-  cases n with
-  | zero => simp [Moist.Verified.shiftRename, CekEnv.extend]
-  | succ m => simp [Moist.Verified.shiftRename, CekEnv.extend, CekEnv.lookup]
-
-
 --------------------------------------------------------------------------------
 -- 2. Multi-step peel helpers for `ObsRefinesK`
 --
@@ -58,8 +47,6 @@ private theorem steps_trans (m n : Nat) (s : State) :
 private theorem steps_halt_fixed (n : Nat) (v : CekValue) :
     steps n (.halt v) = .halt v := by
   induction n with | zero => rfl | succ n ih => simp [steps, step, ih]
-
-
 
 --------------------------------------------------------------------------------
 -- 5. Stack-discipline inversion lemma

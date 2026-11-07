@@ -1,4 +1,4 @@
-import Moist.Verified.Contextual.Soundness
+import Moist.Verified.Contextual.BisimRef
 import Moist.Verified.Definitions.StepIndexed
 
 /-! # Unidirectional open-context soundness (`OpenRefines d → CtxRefines`)
@@ -32,13 +32,73 @@ This file mirrors the bidirectional Phase 6 infrastructure in
   * `soundness_refines_d` — the public entry point.
 -/
 
+namespace Moist.Verified.Contextual.Soundness
+
+open Moist.CEK
+open Moist.Plutus.Term
+open Moist.Verified.Equivalence
+open Moist.Verified.Contextual
+
+/-! Locality padding: `ObsRefinesK` transfers from padded environments back to
+the original states, because closed terms ignore environment contents. -/
+
+open Moist.Verified.Contextual.BisimRef
+
+/-- Dummy environment of length `d` filled with `VCon .Unit` values.
+    Used as padding to satisfy the `d ≤ ρ.length` invariant of
+    `term_obsEq` while letting locality recover the empty-env result. -/
+def dummyEnv : Nat → CekEnv
+  | 0 => .nil
+  | n + 1 => (dummyEnv n).extend (.VCon .Unit)
+
+theorem dummyEnv_length : ∀ (n : Nat), (dummyEnv n).length = n
+  | 0 => rfl
+  | n + 1 => by
+    show (dummyEnv n).length + 1 = n + 1
+    rw [dummyEnv_length n]
+
+/-- Locality transfer for `ObsRefinesK`. If `s₁, s₂` are each `LocalState`-
+    related to `s₁', s₂'` respectively (the padded versions), then
+    `ObsRefinesK` on the padded states transfers to `ObsRefinesK` on the
+    unpadded states — because `LocalState` is preserved under `steps`
+    and `.halt`/`.error` outcomes are invariant. -/
+theorem locality_obsRefinesK (k : Nat) {s₁ s₂ s₁' s₂' : State}
+    (hls₁ : LocalState s₁ s₁') (hls₂ : LocalState s₂ s₂')
+    (href' : ObsRefinesK k s₁' s₂') : ObsRefinesK k s₁ s₂ := by
+  refine ⟨?_, ?_⟩
+  · -- halt: given s₁ halts, show s₂ reaches halt
+    rintro v ⟨n, hn_le, hsteps_v⟩
+    have hls_n : LocalState (steps n s₁) (steps n s₁') :=
+      localState_preserves_steps n hls₁
+    rw [hsteps_v] at hls_n
+    obtain ⟨v', hs₁'⟩ := localState_halt_inv hls_n
+    obtain ⟨v'', m, hm⟩ := href'.1 v' ⟨n, hn_le, hs₁'⟩
+    have hls_m : LocalState (steps m s₂) (steps m s₂') :=
+      localState_preserves_steps m hls₂
+    rw [hm] at hls_m
+    obtain ⟨v''', hs₂⟩ := localState_halt_inv' hls_m
+    exact ⟨v''', m, hs₂⟩
+  · -- error: given s₁ errors, show s₂ reaches error
+    intro n hn_le hsteps_err
+    have hls_n : LocalState (steps n s₁) (steps n s₁') :=
+      localState_preserves_steps n hls₁
+    rw [hsteps_err] at hls_n
+    have hs₁'_err : steps n s₁' = .error := localState_error_inv hls_n
+    obtain ⟨m, hm⟩ := href'.2 n hn_le hs₁'_err
+    have hls_m : LocalState (steps m s₂) (steps m s₂') :=
+      localState_preserves_steps m hls₂
+    rw [hm] at hls_m
+    have hs₂_err : steps m s₂ = .error := localState_error_inv' hls_m
+    exact ⟨m, hs₂_err⟩
+
+end Moist.Verified.Contextual.Soundness
+
 namespace Moist.Verified.Contextual.SoundnessRefines
 
 open Moist.CEK
 open Moist.Plutus.Term
 open Moist.Verified.Equivalence
 open Moist.Verified.Contextual
-open Moist.Verified.Contextual.Subst
 open Moist.Verified.Contextual.Soundness
 
 --------------------------------------------------------------------------------
@@ -49,9 +109,6 @@ open Moist.Verified.Contextual.Soundness
 -- of an ObsEqK, and local helpers below specialize the Equivalence.lean
 -- theorems for use inside `term_obsRefines`.
 --------------------------------------------------------------------------------
-
-theorem obsRefinesK_of_obsEqK {k : Nat} {s₁ s₂ : State}
-    (h : ObsEqK k s₁ s₂) : ObsRefinesK k s₁ s₂ := h.1
 
 theorem obsRefinesK_halt (k : Nat) (v_l v_r : CekValue) :
     ObsRefinesK k (.halt v_l) (.halt v_r) :=
@@ -129,12 +186,6 @@ def AtLeastEnvRefinesK (k : Nat) (ρ_l ρ_r : CekEnv) : Prop :=
   ρ_l.length = ρ_r.length ∧
   ∀ n, 0 < n → n ≤ ρ_l.length →
     ∃ v_l v_r, ρ_l.lookup n = some v_l ∧ ρ_r.lookup n = some v_r ∧ ValueRefinesK k v_l v_r
-
-theorem atLeastEnvRefinesK_nil (k : Nat) : AtLeastEnvRefinesK k .nil .nil := by
-  refine ⟨rfl, ?_⟩
-  intro n _ hn_len
-  simp [CekEnv.length] at hn_len
-  omega
 
 /-- Bridge from the length-indexed pointwise relation to the depth-indexed
     strict relation, given that the depth `d` is within the env length. -/
@@ -1206,15 +1257,6 @@ theorem soundness_refines {d : Nat} {t₁ t₂ : Term}
         (by rw [dummyEnv_length]; exact Nat.le_refl _)
         (stackRefK_nil n) (fill_termSubstL C t₁ t₂)
     exact (locality_obsRefinesK n hls₁ hls₂ h_obs).2 n (Nat.le_refl _) hs
-
-/-- `soundness_refines_d` alias — kept under the historical name for
-    downstream consumers (notably `MIR.lean`). -/
-theorem soundness_refines_d {d : Nat} {t₁ t₂ : Term}
-    (h_open : OpenRefines d t₁ t₂)
-    (h_close_pres : ∀ (C : Context),
-      closedAt 0 (fill C t₁) = true → closedAt 0 (fill C t₂) = true) :
-    CtxRefines t₁ t₂ :=
-  soundness_refines h_open h_close_pres
 
 /-- Per-context observation form: given `OpenRefines d t₁ t₂` and closedness
     hypotheses on a specific context `C`, produce the `ObsRefines` directly

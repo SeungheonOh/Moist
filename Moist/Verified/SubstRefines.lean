@@ -89,17 +89,6 @@ theorem iterShift_shift (n : Nat) (t : Term) :
          renameTerm (shiftRename 1) (iterShift (m + 1) t)
     rw [ih]
 
-theorem closedAt_iterShift {d : Nat} {t : Term} (h : closedAt d t = true) :
-    ∀ n, closedAt (d + n) (iterShift n t) = true := by
-  intro n
-  induction n with
-  | zero => simp [iterShift]; exact h
-  | succ m ih =>
-    simp only [iterShift]
-    have heq : d + m + 1 = d + (m + 1) := by omega
-    rw [← heq]
-    exact closedAt_shift ih
-
 def RHaltsRelN (r : Term) (v_rhs : CekValue) (k d : Nat) : Prop :=
   ∀ (n : Nat), RHaltsRel (iterShift n r) v_rhs k (d + n)
 

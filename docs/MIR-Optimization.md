@@ -67,8 +67,8 @@ even when both executions reject.
 
 The ordinary test build imports `Test.MIR.Opt.FormalAxioms`. Its allowlist
 rejects dependencies outside `propext`, `Classical.choice`, and `Quot.sound`
-for the listed certificates. The false legacy `budget_exhaustion` axiom still
-exists for older proof APIs; the checked certificates must not depend on it.
+for the listed certificates. The project declares no axioms of its own in
+`Moist.Verified`.
 
 With the repository's Lean toolchain and Zig 0.15.2 available:
 

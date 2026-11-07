@@ -16,7 +16,6 @@ open Moist.Verified.FundamentalRefines (ftlr renameRefines renameRefinesR rename
 
 /-! ## Section 11. anfAtom specification and the main mutual induction -/
 
-
 /-- Direct compute lemmas for `anfAtom` — one for each branch. These bypass
     the monadic abstraction by just computing the function directly. -/
 private theorem anfAtom_var (v : VarId) (s : Moist.MIR.FreshState) :
@@ -475,29 +474,6 @@ private theorem anfAtom_fresh (e : Expr) (s : Moist.MIR.FreshState)
     simp only [Moist.MIR.maxUidExpr, Moist.MIR.maxUidExprBinds] at h ⊢
     omega
 
-/-- `anfAtom` maxUid bound: the output expression (wrapLet binds atom) has
-    maxUid no greater than `max (maxUidExpr e) s.next`. -/
-private theorem anfAtom_maxUid' (e : Expr) (s : Moist.MIR.FreshState) :
-    Moist.MIR.maxUidExpr (Moist.MIR.wrapLet ((Moist.MIR.anfAtom e) s).1.2
-      ((Moist.MIR.anfAtom e) s).1.1) ≤ max (Moist.MIR.maxUidExpr e) s.next := by
-  match e with
-  | .Var v => rw [anfAtom_var v s]; show Moist.MIR.maxUidExpr (.Var v) ≤ _
-              simp only [Moist.MIR.maxUidExpr]; omega
-  | .Lit lit => rw [anfAtom_lit lit s]; show Moist.MIR.maxUidExpr (.Lit _) ≤ _
-                simp only [Moist.MIR.maxUidExpr]; omega
-  | .Builtin b => rw [anfAtom_builtin b s]; show Moist.MIR.maxUidExpr (.Builtin _) ≤ _
-                  simp only [Moist.MIR.maxUidExpr]; omega
-  | .Let bs body =>
-    rw [anfAtom_let bs body s, wrapLet_cons]
-    show Moist.MIR.maxUidExpr
-      (.Let [(⟨s.next, .gen, "anf"⟩, .Let bs body, false)] (.Var ⟨s.next, .gen, "anf"⟩)) ≤ _
-    simp only [Moist.MIR.maxUidExpr, Moist.MIR.maxUidExprBinds]; omega
-  | .App _ _ | .Force _ | .Delay _ | .Lam _ _ | .Case _ _ | .Constr _ _
-  | .Fix _ _ | .Error =>
-    rw [anfAtom_nonletnon _ rfl (by intros; intro heq; cases heq) s, wrapLet_cons]
-    simp only [Moist.MIR.maxUidExpr, Moist.MIR.maxUidExprBinds]; omega
-
-
 /-! ### Section 12e-bis-pre. `anfNormalizeCore` output shape preservation
 
 Shows that `anfNormalizeCore` produces a non-`.Lam` output when given a non-`.Lam`
@@ -558,7 +534,6 @@ The theorem carries four invariants:
    (i.e., `maxUidExpr (output) < (output state).next`)
 
 Termination is by `sizeOf e`. -/
-
 
 private theorem maxUidExpr_le_wrapLet (binds : List (VarId × Expr × Bool)) (atom : Expr) :
     Moist.MIR.maxUidExpr atom ≤ Moist.MIR.maxUidExpr (Moist.MIR.wrapLet binds atom) := by
@@ -1308,59 +1283,12 @@ termination_by sizeOf binds
 
 end
 
-/-- **Main soundness theorem** for ANF normalization (unrestricted).
-    Uses the mutual induction `anfNormalizeCore_mirCtxRefines` to derive
-    bidirectional refinement, then collapses to `MIRCtxEq`. -/
-theorem anfNormalizeCore_sound (e : Expr) :
-    MIRCtxEq e (Moist.MIR.runFresh (Moist.MIR.anfNormalizeCore e)
-      (Moist.MIR.maxUidExpr e + 1)) := by
-  have hfresh : FreshGt ⟨Moist.MIR.maxUidExpr e + 1⟩ e := by
-    show Moist.MIR.maxUidExpr e < Moist.MIR.maxUidExpr e + 1
-    omega
-  have ⟨hfwd, hbwd, _, _⟩ :=
-    anfNormalizeCore_mirCtxRefines e ⟨Moist.MIR.maxUidExpr e + 1⟩ hfresh
-  exact mirCtxEq_of_mirCtxRefines_bidir hfwd hbwd
-
 /-! ## Pipeline soundness: alpha-rename + ANF normalization
 
 For Fix-free input, the pipeline is contextually equivalent to the
 original. We run alpha-rename and ANF in *independent* fresh supplies
 (each starting above its input's `maxUidExpr`), which sidesteps any
 need to track state between the two phases. -/
-
-/-- Alpha-rename is transparent at the `lowerTotalExpr` level: for
-    Fix-free input, `MIRCtxEq e m ↔ MIRCtxEq (alphaRenameTop e K).1 m`. -/
-private theorem alphaRenameTop_mirCtxEq_transport (e : Expr) (m : Expr)
-    (K : Moist.MIR.FreshState)
-    (hK : Moist.MIR.maxUidExpr e < K.next)
-    (hFixFree : Moist.MIR.fixCount e = 0) :
-    MIRCtxEq (Moist.MIR.alphaRenameTop e K).1 m → MIRCtxEq e m := by
-  intro h env
-  have hlow_eq :
-      Moist.MIR.lowerTotalExpr env e =
-      Moist.MIR.lowerTotalExpr env (Moist.MIR.alphaRenameTop e K).1 :=
-    alphaRenameTop_lowerTotalExpr_eq e K hK hFixFree env
-  have ⟨hiff, hctx⟩ := h env
-  rw [hlow_eq]
-  exact ⟨hiff, hctx⟩
-
-/-- **Alpha-rename + ANF pipeline soundness** (without `topFlatten`):
-    the two phases composed with independent fresh supplies are
-    contextually equivalent to the input (for Fix-free input). -/
-theorem anfNormalizeCore_alphaRename_sound (e : Expr)
-    (hFixFree : Moist.MIR.fixCount e = 0) :
-    let renamed := Moist.MIR.runFresh (Moist.MIR.alphaRenameTop e)
-                     (Moist.MIR.maxUidExpr e + 1)
-    MIRCtxEq e
-      (Moist.MIR.runFresh (Moist.MIR.anfNormalizeCore renamed)
-        (Moist.MIR.maxUidExpr renamed + 1)) := by
-  -- Apply `anfNormalizeCore_sound` to the alpha-renamed expression, then
-  -- transport the equivalence back to the original via alpha-rename's
-  -- lowering-preservation.
-  let K : Moist.MIR.FreshState := ⟨Moist.MIR.maxUidExpr e + 1⟩
-  have hK : Moist.MIR.maxUidExpr e < K.next := Nat.lt_succ_self _
-  have h_anf := anfNormalizeCore_sound (Moist.MIR.alphaRenameTop e K).1
-  exact alphaRenameTop_mirCtxEq_transport e _ K hK hFixFree h_anf
 
 /-! ## Composition via `MIRCtxRefines`
 
@@ -1381,22 +1309,6 @@ theorem alphaRenameTop_mirCtxRefines_fwd (e : Expr) (K : Moist.MIR.FreshState)
       Moist.MIR.lowerTotalExpr env (Moist.MIR.alphaRenameTop e K).1 :=
     alphaRenameTop_lowerTotalExpr_eq e K hK hFixFree env
   refine ⟨fun h => hlow_eq ▸ h, ?_⟩
-  rw [hlow_eq]
-  cases Moist.MIR.lowerTotalExpr env (Moist.MIR.alphaRenameTop e K).1 with
-  | none => trivial
-  | some t => exact Moist.Verified.Contextual.ctxRefines_refl t
-
-/-- Alpha-rename as a backward `MIRCtxRefines` (Fix-free input). -/
-theorem alphaRenameTop_mirCtxRefines_bwd (e : Expr) (K : Moist.MIR.FreshState)
-    (hK : Moist.MIR.maxUidExpr e < K.next)
-    (hFixFree : Moist.MIR.fixCount e = 0) :
-    MIRCtxRefines (Moist.MIR.alphaRenameTop e K).1 e := by
-  intro env
-  have hlow_eq :
-      Moist.MIR.lowerTotalExpr env e =
-      Moist.MIR.lowerTotalExpr env (Moist.MIR.alphaRenameTop e K).1 :=
-    alphaRenameTop_lowerTotalExpr_eq e K hK hFixFree env
-  refine ⟨fun h => hlow_eq.symm ▸ h, ?_⟩
   rw [hlow_eq]
   cases Moist.MIR.lowerTotalExpr env (Moist.MIR.alphaRenameTop e K).1 with
   | none => trivial
@@ -1781,75 +1693,6 @@ theorem flattenAllBinds_mirCtxRefines_bwd (binds : List (VarId × Expr × Bool))
 termination_by sizeOf binds
 
 end
-
-/-- **Full pipeline soundness** (unconditional): for any `e`,
-    `anfNormalizeFlat e` is contextually equivalent to `e`.
-
-    The pipeline is alpha-rename + core ANF + recursive `flattenAll`
-    (the last two are unconditionally sound). Alpha-rename fires only
-    when `fixCount e = 0`; for Fix-containing input the alpha-rename
-    step is the identity. -/
-theorem anfNormalizeFlat_sound (e : Expr) :
-    MIRCtxEq e (Moist.MIR.anfNormalizeFlat e) := by
-  -- Step 1: get the "renamed" intermediate, case-split on fixCount.
-  -- In both branches, the renamed intermediate is `MIRCtxRefines`-equivalent
-  -- to `e` in both directions.
-  by_cases hFixFree : Moist.MIR.fixCount e = 0
-  · -- Fix-free branch: alpha-rename fires and is sound.
-    let K : Moist.MIR.FreshState := ⟨Moist.MIR.maxUidExpr e + 1⟩
-    have hK : Moist.MIR.maxUidExpr e < K.next := Nat.lt_succ_self _
-    let renamed : Expr := (Moist.MIR.alphaRenameTop e K).1
-    let K_anf : Moist.MIR.FreshState := ⟨Moist.MIR.maxUidExpr renamed + 1⟩
-    let normalized : Expr := (Moist.MIR.anfNormalizeCore renamed K_anf).1
-    have halpha_fwd : MIRCtxRefines e renamed :=
-      alphaRenameTop_mirCtxRefines_fwd e K hK hFixFree
-    have halpha_bwd : MIRCtxRefines renamed e :=
-      alphaRenameTop_mirCtxRefines_bwd e K hK hFixFree
-    have h_renamed_fresh : FreshGt K_anf renamed := Nat.lt_succ_self _
-    have ⟨hanf_fwd, hanf_bwd, _, _⟩ :=
-      anfNormalizeCore_mirCtxRefines renamed K_anf h_renamed_fresh
-    have h_alpha_anf_fwd : MIRCtxRefines e normalized :=
-      mirCtxRefines_trans halpha_fwd hanf_fwd
-    have h_alpha_anf_bwd : MIRCtxRefines normalized e :=
-      mirCtxRefines_trans hanf_bwd halpha_bwd
-    have h_flat_fwd := flattenAll_mirCtxRefines_fwd normalized
-    have h_flat_bwd := flattenAll_mirCtxRefines_bwd normalized
-    have hfwd : MIRCtxRefines e (Moist.MIR.flattenAll normalized) :=
-      mirCtxRefines_trans h_alpha_anf_fwd h_flat_fwd
-    have hbwd : MIRCtxRefines (Moist.MIR.flattenAll normalized) e :=
-      mirCtxRefines_trans h_flat_bwd h_alpha_anf_bwd
-    show MIRCtxEq e (Moist.MIR.anfNormalizeFlat e)
-    unfold Moist.MIR.anfNormalizeFlat
-    rw [if_pos hFixFree]
-    exact mirCtxEq_of_mirCtxRefines_bidir hfwd hbwd
-  · -- Fix-containing branch: alpha-rename is the identity (renamed := e).
-    let K_anf : Moist.MIR.FreshState := ⟨Moist.MIR.maxUidExpr e + 1⟩
-    let normalized : Expr := (Moist.MIR.anfNormalizeCore e K_anf).1
-    have h_e_fresh : FreshGt K_anf e := Nat.lt_succ_self _
-    have ⟨hanf_fwd, hanf_bwd, _, _⟩ :=
-      anfNormalizeCore_mirCtxRefines e K_anf h_e_fresh
-    have h_flat_fwd := flattenAll_mirCtxRefines_fwd normalized
-    have h_flat_bwd := flattenAll_mirCtxRefines_bwd normalized
-    have hfwd : MIRCtxRefines e (Moist.MIR.flattenAll normalized) :=
-      mirCtxRefines_trans hanf_fwd h_flat_fwd
-    have hbwd : MIRCtxRefines (Moist.MIR.flattenAll normalized) e :=
-      mirCtxRefines_trans h_flat_bwd hanf_bwd
-    show MIRCtxEq e (Moist.MIR.anfNormalizeFlat e)
-    unfold Moist.MIR.anfNormalizeFlat
-    rw [if_neg hFixFree]
-    exact mirCtxEq_of_mirCtxRefines_bidir hfwd hbwd
-
-/-- **Main `anfNormalize` soundness** (unconditional): the monadic
-    pipeline wrapper is contextually equivalent to its input. This
-    is the theorem clients in `Moist/MIR/Optimize.lean` rely on. -/
-theorem anfNormalize_sound (e : Expr) (s : Moist.MIR.FreshState) :
-    MIRCtxEq e (Moist.MIR.anfNormalize e s).1 := by
-  -- `anfNormalize e s` unfolds to `(anfNormalizeFlat e, _)` at the result
-  -- position; the state bookkeeping only affects the second projection.
-  show MIRCtxEq e (Moist.MIR.anfNormalize e s).1
-  have h_unfold : (Moist.MIR.anfNormalize e s).1 = Moist.MIR.anfNormalizeFlat e := rfl
-  rw [h_unfold]
-  exact anfNormalizeFlat_sound e
 
 theorem anfNormalize_refines (e : Expr) (s : Moist.MIR.FreshState) :
     MIRCtxRefines e (Moist.MIR.anfNormalize e s).1 := by

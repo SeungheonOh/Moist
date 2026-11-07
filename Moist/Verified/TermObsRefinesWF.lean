@@ -512,17 +512,6 @@ end EvalBuiltinCompat
 
 section MainTheorem
 
-private theorem stackWellFormed_applyArgFrames_wf {fields : List CekValue} {π : Stack}
-    (hfs : ValueListWellFormed fields) (hπ : StackWellFormed π) :
-    StackWellFormed (fields.map Frame.applyArg ++ π) := by
-  induction fields with
-  | nil => simp; exact hπ
-  | cons v rest ih =>
-    cases hfs with
-    | cons hv hrest =>
-      simp [List.map, List.cons_append]
-      exact StackWellFormed.cons (FrameWellFormed.applyArg hv) (ih hrest)
-
 private theorem constrField_helper_refinesWF {d : Nat} {t₁ t₂ : Term}
     (_h_open_wf : OpenRefinesWF d t₁ t₂)
     {tag : Nat} {k : Nat}

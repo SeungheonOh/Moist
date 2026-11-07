@@ -58,11 +58,6 @@ private theorem closedAtList_tail {d : Nat} {t : Term} {rest : List Term}
     (h : closedAtList d (t :: rest) = true) : closedAtList d rest = true := by
   simp [closedAtList] at h; exact h.2
 
-private theorem valueListWellFormed_cons {v : CekValue} {vs : List CekValue}
-    (hv : ValueWellFormed v) (hvs : ValueListWellFormed vs) :
-    ValueListWellFormed (v :: vs) :=
-  ValueListWellFormed.cons hv hvs
-
 private theorem valueListWellFormed_reverse :
     ∀ {vs : List CekValue}, ValueListWellFormed vs → ValueListWellFormed vs.reverse
   | [], _ => ValueListWellFormed.nil
@@ -80,14 +75,6 @@ where
     | [], _, _, h => h
     | _ :: _, _, ValueListWellFormed.cons hx hxs, hy =>
       ValueListWellFormed.cons hx (valueListWellFormed_append hxs hy)
-
-private theorem stackWellFormed_append :
-    ∀ {xs ys : Stack},
-      StackWellFormed xs → StackWellFormed ys →
-      StackWellFormed (xs ++ ys)
-  | [], _, _, h => h
-  | _ :: _, _, StackWellFormed.cons hf hxs, hy =>
-    StackWellFormed.cons hf (stackWellFormed_append hxs hy)
 
 private theorem stackWellFormed_applyArgFrames {fields : List CekValue} {π : Stack}
     (hfs : ValueListWellFormed fields) (hπ : StackWellFormed π) :

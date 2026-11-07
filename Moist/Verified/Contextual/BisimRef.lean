@@ -114,28 +114,6 @@ end
 -- 2. LocalEnv helpers
 --------------------------------------------------------------------------------
 
-/-- `LocalEnv` always holds vacuously at depth 0 regardless of env lengths. -/
-theorem localEnv_zero (ρ₁ ρ₂ : CekEnv) : LocalEnv 0 ρ₁ ρ₂ := LocalEnv.zero
-
-/-- `LocalEnv` is preserved under narrowing to a smaller `k`.
-    `induction` can't be used on `LocalEnv` (mutual), so we induct on `k`. -/
-theorem localEnv_narrow : ∀ (k : Nat) {k' : Nat} {ρ₁ ρ₂ : CekEnv},
-    LocalEnv k ρ₁ ρ₂ → k' ≤ k → LocalEnv k' ρ₁ ρ₂ := by
-  intro k
-  induction k with
-  | zero =>
-    intro k' _ _ _ hle
-    have : k' = 0 := Nat.le_zero.mp hle
-    subst this
-    exact LocalEnv.zero
-  | succ n ih =>
-    intro k' _ _ h hle
-    by_cases h_eq : k' = n + 1
-    · subst h_eq; exact h
-    · cases h with
-      | succ h_rest _ _ _ _ _ =>
-        exact ih h_rest (by omega)
-
 /-- Lookups within `LocalEnv k` return matching `LocalValue`-related pairs. -/
 theorem localEnv_lookup : ∀ (k : Nat) {ρ₁ ρ₂ : CekEnv},
     LocalEnv k ρ₁ ρ₂ → ∀ {n : Nat}, 0 < n → n ≤ k →
@@ -320,14 +298,6 @@ theorem localValueList_cons_inv : ∀ {v : CekValue} {vs xs : List CekValue},
 theorem localValue_vcon_inv : ∀ {c : Const} {v : CekValue},
     LocalValue (.VCon c) v → v = .VCon c
   | _, _, h => by cases h; rfl
-
-/-- `LocalValueList` has the same length on both sides. -/
-theorem localValueList_length_eq : ∀ {xs₁ xs₂ : List CekValue},
-    LocalValueList xs₁ xs₂ → xs₁.length = xs₂.length
-  | [], _, h => by cases h; rfl
-  | _ :: rest, _, h => by
-    cases h with
-    | cons _ hr => simp [localValueList_length_eq hr]
 
 --------------------------------------------------------------------------------
 -- 6. extractConsts equality under LocalValueList

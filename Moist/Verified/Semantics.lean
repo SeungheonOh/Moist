@@ -180,39 +180,6 @@ end
 
 /-! ## Behavioral Equivalence -/
 
-/-- Lower a closed MIR expression to UPLC via `lowerTotal` with an empty
-    variable environment. Returns `none` if the expression contains
-    constructs that `lowerTotal` does not support (e.g. `Fix`). -/
-def lowerMIR (m : Expr) : Option Term := lowerTotalExpr ([] : List MIR.VarId) m
-
-/-- **Behavioral equivalence of closed MIR expressions.**
-
-    Two closed MIR expressions `m1` and `m2` are behaviorally equivalent
-    (`BehEqClosed m1 m2`) when, after lowering to UPLC via `lowerTotal`:
-
-    1. **Error agreement**: one reaches `error` if and only if the other does.
-    2. **Value agreement**: whenever both halt with values `v1` and `v2`,
-       those values are `ValueEq k`-related for every step index `k`.
-
-    If either expression fails to lower (returns `none`), the proposition
-    holds vacuously (`True`). This is intentional: we only claim correctness
-    for the fragment that `lowerTotal` handles.
-
-    The entire definition is built from total functions (`steps`, `lowerTotal`),
-    so it lives in `Prop` and can be used in Lean proofs without `sorry`. -/
-def BehEqClosed (m1 m2 : Expr) : Prop :=
-  match lowerTotalExpr ([] : List MIR.VarId) m1, lowerTotalExpr ([] : List MIR.VarId) m2 with
-  | some t1, some t2 =>
-    (Reaches (.compute [] .nil t1) .error ↔ Reaches (.compute [] .nil t2) .error) ∧
-    (Halts (.compute [] .nil t1) ↔ Halts (.compute [] .nil t2)) ∧
-    ∀ (k : Nat) (v1 v2 : CekValue),
-      Reaches (.compute [] .nil t1) (.halt v1) →
-      Reaches (.compute [] .nil t2) (.halt v2) →
-      ValueEq k v1 v2
-  | _, _ => True
-
-scoped infix:50 " ≋ᶜ " => BehEqClosed
-
 /-! ## Well-Sized Environments -/
 
 /-- A CEK environment is well-sized at depth `d` when every variable index
@@ -221,10 +188,6 @@ scoped infix:50 " ≋ᶜ " => BehEqClosed
     environment will never fail a variable lookup. -/
 def WellSizedEnv (d : Nat) (ρ : CekEnv) : Prop :=
   ∀ n, 0 < n → n ≤ d → ∃ v, ρ.lookup n = some v
-
-/-- The nil environment is well-sized at depth 0 (vacuously). -/
-theorem wellSizedEnv_nil : WellSizedEnv 0 .nil :=
-  fun _ hn hle => absurd (Nat.lt_of_lt_of_le hn hle) (Nat.lt_irrefl 0)
 
 /-- Extending a well-sized environment increases the depth by 1. -/
 theorem wellSizedEnv_extend {d : Nat} {ρ : CekEnv} (h : WellSizedEnv d ρ) (v : CekValue) :
@@ -235,12 +198,6 @@ theorem wellSizedEnv_extend {d : Nat} {ρ : CekEnv} (h : WellSizedEnv d ρ) (v :
   | n + 2 =>
     have ⟨w, hw⟩ := h (n + 1) (by omega) (by omega)
     exact ⟨w, by simp [CekEnv.extend, CekEnv.lookup, hw]⟩
-
-/-- Well-sizedness is monotone: a larger environment is also well-sized
-    at any smaller depth. -/
-theorem wellSizedEnv_mono {d d' : Nat} {ρ : CekEnv} (h : WellSizedEnv d ρ) (hle : d' ≤ d) :
-    WellSizedEnv d' ρ :=
-  fun n hn hn' => h n hn (Nat.le_trans hn' hle)
 
 /-- **Behavioral equivalence of MIR expressions under all environments.**
 
@@ -270,8 +227,6 @@ def BehEq (m1 m2 : Expr) : Prop :=
         ValueEq k v1 v2
   | _, _ => True
 
-scoped infix:50 " ≋ " => BehEq
-
 /-- **Refinement**: `m2` refines `m1` when `m2` compiles wherever `m1` does,
     and they are behaviorally equivalent. This is the appropriate notion for
     optimizations that may remove free variables (like dead-let elimination). -/
@@ -283,288 +238,7 @@ scoped infix:50 " ⊑ " => Refines
 
 /-! ## ValueEq properties -/
 
-mutual
-  /-- `ValueEq` is reflexive at every step index. Proved by mutual induction
-      on `k`, case-splitting on the value constructor. The `VLam`/`VDelay`
-      cases use `reaches_unique` to collapse the two halting witnesses. -/
-  theorem valueEq_refl : ∀ (k : Nat) (v : CekValue), ValueEq k v v
-    | 0, _ => by simp [ValueEq]
-    | _ + 1, .VCon _ => by simp [ValueEq]
-    | k + 1, .VLam _ _ => by
-      unfold ValueEq; intro arg; exact ⟨Iff.rfl, Iff.rfl, fun v₁ v₂ h₁ h₂ =>
-        reaches_unique h₁ h₂ ▸ valueEq_refl k v₁⟩
-    | k + 1, .VDelay _ _ => by
-      unfold ValueEq; exact ⟨Iff.rfl, Iff.rfl, fun v₁ v₂ h₁ h₂ =>
-        reaches_unique h₁ h₂ ▸ valueEq_refl k v₁⟩
-    | _ + 1, .VConstr _ fields => by
-      unfold ValueEq; exact ⟨rfl, listValueEq_refl _ fields⟩
-    | k + 1, .VBuiltin b args ea => by
-      unfold ValueEq; exact ⟨rfl, listValueEq_refl k args, rfl, Iff.rfl,
-        fun r1 r2 h1 h2 => by rw [h1] at h2; injection h2 with h2; subst h2; exact valueEq_refl k r1⟩
-  theorem listValueEq_refl : ∀ (k : Nat) (vs : List CekValue), ListValueEq k vs vs
-    | _, [] => by simp [ListValueEq]
-    | k, v :: vs => by simp only [ListValueEq]; exact ⟨valueEq_refl k v, listValueEq_refl k vs⟩
-  theorem valueEq_symm : ∀ (k : Nat) (v₁ v₂ : CekValue), ValueEq k v₁ v₂ → ValueEq k v₂ v₁
-    | 0, _, _, _ => by simp [ValueEq]
-    | _ + 1, .VCon _, .VCon _, h => by simp only [ValueEq] at h ⊢; exact h.symm
-    | k + 1, .VLam _ _, .VLam _ _, h => by
-      unfold ValueEq at h ⊢; intro arg
-      have ⟨he, hh, hv⟩ := h arg
-      exact ⟨he.symm, hh.symm, fun v₁ v₂ h₁ h₂ => valueEq_symm k _ _ (hv v₂ v₁ h₂ h₁)⟩
-    | k + 1, .VDelay _ _, .VDelay _ _, h => by
-      unfold ValueEq at h ⊢
-      exact ⟨h.1.symm, h.2.1.symm, fun v₁ v₂ h₁ h₂ => valueEq_symm k _ _ (h.2.2 v₂ v₁ h₂ h₁)⟩
-    | _ + 1, .VConstr _ _, .VConstr _ _, h => by
-      unfold ValueEq at h ⊢; exact ⟨h.1.symm, listValueEq_symm _ _ _ h.2⟩
-    | k + 1, .VBuiltin _ _ _, .VBuiltin _ _ _, h => by
-      unfold ValueEq at h ⊢
-      exact ⟨h.1.symm, listValueEq_symm k _ _ h.2.1, h.2.2.1.symm, h.2.2.2.1.symm,
-             fun r1 r2 h1 h2 => valueEq_symm k _ _ (h.2.2.2.2 r2 r1 h2 h1)⟩
-    | _ + 1, .VCon _, .VLam _ _, h => by simp [ValueEq] at h
-    | _ + 1, .VCon _, .VDelay _ _, h => by simp [ValueEq] at h
-    | _ + 1, .VCon _, .VConstr _ _, h => by simp [ValueEq] at h
-    | _ + 1, .VCon _, .VBuiltin _ _ _, h => by simp [ValueEq] at h
-    | _ + 1, .VLam _ _, .VCon _, h => by simp [ValueEq] at h
-    | _ + 1, .VLam _ _, .VDelay _ _, h => by simp [ValueEq] at h
-    | _ + 1, .VLam _ _, .VConstr _ _, h => by simp [ValueEq] at h
-    | _ + 1, .VLam _ _, .VBuiltin _ _ _, h => by simp [ValueEq] at h
-    | _ + 1, .VDelay _ _, .VCon _, h => by simp [ValueEq] at h
-    | _ + 1, .VDelay _ _, .VLam _ _, h => by simp [ValueEq] at h
-    | _ + 1, .VDelay _ _, .VConstr _ _, h => by simp [ValueEq] at h
-    | _ + 1, .VDelay _ _, .VBuiltin _ _ _, h => by simp [ValueEq] at h
-    | _ + 1, .VConstr _ _, .VCon _, h => by simp [ValueEq] at h
-    | _ + 1, .VConstr _ _, .VLam _ _, h => by simp [ValueEq] at h
-    | _ + 1, .VConstr _ _, .VDelay _ _, h => by simp [ValueEq] at h
-    | _ + 1, .VConstr _ _, .VBuiltin _ _ _, h => by simp [ValueEq] at h
-    | _ + 1, .VBuiltin _ _ _, .VCon _, h => by simp [ValueEq] at h
-    | _ + 1, .VBuiltin _ _ _, .VLam _ _, h => by simp [ValueEq] at h
-    | _ + 1, .VBuiltin _ _ _, .VDelay _ _, h => by simp [ValueEq] at h
-    | _ + 1, .VBuiltin _ _ _, .VConstr _ _, h => by simp [ValueEq] at h
-  theorem listValueEq_symm : ∀ (k : Nat) (vs₁ vs₂ : List CekValue),
-      ListValueEq k vs₁ vs₂ → ListValueEq k vs₂ vs₁
-    | _, [], [], _ => by simp [ListValueEq]
-    | k, _ :: _, _ :: _, h => by
-      simp only [ListValueEq] at h ⊢
-      exact ⟨valueEq_symm k _ _ h.1, listValueEq_symm k _ _ h.2⟩
-    | _, [], _ :: _, h => by exact absurd h (by simp [ListValueEq])
-    | _, _ :: _, [], h => by exact absurd h (by simp [ListValueEq])
-  theorem valueEq_trans : ∀ (k : Nat) (v₁ v₂ v₃ : CekValue),
-      ValueEq k v₁ v₂ → ValueEq k v₂ v₃ → ValueEq k v₁ v₃
-    | 0, _, _, _, _, _ => by simp [ValueEq]
-    -- Matching constructors
-    | _ + 1, .VCon _, .VCon _, .VCon _, h12, h23 => by
-      simp only [ValueEq] at h12 h23 ⊢; exact h12.trans h23
-    | k + 1, .VLam _ _, .VLam _ _, .VLam _ _, h12, h23 => by
-      unfold ValueEq at h12 h23 ⊢; intro arg
-      have ⟨he12, hh12, hv12⟩ := h12 arg; have ⟨he23, hh23, hv23⟩ := h23 arg
-      refine ⟨he12.trans he23, hh12.trans hh23, fun w₁ w₃ hw₁ hw₃ => ?_⟩
-      obtain ⟨_, hw₂⟩ := hh12.mp ⟨_, hw₁⟩
-      exact valueEq_trans k _ _ _ (hv12 _ _ hw₁ hw₂) (hv23 _ _ hw₂ hw₃)
-    | k + 1, .VDelay _ _, .VDelay _ _, .VDelay _ _, h12, h23 => by
-      unfold ValueEq at h12 h23 ⊢
-      refine ⟨h12.1.trans h23.1, h12.2.1.trans h23.2.1, fun w₁ w₃ hw₁ hw₃ => ?_⟩
-      obtain ⟨_, hw₂⟩ := h12.2.1.mp ⟨_, hw₁⟩
-      exact valueEq_trans k _ _ _ (h12.2.2 _ _ hw₁ hw₂) (h23.2.2 _ _ hw₂ hw₃)
-    | _ + 1, .VConstr _ _, .VConstr _ _, .VConstr _ _, h12, h23 => by
-      unfold ValueEq at h12 h23 ⊢
-      exact ⟨h12.1.trans h23.1, listValueEq_trans _ _ _ _ h12.2 h23.2⟩
-    | k + 1, .VBuiltin _ _ _, .VBuiltin _ _ _, .VBuiltin _ _ _, h12, h23 => by
-      unfold ValueEq at h12 h23 ⊢
-      exact ⟨h12.1.trans h23.1, listValueEq_trans k _ _ _ h12.2.1 h23.2.1,
-             h12.2.2.1.trans h23.2.2.1, h12.2.2.2.1.trans h23.2.2.2.1,
-             fun r1 r3 hr1 hr3 => by
-               -- h12.2.2.2.1 : ... args1 = none ↔ ... args2 = none
-               -- h23.2.2.2.1 : ... args2 = none ↔ ... args3 = none
-               -- Need: evalBuiltin args2 = some r2
-               -- hr1 : evalBuiltin args1 = some r1, so args1 ≠ none
-               -- By contrapositive of h12.2.2.2.1.mpr: args2 ≠ none → args1 ≠ none
-               -- Equivalently: args1 = none → args2 = none, contrapositive: args2 ≠ none ← args1 ≠ none
-               -- Actually need: args1 ≠ none → args2 ≠ none (contrapositive of .mpr)
-               -- Case-split on evalBuiltin for the middle (args2)
-               -- h12.2.2.2.1 tells us args1=none ↔ args2=none
-               -- hr1 tells us args1 = some r1, so args1 ≠ none, so args2 ≠ none
-               rcases h_mid : Moist.CEK.evalBuiltin _ _ with _ | r2
-               · -- evalBuiltin b2 args2 = none. But args1 ≠ none, contradiction.
-                 exact absurd (h12.2.2.2.1.mpr h_mid ▸ hr1) (by simp)
-               · -- evalBuiltin b2 args2 = some r2
-                 exact valueEq_trans k _ _ _ (h12.2.2.2.2 r1 r2 hr1 h_mid) (h23.2.2.2.2 r2 r3 h_mid hr3)⟩
-    -- h12 is False (v₁ and v₂ have different constructors)
-    | _ + 1, .VCon _, .VLam _ _, _, h, _ | _ + 1, .VCon _, .VDelay _ _, _, h, _
-    | _ + 1, .VCon _, .VConstr _ _, _, h, _ | _ + 1, .VCon _, .VBuiltin _ _ _, _, h, _
-    | _ + 1, .VLam _ _, .VCon _, _, h, _ | _ + 1, .VLam _ _, .VDelay _ _, _, h, _
-    | _ + 1, .VLam _ _, .VConstr _ _, _, h, _ | _ + 1, .VLam _ _, .VBuiltin _ _ _, _, h, _
-    | _ + 1, .VDelay _ _, .VCon _, _, h, _ | _ + 1, .VDelay _ _, .VLam _ _, _, h, _
-    | _ + 1, .VDelay _ _, .VConstr _ _, _, h, _ | _ + 1, .VDelay _ _, .VBuiltin _ _ _, _, h, _
-    | _ + 1, .VConstr _ _, .VCon _, _, h, _ | _ + 1, .VConstr _ _, .VLam _ _, _, h, _
-    | _ + 1, .VConstr _ _, .VDelay _ _, _, h, _ | _ + 1, .VConstr _ _, .VBuiltin _ _ _, _, h, _
-    | _ + 1, .VBuiltin _ _ _, .VCon _, _, h, _ | _ + 1, .VBuiltin _ _ _, .VLam _ _, _, h, _
-    | _ + 1, .VBuiltin _ _ _, .VDelay _ _, _, h, _
-    | _ + 1, .VBuiltin _ _ _, .VConstr _ _, _, h, _ => by simp [ValueEq] at h
-    -- h23 is False (v₂ and v₃ have different constructors, v₁ matches v₂)
-    | _ + 1, .VCon _, .VCon _, .VLam _ _, _, h | _ + 1, .VCon _, .VCon _, .VDelay _ _, _, h
-    | _ + 1, .VCon _, .VCon _, .VConstr _ _, _, h | _ + 1, .VCon _, .VCon _, .VBuiltin _ _ _, _, h
-    | _ + 1, .VLam _ _, .VLam _ _, .VCon _, _, h | _ + 1, .VLam _ _, .VLam _ _, .VDelay _ _, _, h
-    | _ + 1, .VLam _ _, .VLam _ _, .VConstr _ _, _, h
-    | _ + 1, .VLam _ _, .VLam _ _, .VBuiltin _ _ _, _, h
-    | _ + 1, .VDelay _ _, .VDelay _ _, .VCon _, _, h | _ + 1, .VDelay _ _, .VDelay _ _, .VLam _ _, _, h
-    | _ + 1, .VDelay _ _, .VDelay _ _, .VConstr _ _, _, h
-    | _ + 1, .VDelay _ _, .VDelay _ _, .VBuiltin _ _ _, _, h
-    | _ + 1, .VConstr _ _, .VConstr _ _, .VCon _, _, h
-    | _ + 1, .VConstr _ _, .VConstr _ _, .VLam _ _, _, h
-    | _ + 1, .VConstr _ _, .VConstr _ _, .VDelay _ _, _, h
-    | _ + 1, .VConstr _ _, .VConstr _ _, .VBuiltin _ _ _, _, h
-    | _ + 1, .VBuiltin _ _ _, .VBuiltin _ _ _, .VCon _, _, h
-    | _ + 1, .VBuiltin _ _ _, .VBuiltin _ _ _, .VLam _ _, _, h
-    | _ + 1, .VBuiltin _ _ _, .VBuiltin _ _ _, .VDelay _ _, _, h
-    | _ + 1, .VBuiltin _ _ _, .VBuiltin _ _ _, .VConstr _ _, _, h => by simp [ValueEq] at h
-  theorem listValueEq_trans : ∀ (k : Nat) (vs₁ vs₂ vs₃ : List CekValue),
-      ListValueEq k vs₁ vs₂ → ListValueEq k vs₂ vs₃ → ListValueEq k vs₁ vs₃
-    | _, [], [], [], _, _ => by simp [ListValueEq]
-    | k, _ :: _, _ :: _, _ :: _, h12, h23 => by
-      simp only [ListValueEq] at h12 h23 ⊢
-      exact ⟨valueEq_trans k _ _ _ h12.1 h23.1, listValueEq_trans k _ _ _ h12.2 h23.2⟩
-    | _, [], _ :: _, _, h, _ | _, _ :: _, [], _, h, _ => by simp [ListValueEq] at h
-    | _, [], [], _ :: _, _, h => by simp [ListValueEq] at h
-    | _, _ :: _, _ :: _, [], _, h => by simp [ListValueEq] at h
-end
-
-mutual
-  /-- `ValueEq` is monotone in the step index: lowering the observation
-      budget preserves equivalence. -/
-  theorem valueEq_mono : ∀ (k j : Nat), j ≤ k → ∀ (v₁ v₂ : CekValue),
-      ValueEq k v₁ v₂ → ValueEq j v₁ v₂
-    | 0, 0, _, _, _, h => h
-    | _ + 1, 0, _, _, _, _ => by simp [ValueEq]
-    | k + 1, j + 1, hjk, .VCon _, .VCon _, h => by simp only [ValueEq] at h ⊢; exact h
-    | k + 1, j + 1, hjk, .VLam _ _, .VLam _ _, h => by
-      unfold ValueEq at h ⊢
-      intro arg
-      have ⟨he, hh, hv⟩ := h arg
-      exact ⟨he, hh, fun w₁ w₂ hw₁ hw₂ =>
-        valueEq_mono k j (by omega) w₁ w₂ (hv w₁ w₂ hw₁ hw₂)⟩
-    | k + 1, j + 1, hjk, .VDelay _ _, .VDelay _ _, h => by
-      unfold ValueEq at h ⊢
-      exact ⟨h.1, h.2.1, fun w₁ w₂ hw₁ hw₂ =>
-        valueEq_mono k j (by omega) w₁ w₂ (h.2.2 w₁ w₂ hw₁ hw₂)⟩
-    | k + 1, j + 1, hjk, .VConstr _ _, .VConstr _ _, h => by
-      unfold ValueEq at h ⊢
-      exact ⟨h.1, listValueEq_mono k j (by omega) _ _ h.2⟩
-    | k + 1, j + 1, hjk, .VBuiltin _ _ _, .VBuiltin _ _ _, h => by
-      unfold ValueEq at h ⊢
-      exact ⟨h.1, listValueEq_mono k j (by omega) _ _ h.2.1, h.2.2.1, h.2.2.2.1,
-             fun r1 r2 hr1 hr2 =>
-               valueEq_mono k j (by omega) r1 r2 (h.2.2.2.2 r1 r2 hr1 hr2)⟩
-    -- cross-constructor: False propagates
-    | _ + 1, _ + 1, _, .VCon _, .VLam _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VCon _, .VDelay _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VCon _, .VConstr _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VCon _, .VBuiltin _ _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VLam _ _, .VCon _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VLam _ _, .VDelay _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VLam _ _, .VConstr _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VLam _ _, .VBuiltin _ _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VDelay _ _, .VCon _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VDelay _ _, .VLam _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VDelay _ _, .VConstr _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VDelay _ _, .VBuiltin _ _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VConstr _ _, .VCon _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VConstr _ _, .VLam _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VConstr _ _, .VDelay _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VConstr _ _, .VBuiltin _ _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VBuiltin _ _ _, .VCon _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VBuiltin _ _ _, .VLam _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VBuiltin _ _ _, .VDelay _ _, h => by simp [ValueEq] at h
-    | _ + 1, _ + 1, _, .VBuiltin _ _ _, .VConstr _ _, h => by simp [ValueEq] at h
-  theorem listValueEq_mono : ∀ (k j : Nat), j ≤ k → ∀ (vs₁ vs₂ : List CekValue),
-      ListValueEq k vs₁ vs₂ → ListValueEq j vs₁ vs₂
-    | _, _, _, [], [], _ => by simp [ListValueEq]
-    | k, j, hle, _ :: _, _ :: _, h => by
-      simp only [ListValueEq] at h ⊢
-      exact ⟨valueEq_mono k j hle _ _ h.1, listValueEq_mono k j hle _ _ h.2⟩
-    | _, _, _, [], _ :: _, h => by simp [ListValueEq] at h
-    | _, _, _, _ :: _, [], h => by simp [ListValueEq] at h
-end
-
 /-! ## Transitivity of behavioral equivalence -/
-
-/-- Extract the content of `BehEqClosed` when both sides lower successfully. -/
-private abbrev emptyEnv : List MIR.VarId := []
-
-private theorem behEqClosed_extract {m1 m2 : Expr} {t1 t2 : Term}
-    (h1 : lowerTotalExpr emptyEnv m1 = some t1)
-    (h2 : lowerTotalExpr emptyEnv m2 = some t2)
-    (h : BehEqClosed m1 m2) :
-    (Reaches (.compute [] .nil t1) .error ↔ Reaches (.compute [] .nil t2) .error) ∧
-    (Halts (.compute [] .nil t1) ↔ Halts (.compute [] .nil t2)) ∧
-    ∀ (k : Nat) (v1 v2 : CekValue),
-      Reaches (.compute [] .nil t1) (.halt v1) →
-      Reaches (.compute [] .nil t2) (.halt v2) →
-      ValueEq k v1 v2 := by
-  unfold BehEqClosed at h; rw [h1, h2] at h; exact h
-
-/-- **Transitivity of closed behavioral equivalence.** -/
-theorem behEqClosed_trans {a b c : Expr}
-    {tb : Term} (hb : lowerTotalExpr emptyEnv b = some tb)
-    (h12 : a ≋ᶜ b) (h23 : b ≋ᶜ c) : a ≋ᶜ c := by
-  unfold BehEqClosed
-  cases ha : lowerTotalExpr emptyEnv a with
-  | none => split <;> trivial
-  | some ta =>
-    cases hc : lowerTotalExpr emptyEnv c with
-    | none => split <;> trivial
-    | some tc =>
-      simp only []
-      have ⟨herr12, hh12, hv12⟩ := behEqClosed_extract ha hb h12
-      have ⟨herr23, hh23, hv23⟩ := behEqClosed_extract hb hc h23
-      refine ⟨herr12.trans herr23, hh12.trans hh23, ?_⟩
-      intro k v₁ v₃ hv₁ hv₃
-      obtain ⟨v₂, hv₂⟩ := hh12.mp ⟨v₁, hv₁⟩
-      exact valueEq_trans k v₁ v₂ v₃ (hv12 k v₁ v₂ hv₁ hv₂) (hv23 k v₂ v₃ hv₂ hv₃)
-
-/-- Extract the content of `BehEq` at a specific environment when both sides lower. -/
-private theorem behEq_extract {m1 m2 : Expr} {env : List MIR.VarId} {t1 t2 : Term}
-    (h1 : lowerTotalExpr env m1 = some t1) (h2 : lowerTotalExpr env m2 = some t2)
-    (h : BehEq m1 m2) :
-    ∀ ρ : CekEnv, WellSizedEnv env.length ρ →
-      (Reaches (.compute [] ρ t1) .error ↔ Reaches (.compute [] ρ t2) .error) ∧
-      (Halts (.compute [] ρ t1) ↔ Halts (.compute [] ρ t2)) ∧
-      ∀ (k : Nat) (v1 v2 : CekValue),
-        Reaches (.compute [] ρ t1) (.halt v1) →
-        Reaches (.compute [] ρ t2) (.halt v2) →
-        ValueEq k v1 v2 := by
-  have := h env; rw [h1, h2] at this; exact this
-
-/-- **Transitivity of behavioral equivalence for open terms.**
-    Requires `b` to lower wherever `a` does, so the chain is informative. -/
-theorem behEq_trans {a b c : Expr}
-    (hlb : ∀ env, (lowerTotalExpr env a).isSome → (lowerTotalExpr env b).isSome)
-    (h12 : a ≋ b) (h23 : b ≋ c) : a ≋ c := by
-  unfold BehEq; intro env
-  cases ha : lowerTotalExpr env a with
-  | none => split <;> trivial
-  | some ta =>
-    obtain ⟨tb, hb⟩ := Option.isSome_iff_exists.mp (hlb env (by simp [ha]))
-    cases hc : lowerTotalExpr env c with
-    | none => split <;> trivial
-    | some tc =>
-      simp only []
-      have h12' := behEq_extract ha hb h12
-      have h23' := behEq_extract hb hc h23
-      intro ρ hwf
-      have ⟨herr12, hh12, hv12⟩ := h12' ρ hwf
-      have ⟨herr23, hh23, hv23⟩ := h23' ρ hwf
-      refine ⟨herr12.trans herr23, hh12.trans hh23, ?_⟩
-      intro k v₁ v₃ hv₁ hv₃
-      obtain ⟨v₂, hv₂⟩ := hh12.mp ⟨v₁, hv₁⟩
-      exact valueEq_trans k v₁ v₂ v₃ (hv12 k v₁ v₂ hv₁ hv₂) (hv23 k v₂ v₃ hv₂ hv₃)
-
-/-- **Unconditional transitivity of refinement.**
-    The compilation clause of `Refines a b` provides the lowering guarantee
-    that `behEq_trans` needs, so no extra hypothesis is required. -/
-theorem refines_trans {a b c : Expr}
-    (h12 : Refines a b) (h23 : Refines b c) : Refines a c :=
-  ⟨fun env ha => h23.1 env (h12.1 env ha),
-   behEq_trans h12.1 h12.2 h23.2⟩
 
 /-! ## Executable observation (for conformance testing only)
 
@@ -579,20 +253,9 @@ inductive Obs where
   | success : Term → Obs
   | failure : Obs
 
-instance : BEq Obs where
-  beq
-    | .success t1, .success t2 => termEq t1 t2
-    | .failure, .failure => true
-    | _, _ => false
-
 def obsOf : CekResult → Obs
   | .success v => .success (readbackValue v)
   | .failure => .failure
   | .outOfBudget => .failure
-
-instance : ToString Obs where
-  toString
-    | .success t => s!"success({repr t})"
-    | .failure => "failure"
 
 end Moist.Verified.Semantics
