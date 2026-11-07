@@ -39,75 +39,78 @@ Bottom-up traversal. At each `App (Lam x body) arg`:
 
 Recurses into sub-expressions first so that nested beta-redexes are
 reduced inside-out.
+
+Binders are made unique once at the root (`uniqueOptimizationBinders`) and
+the fresh-name counter is moved above every uid of the prepared term, so the
+substitutions performed during the walk only draw names that do not occur in
+the term. Subterms of a well-scoped term are well scoped, so freshening again
+at inner nodes would be the identity.
 -/
 
+/-- Contract `App f x` when `f` is a lambda: substitute an atomic argument,
+    otherwise bind it with a strict let. -/
+def betaContract (f x : Expr) (changed : Bool) : FreshM (Expr × Bool) :=
+  match f with
+  | .Lam param body =>
+    if x.isAtom then do
+      let result ← subst param x body
+      pure (result, true)
+    else
+      pure (.Let [(param, x, false)] body, true)
+  | _ => pure (.App f x, changed)
+
 mutual
-  partial def betaReducePass (expression : Expr) : FreshM (Expr × Bool) := do
-    let prepared := uniqueOptimizationBinders expression
-    reserveFreshFor prepared
-    match prepared with
+  def betaReduceCore : Expr → FreshM (Expr × Bool)
     | .App f x => do
-      let (f', c1) ← betaReducePass f
-      let (x', c2) ← betaReducePass x
-      match f' with
-      | .Lam param body =>
-        if x'.isAtom then
-          let result ← subst param x' body
-          pure (result, true)
-        else
-          pure (.Let [(param, x', false)] body, true)
-      | _ => pure (.App f' x', c1 || c2)
-
+      let (f', c1) ← betaReduceCore f
+      let (x', c2) ← betaReduceCore x
+      betaContract f' x' (c1 || c2)
     | .Lam x body => do
-      let (body', c) ← betaReducePass body
+      let (body', c) ← betaReduceCore body
       pure (.Lam x body', c)
-
     | .Fix f body => do
-      let (body', c) ← betaReducePass body
+      let (body', c) ← betaReduceCore body
       pure (.Fix f body', c)
-
     | .Force e => do
-      let (e', c) ← betaReducePass e
+      let (e', c) ← betaReduceCore e
       pure (.Force e', c)
-
     | .Delay e => do
-      let (e', c) ← betaReducePass e
+      let (e', c) ← betaReduceCore e
       pure (.Delay e', c)
-
     | .Constr tag args => do
-      let (args', c) ← betaReducePassList args
+      let (args', c) ← betaReduceCoreList args
       pure (.Constr tag args', c)
-
     | .Case scrut alts => do
-      let (scrut', c1) ← betaReducePass scrut
-      let (alts', c2) ← betaReducePassList alts
+      let (scrut', c1) ← betaReduceCore scrut
+      let (alts', c2) ← betaReduceCoreList alts
       pure (.Case scrut' alts', c1 || c2)
-
     | .Let binds body => do
-      let (binds', c1) ← betaReducePassBinds binds
-      let (body', c2) ← betaReducePass body
+      let (binds', c1) ← betaReduceCoreBinds binds
+      let (body', c2) ← betaReduceCore body
       pure (.Let binds' body', c1 || c2)
-
     | e => pure (e, false)
+  termination_by e => sizeOf e
 
-  partial def betaReducePassList (es : List Expr) : FreshM (List Expr × Bool) := do
-    let mut result : List Expr := []
-    let mut changed := false
-    for e in es do
-      let (e', c) ← betaReducePass e
-      result := result ++ [e']
-      changed := changed || c
-    pure (result, changed)
+  def betaReduceCoreList : List Expr → FreshM (List Expr × Bool)
+    | [] => pure ([], false)
+    | e :: rest => do
+      let (e', c1) ← betaReduceCore e
+      let (rest', c2) ← betaReduceCoreList rest
+      pure (e' :: rest', c1 || c2)
+  termination_by es => sizeOf es
 
-  partial def betaReducePassBinds (binds : List (VarId × Expr × Bool))
-      : FreshM (List (VarId × Expr × Bool) × Bool) := do
-    let mut result : List (VarId × Expr × Bool) := []
-    let mut changed := false
-    for (v, rhs, er) in binds do
-      let (rhs', c) ← betaReducePass rhs
-      result := result ++ [(v, rhs', er)]
-      changed := changed || c
-    pure (result, changed)
+  def betaReduceCoreBinds : List (VarId × Expr × Bool) → FreshM (List (VarId × Expr × Bool) × Bool)
+    | [] => pure ([], false)
+    | (v, rhs, er) :: rest => do
+      let (rhs', c1) ← betaReduceCore rhs
+      let (rest', c2) ← betaReduceCoreBinds rest
+      pure ((v, rhs', er) :: rest', c1 || c2)
+  termination_by binds => sizeOf binds
 end
+
+def betaReducePass (expression : Expr) : FreshM (Expr × Bool) := do
+  let prepared := uniqueOptimizationBinders expression
+  reserveFreshFor prepared
+  betaReduceCore prepared
 
 end Moist.MIR
