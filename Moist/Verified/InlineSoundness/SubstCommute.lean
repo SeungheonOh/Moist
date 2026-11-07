@@ -132,10 +132,6 @@ end Equations
 
 /-! ## Freshness of the binder step -/
 
-private theorem uid_lt_of_beq_false {a : VarId} {n : Nat} (h : a.uid < n) (b : VarId) (hb : b.uid = n) :
-    (a == b) = false :=
-  (VarId.beq_false_iff a b).mpr (.inr (by omega))
-
 mutual
   theorem maxUid_rename (x x' : VarId) :
       ∀ (e : Expr), maxUidExpr (rename x x' e) ≤ max (maxUidExpr e) x'.uid

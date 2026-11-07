@@ -108,7 +108,6 @@ private theorem erase_contains_ne_of_contains {s : Moist.MIR.VarSet} {v w : VarI
     (h : s.contains w = true) (hne : (v == w) = false) : (s.erase v).contains w = true :=
   Moist.MIR.VarSet.contains_erase_ne s v w hne h
 
-set_option maxHeartbeats 800000 in
 mutual
 private theorem freeVars_rename_bound_core (old new_ : VarId) (e : Expr) (w : VarId)
     (hw : (freeVars (rename old new_ e)).contains w = true) :
@@ -328,7 +327,6 @@ end
 -- Free variables of subst are bounded by (freeVars e \ {v}) ∪ freeVars rhs.
 --------------------------------------------------------------------------------
 
-set_option maxHeartbeats 800000 in
 mutual
 theorem freeVars_subst_tight (v : VarId) (rhs e : Expr)
     (s : Moist.MIR.FreshState) (w : VarId)
@@ -1038,33 +1036,6 @@ theorem freeVarsList_nonincreasing (es : List Expr) (s : Moist.MIR.FreshState) :
       (freeVarsList_nonincreasing rest (inlinePass e s).2)
       w hw
 termination_by sizeOf es
-
-theorem freeVarsBindings_nonincreasing (binds : List (VarId × Expr × Bool))
-    (s : Moist.MIR.FreshState) :
-    ∀ b ∈ (inlineBindings binds s).1.1, ∀ w,
-      (freeVars b.2.1).contains w = true →
-      ∃ b' ∈ binds, (freeVars b'.2.1).contains w = true := by
-  intro b hb w hw
-  match binds with
-  | [] =>
-    have heq : (inlineBindings ([] : List (VarId × Expr × Bool)) s).1.1 = [] := by
-      rw [Moist.MIR.inlineBindings.eq_1]; rfl
-    rw [heq] at hb; exact absurd hb (by simp)
-  | (v, rhs, er) :: rest =>
-    have heq : (inlineBindings ((v, rhs, er) :: rest) s).1.1 =
-      (v, (inlinePass rhs s).1.1, er) :: (inlineBindings rest (inlinePass rhs s).2).1.1 := by
-      simp only [Moist.MIR.inlineBindings.eq_2]; rfl
-    rw [heq] at hb
-    rcases List.mem_cons.mp hb with rfl | hb_rest
-    · -- b = (v, (inlinePass rhs s).1.1, er)
-      simp only at hw
-      have := freeVars_nonincreasing rhs s w hw
-      exact ⟨(v, rhs, er), List.mem_cons_self .., this⟩
-    · -- b ∈ inlineBindings rest
-      have ⟨b', hb'mem, hb'w⟩ := freeVarsBindings_nonincreasing rest (inlinePass rhs s).2
-        b hb_rest w hw
-      exact ⟨b', List.mem_cons_of_mem _ hb'mem, hb'w⟩
-termination_by sizeOf binds
 
 theorem inlineBindings_freeVarsLet_mono (binds : List (VarId × Expr × Bool))
     (s : Moist.MIR.FreshState) (body' body : Expr)

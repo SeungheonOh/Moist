@@ -280,7 +280,7 @@ mutual
     | .Constr tag args, s, hws, fresh => by
       simp only [maxUidExpr] at fresh
       rw [(inlinePass_constr s tag args).1]
-      have ⟨_, hws_args⟩ := wellScoped_sub_constr hws
+      have hws_args := wellScoped_sub_constr hws
       cases args with
       | nil => rw [inlinePassList_nil]; exact mirCtxRefines_refl _
       | cons e rest =>
@@ -293,14 +293,14 @@ mutual
     | .Case scrut alts, s, hws, fresh => by
       simp only [maxUidExpr] at fresh
       rw [(inlinePass_case s scrut alts).1]
-      have ⟨hws_scrut, _, hws_alts⟩ := wellScoped_sub_case hws
+      have ⟨hws_scrut, hws_alts⟩ := wellScoped_sub_case hws
       have := inlinePass_fresh scrut s (by omega)
       exact mirCtxRefines_case (inline_soundness_aux scrut s hws_scrut (by omega))
         (inlinePassList_listRel alts _ hws_alts (by omega))
     | .Let binds body, s, hws, fresh => by
       simp only [maxUidExpr] at fresh
       rw [(inlinePass_let s binds body).1]
-      have ⟨hws_body, _, hws_binds⟩ := wellScoped_sub_let hws
+      have ⟨hws_body, hws_binds⟩ := wellScoped_sub_let hws
       have fb := inlineBindings_fresh binds s (by omega)
       have fbody := inlinePass_fresh body (inlineBindings binds s).2 (by omega)
       have h_binds := inlineBindings_listRel binds s hws_binds (by omega)

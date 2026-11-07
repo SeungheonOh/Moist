@@ -152,10 +152,6 @@ theorem beq_comm {a b : VarId} : (a == b) = (b == a) := by
   · have := (VarId.beq_true_iff a b).mp h
     rw [(VarId.beq_true_iff b a).mpr ⟨this.1.symm, this.2.symm⟩] at h'; cases h'
 
-private theorem beq_of_beq_left {a b c : VarId} (hab : (a == b) = true) (hac : (a == c) = true) :
-    (b == c) = true :=
-  VarId.beq_trans b a c (by rw [beq_comm]; exact hab) hac
-
 theorem beq_false_of_beq {a b c : VarId} (hab : (a == b) = true) (hac : (a == c) = false) :
     (b == c) = false := by
   cases h : (b == c)

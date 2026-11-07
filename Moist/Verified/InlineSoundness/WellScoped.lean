@@ -15,12 +15,6 @@ open Moist.MIR (Expr VarId VarSet freeVars freeVarsList freeVarsLet wellScoped
 private theorem isSome_iff {α} {x : Option α} : x.isSome = true ↔ ∃ a, x = some a := by
   cases x <;> simp [Option.isSome]
 
-private theorem contains_of_beq (s : VarSet) {v w : VarId}
-    (hvw : (v == w) = true) (h : s.contains v = true) : s.contains w = true := by
-  simp only [VarSet.contains] at h ⊢
-  rw [← Array.any_toList] at h ⊢
-  exact Moist.MIR.List.any_beq_varid_trans _ _ _ hvw h
-
 /-! ## Anti-monotonicity helpers -/
 
 private theorem barrier_insert (seen₁ seen₂ fv₁ fv₂ : VarSet) (b : VarId)
@@ -369,74 +363,13 @@ private theorem wellScopedLetAux_binders_not_in_seen (seen fv : VarSet)
         rw [this] at hins; simp at hins
 termination_by sizeOf binds + sizeOf body
 
-/-! ## allDistinctBinders from wellScopedAux -/
-
-mutual
-theorem wellScopedAux_allDistinctBinders (seen fv : VarSet) (e : Expr)
-    (s : VarSet) (h : wellScopedAux seen fv e = some s) :
-    allDistinctBinders e = true := by
-  cases e with
-  | Var _ | Lit _ | Builtin _ | Error => unfold allDistinctBinders; rfl
-  | Force inner | Delay inner =>
-    unfold allDistinctBinders; unfold wellScopedAux at h
-    exact wellScopedAux_allDistinctBinders seen fv inner s h
-  | Lam _ body =>
-    unfold allDistinctBinders; unfold wellScopedAux at h
-    have ⟨_, h⟩ := hcheck_extract h
-    exact wellScopedAux_allDistinctBinders _ fv body s h
-  | Fix _ body =>
-    unfold allDistinctBinders; unfold wellScopedAux at h
-    have ⟨_, h⟩ := hcheck_extract h
-    exact wellScopedAux_allDistinctBinders _ fv body s h
-  | App f x =>
-    unfold allDistinctBinders; unfold wellScopedAux at h
-    simp only [bind, Option.bind] at h; simp only [Bool.and_eq_true]
-    split at h
-    · simp at h
-    · rename_i mid hmid
-      exact ⟨wellScopedAux_allDistinctBinders seen fv f mid hmid,
-             wellScopedAux_allDistinctBinders mid fv x s h⟩
-  | Constr _ args =>
-    unfold allDistinctBinders; unfold wellScopedAux at h
-    exact wellScopedListAux_allDistinctBinders seen fv args s h
-  | Case scrut alts =>
-    unfold allDistinctBinders; unfold wellScopedAux at h
-    simp only [bind, Option.bind] at h; simp only [Bool.and_eq_true]
-    split at h
-    · simp at h
-    · rename_i mid hmid
-      exact ⟨wellScopedAux_allDistinctBinders seen fv scrut mid hmid,
-             wellScopedListAux_allDistinctBinders mid fv alts s h⟩
-  | Let binds body =>
-    unfold allDistinctBinders; unfold wellScopedAux at h
-    have ⟨hd, hb, ha⟩ := wellScopedLetAux_allDistinctBinders seen fv binds body s h
-    simp only [Bool.and_eq_true]; exact ⟨⟨hd, hb⟩, ha⟩
-termination_by sizeOf e
-
-theorem wellScopedListAux_allDistinctBinders (seen fv : VarSet) (es : List Expr)
-    (s : VarSet) (h : wellScopedListAux seen fv es = some s) :
-    allDistinctBindersList es = true := by
-  cases es with
-  | nil => unfold allDistinctBindersList; rfl
-  | cons e rest =>
-    unfold allDistinctBindersList; unfold wellScopedListAux at h
-    simp only [bind, Option.bind] at h; simp only [Bool.and_eq_true]
-    split at h
-    · simp at h
-    · rename_i mid hmid
-      exact ⟨wellScopedAux_allDistinctBinders seen fv e mid hmid,
-             wellScopedListAux_allDistinctBinders mid fv rest s h⟩
-termination_by sizeOf es
-
-theorem wellScopedLetAux_allDistinctBinders (seen fv : VarSet)
+/-- The binders of a let checked by `wellScopedLetAux` are distinct. -/
+private theorem wellScopedLetAux_distinct (seen fv : VarSet)
     (binds : List (VarId × Expr × Bool)) (body : Expr)
     (s : VarSet) (h : wellScopedLetAux seen fv binds body = some s) :
-    distinctBinders binds = true ∧ allDistinctBindersBinds binds = true ∧
-    allDistinctBinders body = true := by
+    distinctBinders binds = true := by
   cases binds with
-  | nil =>
-    unfold distinctBinders allDistinctBindersBinds wellScopedLetAux at *
-    exact ⟨rfl, rfl, wellScopedAux_allDistinctBinders seen fv body s h⟩
+  | nil => rfl
   | cons b rest =>
     have := sizeOf_rhs_lt b rest body
     unfold wellScopedLetAux at h; simp only [bind, Option.bind] at h
@@ -446,32 +379,18 @@ theorem wellScopedLetAux_allDistinctBinders (seen fv : VarSet)
       have hc₁ : (mid.contains b.1 || fv.contains b.1) = false := by
         cases hc : (mid.contains b.1 || fv.contains b.1) <;> simp [hc] at h ⊢
       simp only [hc₁] at h
-      have ⟨hdist_rest, hbinds_rest, hbody⟩ :=
-        wellScopedLetAux_allDistinctBinders (mid.insert b.1) fv rest body s h
-      refine ⟨?_, ?_, hbody⟩
-      · unfold distinctBinders; simp only [Bool.and_eq_true]
-        constructor
-        · have hbnot := wellScopedLetAux_binders_not_in_seen (mid.insert b.1) fv rest body s h
-          rw [List.all_eq_true] at hbnot ⊢
-          intro c hc
-          have hc_not_ins := hbnot c hc
-          simp only [Bool.not_eq_true'] at hc_not_ins
-          cases hcb : (c.1 == b.1)
-          · simp
-          · exfalso
-            have hbeq_sym : (b.1 == c.1) = true := by
-              simp only [BEq.beq, Bool.and_eq_true] at hcb ⊢
-              obtain ⟨ho, hu⟩ := hcb
-              simp only [decide_eq_true_eq] at hu
-              refine ⟨?_, by simp only [decide_eq_true_eq]; exact hu.symm⟩
-              revert ho; cases c.1.origin <;> cases b.1.origin <;> intro h <;> first | exact h | exact absurd h (by decide)
-            have := VarSet.contains_insert_elim mid b.1 c.1 |>.mpr (Or.inr hbeq_sym)
-            rw [hc_not_ins] at this; simp at this
-        · exact hdist_rest
-      · unfold allDistinctBindersBinds; simp only [Bool.and_eq_true]
-        exact ⟨wellScopedAux_allDistinctBinders seen fv b.2.1 mid hmid, hbinds_rest⟩
+      have notSeen := wellScopedLetAux_binders_not_in_seen _ fv rest body s h
+      simp only [distinctBinders, Bool.and_eq_true, List.all_eq_true] at notSeen ⊢
+      refine ⟨fun c hc => ?_, wellScopedLetAux_distinct _ fv rest body s h⟩
+      have := notSeen c hc
+      cases hcb : (c.1 == b.1)
+      · rfl
+      · have hbc : (b.1 == c.1) = true :=
+          let ⟨o, u⟩ := (Moist.MIR.VarId.beq_true_iff _ _).mp hcb
+          (Moist.MIR.VarId.beq_true_iff _ _).mpr ⟨o.symm, u.symm⟩
+        have := VarSet.contains_insert_elim mid b.1 c.1 |>.mpr (.inr hbc)
+        simp_all
 termination_by sizeOf binds + sizeOf body
-end
 
 /-! ## wellScoped for list sub-expressions -/
 
@@ -522,37 +441,27 @@ private theorem freeVars_mem_sub_freeVarsList (es : List Expr) (e : Expr) (he : 
 /-! ## Main theorems -/
 
 theorem wellScoped_sub_constr {tag : Nat} {args : List Expr}
-    (h : wellScoped (.Constr tag args) = true) :
-    allDistinctBindersList args = true ∧
-    ∀ e ∈ args, wellScoped e = true := by
+    (h : wellScoped (.Constr tag args) = true) : ∀ e ∈ args, wellScoped e = true := by
   unfold wellScoped at h; unfold wellScopedAux at h; unfold Moist.MIR.freeVars at h
   rw [isSome_iff] at h; obtain ⟨s, hs⟩ := h
-  exact ⟨wellScopedListAux_allDistinctBinders _ _ args s hs,
-         wellScopedListAux_each_wellScoped _ _ args s hs
-           (fun e he v hv => freeVars_mem_sub_freeVarsList args e he v hv)⟩
+  exact wellScopedListAux_each_wellScoped _ _ args s hs
+    (fun e he v hv => freeVars_mem_sub_freeVarsList args e he v hv)
 
 theorem wellScoped_sub_case {scrut : Expr} {alts : List Expr}
     (h : wellScoped (.Case scrut alts) = true) :
-    wellScoped scrut = true ∧ allDistinctBindersList alts = true ∧
-    ∀ e ∈ alts, wellScoped e = true := by
+    wellScoped scrut = true ∧ ∀ e ∈ alts, wellScoped e = true := by
   unfold wellScoped at h; unfold wellScopedAux at h; unfold Moist.MIR.freeVars at h
   rw [isSome_iff] at h; obtain ⟨s, hs⟩ := h
   simp only [bind, Option.bind] at hs
   split at hs
   · simp at hs
   · rename_i mid hmid
-    refine ⟨?_, wellScopedListAux_allDistinctBinders _ _ alts s hs, ?_⟩
+    refine ⟨?_, ?_⟩
     · exact wellScoped_of_wellScopedAux_fv_sub _ _ scrut mid hmid
         (fun v hv => VarSet.contains_union_left _ _ _ hv)
     · exact wellScopedListAux_each_wellScoped _ _ alts s hs
         (fun e he v hv => VarSet.contains_union_right _ _ _
           (freeVars_mem_sub_freeVarsList alts e he v hv))
-
-theorem wellScoped_allDistinctBinders {e : Expr}
-    (h : wellScoped e = true) : allDistinctBinders e = true := by
-  unfold wellScoped at h
-  rw [isSome_iff] at h; obtain ⟨s, hs⟩ := h
-  exact wellScopedAux_allDistinctBinders _ _ e s hs
 
 theorem wellScoped_let_peel {v : VarId} {rhs : Expr} {er : Bool}
     {rest : List (VarId × Expr × Bool)} {body : Expr}
@@ -585,32 +494,29 @@ theorem wellScoped_let_peel {v : VarId} {rhs : Expr} {er : Bool}
 
 theorem wellScoped_sub_let {binds : List (VarId × Expr × Bool)} {body : Expr}
     (h : wellScoped (.Let binds body) = true) :
-    wellScoped body = true ∧ allDistinctBindersBinds binds = true ∧
-    ∀ b ∈ binds, wellScoped b.2.1 = true := by
+    wellScoped body = true ∧ ∀ b ∈ binds, wellScoped b.2.1 = true := by
   induction binds with
   | nil =>
     unfold wellScoped at h; unfold wellScopedAux at h; unfold Moist.MIR.freeVars at h
     unfold wellScopedLetAux at h; unfold Moist.MIR.freeVarsLet at h
     rw [isSome_iff] at h; obtain ⟨s, hs⟩ := h
-    refine ⟨?_, by unfold allDistinctBindersBinds; rfl, fun b hb => absurd hb (by simp)⟩
+    refine ⟨?_, fun b hb => absurd hb (by simp)⟩
     unfold wellScoped; rw [isSome_iff]; exact ⟨s, hs⟩
   | cons bd rest ih =>
     obtain ⟨v, rhs, er⟩ := bd
     have ⟨hrs, hrest⟩ := wellScoped_let_peel h
-    have ⟨hbody, hbinds_rest, hbinds_elem⟩ := ih hrest
-    refine ⟨hbody, ?_, ?_⟩
-    · unfold allDistinctBindersBinds; simp only [Bool.and_eq_true]
-      exact ⟨wellScoped_allDistinctBinders hrs, hbinds_rest⟩
-    · intro b hb; rcases List.mem_cons.mp hb with rfl | hb
-      · exact hrs
-      · exact hbinds_elem b hb
+    have ⟨hbody, hbinds_elem⟩ := ih hrest
+    refine ⟨hbody, fun b hb => ?_⟩
+    rcases List.mem_cons.mp hb with rfl | hb
+    · exact hrs
+    · exact hbinds_elem b hb
 
 theorem wellScoped_distinctBinders {binds : List (VarId × Expr × Bool)}
     {body : Expr} (h : wellScoped (.Let binds body) = true) :
     distinctBinders binds = true := by
   unfold wellScoped at h; unfold wellScopedAux at h; unfold Moist.MIR.freeVars at h
   rw [isSome_iff] at h; obtain ⟨s, hs⟩ := h
-  exact (wellScopedLetAux_allDistinctBinders _ _ binds body s hs).1
+  exact wellScopedLetAux_distinct _ _ binds body s hs
 
 theorem wellScoped_canonicalize (e : Expr) :
     wellScoped (canonicalize e) = true :=
