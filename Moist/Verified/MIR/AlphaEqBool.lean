@@ -52,10 +52,12 @@ mutual
     | .TypePair a1 a2, .TypePair b1 b2, h => by
       simp only [typeOperatorEq, Bool.and_eq_true] at h
       rw [builtinType_eq_of_builtinTypeEq h.1, builtinType_eq_of_builtinTypeEq h.2]
+    | .TypeArray a, .TypeArray b, h => by
+      simp only [typeOperatorEq] at h
+      rw [builtinType_eq_of_builtinTypeEq h]
     | .TypeList _, .TypePair _ _, h | .TypeList _, .TypeArray _, h
     | .TypePair _ _, .TypeList _, h | .TypePair _ _, .TypeArray _, h
-    | .TypeArray _, .TypeList _, h | .TypeArray _, .TypePair _ _, h
-    | .TypeArray _, .TypeArray _, h => by
+    | .TypeArray _, .TypeList _, h | .TypeArray _, .TypePair _ _, h => by
       simp only [typeOperatorEq, Bool.false_eq_true] at h
 end
 
@@ -125,6 +127,7 @@ mutual
         simp only [Bool.and_eq_true] at h
         rw [data_eq_of_dataEq h.1, data_eq_of_dataEq h.2]
       · rw [data_eq_of_dataEq h]
+      · rw [constList_eq_of_constEqList h]
       · rfl
       · rfl
       · rfl

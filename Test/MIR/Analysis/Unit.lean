@@ -142,5 +142,12 @@ def unitTree : TestTree := suite "unit" do
         (!constEq (.ConstPairDataList [(.I 0, .I 0)]) (.ConstPairDataList [(.I 1, .I 1)]))
       check "alphaEq_pairData_literal"
         (!alphaEq (.Lit (p 0 0, .AtomicType .TypeData)) (.Lit (p 1 1, .AtomicType .TypeData)))
+    test "array_reflexive" do
+      let arr : Expr := .Lit (.ConstArray [.Integer 1, .Integer 2],
+        .TypeOperator (.TypeArray (.AtomicType .TypeInteger)))
+      check "alphaEq_array_refl" (alphaEq arr arr)
+      check "alphaEq_array_distinct"
+        (!alphaEq arr (.Lit (.ConstArray [.Integer 1],
+          .TypeOperator (.TypeArray (.AtomicType .TypeInteger)))))
 
 end Test.MIR.Analysis.Unit
