@@ -11,6 +11,7 @@ import Test.MIR.Opt.Axioms.FixLowering
 import Test.MIR.Opt.Axioms.FloatOut
 import Test.MIR.Opt.Axioms.ForceDelay
 import Test.MIR.Opt.Axioms.Pipeline
+import Test.MIR.Opt.Axioms.Placement
 import Test.MIR.Opt.Axioms.PreLower
 import Test.MIR.Opt.Axioms.Products
 import Test.MIR.Opt.Axioms.ProductAliases

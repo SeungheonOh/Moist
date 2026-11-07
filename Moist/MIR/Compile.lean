@@ -63,7 +63,8 @@ def compileOptimized (expression : Expr) (optFresh : Nat := 1000)
     : Except String Moist.Plutus.Term.Term := do
   validateCompilationInput [] expression
   let term ← lowerExpr (prepareForLowering expression optFresh lowerFresh) (lowerFresh + 1000)
-  if options.packApplications || options.shareBuiltinStates || options.poolConstants then
+  if options.packApplications || options.shareLow || options.shareBuiltinStates ||
+      options.poolConstants then
     lowerExpr (Advanced.finish (liftUPLC term) options) (lowerFresh + 1000)
   else pure term
 

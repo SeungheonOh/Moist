@@ -11,7 +11,8 @@ fresh top-level variable and replaces its occurrences by that variable. The
 search stops at the first accepted subterm on each path. Hoisting evaluates
 each shared term once, before the body, so accepted terms must be closed and
 always return a value: unsaturated builtin states (`hoistBuiltinStates`) and
-literals (`poolConstants`).
+literals (`poolConstants`). The lambda of a `Fix` is never replaced, so a
+predicate may also accept lambdas.
 -/
 
 open Moist.Plutus.Term
@@ -54,6 +55,8 @@ mutual
     | none =>
       match expression with
       | .Lam binder body => .Lam binder (replaceMatches replacements body)
+      | .Fix binder (.Lam parameter body) =>
+        .Fix binder (.Lam parameter (replaceMatches replacements body))
       | .Fix binder body => .Fix binder (replaceMatches replacements body)
       | .App function argument =>
         .App (replaceMatches replacements function) (replaceMatches replacements argument)
@@ -81,15 +84,22 @@ mutual
   termination_by bindings => sizeOf bindings
 end
 
-def shareClosed (predicate : Expr → Bool) (minimumUses : Nat) (expression : Expr) : Expr :=
+/-- The distinct candidates accepted by `predicate` with at least
+    `minimumUses` occurrences, each paired with a fresh binder above every uid
+    of `expression`. -/
+def shareReplacements (predicate : Expr → Bool) (minimumUses : Nat) (expression : Expr) :
+    List (Expr × VarId) :=
   let occurrences := collectMatches predicate expression
   let unique := occurrences.foldl (fun result candidate =>
     if result.any (alphaEq candidate) then result else result ++ [candidate]) []
   let selected := unique.filter (fun candidate =>
     (occurrences.filter (alphaEq candidate)).length >= minimumUses)
   let start := maxUidExpr expression + 1
-  let replacements := selected.zipIdx |>.map fun (candidate, index) =>
+  selected.zipIdx |>.map fun (candidate, index) =>
     (candidate, { uid := start + index, origin := .gen, hint := "shared" : VarId })
+
+def shareClosed (predicate : Expr → Bool) (minimumUses : Nat) (expression : Expr) : Expr :=
+  let replacements := shareReplacements predicate minimumUses expression
   if replacements.isEmpty then expression
   else .Let (replacements.map fun (rhs, binder) => (binder, rhs, false))
     (replaceMatches replacements expression)

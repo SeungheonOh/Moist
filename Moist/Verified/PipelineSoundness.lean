@@ -295,6 +295,7 @@ theorem structural_refines_of
   mirCtxRefines_trans (hChoices e) (mirCtxRefines_trans (hProducts _) (hBranches _))
 
 theorem finish_refines_of
+    (hLow : ∀ o e, MIRCtxRefines e (Advanced.shareLow o e))
     (hHoist : ∀ k e, MIRCtxRefines e (Advanced.hoistBuiltinStates k e))
     (hPool : ∀ k e, MIRCtxRefines e (Advanced.poolConstants k e))
     (e : Expr) (options : Advanced.Options) :
@@ -305,6 +306,12 @@ theorem finish_refines_of
     split
     · exact Moist.Verified.MIR.packApplications_refines 3 e
     · exact mirCtxRefines_refl e
+  have hLowered : ∀ p, MIRCtxRefines e p → MIRCtxRefines e
+      (if options.shareLow then Advanced.shareLow options.lowSharing p else p) := by
+    intro p hp
+    split
+    · exact mirCtxRefines_trans hp (hLow _ _)
+    · exact hp
   have hShared : ∀ p, MIRCtxRefines e p → MIRCtxRefines e
       (if options.shareBuiltinStates then
         Advanced.hoistBuiltinStates (max 1 options.minimumBuiltinUses) p else p) := by
@@ -319,6 +326,6 @@ theorem finish_refines_of
     split
     · exact mirCtxRefines_trans hp (hPool _ _)
     · exact hp
-  exact hPooled _ (hShared _ hPack)
+  exact hPooled _ (hShared _ (hLowered _ hPack))
 
 end Moist.Verified.Pipeline

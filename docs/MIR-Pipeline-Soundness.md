@@ -20,8 +20,8 @@ theorem compileOptimized_error {e : Expr} {optFresh lowerFresh : Nat}
 ```
 
 These theorems have no hypotheses. They hold for every MIR program, every
-fresh-name start and every option set, including builtin-state sharing and
-constant pooling. In words:
+fresh-name start and every option set, including low sharing, builtin-state
+sharing and constant pooling. In words:
 
 - If compilation succeeds, the source has a certified lowering `t₀`, and the
   emitted UPLC contextually refines it. In every closing context, the output
@@ -53,7 +53,7 @@ graph TD
   L --> P["preLower<br>preLowerInline, ANF"]
   P --> T["structural<br>fuseListChoices, destructureProducts,<br>optimizeCheckedBranches"]
   T --> W["lowerExpr ≈ lowerTotalExpr<br>(LoweringSoundness)"]
-  W --> F["finish on liftUPLC<br>packing, sharing, pooling"]
+  W --> F["finish on liftUPLC<br>packing, low sharing,<br>builtin sharing, pooling"]
 ```
 
 ## Whole-pass certificates
@@ -89,6 +89,7 @@ check under `Test/MIR/Opt/Axioms/` or in `Test/MIR/Opt/FormalAxioms.lean`.
 | `Advanced.structural` | `structural_refines` | `CompilerSoundness.lean` |
 | Application packing | `packApplications_refines` | `ApplicationPackingSoundness.lean` |
 | Builtin sharing, constant pooling | `hoistBuiltinStates_refines`, `poolConstants_refines` | `SharingSoundness.lean` |
+| Low sharing (closed values, constants, forced builtins at their lowest dominating node) | `placeShared_refines`, `shareLow_refines` | `PlacementSoundness.lean` |
 | `Advanced.finish`, all options | `finish_refines` | `AllocationFinishSoundness.lean` |
 | Lowering | `lowerExpr_sound`, `lowerExpr_complete`, `liftUPLC_lowerExpr` | `LoweringSoundness.lean`, `FixLowering.lean` |
 | Direct recursive calls in lowering | `fixLamWrap_forward`, `fixLamWrap_backward`, `lower_freeOf` | `FixLowering.lean`, `LoweringSoundness.lean` |
