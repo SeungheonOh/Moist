@@ -423,4 +423,179 @@ theorem dataComparison_fresh {Γ : List (VarId × Expr)} {x y : Expr} {env : Lis
       · cases h
   · cases h
 
+/-! ## Map and list round trips -/
+
+def PairDataListValue (v : CekValue) : Prop := ∃ ps, v = .VCon (.ConstPairDataList ps)
+
+def DataListValue (v : CekValue) : Prop := ∃ ds, v = .VCon (.ConstDataList ds)
+
+theorem knownPairDataList_sound (hP : ∀ env ρ rhs v, P env ρ rhs v → Produces env ρ rhs v) :
+    ∀ (n : Nat) (Γ : List (VarId × Expr)) (e : Expr) {env : List VarId} {ρ : CekEnv}
+      {t : Term} {v : CekValue},
+      knownPairDataList n Γ e = true → FactsHold P Γ env ρ → EnvDistinct env →
+      lowerTotalExpr env e = some t → Halts ρ t v → PairDataListValue v := by
+  intro n
+  induction n with
+  | zero => intro Γ e env ρ t v h; simp [knownPairDataList] at h
+  | succ n ih =>
+    intro Γ e env ρ t v h hfacts hd hlow hv
+    cases e with
+    | Var x =>
+      simp only [knownPairDataList] at h
+      cases hf : Γ.find? (fun entry => entry.1 == x) with
+      | none => rw [hf] at h; cases h
+      | some entry =>
+        rw [hf] at h
+        obtain ⟨k, _, hp, hfacts', hd'⟩ := fact_of_var hfacts hd hf hlow hv
+        obtain ⟨t', ht', hv'⟩ := hP _ _ _ _ hp
+        exact ih Γ entry.2 (by simpa using h) hfacts' hd' ht' hv'
+    | Lit lit =>
+      obtain ⟨c, ty⟩ := lit
+      rw [lowerTotalExpr_lit] at hlow; cases hlow
+      rw [halts_constant hv]
+      cases c <;> simp [knownPairDataList] at h
+      exact ⟨_, rfl⟩
+    | App f a =>
+      simp only [knownPairDataList] at h
+      obtain ⟨tf, ta, htf, hta, rfl⟩ := lowerTotalExpr_app_some hlow
+      obtain ⟨wf, wa, hwf, hwa, rest⟩ := halts_apply hv
+      split at h
+      · rename_i hhead
+        have hstate := resolveHead_protocol hP n Γ f (b := .UnMapData) (by rw [hhead]; rfl)
+          hfacts hd htf hwf
+        obtain ⟨args, hlen, heval⟩ := saturated_apply hstate rest
+        have h1 : valueArity (expectedArgs .UnMapData) = 1 := rfl
+        rw [h1] at hlen
+        obtain ⟨w, hw⟩ : ∃ w, wa :: args = [w] := by
+          cases args with
+          | nil => exact ⟨wa, rfl⟩
+          | cons _ _ => simp at hlen
+        rw [hw] at heval
+        obtain ⟨c, r, rfl, hc, rfl⟩ := evalBuiltin_single (by decide) heval
+        cases c with
+        | Data dd =>
+          cases dd
+          all_goals first | (cases hc; done) | exact ⟨_, by cases hc; rfl⟩
+        | _ => cases hc
+      · cases h
+    | _ => simp [knownPairDataList] at h
+
+theorem knownDataList_sound (hP : ∀ env ρ rhs v, P env ρ rhs v → Produces env ρ rhs v) :
+    ∀ (n : Nat) (Γ : List (VarId × Expr)) (e : Expr) {env : List VarId} {ρ : CekEnv}
+      {t : Term} {v : CekValue},
+      knownDataList n Γ e = true → FactsHold P Γ env ρ → EnvDistinct env →
+      lowerTotalExpr env e = some t → Halts ρ t v → DataListValue v := by
+  intro n
+  induction n with
+  | zero => intro Γ e env ρ t v h; simp [knownDataList] at h
+  | succ n ih =>
+    intro Γ e env ρ t v h hfacts hd hlow hv
+    cases e with
+    | Var x =>
+      simp only [knownDataList] at h
+      cases hf : Γ.find? (fun entry => entry.1 == x) with
+      | none => rw [hf] at h; cases h
+      | some entry =>
+        rw [hf] at h
+        obtain ⟨k, _, hp, hfacts', hd'⟩ := fact_of_var hfacts hd hf hlow hv
+        obtain ⟨t', ht', hv'⟩ := hP _ _ _ _ hp
+        exact ih Γ entry.2 (by simpa using h) hfacts' hd' ht' hv'
+    | Lit lit =>
+      obtain ⟨c, ty⟩ := lit
+      rw [lowerTotalExpr_lit] at hlow; cases hlow
+      rw [halts_constant hv]
+      cases c <;> simp [knownDataList] at h
+      exact ⟨_, rfl⟩
+    | App f a =>
+      simp only [knownDataList] at h
+      obtain ⟨tf, ta, htf, hta, rfl⟩ := lowerTotalExpr_app_some hlow
+      obtain ⟨wf, wa, hwf, hwa, rest⟩ := halts_apply hv
+      split at h
+      · rename_i hhead
+        have hstate := resolveHead_protocol hP n Γ f (b := .UnListData) (by rw [hhead]; rfl)
+          hfacts hd htf hwf
+        obtain ⟨args, hlen, heval⟩ := saturated_apply hstate rest
+        have h1 : valueArity (expectedArgs .UnListData) = 1 := rfl
+        rw [h1] at hlen
+        obtain ⟨w, hw⟩ : ∃ w, wa :: args = [w] := by
+          cases args with
+          | nil => exact ⟨wa, rfl⟩
+          | cons _ _ => simp at hlen
+        rw [hw] at heval
+        obtain ⟨c, r, rfl, hc, rfl⟩ := evalBuiltin_single (by decide) heval
+        cases c with
+        | Data dd =>
+          cases dd
+          all_goals first | (cases hc; done) | exact ⟨_, by cases hc; rfl⟩
+        | _ => cases hc
+      · cases h
+    | _ => simp [knownDataList] at h
+
+theorem roundTrip_UnMapData {vo wc : CekValue} (hq : PairDataListValue vo)
+    (h : evalBuiltin .MapData [vo] = some wc) : evalBuiltin .UnMapData [wc] = some vo := by
+  obtain ⟨ps, rfl⟩ := hq
+  have : evalBuiltin .MapData [.VCon (.ConstPairDataList ps)] = some (.VCon (.Data (.Map ps))) := rfl
+  rw [this] at h; cases h; rfl
+
+theorem roundTrip_UnListData {vo wc : CekValue} (hq : DataListValue vo)
+    (h : evalBuiltin .ListData [vo] = some wc) : evalBuiltin .UnListData [wc] = some vo := by
+  obtain ⟨ds, rfl⟩ := hq
+  have : evalBuiltin .ListData [.VCon (.ConstDataList ds)] = some (.VCon (.Data (.List ds))) := rfl
+  rw [this] at h; cases h; rfl
+
+/-- A builtin undoing the conversion that produced a checked value returns the
+    original value, given the shape of the original value. -/
+theorem roundTrip_shape_factRel {G : VarId → Prop} {Γ : List (VarId × Expr)} {outer inner : BuiltinFun}
+    {c o : VarId} {Q : CekValue → Prop}
+    (hres : resolveHead 64 Γ (.Var c) = .App (.Builtin inner) (.Var o))
+    (hinner : expectedArgs inner = .one .argV) (houter : expectedArgs outer = .one .argV)
+    (hshape : ∀ {env : List VarId} {ρ : CekEnv} {t : Term} {v : CekValue},
+      FactsHold PF Γ env ρ → EnvDistinct env → lowerTotalExpr env (.Var o) = some t → Halts ρ t v → Q v)
+    (hrt : ∀ vo wc, Q vo → evalBuiltin inner [vo] = some wc → evalBuiltin outer [wc] = some vo) :
+    FactRel G PF Γ (.App (.Builtin outer) (.Var c)) (.Var o) := by
+  intro env t hG hd hfresh hk hsc hlow
+  obtain ⟨tb, tc, htb, htc, rfl⟩ := lowerTotalExpr_app_some hlow
+  rw [lowerTotalExpr_builtin] at htb; cases htb
+  obtain ⟨ic, hic, rfl⟩ := lowerTotalExpr_var_some htc
+  have hob := resolveHead_app_var_bound 64 Γ (.Var c) hres hsc hd (by rw [htc]; rfl)
+  obtain ⟨io, hio⟩ := Option.isSome_iff_exists.mp hob
+  refine ⟨.Var (io + 1), by rw [lowerTotalExpr_var, hio]; rfl, ?_⟩
+  intro ρ π henv hlen hπ hF
+  obtain ⟨wc, hwc, _⟩ := envWellFormed_lookup env.length henv (n := ic + 1) (by omega)
+    (by have := envLookupT_bound env c ic hic; omega)
+  obtain ⟨vo, hvo, _⟩ := envWellFormed_lookup env.length henv (n := io + 1) (by omega)
+    (by have := envLookupT_bound env o io hio; omega)
+  have hun := (resolveHead_unary 64 Γ (.Var c) hres (b := inner) (by simp [forcedBuiltin, hinner])
+    (hF.mono PF_produces) hd htc hio hvo).1 wc
+  have hq : Q vo := hshape hF hd (by rw [lowerTotalExpr_var, hio]; rfl) (halts_var_of_lookup hvo)
+  have heval := hrt vo wc hq (hun.mp (halts_var_of_lookup hwc))
+  have hsrc : Reaches (.compute π ρ (.Apply (.Builtin outer) (.Var (ic + 1)))) (.ret π vo) := by
+    have h4 : steps 4 (.compute π ρ (.Apply (.Builtin outer) (.Var (ic + 1)))) =
+        .ret (.funV (.VBuiltin outer [] (expectedArgs outer)) :: π) wc := by
+      simp [steps, step, hwc]
+    refine reaches_trans (reaches_of_steps 4 h4) ⟨1, ?_⟩
+    simp [steps, step, houter, heval, ExpectedArgs.head, ExpectedArgs.tail]
+  exact obsRefines_of_reaches hsrc (reaches_of_steps 1 (by simp [steps, step, hvo]))
+    (obsRefines_refl _)
+
+theorem roundTripInverse_factRel {G : VarId → Prop} {Γ : List (VarId × Expr)} {outer inner : BuiltinFun}
+    {c o : VarId} (hres : resolveHead 64 Γ (.Var c) = .App (.Builtin inner) (.Var o))
+    (hinv : roundTripInverse Γ outer inner o = true) :
+    FactRel G PF Γ (.App (.Builtin outer) (.Var c)) (.Var o) := by
+  unfold roundTripInverse at hinv
+  split at hinv
+  · exact roundTrip_factRel hres rfl rfl roundTrip_IData
+  · exact roundTrip_factRel hres rfl rfl roundTrip_UnIData
+  · exact roundTrip_factRel hres rfl rfl roundTrip_BData
+  · exact roundTrip_factRel hres rfl rfl roundTrip_UnBData
+  · exact roundTrip_factRel hres rfl rfl roundTrip_ListData
+  · exact roundTrip_factRel hres rfl rfl roundTrip_MapData
+  · exact roundTrip_shape_factRel hres rfl rfl
+      (fun hF hd hl hv => knownPairDataList_sound PF_produces 64 Γ _ hinv hF hd hl hv)
+      (fun _ _ hq h => roundTrip_UnMapData hq h)
+  · exact roundTrip_shape_factRel hres rfl rfl
+      (fun hF hd hl hv => knownDataList_sound PF_produces 64 Γ _ hinv hF hd hl hv)
+      (fun _ _ hq h => roundTrip_UnListData hq h)
+  · cases hinv
+
 end Moist.Verified.ShapeFacts

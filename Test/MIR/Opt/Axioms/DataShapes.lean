@@ -20,7 +20,10 @@ run_cmd do
     ``Moist.Verified.ShapeFacts.keyed_comparison_factRel,
     ``Moist.Verified.ShapeFacts.otherKey_values,
     ``Moist.Verified.ShapeFacts.comparison_obs,
-    ``Moist.Verified.ShapeFacts.shapeRewrite_factRel]
+    ``Moist.Verified.ShapeFacts.shapeRewrite_factRel,
+    ``Moist.Verified.ShapeFacts.roundTripInverse_factRel,
+    ``Moist.Verified.ShapeFacts.knownPairDataList_sound,
+    ``Moist.Verified.ShapeFacts.knownDataList_sound]
   let permitted := [``propext, ``Classical.choice, ``Quot.sound]
   for declaration in checked do
     for axiomName in ← Lean.collectAxioms declaration do

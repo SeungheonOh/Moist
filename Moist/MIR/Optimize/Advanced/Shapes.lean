@@ -275,16 +275,55 @@ def delayBody : Expr → Option Expr
   | .Delay body => some body
   | _ => none
 
+/-- Values represented as lists of data pairs: `unMapData` results and
+    pair-list literals. -/
+def knownPairDataList : Nat → List (VarId × Expr) → Expr → Bool
+  | 0, _, _ => false
+  | fuel + 1, environment, expression =>
+    match expression with
+    | .Var binder =>
+      (environment.find? (fun entry => entry.1 == binder)).any
+        (fun entry => knownPairDataList fuel environment entry.2)
+    | .Lit (.ConstPairDataList _, _) => true
+    | .App function _ =>
+      match resolveHead fuel environment function with
+      | .Builtin .UnMapData => true
+      | _ => false
+    | _ => false
+
+/-- Values represented as lists of data: `unListData` results and data-list
+    literals. -/
+def knownDataList : Nat → List (VarId × Expr) → Expr → Bool
+  | 0, _, _ => false
+  | fuel + 1, environment, expression =>
+    match expression with
+    | .Var binder =>
+      (environment.find? (fun entry => entry.1 == binder)).any
+        (fun entry => knownDataList fuel environment entry.2)
+    | .Lit (.ConstDataList _, _) => true
+    | .App function _ =>
+      match resolveHead fuel environment function with
+      | .Builtin .UnListData => true
+      | _ => false
+    | _ => false
+
+/-- Whether `outer` undoes the conversion `inner` applied to `original`. Map
+    and list encodings round-trip only from their data-list representations. -/
+def roundTripInverse (environment : List (VarId × Expr)) (outer inner : BuiltinFun)
+    (original : VarId) : Bool :=
+  match outer, inner with
+  | .IData, .UnIData | .UnIData, .IData
+  | .BData, .UnBData | .UnBData, .BData
+  | .ListData, .UnListData | .MapData, .UnMapData => true
+  | .UnMapData, .MapData => knownPairDataList 64 environment (.Var original)
+  | .UnListData, .ListData => knownDataList 64 environment (.Var original)
+  | _, _ => false
+
 def checkedRoundTrip (environment : List (VarId × Expr)) : Expr → Option Expr
   | .App (.Builtin outer) (.Var checked) =>
     match resolveHead 64 environment (.Var checked) with
     | .App (.Builtin inner) (.Var original) =>
-      let inverse := match outer, inner with
-        | .IData, .UnIData | .UnIData, .IData
-        | .BData, .UnBData | .UnBData, .BData
-        | .ListData, .UnListData | .MapData, .UnMapData => true
-        | _, _ => false
-      if inverse then some (.Var original) else none
+      if roundTripInverse environment outer inner original then some (.Var original) else none
     | _ => none
   | _ => none
 

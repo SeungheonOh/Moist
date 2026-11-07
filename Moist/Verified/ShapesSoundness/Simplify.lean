@@ -22,17 +22,13 @@ theorem checkedRoundTrip_factRel {G : VarId → Prop} {Γ : List (VarId × Expr)
     (h : checkedRoundTrip Γ x = some y) : FactRel G PF Γ x y := by
   unfold checkedRoundTrip at h
   split at h
-  · rename_i outer checked
-    split at h
-    · rename_i inner original hres
+  · split at h
+    · rename_i hres
       split at h
-      · simp at h; subst h; exact roundTrip_factRel hres rfl rfl roundTrip_IData
-      · simp at h; subst h; exact roundTrip_factRel hres rfl rfl roundTrip_UnIData
-      · simp at h; subst h; exact roundTrip_factRel hres rfl rfl roundTrip_BData
-      · simp at h; subst h; exact roundTrip_factRel hres rfl rfl roundTrip_UnBData
-      · simp at h; subst h; exact roundTrip_factRel hres rfl rfl roundTrip_ListData
-      · simp at h; subst h; exact roundTrip_factRel hres rfl rfl roundTrip_MapData
-      · simp at h
+      · rename_i hinv
+        cases h
+        exact roundTripInverse_factRel hres hinv
+      · cases h
     · cases h
   · cases h
 
@@ -41,7 +37,9 @@ theorem checkedRoundTrip_fresh {Γ : List (VarId × Expr)} {x y : Expr} {env : L
   unfold checkedRoundTrip at h
   split at h
   · split at h
-    · split at h <;> simp at h <;> subst h <;> simp [freshIn]
+    · split at h
+      · cases h; simp [freshIn]
+      · cases h
     · cases h
   · cases h
 

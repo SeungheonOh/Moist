@@ -153,6 +153,40 @@ def tests : TestTree := suite "data-shapes" do
         (.B (bytes [1, 2]), .I 5)], .Map [(.B (bytes []), .I 6), (.List [], .I 7)], .I 3]
     check "loop comparison rewritten" (!compiledHas .EqualsData lookup)
     compare "loop" lookup ((samples.flatMap fun first => maps.map fun m => [dataLit first, dataLit m]))
+  test "map_and_list_round_trips" do
+    -- `source` is a data-list representation of the expected kind: decoded
+    -- from the argument or a literal.
+    let roundTrip (decode encode : BuiltinFun) (source : Expr) : Expr :=
+      .Lam datum (.Let [(list, source, false),
+        (probe, .App (.Builtin encode) (.Var list), false),
+        (result, .App (.Builtin decode) (.Var probe), false)]
+        (trace "decoded" (.App (.Builtin encode) (.Var result))))
+    let countOf (builtin : BuiltinFun) : Expr → Nat := fun e =>
+      let rec go : Nat → Expr → Nat
+        | 0, _ => 0
+        | fuel + 1, e => match e with
+          | .Builtin b => if b == builtin then 1 else 0
+          | .Lam _ body | .Fix _ body | .Force body | .Delay body => go fuel body
+          | .App function argument => go fuel function + go fuel argument
+          | .Let bindings body => (bindings.map fun (_, rhs, _) => go fuel rhs).sum + go fuel body
+          | .Case scrutinee alternatives => go fuel scrutinee + (alternatives.map (go fuel)).sum
+          | .Constr _ fields => (fields.map (go fuel)).sum
+          | _ => 0
+      go 1000 e
+    let pairs : Expr := .Lit (.ConstPairDataList [(.I 1, .B (bytes [2])), (.I 3, .I 4)],
+      .TypeOperator (.TypeList (.TypeOperator (.TypePair (.AtomicType .TypeData) (.AtomicType .TypeData)))))
+    let mapTrip := roundTrip .UnMapData .MapData pairs
+    check "map round trip removed" (countOf .UnMapData (Advanced.simplify mapTrip) == 0)
+    compare "map round trip" mapTrip (samples.map fun value => [dataLit value])
+    let decodedMap := roundTrip .UnMapData .MapData (.App (.Builtin .UnMapData) (.Var datum))
+    compare "decoded map round trip" decodedMap (samples.map fun value => [dataLit value])
+    let items : Expr := .Lit (.ConstDataList [.I 1, .B (bytes [2])],
+      .TypeOperator (.TypeList (.AtomicType .TypeData)))
+    let listTrip := roundTrip .UnListData .ListData items
+    check "list round trip removed" (countOf .UnListData (Advanced.simplify listTrip) == 0)
+    compare "list round trip" listTrip (samples.map fun value => [dataLit value])
+    let decodedList := roundTrip .UnListData .ListData (.App (.Builtin .UnListData) (.Var datum))
+    compare "decoded list round trip" decodedList (samples.map fun value => [dataLit value])
   test "unrelated_comparisons_are_kept" do
     let literal := Expr.Lam datum (comparison (.Var datum) (dataLit (.B (bytes []))))
     check "literal kept" (compiledHas .EqualsData literal)
