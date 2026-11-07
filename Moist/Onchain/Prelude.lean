@@ -73,6 +73,16 @@ def unMapData (d : Data) : List (Data × Data) :=
 
 def equalsData (a b : Data) : Bool := a == b
 
+/-- Branches on the constructor of a `Data` value. All five branch arguments are
+    evaluated strictly, in UPLC order: `Constr`, `Map`, `List`, `I`, `B`. -/
+def chooseData {α : Type u} (d : Data) (constrCase mapCase listCase intCase bytesCase : α) : α :=
+  match d with
+  | .Constr _ _ => constrCase
+  | .Map _ => mapCase
+  | .List _ => listCase
+  | .I _ => intCase
+  | .B _ => bytesCase
+
 open Moist.Plutus (ByteString)
 
 def bData (bs : ByteString) : Data := .B bs
@@ -125,6 +135,10 @@ axiom verifyEd25519Signature : ByteString → ByteString → ByteString → Bool
 axiom verifyEcdsaSecp256k1Signature : ByteString → ByteString → ByteString → Bool
 axiom verifySchnorrSecp256k1Signature : ByteString → ByteString → ByteString → Bool
 axiom keccak_256 : ByteString → ByteString
+
+/-! ## Data serialisation -/
+
+axiom serialiseData : Data → ByteString
 
 /-! ## String operations -/
 

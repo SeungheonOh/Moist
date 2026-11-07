@@ -45,6 +45,7 @@ where
     , (`Moist.Onchain.Prelude.mapData,        .MapData)
     , (`Moist.Onchain.Prelude.unMapData,      .UnMapData)
     , (`Moist.Onchain.Prelude.equalsData,     .EqualsData)
+    , (`Moist.Onchain.Prelude.chooseData,     .ChooseData)
     -- List operations
     , (`Moist.Onchain.Prelude.headList,       .HeadList)
     , (`Moist.Onchain.Prelude.tailList,       .TailList)
@@ -70,6 +71,8 @@ where
     , (`Moist.Onchain.Prelude.verifyEcdsaSecp256k1Signature,    .VerifyEcdsaSecp256k1Signature)
     , (`Moist.Onchain.Prelude.verifySchnorrSecp256k1Signature,  .VerifySchnorrSecp256k1Signature)
     , (`Moist.Onchain.Prelude.keccak_256,     .Keccak_256)
+    -- Data serialisation
+    , (`Moist.Onchain.Prelude.serialiseData,  .SerializeData)
     -- String operations
     , (`Moist.Onchain.Prelude.encodeUtf8,     .EncodeUtf8)
     , (`Moist.Onchain.Prelude.decodeUtf8,     .DecodeUtf8)
