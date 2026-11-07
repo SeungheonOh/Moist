@@ -27,8 +27,7 @@ open Moist.MIR (Expr VarId lowerTotalExpr)
 open Moist.Verified (closedAt)
 open Moist.Verified.Contextual
   (Context fill closedAt_mono fill_closedAt_iff ObsRefines CtxRefines
-   ctxRefines_refl ctxRefines_trans ctxRefines_lam ctxRefines_app
-   ctxRefines_constr ctxRefines_case ctxRefines_fill)
+   ctxRefines_refl ctxRefines_trans ctxRefines_fill)
 open Moist.Verified.Equivalence (ListRel)
 
 open Moist.Verified.Contextual.SoundnessRefines
@@ -314,97 +313,6 @@ theorem lowerTotalExpr_case_of_list (env : List VarId) (scrut : Expr)
 --------------------------------------------------------------------------------
 -- 7. Projections and list helpers for `MIRCtxRefines`
 --------------------------------------------------------------------------------
-
-/-! ### 7a. Projections from `MIRCtxRefines` -/
-
-/-- Extract `CtxRefines` on the lowered UPLC terms from `MIRCtxRefines` at
-    a specific env, given that both sides lower successfully. -/
-theorem MIRCtxRefines.toCtxRefines {m₁ m₂ : Expr} {env : List VarId}
-    {t₁ t₂ : Moist.Plutus.Term.Term}
-    (h : MIRCtxRefines m₁ m₂)
-    (hlow₁ : lowerTotalExpr env m₁ = some t₁)
-    (hlow₂ : lowerTotalExpr env m₂ = some t₂) : CtxRefines t₁ t₂ := by
-  have ⟨_, hctx⟩ := h env
-  rw [hlow₁, hlow₂] at hctx
-  exact hctx
-
-/-- Extract the compile-status implication from `MIRCtxRefines` at a
-    specific env. -/
-theorem MIRCtxRefines.toImp {m₁ m₂ : Expr} (env : List VarId) (h : MIRCtxRefines m₁ m₂) :
-    (lowerTotalExpr env m₁).isSome → (lowerTotalExpr env m₂).isSome :=
-  (h env).1
-
-/-! ### 7b. Unary / binary constructor congruences for `MIRCtxRefines`
-    → moved to `Moist.Verified.MIR.Congruence`. -/
-
-/-! ### 7c. List-level helpers for Constr/Case congruences for Refines -/
-
-/-- `MIRCtxRefines`-related lists have matching `lowerTotalExprList` success
-    (forward direction). -/
-theorem listRel_mirCtxRefines_isSome_imp :
-    ∀ {args₁ args₂ : List Expr},
-      ListRel MIRCtxRefines args₁ args₂ →
-      ∀ env, (lowerTotalExprList env args₁).isSome →
-             (lowerTotalExprList env args₂).isSome
-  | [], [], _, _, _ => by simp [lowerTotalExprList_nil]
-  | _ :: _, [], h, _, _ => absurd h id
-  | [], _ :: _, h, _, _ => absurd h id
-  | e₁ :: es₁, e₂ :: es₂, ⟨hhead, htail⟩, env, h_some => by
-      rw [lowerTotalExprList_cons] at h_some ⊢
-      cases hlow_e₁ : lowerTotalExpr env e₁ with
-      | none => rw [hlow_e₁] at h_some; simp at h_some
-      | some t₁ =>
-        have hsome₂ : (lowerTotalExpr env e₂).isSome :=
-          hhead.toImp env (by rw [hlow_e₁]; rfl)
-        cases hlow_e₂ : lowerTotalExpr env e₂ with
-        | none => rw [hlow_e₂] at hsome₂; exact absurd hsome₂ (by simp)
-        | some t₂ =>
-          cases hlow_es₁ : lowerTotalExprList env es₁ with
-          | none => rw [hlow_e₁, hlow_es₁] at h_some; simp at h_some
-          | some ts₁ =>
-            have hts₂ : (lowerTotalExprList env es₂).isSome :=
-              listRel_mirCtxRefines_isSome_imp htail env (by rw [hlow_es₁]; rfl)
-            cases hlow_es₂ : lowerTotalExprList env es₂ with
-            | none => rw [hlow_es₂] at hts₂; exact absurd hts₂ (by simp)
-            | some ts₂ => simp
-
-/-- From `ListRel MIRCtxRefines args₁ args₂` and both lists lowering, get
-    `ListRel CtxRefines` on the lowered lists. -/
-theorem listRel_mirCtxRefines_toListCtxRefines :
-    ∀ {args₁ args₂ : List Expr} {env : List VarId}
-      {ts₁ ts₂ : List Moist.Plutus.Term.Term},
-      ListRel MIRCtxRefines args₁ args₂ →
-      lowerTotalExprList env args₁ = some ts₁ →
-      lowerTotalExprList env args₂ = some ts₂ →
-      ListRel CtxRefines ts₁ ts₂
-  | [], [], env, ts₁, ts₂, _, hlow₁, hlow₂ => by
-      simp only [lowerTotalExprList_nil, Option.some.injEq] at hlow₁ hlow₂
-      subst hlow₁; subst hlow₂
-      exact True.intro
-  | _ :: _, [], _, _, _, h, _, _ => absurd h id
-  | [], _ :: _, _, _, _, h, _, _ => absurd h id
-  | e₁ :: es₁, e₂ :: es₂, env, ts₁, ts₂, ⟨hhead, htail⟩, hlow₁, hlow₂ => by
-      rw [lowerTotalExprList_cons] at hlow₁ hlow₂
-      cases hlow_e₁ : lowerTotalExpr env e₁ with
-      | none => rw [hlow_e₁] at hlow₁; simp at hlow₁
-      | some t_e₁ =>
-        cases hlow_es₁ : lowerTotalExprList env es₁ with
-        | none => rw [hlow_e₁, hlow_es₁] at hlow₁; simp at hlow₁
-        | some t_es₁ =>
-          cases hlow_e₂ : lowerTotalExpr env e₂ with
-          | none => rw [hlow_e₂] at hlow₂; simp at hlow₂
-          | some t_e₂ =>
-            cases hlow_es₂ : lowerTotalExprList env es₂ with
-            | none => rw [hlow_e₂, hlow_es₂] at hlow₂; simp at hlow₂
-            | some t_es₂ =>
-              rw [hlow_e₁, hlow_es₁] at hlow₁
-              rw [hlow_e₂, hlow_es₂] at hlow₂
-              cases hlow₁; cases hlow₂
-              exact ⟨hhead.toCtxRefines hlow_e₁ hlow_e₂,
-                     listRel_mirCtxRefines_toListCtxRefines htail hlow_es₁ hlow_es₂⟩
-
-/-! ### 7d. Constr / Case / Fix-Lam congruences for `MIRCtxRefines`
-    → moved to `Moist.Verified.MIR.Congruence`. -/
 
 /-! ## Generic refinement helpers -/
 

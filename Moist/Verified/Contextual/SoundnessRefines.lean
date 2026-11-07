@@ -82,11 +82,6 @@ open Moist.Verified.Contextual.Soundness
 
 --------------------------------------------------------------------------------
 -- 1. ObsRefinesK
---
--- We reuse the shared `ObsRefinesK` from Equivalence.lean which now includes
--- error preservation. The `obsRefinesK_of_obsEqK` projection picks either side
--- of an ObsEqK, and local helpers below specialize the Equivalence.lean
--- theorems for use inside `term_obsRefines`.
 --------------------------------------------------------------------------------
 
 theorem obsRefinesK_halt (k : Nat) (v_l v_r : CekValue) :
@@ -97,64 +92,52 @@ theorem obsRefinesK_error (k : Nat) : ObsRefinesK k (.error : State) .error :=
   obsRefinesK_error_error k
 
 --------------------------------------------------------------------------------
--- 2. ValueRefinesK monotonicity
---
--- `ValueRefinesK` itself is defined in
--- `Moist.Verified.Definitions.StepIndexed`. Theorems about it stay here.
+-- 2. `ValueRefinesK` is the `Guard.trivial` instance of `ValueRel`
 --------------------------------------------------------------------------------
 
-private theorem valueRefinesK_mono_le (k : Nat) :
-    ∀ j, j ≤ k → ∀ v₁ v₂, ValueRefinesK k v₁ v₂ → ValueRefinesK j v₁ v₂ := by
-  induction k with
-  | zero =>
-    intro j hj v₁ v₂ h
-    have : j = 0 := by omega
-    subst this; exact h
-  | succ k ih =>
-    intro j hj v₁ v₂ h
-    match j, v₁, v₂ with
-    | 0, .VCon _, .VCon _ => simp only [ValueRefinesK] at h ⊢; exact h
-    | 0, .VLam _ _, .VLam _ _ => simp only [ValueRefinesK]
-    | 0, .VDelay _ _, .VDelay _ _ => simp only [ValueRefinesK]
-    | 0, .VConstr _ _, .VConstr _ _ =>
-      simp only [ValueRefinesK] at h ⊢; exact h.1
-    | 0, .VBuiltin _ _ _, .VBuiltin _ _ _ =>
-      simp only [ValueRefinesK] at h ⊢; exact ⟨h.1, h.2.1⟩
-    | j' + 1, .VCon _, .VCon _ => simp only [ValueRefinesK] at h ⊢; exact h
-    | j' + 1, .VLam _ _, .VLam _ _ =>
-      simp only [ValueRefinesK] at h ⊢
-      intro j₀ hj₀ arg₁ arg₂ harg i hi π₁ π₂ hstk
-      exact h j₀ (by omega) arg₁ arg₂ harg i hi π₁ π₂ hstk
-    | j' + 1, .VDelay _ _, .VDelay _ _ =>
-      simp only [ValueRefinesK] at h ⊢
-      intro j₀ hj₀ i hi π₁ π₂ hstk
-      exact h j₀ (by omega) i hi π₁ π₂ hstk
-    | j' + 1, .VConstr _ _, .VConstr _ _ =>
-      simp only [ValueRefinesK] at h ⊢
-      exact ⟨h.1, listRel_mono (fun a b hab => ih j' (by omega) a b hab) h.2⟩
-    | j' + 1, .VBuiltin _ _ _, .VBuiltin _ _ _ =>
-      simp only [ValueRefinesK] at h ⊢
-      exact ⟨h.1, h.2.1, listRel_mono (fun a b hab => ih j' (by omega) a b hab) h.2.2⟩
-    | _, .VCon _, .VLam _ _ | _, .VCon _, .VDelay _ _ | _, .VCon _, .VConstr _ _
-    | _, .VCon _, .VBuiltin _ _ _ | _, .VLam _ _, .VCon _ | _, .VLam _ _, .VDelay _ _
-    | _, .VLam _ _, .VConstr _ _ | _, .VLam _ _, .VBuiltin _ _ _
-    | _, .VDelay _ _, .VCon _ | _, .VDelay _ _, .VLam _ _ | _, .VDelay _ _, .VConstr _ _
-    | _, .VDelay _ _, .VBuiltin _ _ _ | _, .VConstr _ _, .VCon _
-    | _, .VConstr _ _, .VLam _ _ | _, .VConstr _ _, .VDelay _ _
-    | _, .VConstr _ _, .VBuiltin _ _ _ | _, .VBuiltin _ _ _, .VCon _
-    | _, .VBuiltin _ _ _, .VLam _ _ | _, .VBuiltin _ _ _, .VDelay _ _
-    | _, .VBuiltin _ _ _, .VConstr _ _ => simp only [ValueRefinesK] at h
+open Moist.Verified.Contextual.Guarded
+
+private theorem listRel_iff {R S : CekValue → CekValue → Prop} (h : ∀ a b, R a b ↔ S a b) :
+    ∀ {l₁ l₂ : List CekValue}, ListRel R l₁ l₂ ↔ ListRel S l₁ l₂
+  | [], [] | [], _ :: _ | _ :: _, [] => Iff.rfl
+  | _ :: _, _ :: _ => and_congr (h _ _) (listRel_iff h)
+
+theorem valueRel_trivial : ∀ (k : Nat) (v₁ v₂ : CekValue),
+    ValueRel Guard.trivial k v₁ v₂ ↔ ValueRefinesK k v₁ v₂ := by
+  intro k
+  induction k using Nat.strongRecOn with
+  | ind k ih =>
+  intro v₁ v₂
+  cases k with
+  | zero => cases v₁ <;> cases v₂ <;> simp only [ValueRel, ValueRefinesK]
+  | succ k =>
+    have hl : ∀ l₁ l₂, ListRel (ValueRel Guard.trivial k) l₁ l₂ ↔ ListRel (ValueRefinesK k) l₁ l₂ :=
+      fun _ _ => listRel_iff (ih k (Nat.lt_succ_self k))
+    cases v₁ <;> cases v₂
+    all_goals first | (simp only [ValueRel, ValueRefinesK, hl]; done) | skip
+    case VLam.VLam =>
+      refine ⟨fun h => ?_, fun h => ?_⟩ <;> simp only [ValueRel, ValueRefinesK] at h ⊢
+      · intro j hj a₁ a₂ ha i hi π₁ π₂ hπ
+        exact h.2.2 j hj a₁ a₂ ((ih j (by omega) a₁ a₂).mpr ha) trivial trivial i hi π₁ π₂
+          trivial trivial fun i' hi' w₁ w₂ hw _ _ => hπ i' hi' w₁ w₂ ((ih i' (by omega) _ _).mp hw)
+      · refine ⟨trivial, trivial, fun j hj a₁ a₂ ha _ _ i hi π₁ π₂ _ _ hπ => ?_⟩
+        exact h j hj a₁ a₂ ((ih j (by omega) a₁ a₂).mp ha) i hi π₁ π₂
+          fun i' hi' w₁ w₂ hw => hπ i' hi' w₁ w₂ ((ih i' (by omega) _ _).mpr hw) trivial trivial
+    case VDelay.VDelay =>
+      refine ⟨fun h => ?_, fun h => ?_⟩ <;> simp only [ValueRel, ValueRefinesK] at h ⊢
+      · intro j hj i hi π₁ π₂ hπ
+        exact h j hj i hi π₁ π₂ trivial trivial
+          fun i' hi' w₁ w₂ hw _ _ => hπ i' hi' w₁ w₂ ((ih i' (by omega) _ _).mp hw)
+      · intro j hj i hi π₁ π₂ _ _ hπ
+        exact h j hj i hi π₁ π₂
+          fun i' hi' w₁ w₂ hw => hπ i' hi' w₁ w₂ ((ih i' (by omega) _ _).mpr hw) trivial trivial
 
 theorem valueRefinesK_mono {j k : Nat} (hjk : j ≤ k)
     (v₁ v₂ : CekValue) (h : ValueRefinesK k v₁ v₂) : ValueRefinesK j v₁ v₂ :=
-  valueRefinesK_mono_le k j hjk v₁ v₂ h
+  (valueRel_trivial j v₁ v₂).mp (valueRel_mono hjk ((valueRel_trivial k v₁ v₂).mpr h))
 
 --------------------------------------------------------------------------------
--- 4. TermSubstL — TermSubst without the swapInv constructor
---
--- `fill_termSubst` never produces `swapInv`, so the refinement-direction
--- proof can case-analyze on a swap-only variant and skip the bidirectional
--- hypothesis obligations.
+-- 3. TermSubstL: `fill C t₁` vs `fill C t₂`
 --------------------------------------------------------------------------------
 
 mutual
@@ -243,35 +226,7 @@ where
         .cons (TermSubstL.refl p) (termListSubstL_around ps post hab)
 
 --------------------------------------------------------------------------------
--- 5. Helper lemmas on TermListSubstL
---------------------------------------------------------------------------------
-
-/-- Lookup in a `TermListSubstL`-related list at a specific index returns
-    `TermSubstL`-related elements (or both `none`). -/
-theorem termListSubstL_getElem? {t₁ t₂ : Term} :
-    ∀ {l_l l_r : List Term}, TermListSubstL t₁ t₂ l_l l_r → ∀ (n : Nat),
-      (l_l[n]? = none ∧ l_r[n]? = none) ∨
-      (∃ a_l a_r, l_l[n]? = some a_l ∧ l_r[n]? = some a_r ∧
-        TermSubstL t₁ t₂ a_l a_r)
-  | _, _, .nil, _ => .inl ⟨rfl, rfl⟩
-  | _, _, .cons (a := al) (b := ar) hh ht, n => by
-    cases n with
-    | zero => exact .inr ⟨al, ar, by simp, by simp, hh⟩
-    | succ k =>
-      have ih := termListSubstL_getElem? ht k
-      cases ih with
-      | inl h => obtain ⟨hl, hr⟩ := h; exact .inl ⟨by simp [hl], by simp [hr]⟩
-      | inr h => obtain ⟨a_l, a_r, hl, hr, hab⟩ := h
-                 exact .inr ⟨a_l, a_r, by simp [hl], by simp [hr], hab⟩
-
-/-- `TermListSubstL`-related lists have the same length. -/
-theorem termListSubstL_length_eq {t₁ t₂ : Term} :
-    ∀ {l_l l_r : List Term}, TermListSubstL t₁ t₂ l_l l_r → l_l.length = l_r.length
-  | _, _, .nil => rfl
-  | _, _, .cons _ ht => by simp [termListSubstL_length_eq ht]
-
---------------------------------------------------------------------------------
--- 6. StackRefK helpers
+-- 4. StackRefK helpers
 --------------------------------------------------------------------------------
 
 theorem stackRefK_mono {V : Nat → CekValue → CekValue → Prop} {i k : Nat}
@@ -293,7 +248,7 @@ theorem stackRefK_nil {V : Nat → CekValue → CekValue → Prop} (k : Nat) :
     exact obsRefinesK_halt j' v_l v_r
 
 --------------------------------------------------------------------------------
--- 7. ListRel + ValueRefinesK helpers (mirror of ValueEqK versions)
+-- 5. ListRel + ValueRefinesK helpers
 --------------------------------------------------------------------------------
 
 /-- Monotonicity of `ListRel (ValueRefinesK ·)` over step indices. -/
@@ -316,7 +271,7 @@ theorem listRel_refl_vcon_refines (j : Nat) (l : List CekValue)
     | succ => simp [ValueRefinesK]
 
 --------------------------------------------------------------------------------
--- 8. Builtins: `ValueRefinesK` relates a constant exactly to itself
+-- 6. Builtins
 --------------------------------------------------------------------------------
 
 private theorem valueRefinesK_vcon_left {k : Nat} {c : Const} {v : CekValue}
@@ -346,45 +301,8 @@ theorem evalBuiltin_compat_refines {k : Nat} {b : BuiltinFun}
     | m + 1 => exact hπ (m+1) (Nat.le_refl _) _ _ h_rel
 
 --------------------------------------------------------------------------------
--- 9. `Guard.trivial` is `ValueRefinesK`
+-- 7. `Guard.trivial` stacks and open refinement
 --------------------------------------------------------------------------------
-
-open Moist.Verified.Contextual.Guarded
-
-private theorem listRel_iff {R S : CekValue → CekValue → Prop} (h : ∀ a b, R a b ↔ S a b) :
-    ∀ {l₁ l₂ : List CekValue}, ListRel R l₁ l₂ ↔ ListRel S l₁ l₂
-  | [], [] | [], _ :: _ | _ :: _, [] => Iff.rfl
-  | _ :: _, _ :: _ => and_congr (h _ _) (listRel_iff h)
-
-theorem valueRel_trivial : ∀ (k : Nat) (v₁ v₂ : CekValue),
-    ValueRel Guard.trivial k v₁ v₂ ↔ ValueRefinesK k v₁ v₂ := by
-  intro k
-  induction k using Nat.strongRecOn with
-  | ind k ih =>
-  intro v₁ v₂
-  cases k with
-  | zero => cases v₁ <;> cases v₂ <;> simp only [ValueRel, ValueRefinesK]
-  | succ k =>
-    have hl : ∀ l₁ l₂, ListRel (ValueRel Guard.trivial k) l₁ l₂ ↔ ListRel (ValueRefinesK k) l₁ l₂ :=
-      fun _ _ => listRel_iff (ih k (Nat.lt_succ_self k))
-    cases v₁ <;> cases v₂
-    all_goals first | (simp only [ValueRel, ValueRefinesK, hl]; done) | skip
-    case VLam.VLam =>
-      refine ⟨fun h => ?_, fun h => ?_⟩ <;> simp only [ValueRel, ValueRefinesK] at h ⊢
-      · intro j hj a₁ a₂ ha i hi π₁ π₂ hπ
-        exact h.2.2 j hj a₁ a₂ ((ih j (by omega) a₁ a₂).mpr ha) trivial trivial i hi π₁ π₂
-          trivial trivial fun i' hi' w₁ w₂ hw _ _ => hπ i' hi' w₁ w₂ ((ih i' (by omega) _ _).mp hw)
-      · refine ⟨trivial, trivial, fun j hj a₁ a₂ ha _ _ i hi π₁ π₂ _ _ hπ => ?_⟩
-        exact h j hj a₁ a₂ ((ih j (by omega) a₁ a₂).mp ha) i hi π₁ π₂
-          fun i' hi' w₁ w₂ hw => hπ i' hi' w₁ w₂ ((ih i' (by omega) _ _).mpr hw) trivial trivial
-    case VDelay.VDelay =>
-      refine ⟨fun h => ?_, fun h => ?_⟩ <;> simp only [ValueRel, ValueRefinesK] at h ⊢
-      · intro j hj i hi π₁ π₂ hπ
-        exact h j hj i hi π₁ π₂ trivial trivial
-          fun i' hi' w₁ w₂ hw _ _ => hπ i' hi' w₁ w₂ ((ih i' (by omega) _ _).mp hw)
-      · intro j hj i hi π₁ π₂ _ _ hπ
-        exact h j hj i hi π₁ π₂
-          fun i' hi' w₁ w₂ hw => hπ i' hi' w₁ w₂ ((ih i' (by omega) _ _).mpr hw) trivial trivial
 
 theorem stackRefK_iff_stackRel {k : Nat} {π₁ π₂ : Stack} :
     StackRefK ValueRefinesK k π₁ π₂ ↔ StackRel Guard.trivial k π₁ π₂ :=
@@ -409,7 +327,7 @@ theorem applyArgFrames_stackRefK {j : Nat}
     ((listRel_iff (valueRel_trivial j)).mpr hfields) trivial trivial (stackRefK_iff_stackRel.mp hπ)
 
 --------------------------------------------------------------------------------
--- 10. The fundamental property for `TermSubstL`
+-- 8. The fundamental property for `TermSubstL`
 --------------------------------------------------------------------------------
 
 private theorem termListSubstL_listRel {t₁ t₂ : Term} {R : Term → Term → Prop}
@@ -480,15 +398,12 @@ theorem term_obsRefinesG {W : Guard} {d : Nat} {t₁ t₂ : Term}
           (W.compute hst₁) (W.compute hst₂) hπ) hst₁ hst₂
   | case hs has =>
     refine eval_of_step fun j hj π₁ π₂ hπ hst₁ hst₂ => ?_
-    have halts : AltsRel W j ρ₁ ρ₂ _ _ := ⟨termListSubstL_length_eq has, fun n => ?_⟩
-    · exact sub j hj hs j (Nat.le_refl _) _ _
-        (case_stackRel halts (W.compute hst₁) (W.compute hst₂) hπ) hst₁ hst₂
-    · rcases termListSubstL_getElem? has n with h | ⟨a₁, a₂, h₁, h₂, h⟩
-      · exact .inl h
-      · exact .inr ⟨a₁, a₂, h₁, h₂, sub j hj h⟩
+    exact sub j hj hs j (Nat.le_refl _) _ _
+      (case_stackRel (altsRel_of_listRel (termListSubstL_listRel (sub j hj) has))
+        (W.compute hst₁) (W.compute hst₂) hπ) hst₁ hst₂
 
 --------------------------------------------------------------------------------
--- 11. Soundness: open refinement implies contextual refinement
+-- 9. Soundness: open refinement implies contextual refinement
 --------------------------------------------------------------------------------
 
 open Moist.Verified.Contextual.BisimRef (LocalState LocalEnv LocalStack)

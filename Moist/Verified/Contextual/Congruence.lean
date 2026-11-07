@@ -73,18 +73,6 @@ theorem ctxRefines_lam {body₁ body₂ : Term} (name : Nat) (h : CtxRefines bod
   have hwrap := ctxRefines_fill h (.Lam name .Hole)
   simpa [fill] using hwrap
 
-/-- Delay congruence for `CtxRefines`. -/
-theorem ctxRefines_delay {body₁ body₂ : Term} (h : CtxRefines body₁ body₂) :
-    CtxRefines (.Delay body₁) (.Delay body₂) := by
-  have hwrap := ctxRefines_fill h (.Delay .Hole)
-  simpa [fill] using hwrap
-
-/-- Force congruence for `CtxRefines`. -/
-theorem ctxRefines_force {t₁ t₂ : Term} (h : CtxRefines t₁ t₂) :
-    CtxRefines (.Force t₁) (.Force t₂) := by
-  have hwrap := ctxRefines_fill h (.Force .Hole)
-  simpa [fill] using hwrap
-
 /-- Apply congruence for `CtxRefines`. -/
 theorem ctxRefines_app {f₁ f₂ a₁ a₂ : Term}
     (hf : CtxRefines f₁ f₂) (ha : CtxRefines a₁ a₂) :
@@ -95,91 +83,6 @@ theorem ctxRefines_app {f₁ f₂ a₁ a₂ : Term}
   have hB : CtxRefines (.Apply f₂ a₁) (.Apply f₂ a₂) := by
     have := ctxRefines_fill ha (.AppRight f₂ .Hole)
     simpa [fill] using this
-  exact ctxRefines_trans hA hB
-
-/-- Constr single-position congruence for `CtxRefines`. -/
-theorem ctxRefines_constr_one {tag : Nat} {a b : Term} {pre post : List Term}
-    (hab : CtxRefines a b) :
-    CtxRefines (.Constr tag (pre ++ a :: post)) (.Constr tag (pre ++ b :: post)) := by
-  have hwrap := ctxRefines_fill hab (.Constr tag pre .Hole post)
-  simpa [fill] using hwrap
-
-/-- Inductive walker for the Constr congruence: swaps one field at a time. -/
-private theorem ctxRefines_constr_swap_prefix {tag : Nat} {fs₁ fs₂ : List Term}
-    (pre : List Term) (hrel : ListRel CtxRefines fs₁ fs₂) :
-    CtxRefines (.Constr tag (pre ++ fs₁)) (.Constr tag (pre ++ fs₂)) := by
-  induction fs₁ generalizing fs₂ pre with
-  | nil =>
-    cases fs₂ with
-    | nil => exact ctxRefines_refl _
-    | cons => exact absurd hrel id
-  | cons f₁ fs₁ ih =>
-    cases fs₂ with
-    | nil => exact absurd hrel id
-    | cons f₂ fs₂ =>
-      have hA : CtxRefines (.Constr tag (pre ++ f₁ :: fs₁))
-          (.Constr tag (pre ++ f₂ :: fs₁)) :=
-        ctxRefines_constr_one hrel.1
-      have hB := ih (pre := pre ++ [f₂]) hrel.2
-      have e1 : (pre ++ [f₂]) ++ fs₁ = pre ++ (f₂ :: fs₁) := by simp
-      have e2 : (pre ++ [f₂]) ++ fs₂ = pre ++ (f₂ :: fs₂) := by simp
-      rw [e1, e2] at hB
-      exact ctxRefines_trans hA hB
-
-/-- General Constr congruence for `CtxRefines` in head-tail form. -/
-theorem ctxRefines_constr {tag : Nat} {m₁ m₂ : Term} {ms₁ ms₂ : List Term}
-    (hm : CtxRefines m₁ m₂) (hms : ListRel CtxRefines ms₁ ms₂) :
-    CtxRefines (.Constr tag (m₁ :: ms₁)) (.Constr tag (m₂ :: ms₂)) := by
-  have hrel : ListRel CtxRefines (m₁ :: ms₁) (m₂ :: ms₂) := ⟨hm, hms⟩
-  have := ctxRefines_constr_swap_prefix (tag := tag) [] hrel
-  simpa using this
-
-/-- Case scrutinee-swap congruence for `CtxRefines`. -/
-theorem ctxRefines_case_scrut {scrut₁ scrut₂ : Term} {alts : List Term}
-    (hscrut : CtxRefines scrut₁ scrut₂) :
-    CtxRefines (.Case scrut₁ alts) (.Case scrut₂ alts) := by
-  have hwrap := ctxRefines_fill hscrut (.Case .Hole alts)
-  simpa [fill] using hwrap
-
-/-- Case alt-swap (single position) congruence for `CtxRefines`. -/
-theorem ctxRefines_case_one_alt {scrut : Term} {a b : Term} {pre post : List Term}
-    (hab : CtxRefines a b) :
-    CtxRefines (.Case scrut (pre ++ a :: post)) (.Case scrut (pre ++ b :: post)) := by
-  have hwrap := ctxRefines_fill hab (.CaseAlt scrut pre .Hole post)
-  simpa [fill] using hwrap
-
-/-- Inductive walker for the Case alt-list pointwise congruence. -/
-private theorem ctxRefines_case_swap_prefix {scrut : Term} {as₁ as₂ : List Term}
-    (pre : List Term) (hrel : ListRel CtxRefines as₁ as₂) :
-    CtxRefines (.Case scrut (pre ++ as₁)) (.Case scrut (pre ++ as₂)) := by
-  induction as₁ generalizing as₂ pre with
-  | nil =>
-    cases as₂ with
-    | nil => exact ctxRefines_refl _
-    | cons => exact absurd hrel id
-  | cons a₁ as₁ ih =>
-    cases as₂ with
-    | nil => exact absurd hrel id
-    | cons a₂ as₂ =>
-      have hA : CtxRefines (.Case scrut (pre ++ a₁ :: as₁))
-          (.Case scrut (pre ++ a₂ :: as₁)) :=
-        ctxRefines_case_one_alt hrel.1
-      have hB := ih (pre := pre ++ [a₂]) hrel.2
-      have e1 : (pre ++ [a₂]) ++ as₁ = pre ++ (a₂ :: as₁) := by simp
-      have e2 : (pre ++ [a₂]) ++ as₂ = pre ++ (a₂ :: as₂) := by simp
-      rw [e1, e2] at hB
-      exact ctxRefines_trans hA hB
-
-/-- General Case congruence for `CtxRefines`: swap scrutinee and alts pointwise. -/
-theorem ctxRefines_case {scrut₁ scrut₂ : Term} {alts₁ alts₂ : List Term}
-    (hscrut : CtxRefines scrut₁ scrut₂)
-    (halts : ListRel CtxRefines alts₁ alts₂) :
-    CtxRefines (.Case scrut₁ alts₁) (.Case scrut₂ alts₂) := by
-  have hA : CtxRefines (.Case scrut₁ alts₁) (.Case scrut₂ alts₁) :=
-    ctxRefines_case_scrut hscrut
-  have hB : CtxRefines (.Case scrut₂ alts₁) (.Case scrut₂ alts₂) := by
-    have := ctxRefines_case_swap_prefix (scrut := scrut₂) (pre := []) halts
-    simpa using this
   exact ctxRefines_trans hA hB
 
 end Moist.Verified.Contextual
