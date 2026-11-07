@@ -8,15 +8,17 @@ open Moist.Plutus.Term
 are checked with unknown formal parameters, never specialized using one call's
 argument types. The recursive hypothesis applies only to saturated calls.
 It describes finite successful evaluation, not termination or purity.
+Parameter facts are recorded only for a lambda written at the application
+itself, whose arguments share the scope of its body.
 -/
 
-private def resultParameters : Expr → List VarId × Expr
+def resultParameters : Expr → List VarId × Expr
   | .Lam binder body =>
     let (parameters, result) := resultParameters body
     (binder :: parameters, result)
   | expression => ([], expression)
 
-private def booleanResultCore : Nat → List (VarId × Expr) → List (VarId × Nat) → Expr → Bool
+def booleanResultCore : Nat → List (VarId × Expr) → List (VarId × Nat) → Expr → Bool
   | 0, _, _, _ => false
   | fuel + 1, environment, summaries, expression =>
     let recur := booleanResultCore fuel environment summaries
@@ -51,11 +53,14 @@ private def booleanResultCore : Nat → List (VarId × Expr) → List (VarId × 
           !parameters.isEmpty && parameters.length == arguments.length &&
             booleanResultCore fuel available ((recursive, parameters.length) :: inherited) result
         | .Lam _ _ =>
-          let (parameters, result) := resultParameters head
-          let available := environment.filter (fun entry => !parameters.contains entry.1)
-          let inherited := summaries.filter (fun entry => !parameters.contains entry.1)
-          parameters.length == arguments.length &&
-            booleanResultCore fuel ((parameters.zip arguments).reverse ++ available) inherited result
+          match applicationSpine expression with
+          | (.Lam binder body, arguments) =>
+            let (parameters, result) := resultParameters (.Lam binder body)
+            let available := environment.filter (fun entry => !parameters.contains entry.1)
+            let inherited := summaries.filter (fun entry => !parameters.contains entry.1)
+            parameters.length == arguments.length &&
+              booleanResultCore fuel ((parameters.zip arguments).reverse ++ available) inherited result
+          | _ => false
         | _ => false
     | _ => false
 
