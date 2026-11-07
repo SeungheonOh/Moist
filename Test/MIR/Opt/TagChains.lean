@@ -106,6 +106,26 @@ def tests : TestTree := suite "tag-chains" do
       let integer := Expr.Lam datum (integerTag (chain values .Error))
       check s!"integer chain {index} converted" (converted integer)
       compare s!"integer chain/{index}" integer integers
+  test "direct_tag_expressions" do
+    let constructorTagOf : Expr := .App (.Force (.Force (.Builtin .FstPair)))
+      (.App (.Builtin .UnConstrData) (.Var datum))
+    let integerTagOf : Expr := .App (.Builtin .UnIData) (.Var datum)
+    let direct (subject : Expr) (values : List Int) (literalFirst : Bool) : Expr :=
+      values.foldr (fun value rest =>
+        branch (if literalFirst then equals (intLit value) subject else equals subject (intLit value))
+          (trace s!"tag {value}" (intLit (value * 10))) rest) .Error
+    for (values, index) in [[0], [2], [0, 1, 2], [1, 0], [3, 3, 1]].zipIdx do
+      for literalFirst in [false, true] do
+        let constructor := Expr.Lam datum (direct constructorTagOf values literalFirst)
+        check s!"direct constructor {index} converted" (converted constructor)
+        compare s!"direct constructor/{index}/{literalFirst}" constructor constructors
+        let integer := Expr.Lam datum (direct integerTagOf values literalFirst)
+        check s!"direct integer {index} converted" (converted integer)
+        compare s!"direct integer/{index}/{literalFirst}" integer integers
+    let failingDirect := Expr.Lam datum (branch (equals integerTagOf (intLit 0)) .Error
+      (branch (equals integerTagOf (intLit 1)) .Error
+        (branch (equals integerTagOf (intLit 2)) .Error (trace "default" (intLit 7)))))
+    compare "direct failing tests" failingDirect integers
   test "unknown_and_negative_tests_are_kept" do
     let unknown := Expr.Lam datum (.Let [(tag, .App (.Builtin .UnBData) (.Var datum), false)]
       (chain [0, 1] .Error))
