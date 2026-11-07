@@ -33,6 +33,7 @@ import Test.MIR.Opt.Recursion
 import Test.MIR.Opt.BooleanCases
 import Test.MIR.Opt.CheckedBranches
 import Test.MIR.Opt.TagChains
+import Test.MIR.Opt.KnownLists
 import Test.MIR.Opt.SoundnessAudit
 import Test.MIR.Opt.Acceptance
 import Test.MIR.Opt.FormalCoverage
@@ -77,6 +78,7 @@ def testTree : TestTree := suite "mir" do
       Test.MIR.Opt.BooleanCases.tests
       Test.MIR.Opt.CheckedBranches.tests
       Test.MIR.Opt.TagChains.tests
+      Test.MIR.Opt.KnownLists.tests
       Test.MIR.Opt.SoundnessAudit.tests
       Test.MIR.Opt.Acceptance.tests
       Test.MIR.Opt.FormalCoverage.tests
