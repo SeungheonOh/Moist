@@ -51,7 +51,7 @@ CaseMerge runs before CSE to specialize concrete constructors,
 exposing field applications for CSE and inlining without assuming arities.
 DCE runs on ANF input so every sub-computation is a named let binding,
 making pure dead code easy to identify. -/
-partial def simplifyOnce (e : Expr) : FreshM Expr := do
+def simplifyOnce (e : Expr) : FreshM Expr := do
   let prepared := Advanced.prepare e
   reserveFreshFor prepared
   let e0 ← anfNormalize (uniqueOptimizationBinders prepared)
@@ -68,11 +68,13 @@ partial def simplifyOnce (e : Expr) : FreshM Expr := do
 
 /-- Run the simplify loop to fixed point (up to `maxOptIterations`).
 Uses alpha-equivalence to detect fixpoint despite fresh variable renaming. -/
-partial def simplifyLoop (e : Expr) (fuel : Nat := maxOptIterations) : FreshM Expr := do
-  if fuel == 0 then return e
-  let e' ← simplifyOnce e
-  if e'.alphaEq e then return e
-  else simplifyLoop e' (fuel - 1)
+def simplifyLoop (e : Expr) (fuel : Nat := maxOptIterations) : FreshM Expr :=
+  match fuel with
+  | 0 => pure e
+  | fuel + 1 => do
+    let e' ← simplifyOnce e
+    if e'.alphaEq e then return e
+    else simplifyLoop e' fuel
 
 /-- Run the full optimization pipeline on an MIR expression.
 
@@ -85,7 +87,7 @@ partial def simplifyLoop (e : Expr) (fuel : Nat := maxOptIterations) : FreshM Ex
 5. Simplify to fixed point (CSE, inline, beta, eta, force-delay, DCE).
 
 Returns the optimized MIR expression. -/
-partial def optimize (e : Expr) : FreshM Expr := do
+def optimize (e : Expr) : FreshM Expr := do
   let prepared := Advanced.prepare e
   reserveFreshFor prepared
   let (e1, _) := floatOut prepared
@@ -129,27 +131,13 @@ structure OptStep where
   expr : Expr
   changed : Bool
 
-/-- Run the full optimization pipeline, recording every intermediate step.
-Returns the array of steps (the last entry is the final result). -/
-partial def optimizeTrace (e : Expr) : FreshM (Array OptStep) := do
-  let prepared := Advanced.prepare e
-  reserveFreshFor prepared
-  let mut steps : Array OptStep := #[⟨"Delayed values / nonrecursive Fix", prepared, !prepared.alphaEq e⟩]
-  -- Pre-loop passes
-  let (e1, c1) := floatOut prepared
-  steps := steps.push ⟨"FloatOut (1st)", e1, c1⟩
-  let (e2, c2) ← betaReducePass e1
-  steps := steps.push ⟨"BetaReduce", e2, c2⟩
-  let e3 ← anfNormalize e2
-  steps := steps.push ⟨"ANF", e3, !e3.alphaEq e2⟩
-  let (e4, c4) := floatOut e3
-  steps := steps.push ⟨"FloatOut (2nd)", e4, c4⟩
-  -- Simplify loop (unrolled for tracing, fixpoint by alpha-equivalence)
-  let mut current := e4
-  let mut fuel := maxOptIterations
-  let mut iter : Nat := 1
-  repeat
-    if fuel == 0 then break
+/-- One traced simplify iteration per unit of fuel, stopping at an
+alpha-equivalent fixed point. -/
+def optimizeTraceLoop (current : Expr) (fuel iter : Nat) (steps : Array OptStep) :
+    FreshM (Array OptStep) :=
+  match fuel with
+  | 0 => pure steps
+  | fuel + 1 => do
     let prepared := Advanced.prepare current
     reserveFreshFor prepared
     let e0 ← anfNormalize (uniqueOptimizationBinders prepared)
@@ -162,22 +150,37 @@ partial def optimizeTrace (e : Expr) : FreshM (Array OptStep) := do
     let (e3, c3) ← betaReducePass e2
     let (e4, c4) := etaReduce e3
     let (e5, c5) := forceDelay e4
-    steps := steps.push ⟨s!"Simplify {iter}: Prepare", prepared, !prepared.alphaEq current⟩
-    steps := steps.push ⟨s!"Simplify {iter}: ANF", e0, !e0.alphaEq prepared⟩
-    steps := steps.push ⟨s!"Simplify {iter}: CaseMerge", e0b, c0b⟩
-    steps := steps.push ⟨s!"Simplify {iter}: Checked values", e0c, !e0c.alphaEq e0b⟩
-    steps := steps.push ⟨s!"Simplify {iter}: CSE", e1, c1⟩
-    steps := steps.push ⟨s!"Simplify {iter}: DCE", e1b, c1b⟩
-    steps := steps.push ⟨s!"Simplify {iter}: Inline", e2, c2⟩
-    steps := steps.push ⟨s!"Simplify {iter}: BetaReduce", e3, c3⟩
-    steps := steps.push ⟨s!"Simplify {iter}: EtaReduce", e4, c4⟩
-    steps := steps.push ⟨s!"Simplify {iter}: ForceDelay", e5, c5⟩
-    if e5.alphaEq current then
-      break
-    current := e5
-    fuel := fuel - 1
-    iter := iter + 1
-  return steps
+    let steps := steps
+      |>.push ⟨s!"Simplify {iter}: Prepare", prepared, !prepared.alphaEq current⟩
+      |>.push ⟨s!"Simplify {iter}: ANF", e0, !e0.alphaEq prepared⟩
+      |>.push ⟨s!"Simplify {iter}: CaseMerge", e0b, c0b⟩
+      |>.push ⟨s!"Simplify {iter}: Checked values", e0c, !e0c.alphaEq e0b⟩
+      |>.push ⟨s!"Simplify {iter}: CSE", e1, c1⟩
+      |>.push ⟨s!"Simplify {iter}: DCE", e1b, c1b⟩
+      |>.push ⟨s!"Simplify {iter}: Inline", e2, c2⟩
+      |>.push ⟨s!"Simplify {iter}: BetaReduce", e3, c3⟩
+      |>.push ⟨s!"Simplify {iter}: EtaReduce", e4, c4⟩
+      |>.push ⟨s!"Simplify {iter}: ForceDelay", e5, c5⟩
+    if e5.alphaEq current then pure steps
+    else optimizeTraceLoop e5 fuel (iter + 1) steps
+
+/-- Run the full optimization pipeline, recording every intermediate step.
+Returns the array of steps (the last entry is the final result). -/
+def optimizeTrace (e : Expr) : FreshM (Array OptStep) := do
+  let prepared := Advanced.prepare e
+  reserveFreshFor prepared
+  let mut steps : Array OptStep := #[⟨"Delayed values / nonrecursive Fix", prepared, !prepared.alphaEq e⟩]
+  -- Pre-loop passes
+  let (e1, c1) := floatOut prepared
+  steps := steps.push ⟨"FloatOut (1st)", e1, c1⟩
+  let (e2, c2) ← betaReducePass e1
+  steps := steps.push ⟨"BetaReduce", e2, c2⟩
+  let e3 ← anfNormalize e2
+  steps := steps.push ⟨"ANF", e3, !e3.alphaEq e2⟩
+  let (e4, c4) := floatOut e3
+  steps := steps.push ⟨"FloatOut (2nd)", e4, c4⟩
+  -- Simplify loop (fixpoint by alpha-equivalence)
+  optimizeTraceLoop e4 maxOptIterations 1 steps
 
 /-- Run the optimization trace with a given fresh variable starting index. -/
 def optimizeTraceExpr (e : Expr) (freshStart : Nat := 1000) : Array OptStep :=

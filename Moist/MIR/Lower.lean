@@ -20,90 +20,87 @@ Each `let v = rhs in body` is lowered to `(λ. body') rhs'`.
 
 ## Fix Encoding
 
-Fix nodes are lowered via the Z combinator (CBV-safe):
-`Fix f (Lam x e)` → `(λs. λx. e'[f := λv. s s v]) (λs. λx. e'[f := λv. s s v])`
+Fix nodes are lowered via the Z combinator (CBV-safe), let-shared so the
+functional appears once:
+`Fix f (Lam x e)` → `(λz. z z) (λs. λx. e'[f := λv. s s v])`.
+
+The body is lowered under `x :: f :: x :: env`: the third slot stands for
+`s` and is never reached by a lookup because `x` shadows it. The recursive
+reference `f` (index 2) is then replaced by `λv. s s v` with UPLC
+substitution, which also closes the gap left by `f`.
 -/
 
 abbrev LowerM := ExceptT String FreshM
 
-private def liftFresh (m : FreshM α) : LowerM α := ExceptT.lift m
+/-- `λv. s s v` under the binder `x`, with `s` at index 2. -/
+def fixSelfApp : Term := .Lam 0 (.Apply (.Apply (.Var 3) (.Var 3)) (.Var 1))
 
-private def envLookup (env : List VarId) (v : VarId) : Option Nat :=
-  go env 0
-where
-  go : List VarId → Nat → Option Nat
-    | [], _ => none
-    | x :: xs, n => if x == v then some n else go xs (n + 1)
+/-- Z-combinator wrapper around the lowered body of `Fix f (Lam x body)`;
+    the body is lowered under `x :: f :: s :: env`. -/
+def fixLamWrap (body : Term) : Term :=
+  .Apply (.Lam 0 (.Apply (.Var 1) (.Var 1)))
+    (.Lam 0 (.Lam 0 (Moist.Verified.substTerm 2 fixSelfApp body)))
 
-partial def lower (env : List VarId) (e : Expr) : LowerM Term := do
-  match e with
-  | .Var x =>
-    match envLookup env x with
-    | some idx => pure (.Var (idx + 1))
-    | none => ExceptT.mk (pure (.error s!"unbound variable: {x}"))
+mutual
+  def lower (env : List VarId) (e : Expr) : Except String Term :=
+    match e with
+    | .Var x =>
+      match envLookupT env x with
+      | some idx => .ok (.Var (idx + 1))
+      | none => .error s!"unbound variable: {x}"
+    | .Lit (c, ty) => .ok (.Constant (c, ty))
+    | .Builtin b => .ok (.Builtin b)
+    | .Error => .ok .Error
+    | .Lam x body => do
+      let body' ← lower (x :: env) body
+      pure (.Lam 0 body')
+    | .App f x => do
+      let f' ← lower env f
+      let x' ← lower env x
+      pure (.Apply f' x')
+    | .Force inner => do
+      let inner' ← lower env inner
+      pure (.Force inner')
+    | .Delay inner => do
+      let inner' ← lower env inner
+      pure (.Delay inner')
+    | .Constr tag args => do
+      let args' ← lowerList env args
+      pure (.Constr tag args')
+    | .Case scrut alts => do
+      let scrut' ← lower env scrut
+      let alts' ← lowerList env alts
+      pure (.Case scrut' alts')
+    | .Let binds body => lowerLet env binds body
+    | .Fix f (.Lam x body) => do
+      let body' ← lower (x :: f :: x :: env) body
+      pure (fixLamWrap body')
+    | .Fix _ body => .error s!"Fix body must be a Lam, got: {repr body}"
+  termination_by sizeOf e
 
-  | .Lit (c, ty) => pure (.Constant (c, ty))
+  def lowerList (env : List VarId) (es : List Expr) : Except String (List Term) :=
+    match es with
+    | [] => .ok []
+    | e :: rest => do
+      let t ← lower env e
+      let ts ← lowerList env rest
+      pure (t :: ts)
+  termination_by sizeOf es
 
-  | .Builtin b => pure (.Builtin b)
-
-  | .Error => pure .Error
-
-  | .Lam x body => do
-    let body' ← lower (x :: env) body
-    pure (.Lam 0 body')
-
-  | .App f x => do
-    let f' ← lower env f
-    let x' ← lower env x
-    pure (.Apply f' x')
-
-  | .Force e => do
-    let e' ← lower env e
-    pure (.Force e')
-
-  | .Delay e => do
-    let e' ← lower env e
-    pure (.Delay e')
-
-  | .Constr tag args => do
-    let args' ← args.mapM (lower env)
-    pure (.Constr tag args')
-
-  | .Case scrut alts => do
-    let scrut' ← lower env scrut
-    let alts' ← alts.mapM (lower env)
-    pure (.Case scrut' alts')
-
-  | .Let binds body => lowerLet env binds body
-
-  | .Fix f body => lowerFix env f body
-
-where
-  lowerLet (env : List VarId) : List (VarId × Expr × Bool) → Expr → LowerM Term
-    | [], body => lower env body
-    | (x, rhs, _) :: rest, body => do
+  def lowerLet (env : List VarId) (binds : List (VarId × Expr × Bool)) (body : Expr) :
+      Except String Term :=
+    match binds with
+    | [] => lower env body
+    | (x, rhs, _) :: rest => do
       let rhs' ← lower env rhs
       let rest' ← lowerLet (x :: env) rest body
       pure (.Apply (.Lam 0 rest') rhs')
+  termination_by sizeOf binds + sizeOf body
+end
 
-  lowerFix (env : List VarId) (f : VarId) (body : Expr) : LowerM Term := do
-    match body with
-    | .Lam x e =>
-      -- Z combinator (CBV-safe), let-shared to avoid duplicating the functional:
-      -- (λz. z z) (λs. λx. e'[f := λv. s s v])
-      let s ← liftFresh (freshVar "s")
-      let v ← liftFresh (freshVar "v")
-      let selfApp := Expr.Lam v (.App (.App (.Var s) (.Var s)) (.Var v))
-      let e' ← if f == x then pure e else liftFresh (subst f selfApp e)
-      let inner := Expr.Lam s (.Lam x e')
-      let innerTerm ← lower env inner
-      -- (λz. z z) innerTerm — the functional appears only once
-      let omega := Term.Lam 0 (.Apply (.Var 1) (.Var 1))
-      pure (.Apply omega innerTerm)
-    | _ =>
-      ExceptT.mk (pure (.error s!"Fix body must be a Lam, got: {repr body}"))
-
-def lowerExpr (e : Expr) (freshStart : Nat := 10000) : Except String Term :=
-  (ExceptT.run (lower [] e) |>.run ⟨max freshStart (maxUidExpr e + 1)⟩).1
+/-- Lower a closed MIR expression. `freshStart` is accepted for compatibility;
+    lowering no longer generates names. -/
+def lowerExpr (e : Expr) (_freshStart : Nat := 10000) : Except String Term :=
+  lower [] e
 
 end Moist.MIR
