@@ -51,7 +51,7 @@ graph TD
   S --> O["optimize<br>prepare, floatOut, betaReduce, ANF"]
   O --> L["simplifyLoop<br>simplify (incl. caseTagChains), CSE, DCE,<br>inline, beta, eta, forceDelay, caseMerge"]
   L --> P["preLower<br>preLowerInline, ANF"]
-  P --> T["structural<br>fuseListChoices, destructureProducts,<br>optimizeCheckedBranches, unpackRecords"]
+  P --> T["structural<br>fuseListChoices, destructureProducts,<br>optimizeCheckedBranches, unpackRecords,<br>fuseKnownListCases"]
   T --> W["lowerExpr ≈ lowerTotalExpr<br>(LoweringSoundness)"]
   W --> F["finish on liftUPLC<br>packing, low sharing,<br>builtin sharing, pooling"]
 ```
@@ -91,6 +91,7 @@ check under `Test/MIR/Opt/Axioms/` or in `Test/MIR/Opt/FormalAxioms.lean`.
 | Product destructuring (projections resolved through let aliases; whole-pair and bound-projection unboxing) | `destructureProducts_refines` (`unbox_factRel`, `unboxProjection_factRel`, `project_factRel`) | `ProductsSoundness.lean`, `ProductsSoundness/` |
 | Checked list branches | `lowerDelayedListChoices_refines`, `fuseCheckedListBranches_refines`, `optimizeCheckedBranches_refines` | `CheckedBranchesSoundness.lean` |
 | Record unpacking | `unpackRecords_refines` | `RecordsSoundness.lean`, `RecordsSoundness/` |
+| Known-list case fusion (including recursive list parameters) | `fuseKnownListCases_refines` | `KnownListsSoundness.lean`, `KnownListsSoundness/` |
 | `Advanced.structural` | `structural_refines` | `CompilerSoundness.lean` |
 | Application packing | `packApplications_refines` | `ApplicationPackingSoundness.lean` |
 | Builtin sharing, constant pooling | `hoistBuiltinStates_refines`, `poolConstants_refines` | `SharingSoundness.lean` |
