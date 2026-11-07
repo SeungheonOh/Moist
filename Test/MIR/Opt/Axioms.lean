@@ -17,4 +17,5 @@ import Test.MIR.Opt.Axioms.ProductAliases
 import Test.MIR.Opt.Axioms.Shapes
 import Test.MIR.Opt.Axioms.Sharing
 import Test.MIR.Opt.Axioms.StaticArguments
+import Test.MIR.Opt.Axioms.TagChains
 import Test.MIR.Opt.ShapeCertificates

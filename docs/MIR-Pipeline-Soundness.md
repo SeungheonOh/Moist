@@ -49,7 +49,7 @@ allocation stage.
 graph TD
   V["validateCompilationInput<br>(compileOptimized_error)"] --> S["staticArguments"]
   S --> O["optimize<br>prepare, floatOut, betaReduce, ANF"]
-  O --> L["simplifyLoop<br>simplify, CSE, DCE, inline,<br>beta, eta, forceDelay, caseMerge"]
+  O --> L["simplifyLoop<br>simplify (incl. caseTagChains), CSE, DCE,<br>inline, beta, eta, forceDelay, caseMerge"]
   L --> P["preLower<br>preLowerInline, ANF"]
   P --> T["structural<br>fuseListChoices, destructureProducts,<br>optimizeCheckedBranches"]
   T --> W["lowerExpr ≈ lowerTotalExpr<br>(LoweringSoundness)"]
@@ -82,6 +82,7 @@ check under `Test/MIR/Opt/Axioms/` or in `Test/MIR/Opt/FormalAxioms.lean`.
 | List choice fusion | `fuseListChoices_refines` | `ShapesSoundness/Choices.lean` |
 | Shape DCE, choice simplification | `shapeDCE_refines`, `simplifyChoices_refines` | `ShapesSoundness/Simplify.lean` |
 | Boolean results and Boolean case rewrites (inside shape DCE) | `booleanResultCore_sound`, `booleanCaseRewrite_factRel` | `ShapeFacts/Results.lean`, `ShapesSoundness/BooleanCases.lean` |
+| Constructor-tag chains to integer cases | `caseTagChains_refines` | `TagChainsSoundness.lean`, `TagChainsSoundness/` |
 | `Advanced.simplify` | `simplify_refines` | `ShapesSoundness/Pipeline.lean` |
 | Pre-lowering inline, `preLower` | `preLowerInlineExpr_refines`, `preLower_refines'` | `PreLowerSoundness.lean`, `CompilerSoundness.lean` |
 | Product destructuring (projections resolved through let aliases; whole-pair and bound-projection unboxing) | `destructureProducts_refines` (`unbox_factRel`, `unboxProjection_factRel`, `project_factRel`) | `ProductsSoundness.lean`, `ProductsSoundness/` |
@@ -113,8 +114,8 @@ an outer case with small alternatives into a Boolean case tree, and to drop
 Lean cannot reason about `partial def`, so every pass the pipeline calls is
 now a total function. Each uses structural recursion, `termination_by` on
 expression size, or explicit fuel with a fuel-irrelevance proof. This covers
-`optimize`, `simplifyLoop`, the shape walks, the product and
-checked-branch walks, and the equality checkers (`alphaEq`, `constEq`,
+`optimize`, `simplifyLoop`, the shape walks, the product,
+checked-branch and tag-chain walks, and the equality checkers (`alphaEq`, `constEq`,
 `dataEq`).
 
 ## Bugs found while proving
