@@ -1,35 +1,14 @@
 import Moist.Verified.Contextual.BisimRef
-import Moist.Verified.Definitions.StepIndexed
+import Moist.Verified.Contextual.Guarded
 
-/-! # Unidirectional open-context soundness (`OpenRefines d → CtxRefines`)
+/-! # Open refinement implies contextual refinement
 
-Phase 6 `Contextual.Soundness.lean` proves the bidirectional version:
-
-```
-theorem soundness_d {d : Nat} (h : OpenEq d t₁ t₂) :
-    ∀ C, ObsEq (compute [] .nil (fill C t₁)) (compute [] .nil (fill C t₂))
-```
-
-For optimizer refinement proofs (DCE, etc.), we need the **unidirectional**
-version: given only `OpenRefines d t₁ t₂` (one direction of `BehEqK`), produce
-`CtxRefines t₁ t₂`. The bidirectional version is too strong — e.g. for a
-dead-let transformation `Apply (Lam 0 (shift body)) e → body` where `e`
-accesses free variables outside `body`'s access set, the reverse direction
-fails on non-well-sized environments (e errors while body happily halts).
-
-This file mirrors the bidirectional Phase 6 infrastructure in
-`Soundness.lean` with unidirectional analogues:
-
-  * `ObsRefinesK` — one direction of `ObsEqK`.
-  * `ValueRefinesK` — `ValueEqK` recast with `ObsRefinesK` outputs.
-  * `StackRefK`, `BehRefinesK`, `OpenRefines` — matching stack/behaviour/open
-    relations.
-  * `TermSubstL` / `TermListSubstL` — `TermSubst` without the `swapInv`
-    constructor (symmetric flip). `fill_termSubst` never uses `swapInv`, so
-    this is the right shape for soundness proofs that only need the forward
-    direction.
-  * `term_obsRefines` — the main bridge theorem, mirroring `term_obsEq`.
-  * `soundness_refines_d` — the public entry point.
+`term_obsRefinesG` is the fundamental property for `TermSubstL`-related terms
+(`fill C t₁` vs `fill C t₂`), proved once for any `Guard`; with locality
+padding (`dummyEnv`, `locality_obsRefinesK`) it yields `CtxRefines` from open
+refinement. `soundness_refines` / `obsRefines_of_openRefines` are the
+`Guard.trivial` instances for `ValueRefinesK`; the well-formedness instance is
+in `TermObsRefinesWF`.
 -/
 
 namespace Moist.Verified.Contextual.Soundness
@@ -169,59 +148,6 @@ private theorem valueRefinesK_mono_le (k : Nat) :
 theorem valueRefinesK_mono {j k : Nat} (hjk : j ≤ k)
     (v₁ v₂ : CekValue) (h : ValueRefinesK k v₁ v₂) : ValueRefinesK j v₁ v₂ :=
   valueRefinesK_mono_le k j hjk v₁ v₂ h
-
---------------------------------------------------------------------------------
--- 3. Refines tower: theorems
---
--- `StackRefK`, `BehRefinesK`, `EnvRefinesK`, `OpenRefinesK`, `OpenRefines`
--- are defined in `Moist.Verified.Definitions.StepIndexed`. Theorems
--- about them (and the proof-local `AtLeastEnvRefinesK`) stay in this file.
---------------------------------------------------------------------------------
-
-/-- **Strict** pointwise env relation: both envs have the same length and
-    every position `1..length` is a `some` pair of `ValueRefinesK`-related
-    values. No `(none, none)` ghost — consistent with the strict `EnvRefinesK`.
-    Mirrors `AtLeastEnvEqK` in `Soundness.lean`. -/
-def AtLeastEnvRefinesK (k : Nat) (ρ_l ρ_r : CekEnv) : Prop :=
-  ρ_l.length = ρ_r.length ∧
-  ∀ n, 0 < n → n ≤ ρ_l.length →
-    ∃ v_l v_r, ρ_l.lookup n = some v_l ∧ ρ_r.lookup n = some v_r ∧ ValueRefinesK k v_l v_r
-
-/-- Bridge from the length-indexed pointwise relation to the depth-indexed
-    strict relation, given that the depth `d` is within the env length. -/
-theorem atLeastEnvRefinesK_to_envRefinesK {k d : Nat} {ρ_l ρ_r : CekEnv}
-    (h : AtLeastEnvRefinesK k ρ_l ρ_r) (hd : d ≤ ρ_l.length) : EnvRefinesK k d ρ_l ρ_r := by
-  intro n hn hnd
-  exact h.2 n hn (Nat.le_trans hnd hd)
-
-theorem atLeastEnvRefinesK_mono {j k : Nat} (hjk : j ≤ k) {ρ_l ρ_r : CekEnv}
-    (h : AtLeastEnvRefinesK k ρ_l ρ_r) : AtLeastEnvRefinesK j ρ_l ρ_r := by
-  refine ⟨h.1, ?_⟩
-  intro n hn hnlen
-  obtain ⟨v_l, v_r, hl, hr, hrel⟩ := h.2 n hn hnlen
-  exact ⟨v_l, v_r, hl, hr, valueRefinesK_mono hjk _ _ hrel⟩
-
-theorem atLeastEnvRefinesK_extend {k : Nat} {ρ_l ρ_r : CekEnv} {v_l v_r : CekValue}
-    (hρ : AtLeastEnvRefinesK k ρ_l ρ_r) (hv : ValueRefinesK k v_l v_r) :
-    AtLeastEnvRefinesK k (ρ_l.extend v_l) (ρ_r.extend v_r) := by
-  refine ⟨?_, ?_⟩
-  · simp [CekEnv.extend, CekEnv.length, hρ.1]
-  · intro n hn hnlen
-    by_cases h1 : n = 1
-    · subst h1
-      refine ⟨v_l, v_r, ?_, ?_, hv⟩
-      · simp [CekEnv.extend, CekEnv.lookup]
-      · simp [CekEnv.extend, CekEnv.lookup]
-    · have hn2 : n ≥ 2 := by omega
-      have hlen_ext : (ρ_l.extend v_l).length = ρ_l.length + 1 := by
-        simp [CekEnv.extend, CekEnv.length]
-      rw [hlen_ext] at hnlen
-      match n, hn2 with
-      | n' + 2, _ =>
-        obtain ⟨w_l, w_r, hl, hr, hrel⟩ := hρ.2 (n' + 1) (by omega) (by omega)
-        refine ⟨w_l, w_r, ?_, ?_, hrel⟩
-        · simp [CekEnv.extend, CekEnv.lookup]; exact hl
-        · simp [CekEnv.extend, CekEnv.lookup]; exact hr
 
 --------------------------------------------------------------------------------
 -- 4. TermSubstL — TermSubst without the swapInv constructor
@@ -420,587 +346,208 @@ theorem evalBuiltin_compat_refines {k : Nat} {b : BuiltinFun}
     | m + 1 => exact hπ (m+1) (Nat.le_refl _) _ _ h_rel
 
 --------------------------------------------------------------------------------
--- 12. applyArgFrames_stackRefK
+-- 9. `Guard.trivial` is `ValueRefinesK`
 --------------------------------------------------------------------------------
+
+open Moist.Verified.Contextual.Guarded
+
+private theorem listRel_iff {R S : CekValue → CekValue → Prop} (h : ∀ a b, R a b ↔ S a b) :
+    ∀ {l₁ l₂ : List CekValue}, ListRel R l₁ l₂ ↔ ListRel S l₁ l₂
+  | [], [] | [], _ :: _ | _ :: _, [] => Iff.rfl
+  | _ :: _, _ :: _ => and_congr (h _ _) (listRel_iff h)
+
+theorem valueRel_trivial : ∀ (k : Nat) (v₁ v₂ : CekValue),
+    ValueRel Guard.trivial k v₁ v₂ ↔ ValueRefinesK k v₁ v₂ := by
+  intro k
+  induction k using Nat.strongRecOn with
+  | ind k ih =>
+  intro v₁ v₂
+  cases k with
+  | zero => cases v₁ <;> cases v₂ <;> simp only [ValueRel, ValueRefinesK]
+  | succ k =>
+    have hl : ∀ l₁ l₂, ListRel (ValueRel Guard.trivial k) l₁ l₂ ↔ ListRel (ValueRefinesK k) l₁ l₂ :=
+      fun _ _ => listRel_iff (ih k (Nat.lt_succ_self k))
+    cases v₁ <;> cases v₂
+    all_goals first | (simp only [ValueRel, ValueRefinesK, hl]; done) | skip
+    case VLam.VLam =>
+      refine ⟨fun h => ?_, fun h => ?_⟩ <;> simp only [ValueRel, ValueRefinesK] at h ⊢
+      · intro j hj a₁ a₂ ha i hi π₁ π₂ hπ
+        exact h.2.2 j hj a₁ a₂ ((ih j (by omega) a₁ a₂).mpr ha) trivial trivial i hi π₁ π₂
+          trivial trivial fun i' hi' w₁ w₂ hw _ _ => hπ i' hi' w₁ w₂ ((ih i' (by omega) _ _).mp hw)
+      · refine ⟨trivial, trivial, fun j hj a₁ a₂ ha _ _ i hi π₁ π₂ _ _ hπ => ?_⟩
+        exact h j hj a₁ a₂ ((ih j (by omega) a₁ a₂).mp ha) i hi π₁ π₂
+          fun i' hi' w₁ w₂ hw => hπ i' hi' w₁ w₂ ((ih i' (by omega) _ _).mpr hw) trivial trivial
+    case VDelay.VDelay =>
+      refine ⟨fun h => ?_, fun h => ?_⟩ <;> simp only [ValueRel, ValueRefinesK] at h ⊢
+      · intro j hj i hi π₁ π₂ hπ
+        exact h j hj i hi π₁ π₂ trivial trivial
+          fun i' hi' w₁ w₂ hw _ _ => hπ i' hi' w₁ w₂ ((ih i' (by omega) _ _).mp hw)
+      · intro j hj i hi π₁ π₂ _ _ hπ
+        exact h j hj i hi π₁ π₂
+          fun i' hi' w₁ w₂ hw => hπ i' hi' w₁ w₂ ((ih i' (by omega) _ _).mpr hw) trivial trivial
+
+theorem stackRefK_iff_stackRel {k : Nat} {π₁ π₂ : Stack} :
+    StackRefK ValueRefinesK k π₁ π₂ ↔ StackRel Guard.trivial k π₁ π₂ :=
+  ⟨fun h => ⟨trivial, trivial, fun j hj v₁ v₂ hv _ _ => h j hj v₁ v₂ ((valueRel_trivial j v₁ v₂).mp hv)⟩,
+   fun h j hj v₁ v₂ hv => h.2.2 j hj v₁ v₂ ((valueRel_trivial j v₁ v₂).mpr hv) trivial trivial⟩
+
+theorem openRefines_openRel {d : Nat} {t₁ t₂ : Term} (h : OpenRefines d t₁ t₂) :
+    OpenRel Guard.trivial d t₁ t₂ := by
+  intro k j hj ρ₁ ρ₂ henv _ _ _ _ i hi π₁ π₂ _ _ hπ
+  refine h k j hj ρ₁ ρ₂ (fun n hn hnd => ?_) i hi π₁ π₂ ?_
+  · obtain ⟨v₁, v₂, h₁, h₂, hv⟩ := henv n hn hnd
+    exact ⟨v₁, v₂, h₁, h₂, (valueRel_trivial j v₁ v₂).mp hv⟩
+  · exact stackRefK_iff_stackRel.mpr ⟨trivial, trivial, hπ⟩
 
 theorem applyArgFrames_stackRefK {j : Nat}
     {fields₁ fields₂ : List CekValue} {π₁ π₂ : Stack}
     (hfields : ListRel (ValueRefinesK j) fields₁ fields₂)
     (hπ : StackRefK ValueRefinesK j π₁ π₂) :
     StackRefK ValueRefinesK j (fields₁.map Frame.applyArg ++ π₁)
-                               (fields₂.map Frame.applyArg ++ π₂) := by
-  induction fields₁ generalizing fields₂ π₁ π₂ with
-  | nil =>
-    cases fields₂ with
-    | nil => simp; exact hπ
-    | cons => exact absurd hfields id
-  | cons v₁ vs₁ ih =>
-    cases fields₂ with
-    | nil => exact absurd hfields id
-    | cons v₂ vs₂ =>
-    have hv := hfields.1; have hvs := hfields.2
-    simp [List.map, List.cons_append]
-    intro j' hj' w₁ w₂ hw
-    match j' with
-    | 0 => obsRefinesK_zero_nonhalt_auto
-    | n + 1 =>
-    obsRefinesK_of_step_auto
-    match w₁, w₂ with
-    | .VLam body₁ ρ₁', .VLam body₂ ρ₂' =>
-      simp only [step, ValueRefinesK] at hw ⊢
-      exact hw n (by omega) v₁ v₂ (valueRefinesK_mono (by omega) v₁ v₂ hv)
-        n (Nat.le_refl _) _ _
-        (stackRefK_mono (by omega)
-          (ih (listRel_valueRefinesK_mono (by omega) hvs)
-              (stackRefK_mono (by omega) hπ)))
-    | .VBuiltin b₁ args₁ ea₁, .VBuiltin b₂ args₂ ea₂ =>
-      simp only [ValueRefinesK] at hw; obtain ⟨rfl, rfl, hargs⟩ := hw; simp only [step]
-      split
-      · split
-        · rename_i rest _
-          have hval : ValueRefinesK (n + 1)
-              (.VBuiltin b₁ (v₁ :: args₁) rest) (.VBuiltin b₁ (v₂ :: args₂) rest) := by
-            simp only [ValueRefinesK]; refine ⟨trivial, trivial, ?_⟩
-            exact ⟨valueRefinesK_mono (by omega) v₁ v₂ hv,
-                   listRel_valueRefinesK_mono (by omega) hargs⟩
-          exact obsRefinesK_mono (by omega)
-            ((stackRefK_mono (by omega)
-              (ih (listRel_valueRefinesK_mono (by omega) hvs)
-                   (stackRefK_mono (by omega) hπ))) (n+1) (by omega) _ _ hval)
-        · exact evalBuiltin_compat_refines
-            ⟨valueRefinesK_mono (by omega) v₁ v₂ hv,
-             listRel_valueRefinesK_mono (by omega) hargs⟩
-            (stackRefK_mono (by omega)
-              (ih (listRel_valueRefinesK_mono (by omega) hvs)
-                  (stackRefK_mono (by omega) hπ)))
-      · exact obsRefinesK_error _
-    | .VCon _, .VCon _ | .VDelay _ _, .VDelay _ _
-    | .VConstr _ _, .VConstr _ _ => simp only [step]; exact obsRefinesK_error _
-    | .VCon _, .VLam _ _ | .VCon _, .VDelay _ _ | .VCon _, .VConstr _ _
-    | .VCon _, .VBuiltin _ _ _ | .VLam _ _, .VCon _ | .VLam _ _, .VDelay _ _
-    | .VLam _ _, .VConstr _ _ | .VLam _ _, .VBuiltin _ _ _
-    | .VDelay _ _, .VCon _ | .VDelay _ _, .VLam _ _ | .VDelay _ _, .VConstr _ _
-    | .VDelay _ _, .VBuiltin _ _ _ | .VConstr _ _, .VCon _
-    | .VConstr _ _, .VLam _ _ | .VConstr _ _, .VDelay _ _
-    | .VConstr _ _, .VBuiltin _ _ _ | .VBuiltin _ _ _, .VCon _
-    | .VBuiltin _ _ _, .VLam _ _ | .VBuiltin _ _ _, .VDelay _ _
-    | .VBuiltin _ _ _, .VConstr _ _ => simp only [ValueRefinesK] at hw
+                               (fields₂.map Frame.applyArg ++ π₂) :=
+  stackRefK_iff_stackRel.mpr <| applyArgs_stackRel
+    ((listRel_iff (valueRel_trivial j)).mpr hfields) trivial trivial (stackRefK_iff_stackRel.mp hπ)
 
 --------------------------------------------------------------------------------
--- 13. constrField_helper_refines
+-- 10. The fundamental property for `TermSubstL`
 --------------------------------------------------------------------------------
 
-/-- Mirror of `constrField_helper` for the refinement direction. Parameterized
-    over a `term_obsRefines` IH that handles the head term evaluation at
-    smaller levels. -/
-private theorem constrField_helper_refines {d : Nat} {t₁ t₂ : Term}
-    (_h_open : OpenRefines d t₁ t₂)
-    {tag : Nat} {k : Nat}
-    (ih_te : ∀ i ≤ k, ∀ {ρ_l ρ_r : CekEnv} {π_l π_r : Stack} {tm_l tm_r : Term},
-      AtLeastEnvRefinesK i ρ_l ρ_r → d ≤ ρ_l.length →
-      StackRefK ValueRefinesK i π_l π_r →
-      TermSubstL t₁ t₂ tm_l tm_r →
-      ObsRefinesK i (.compute π_l ρ_l tm_l) (.compute π_r ρ_r tm_r)) :
-    ∀ {ms_l ms_r : List Term}, TermListSubstL t₁ t₂ ms_l ms_r →
-    ∀ {j : Nat}, j ≤ k →
-      ∀ {done_l done_r : List CekValue} {ρ_l ρ_r : CekEnv} {π_l π_r : Stack},
-        AtLeastEnvRefinesK j ρ_l ρ_r →
-        d ≤ ρ_l.length →
-        ListRel (ValueRefinesK j) done_l done_r →
-        StackRefK ValueRefinesK j π_l π_r →
-        StackRefK ValueRefinesK j (.constrField tag done_l ms_l ρ_l :: π_l)
-                                   (.constrField tag done_r ms_r ρ_r :: π_r) := by
-  intro ms_l ms_r hms
-  induction ms_l generalizing ms_r with
-  | nil =>
-    cases hms with
-    | nil =>
-      intro j _ done_l done_r ρ_l ρ_r π_l π_r _ _ h_done hπ
-      intro j' hj'_j v_l v_r hv
-      match j' with
-      | 0 =>
-        obsRefinesK_zero_nonhalt_auto
-      | n + 1 =>
-        obsRefinesK_of_step_auto
-        simp only [step]
-        have hrev : ListRel (ValueRefinesK n) ((v_l :: done_l).reverse) ((v_r :: done_r).reverse) := by
-          simp only [List.reverse_cons]
-          exact listRel_append
-            (listRel_reverse
-              (listRel_mono (fun a b h => valueRefinesK_mono (by omega) a b h) h_done))
-            ⟨valueRefinesK_mono (by omega) v_l v_r hv, trivial⟩
-        have hval : ValueRefinesK (n + 1)
-            (.VConstr tag ((v_l :: done_l).reverse))
-            (.VConstr tag ((v_r :: done_r).reverse)) := by
-          cases n with
-          | zero => simp only [ValueRefinesK]; exact ⟨trivial, hrev⟩
-          | succ _ => simp only [ValueRefinesK]; exact ⟨trivial, hrev⟩
-        exact obsRefinesK_mono (by omega) (hπ (n + 1) (by omega) _ _ hval)
-  | cons m ms_l_rest ih_ms =>
-    cases hms with
-    | cons hm hms_rest =>
-      intro j hj_k done_l done_r ρ_l ρ_r π_l π_r hρ hd h_done hπ
-      intro j' hj'_j v_l v_r hv
-      match j' with
-      | 0 =>
-        obsRefinesK_zero_nonhalt_auto
-      | n + 1 =>
-        obsRefinesK_of_step_auto
-        simp only [step]
-        apply ih_te n (by omega) (atLeastEnvRefinesK_mono (by omega) hρ) hd ?_ hm
-        exact ih_ms hms_rest (by omega : n ≤ k) (atLeastEnvRefinesK_mono (by omega) hρ) hd
-          (show ListRel (ValueRefinesK n) (v_l :: done_l) (v_r :: done_r) from
-            ⟨valueRefinesK_mono (by omega) v_l v_r hv,
-             listRel_mono (fun a b h => valueRefinesK_mono (by omega) a b h) h_done⟩)
-          (stackRefK_mono (by omega) hπ)
+private theorem termListSubstL_listRel {t₁ t₂ : Term} {R : Term → Term → Prop}
+    (h : ∀ {a₁ a₂}, TermSubstL t₁ t₂ a₁ a₂ → R a₁ a₂) :
+    ∀ {l₁ l₂ : List Term}, TermListSubstL t₁ t₂ l₁ l₂ → ListRel R l₁ l₂
+  | _, _, .nil => trivial
+  | _, _, .cons hh ht => ⟨h hh, termListSubstL_listRel h ht⟩
 
---------------------------------------------------------------------------------
--- 14. term_obsRefines — the main unidirectional semantic bridge
---
--- Mirror of `term_obsEq` for the refinement direction. Strong induction on
--- step index `k`; dispatch on TermSubstL (no swapInv, since `fill_termSubstL`
--- never produces it). The `swap` case invokes `h_open : OpenRefines d t₁ t₂`
--- directly. Other cases recurse.
---------------------------------------------------------------------------------
-
-theorem term_obsRefines {d : Nat} {t₁ t₂ : Term} (h_open : OpenRefines d t₁ t₂) :
-    ∀ (k : Nat) (i : Nat), i ≤ k →
-      ∀ {ρ_l ρ_r : CekEnv} {π_l π_r : Stack} {tm_l tm_r : Term},
-        AtLeastEnvRefinesK i ρ_l ρ_r →
-        d ≤ ρ_l.length →
-        StackRefK ValueRefinesK i π_l π_r →
-        TermSubstL t₁ t₂ tm_l tm_r →
-        ObsRefinesK i (.compute π_l ρ_l tm_l) (.compute π_r ρ_r tm_r) := by
+/-- `TermSubstL`-related terms evaluate to related observations, given that
+    the substituted terms are open-related. -/
+theorem term_obsRefinesG {W : Guard} {d : Nat} {t₁ t₂ : Term}
+    (h_open : OpenRel W d t₁ t₂) :
+    ∀ (k : Nat) {ρ₁ ρ₂ : CekEnv}, AtLeastEnvRel W k ρ₁ ρ₂ → d ≤ ρ₁.length →
+      W.E d ρ₁ → W.E d ρ₂ →
+      ∀ {tm₁ tm₂ : Term}, TermSubstL t₁ t₂ tm₁ tm₂ → Eval W k ρ₁ ρ₂ tm₁ tm₂ := by
   intro k
-  induction k with
-  | zero =>
-    intro i hi
-    have hi0 : i = 0 := Nat.le_zero.mp hi
-    subst hi0
-    intros _ _ _ _ _ _ _ _ _ _
-    obsRefinesK_zero_nonhalt_auto
-  | succ m ih =>
-    intro i hi
-    by_cases hi_m : i ≤ m
-    · exact ih i hi_m
-    · have hi_eq : i = m + 1 := by omega
-      subst hi_eq
-      intro hρ hd hπ htm
-      rename_i ρ_l ρ_r π_l π_r tm_l tm_r
-      cases htm with
-      | swap =>
-        exact h_open (m+1) (m+1) (Nat.le_refl _) ρ_l ρ_r
-          (atLeastEnvRefinesK_to_envRefinesK hρ hd) (m+1) (Nat.le_refl _) π_l π_r hπ
-      | varRefl n =>
-        obsRefinesK_of_step_auto
-        simp only [step]
-        by_cases hn : n = 0
-        · subst hn
-          have hl : ρ_l.lookup 0 = none := by cases ρ_l <;> rfl
-          have hr : ρ_r.lookup 0 = none := by cases ρ_r <;> rfl
-          rw [hl, hr]
-          exact obsRefinesK_error _
-        · have hpos : n > 0 := Nat.pos_of_ne_zero hn
-          by_cases hnlen : n ≤ ρ_l.length
-          · obtain ⟨v_l, v_r, hl, hr, hrel⟩ := hρ.2 n hpos hnlen
-            rw [hl, hr]
-            exact hπ m (Nat.le_succ m) v_l v_r
-              (valueRefinesK_mono (Nat.le_succ m) v_l v_r hrel)
-          · have hl : ρ_l.lookup n = none :=
-              CekEnv.lookup_none_of_gt_length ρ_l n (by omega)
-            have hnr : n > ρ_r.length := by rw [← hρ.1]; omega
-            have hr : ρ_r.lookup n = none :=
-              CekEnv.lookup_none_of_gt_length ρ_r n hnr
-            rw [hl, hr]
-            exact obsRefinesK_error _
-      | constRefl c =>
-        obsRefinesK_of_step_auto
-        simp only [step]
-        obtain ⟨kc, _⟩ := c
-        apply hπ m (Nat.le_succ m) (.VCon kc) (.VCon kc)
-        cases m with
-        | zero => simp only [ValueRefinesK]
-        | succ _ => simp only [ValueRefinesK]
-      | builtinRefl b =>
-        obsRefinesK_of_step_auto
-        simp only [step]
-        apply hπ m (Nat.le_succ m) (.VBuiltin b [] (expectedArgs b)) _
-        cases m with
-        | zero => simp only [ValueRefinesK]; exact ⟨trivial, trivial⟩
-        | succ _ => simp only [ValueRefinesK, ListRel]; exact ⟨trivial, trivial, trivial⟩
-      | errorRefl =>
-        obsRefinesK_of_step_auto
-        simp only [step]
-        exact obsRefinesK_error _
-      | lam hb =>
-        obsRefinesK_of_step_auto
-        simp only [step]
-        apply hπ m (Nat.le_succ m)
-        match m with
-        | 0 => simp only [ValueRefinesK]
-        | m' + 1 =>
-          simp only [ValueRefinesK]
-          intro j hj_m' arg_l arg_r harg i hi π_l_app π_r_app hπ_app
-          apply ih i (by omega)
-          · apply atLeastEnvRefinesK_extend
-            · exact atLeastEnvRefinesK_mono (by omega) hρ
-            · exact valueRefinesK_mono hi _ _ harg
-          · show d ≤ (ρ_l.extend arg_l).length
-            simp [CekEnv.extend, CekEnv.length]
-            omega
-          · exact hπ_app
-          · exact hb
-      | apply hf ha =>
-        obsRefinesK_of_step_auto
-        simp only [step]
-        apply ih m (Nat.le_refl m) (atLeastEnvRefinesK_mono (Nat.le_succ m) hρ) hd ?_ hf
-        intro j hj_m vf_l vf_r hvf
-        match j with
-        | 0 =>
-          obsRefinesK_zero_nonhalt_auto
-        | j' + 1 =>
-          obsRefinesK_of_step_auto
-          simp only [step]
-          apply ih j' (by omega) (atLeastEnvRefinesK_mono (by omega) hρ) hd ?_ ha
-          intro j'' hj''_j' w_l w_r hw
-          match j'' with
-          | 0 =>
-            obsRefinesK_zero_nonhalt_auto
-          | j''' + 1 =>
-            obsRefinesK_of_step_auto
-            match vf_l, vf_r with
-            | .VCon _, .VCon _ => simp only [step]; exact obsRefinesK_error _
-            | .VDelay _ _, .VDelay _ _ => simp only [step]; exact obsRefinesK_error _
-            | .VConstr _ _, .VConstr _ _ => simp only [step]; exact obsRefinesK_error _
-            | .VLam b_lv ρ_lv, .VLam b_rv ρ_rv =>
-              simp only [step]
-              simp only [ValueRefinesK] at hvf
-              apply hvf j''' (by omega) w_l w_r
-                (valueRefinesK_mono (Nat.le_succ _) _ _ hw)
-                j''' (Nat.le_refl _) π_l π_r
-              intro i' hi' x_l x_r hx
-              exact hπ i' (by omega) x_l x_r hx
-            | .VBuiltin b args_l ea, .VBuiltin _ args_r _ =>
-              simp only [ValueRefinesK] at hvf
-              obtain ⟨rfl, rfl, hargs_rel⟩ := hvf
-              simp only [step]
-              split
-              · split
-                · rename_i rest _
-                  have hval : ValueRefinesK (j''' + 1)
-                      (.VBuiltin b (w_l :: args_l) rest)
-                      (.VBuiltin b (w_r :: args_r) rest) := by
-                    simp only [ValueRefinesK]
-                    refine ⟨trivial, trivial, ?_⟩
-                    simp only [ListRel]
-                    exact ⟨valueRefinesK_mono (by omega) w_l w_r hw,
-                           listRel_mono (fun a b h => valueRefinesK_mono (by omega) a b h) hargs_rel⟩
-                  exact obsRefinesK_mono (by omega : j''' ≤ j''' + 1)
-                    (hπ (j''' + 1) (by omega) _ _ hval)
-                · exact evalBuiltin_compat_refines
-                    (by simp only [ListRel]
-                        exact ⟨valueRefinesK_mono (by omega) w_l w_r hw,
-                               listRel_mono (fun a b h => valueRefinesK_mono (by omega) a b h) hargs_rel⟩)
-                    (stackRefK_mono (by omega) hπ)
-              · exact obsRefinesK_error _
-            | .VCon _, .VLam _ _ | .VCon _, .VDelay _ _ | .VCon _, .VConstr _ _
-            | .VCon _, .VBuiltin _ _ _ | .VLam _ _, .VCon _ | .VLam _ _, .VDelay _ _
-            | .VLam _ _, .VConstr _ _ | .VLam _ _, .VBuiltin _ _ _
-            | .VDelay _ _, .VCon _ | .VDelay _ _, .VLam _ _ | .VDelay _ _, .VConstr _ _
-            | .VDelay _ _, .VBuiltin _ _ _ | .VConstr _ _, .VCon _
-            | .VConstr _ _, .VLam _ _ | .VConstr _ _, .VDelay _ _
-            | .VConstr _ _, .VBuiltin _ _ _ | .VBuiltin _ _ _, .VCon _
-            | .VBuiltin _ _ _, .VLam _ _ | .VBuiltin _ _ _, .VDelay _ _
-            | .VBuiltin _ _ _, .VConstr _ _ => simp only [ValueRefinesK] at hvf
-      | force he =>
-        obsRefinesK_of_step_auto
-        simp only [step]
-        apply ih m (Nat.le_refl m) (atLeastEnvRefinesK_mono (Nat.le_succ m) hρ) hd ?_ he
-        intro j hj_m vf_l vf_r hvf
-        match j with
-        | 0 =>
-          obsRefinesK_zero_nonhalt_auto
-        | j' + 1 =>
-          obsRefinesK_of_step_auto
-          match vf_l, vf_r with
-          | .VCon _, .VCon _ => simp only [step]; exact obsRefinesK_error _
-          | .VLam _ _, .VLam _ _ => simp only [step]; exact obsRefinesK_error _
-          | .VConstr _ _, .VConstr _ _ => simp only [step]; exact obsRefinesK_error _
-          | .VDelay b_lv ρ_lv, .VDelay b_rv ρ_rv =>
-            simp only [step, ValueRefinesK] at hvf ⊢
-            apply hvf j' (Nat.le_refl _) j' (Nat.le_refl _) π_l π_r
-            intro i' hi' w_l w_r hw
-            exact hπ i' (by omega) w_l w_r hw
-          | .VBuiltin b args_l ea, .VBuiltin _ args_r _ =>
-            simp only [ValueRefinesK] at hvf
-            obtain ⟨rfl, rfl, hargs_rel⟩ := hvf
-            simp only [step]
-            split
-            · split
-              · rename_i rest _
-                have hval : ValueRefinesK (j' + 1)
-                    (.VBuiltin b args_l rest) (.VBuiltin b args_r rest) := by
-                  simp only [ValueRefinesK]; exact ⟨trivial, trivial, hargs_rel⟩
-                exact obsRefinesK_mono (by omega : j' ≤ j' + 1)
-                  (hπ (j' + 1) (by omega) _ _ hval)
-              · exact evalBuiltin_compat_refines hargs_rel (stackRefK_mono (by omega) hπ)
-            · exact obsRefinesK_error _
-          | .VCon _, .VLam _ _ | .VCon _, .VDelay _ _ | .VCon _, .VConstr _ _
-          | .VCon _, .VBuiltin _ _ _ | .VLam _ _, .VCon _ | .VLam _ _, .VDelay _ _
-          | .VLam _ _, .VConstr _ _ | .VLam _ _, .VBuiltin _ _ _
-          | .VDelay _ _, .VCon _ | .VDelay _ _, .VLam _ _ | .VDelay _ _, .VConstr _ _
-          | .VDelay _ _, .VBuiltin _ _ _ | .VConstr _ _, .VCon _
-          | .VConstr _ _, .VLam _ _ | .VConstr _ _, .VDelay _ _
-          | .VConstr _ _, .VBuiltin _ _ _ | .VBuiltin _ _ _, .VCon _
-          | .VBuiltin _ _ _, .VLam _ _ | .VBuiltin _ _ _, .VDelay _ _
-          | .VBuiltin _ _ _, .VConstr _ _ => simp only [ValueRefinesK] at hvf
-      | delay hb =>
-        obsRefinesK_of_step_auto
-        simp only [step]
-        apply hπ m (Nat.le_succ m)
-        match m with
-        | 0 => simp only [ValueRefinesK]
-        | m' + 1 =>
-          simp only [ValueRefinesK]
-          intro j hj_m' i hi π_l_app π_r_app hπ_app
-          apply ih i (by omega)
-          · exact atLeastEnvRefinesK_mono (by omega) hρ
-          · exact hd
-          · exact hπ_app
-          · exact hb
-      | constr hms =>
-        cases hms with
-        | nil =>
-          obsRefinesK_of_step_auto
-          simp only [step]
-          apply hπ m (Nat.le_succ m) (.VConstr _ []) (.VConstr _ [])
-          cases m with
-          | zero => simp only [ValueRefinesK]
-          | succ _ => simp only [ValueRefinesK, ListRel]; exact ⟨trivial, trivial⟩
-        | cons hm hms_rest =>
-          obsRefinesK_of_step_auto
-          simp only [step]
-          apply ih m (Nat.le_refl m) (atLeastEnvRefinesK_mono (Nat.le_succ m) hρ) hd ?_ hm
-          exact constrField_helper_refines h_open ih hms_rest (Nat.le_refl m)
-            (atLeastEnvRefinesK_mono (Nat.le_succ m) hρ) hd
-            (show ListRel (ValueRefinesK m) [] [] from trivial)
-            (stackRefK_mono (Nat.le_succ m) hπ)
-      | case hs has =>
-        rename_i as_l as_r
-        obsRefinesK_of_step_auto
-        simp only [step]
-        apply ih m (Nat.le_refl m) (atLeastEnvRefinesK_mono (Nat.le_succ m) hρ) hd ?_ hs
-        intro j hj_m vf_l vf_r hvf
-        match j with
-        | 0 =>
-          obsRefinesK_zero_nonhalt_auto
-        | j' + 1 =>
-          obsRefinesK_of_step_auto
-          match vf_l, vf_r with
-          | .VConstr tag_l fields_l, .VConstr tag_r fields_r =>
-            simp only [step]
-            simp only [ValueRefinesK] at hvf
-            obtain ⟨h_tag, h_fields⟩ := hvf
-            subst h_tag
-            have h_lk := termListSubstL_getElem? has tag_l
-            cases h_lk with
-            | inl h =>
-              obtain ⟨hl, hr⟩ := h
-              rw [hl, hr]
-              exact obsRefinesK_error _
-            | inr h =>
-              obtain ⟨alt_l, alt_r, hl, hr, halt⟩ := h
-              rw [hl, hr]
-              apply ih j' (by omega) (atLeastEnvRefinesK_mono (by omega) hρ) hd ?_ halt
-              exact applyArgFrames_stackRefK h_fields
-                (stackRefK_mono (by omega) hπ)
-          | .VCon c_l, .VCon c_r =>
-            simp only [ValueRefinesK] at hvf
-            subst hvf
-            simp only [step]
-            have hlen := termListSubstL_length_eq has
-            rw [show as_r.length = as_l.length from hlen.symm]
-            cases h_const : constToTagAndFields c_l with
-            | none => exact obsRefinesK_error _
-            | some triple =>
-              obtain ⟨tag, numCtors, fields⟩ := triple
-              dsimp only []
-              by_cases hcond : (decide (numCtors > 0) && decide (as_l.length > numCtors)) = true
-              · rw [if_pos hcond, if_pos hcond]
-                exact obsRefinesK_error _
-              · rw [if_neg hcond, if_neg hcond]
-                have h_lk := termListSubstL_getElem? has tag
-                cases h_lk with
-                | inl h =>
-                  obtain ⟨hl, hr⟩ := h
-                  rw [hl, hr]
-                  exact obsRefinesK_error _
-                | inr h =>
-                  obtain ⟨alt_l, alt_r, hl, hr, halt⟩ := h
-                  rw [hl, hr]
-                  apply ih j' (by omega) (atLeastEnvRefinesK_mono (by omega) hρ) hd ?_ halt
-                  have hfields_vcon := constToTagAndFields_fields_vcon c_l
-                  rw [h_const] at hfields_vcon
-                  exact applyArgFrames_stackRefK
-                    (listRel_refl_vcon_refines j' fields hfields_vcon)
-                    (stackRefK_mono (by omega) hπ)
-          | .VLam _ _, .VLam _ _ => simp only [step]; exact obsRefinesK_error _
-          | .VDelay _ _, .VDelay _ _ => simp only [step]; exact obsRefinesK_error _
-          | .VBuiltin _ _ _, .VBuiltin _ _ _ => simp only [step]; exact obsRefinesK_error _
-          | .VCon _, .VLam _ _ | .VCon _, .VDelay _ _ | .VCon _, .VConstr _ _
-          | .VCon _, .VBuiltin _ _ _ | .VLam _ _, .VCon _ | .VLam _ _, .VDelay _ _
-          | .VLam _ _, .VConstr _ _ | .VLam _ _, .VBuiltin _ _ _
-          | .VDelay _ _, .VCon _ | .VDelay _ _, .VLam _ _ | .VDelay _ _, .VConstr _ _
-          | .VDelay _ _, .VBuiltin _ _ _ | .VConstr _ _, .VCon _
-          | .VConstr _ _, .VLam _ _ | .VConstr _ _, .VDelay _ _
-          | .VConstr _ _, .VBuiltin _ _ _ | .VBuiltin _ _ _, .VCon _
-          | .VBuiltin _ _ _, .VLam _ _ | .VBuiltin _ _ _, .VDelay _ _
-          | .VBuiltin _ _ _, .VConstr _ _ => simp only [ValueRefinesK] at hvf
+  induction k using Nat.strongRecOn with
+  | ind k ih =>
+  intro ρ₁ ρ₂ hρ hd he₁ he₂ tm₁ tm₂ htm
+  have hd₂ : d ≤ ρ₂.length := hρ.1 ▸ hd
+  have sub : ∀ j < k, ∀ {a₁ a₂}, TermSubstL t₁ t₂ a₁ a₂ → Eval W j ρ₁ ρ₂ a₁ a₂ :=
+    fun j hj _ _ h => ih j hj (atLeastEnvRel_mono (by omega) hρ) hd he₁ he₂ h
+  cases htm with
+  | swap =>
+    intro j hj π₁ π₂ hπ _ _
+    exact h_open j j (Nat.le_refl _) ρ₁ ρ₂ (atLeastEnvRel_envRel (atLeastEnvRel_mono hj hρ) hd)
+      he₁ hd he₂ hd₂ j (Nat.le_refl _) π₁ π₂ hπ.1 hπ.2.1 hπ.2.2
+  | varRefl n =>
+    refine eval_of_step fun j hj π₁ π₂ hπ hst₁ hst₂ => ?_
+    simp only [step] at hst₁ hst₂ ⊢
+    rcases atLeastEnvRel_lookup hρ n with ⟨e₁, e₂⟩ | ⟨v₁, v₂, e₁, e₂, hv⟩
+    · rw [e₁, e₂]; exact obsRefinesK_error_error j
+    · rw [e₁] at hst₁ ⊢; rw [e₂] at hst₂ ⊢
+      exact ret_obs (valueRel_mono (by omega) hv) hst₁ hst₂ hπ
+  | constRefl c =>
+    refine eval_of_step fun j hj π₁ π₂ hπ hst₁ hst₂ => ?_
+    exact ret_obs (valueRel_vcon j c.1) hst₁ hst₂ hπ
+  | builtinRefl b =>
+    refine eval_of_step fun j hj π₁ π₂ hπ hst₁ hst₂ => ?_
+    exact ret_obs (valueRel_builtin (k := j) trivial) hst₁ hst₂ hπ
+  | errorRefl =>
+    exact eval_of_step fun j _ _ _ _ _ _ => obsRefinesK_error_error j
+  | lam hb =>
+    refine eval_of_step fun j hj π₁ π₂ hπ hst₁ hst₂ => ?_
+    refine ret_obs (valueRel_lam (W.ret.mp hst₁).2 (W.ret.mp hst₂).2 ?_) hst₁ hst₂ hπ
+    intro j' hj' a₁ a₂ ha ha₁ ha₂
+    exact ih j' (by omega) (atLeastEnvRel_extend (atLeastEnvRel_mono (by omega) hρ) ha)
+      (by simp [CekEnv.extend, CekEnv.length]; omega)
+      (W.extend he₁ hd ha₁) (W.extend he₂ hd₂ ha₂) hb
+  | delay hb =>
+    refine eval_of_step fun j hj π₁ π₂ hπ hst₁ hst₂ => ?_
+    exact ret_obs (valueRel_delay (W.ret.mp hst₁).2 (W.ret.mp hst₂).2
+      fun j' hj' => sub j' (by omega) hb) hst₁ hst₂ hπ
+  | apply hf ha =>
+    refine eval_of_step fun j hj π₁ π₂ hπ hst₁ hst₂ => ?_
+    exact sub j hj hf j (Nat.le_refl _) _ _
+      (arg_stackRel (sub j hj ha) (W.compute hst₁) (W.compute hst₂) hπ) hst₁ hst₂
+  | force he =>
+    refine eval_of_step fun j hj π₁ π₂ hπ hst₁ hst₂ => ?_
+    exact sub j hj he j (Nat.le_refl _) _ _ (force_stackRel hπ) hst₁ hst₂
+  | constr hms =>
+    refine eval_of_step fun j hj π₁ π₂ hπ hst₁ hst₂ => ?_
+    cases hms with
+    | nil => exact ret_obs (valueRel_constr (k := j) trivial) hst₁ hst₂ hπ
+    | cons hm hms =>
+      exact sub j hj hm j (Nat.le_refl _) _ _
+        (constrField_stackRel (termListSubstL_listRel (sub j hj) hms) trivial
+          (W.compute hst₁) (W.compute hst₂) hπ) hst₁ hst₂
+  | case hs has =>
+    refine eval_of_step fun j hj π₁ π₂ hπ hst₁ hst₂ => ?_
+    have halts : AltsRel W j ρ₁ ρ₂ _ _ := ⟨termListSubstL_length_eq has, fun n => ?_⟩
+    · exact sub j hj hs j (Nat.le_refl _) _ _
+        (case_stackRel halts (W.compute hst₁) (W.compute hst₂) hπ) hst₁ hst₂
+    · rcases termListSubstL_getElem? has n with h | ⟨a₁, a₂, h₁, h₂, h⟩
+      · exact .inl h
+      · exact .inr ⟨a₁, a₂, h₁, h₂, sub j hj h⟩
 
 --------------------------------------------------------------------------------
--- 15. soundness_refines — the public entry point (generalized to ∀ d)
---
--- Reuse: `Soundness.lean` already proved `soundness {d} : OpenEq d → CtxEq`
--- using per-side locality padding (`dummyEnv`, `locality_obsRefinesK`).
--- The Refines version reuses **exactly the same infrastructure** — only the
--- Refines-specific `atLeastEnvRefinesK_dummyEnv` helper is new. The core
--- locality transfer (`locality_obsRefinesK`) is already one-directional, so
--- it works for `ObsRefinesK` without any modification.
---
--- This is the `Refine ↔ Eq` correspondence: the proof of `soundness` (Eq)
--- already internally uses `locality_obsRefinesK` (one-directional locality)
--- as a building block for `locality_obsEqK` (bidirectional). We just hit the
--- same building block directly from the Refines side.
+-- 11. Soundness: open refinement implies contextual refinement
 --------------------------------------------------------------------------------
 
-open Moist.Verified.Contextual.Soundness
-  (dummyEnv dummyEnv_length locality_obsRefinesK)
 open Moist.Verified.Contextual.BisimRef (LocalState LocalEnv LocalStack)
 
-/-- `dummyEnv n` is `AtLeastEnvRefinesK`-related to itself at any level.
-    Mirrors `atLeastEnvEqK_dummyEnv` from `Soundness.lean`. The proof is
-    identical modulo `ValueEqK` → `ValueRefinesK`, which are both
-    reflexive on `VCon .Unit`. -/
-theorem atLeastEnvRefinesK_dummyEnv (k n : Nat) :
-    AtLeastEnvRefinesK k (dummyEnv n) (dummyEnv n) := by
-  induction n with
-  | zero =>
-    refine ⟨rfl, ?_⟩
-    intro m _ hmlen
-    simp [dummyEnv, CekEnv.length] at hmlen
-    omega
-  | succ m ih =>
-    refine ⟨rfl, ?_⟩
-    intro j hj hjlen
-    by_cases h1 : j = 1
-    · subst h1
-      refine ⟨.VCon .Unit, .VCon .Unit, ?_, ?_, ?_⟩
-      · show (CekEnv.cons _ (dummyEnv m)).lookup 1 = some _
-        rfl
-      · show (CekEnv.cons _ (dummyEnv m)).lookup 1 = some _
-        rfl
-      · cases k <;> simp only [ValueRefinesK]
-    · have hj2 : j ≥ 2 := by omega
-      have hlen : (dummyEnv (m + 1)).length = m + 1 := dummyEnv_length (m + 1)
-      rw [hlen] at hjlen
-      match j, hj2 with
-      | j' + 2, _ =>
-        have hjlen' : j' + 1 ≤ (dummyEnv m).length := by
-          rw [dummyEnv_length m]; omega
-        obtain ⟨v_l, v_r, hl, hr, hrel⟩ := ih.2 (j' + 1) (by omega) hjlen'
-        refine ⟨v_l, v_r, ?_, ?_, hrel⟩
-        · show (CekEnv.cons _ (dummyEnv m)).lookup (j' + 2) = some v_l
-          exact hl
-        · show (CekEnv.cons _ (dummyEnv m)).lookup (j' + 2) = some v_r
-          exact hr
+theorem atLeastEnvRel_dummyEnv {W : Guard} (k : Nat) :
+    ∀ n, AtLeastEnvRel W k (dummyEnv n) (dummyEnv n)
+  | 0 => ⟨rfl, fun m _ hm => by simp [dummyEnv, CekEnv.length] at hm; omega⟩
+  | n + 1 => by
+    have h := atLeastEnvRel_extend (W := W) (atLeastEnvRel_dummyEnv k n) (valueRel_vcon k .Unit)
+    exact h
 
-/-- **Unidirectional soundness**: `OpenRefines d` implies `CtxRefines` for
-    *any* `d`. Proof reuses everything from `Soundness.lean`:
+/-- Per-context form of soundness for any guard whose predicates hold on the
+    padded initial states. -/
+theorem obsRefines_of_openRel {W : Guard} {d : Nat} {t₁ t₂ : Term}
+    (h_open : OpenRel W d t₁ t₂)
+    (hinit : ∀ t, closedAt 0 t = true → W.St (.compute [] (dummyEnv d) t))
+    (henv : W.E d (dummyEnv d)) (hnil : W.S [])
+    (C : Context) (h_c1 : closedAt 0 (fill C t₁) = true)
+    (h_c2 : closedAt 0 (fill C t₂) = true) :
+    ObsRefines (.compute [] .nil (fill C t₁)) (.compute [] .nil (fill C t₂)) := by
+  have hls₁ : LocalState (.compute [] .nil (fill C t₁)) (.compute [] (dummyEnv d) (fill C t₁)) :=
+    LocalState.compute LocalEnv.zero h_c1 LocalStack.nil
+  have hls₂ : LocalState (.compute [] .nil (fill C t₂)) (.compute [] (dummyEnv d) (fill C t₂)) :=
+    LocalState.compute LocalEnv.zero h_c2 LocalStack.nil
+  have h_obs : ∀ n, ObsRefinesK n (.compute [] (dummyEnv d) (fill C t₁))
+      (.compute [] (dummyEnv d) (fill C t₂)) := fun n =>
+    term_obsRefinesG h_open n (atLeastEnvRel_dummyEnv n d) (by rw [dummyEnv_length]; exact Nat.le_refl _)
+      henv henv (fill_termSubstL C t₁ t₂) n (Nat.le_refl _) [] [] (stackRel_nil hnil n)
+      (hinit _ h_c1) (hinit _ h_c2)
+  refine ⟨fun ⟨v, n, hs⟩ => ?_, fun ⟨n, hs⟩ => ?_⟩
+  · exact (locality_obsRefinesK n hls₁ hls₂ (h_obs n)).1 v ⟨n, Nat.le_refl _, hs⟩
+  · exact (locality_obsRefinesK n hls₁ hls₂ (h_obs n)).2 n (Nat.le_refl _) hs
 
-    * `dummyEnv d` pads the empty env to length `d` with matching
-      `VCon .Unit`s.
-    * `term_obsRefines` is applied on the padded envs (the `d ≤ length`
-      invariant is trivially satisfied).
-    * `locality_obsRefinesK` (from `Soundness.lean`) transfers each
-      `ObsRefinesK`-at-level-`n` from the padded setting back to the
-      unpadded empty-env setting, using `LocalState` locality on states
-      that share the `closedAt 0` term.
-
-    The `Refine ↔ Eq` correspondence: `locality_obsRefinesK` is
-    unidirectional and already usable here. The Eq version of
-    `soundness` packages two calls to `locality_obsRefinesK` into
-    `locality_obsEqK`; we use only one of them. -/
-theorem soundness_refines {d : Nat} {t₁ t₂ : Term}
-    (h_open : OpenRefines d t₁ t₂)
+theorem soundness_of_openRel {W : Guard} {d : Nat} {t₁ t₂ : Term}
+    (h_open : OpenRel W d t₁ t₂)
+    (hinit : ∀ t, closedAt 0 t = true → W.St (.compute [] (dummyEnv d) t))
+    (henv : W.E d (dummyEnv d)) (hnil : W.S [])
     (h_close_pres : ∀ (C : Context),
       closedAt 0 (fill C t₁) = true → closedAt 0 (fill C t₂) = true) :
-    CtxRefines t₁ t₂ := by
-  intro C h_c1
-  have h_c2 := h_close_pres C h_c1
-  refine ⟨h_c2, ?_⟩
-  -- LocalState relates (compute [] .nil …) and (compute [] (dummyEnv d) …)
-  -- when the term is `closedAt 0`, via the trivial `LocalEnv 0` and
-  -- empty-stack relations.
-  have hls₁ : LocalState (.compute [] .nil (fill C t₁))
-                         (.compute [] (dummyEnv d) (fill C t₁)) :=
-    LocalState.compute LocalEnv.zero h_c1 LocalStack.nil
-  have hls₂ : LocalState (.compute [] .nil (fill C t₂))
-                         (.compute [] (dummyEnv d) (fill C t₂)) :=
-    LocalState.compute LocalEnv.zero h_c2 LocalStack.nil
-  refine ⟨?_, ?_⟩
-  · rintro ⟨v, n, hs⟩
-    have h_obs : ObsRefinesK n
-        (.compute [] (dummyEnv d) (fill C t₁))
-        (.compute [] (dummyEnv d) (fill C t₂)) :=
-      term_obsRefines h_open n n (Nat.le_refl _)
-        (atLeastEnvRefinesK_dummyEnv n d)
-        (by rw [dummyEnv_length]; exact Nat.le_refl _)
-        (stackRefK_nil n) (fill_termSubstL C t₁ t₂)
-    exact (locality_obsRefinesK n hls₁ hls₂ h_obs).1 v ⟨n, Nat.le_refl _, hs⟩
-  · rintro ⟨n, hs⟩
-    have h_obs : ObsRefinesK n
-        (.compute [] (dummyEnv d) (fill C t₁))
-        (.compute [] (dummyEnv d) (fill C t₂)) :=
-      term_obsRefines h_open n n (Nat.le_refl _)
-        (atLeastEnvRefinesK_dummyEnv n d)
-        (by rw [dummyEnv_length]; exact Nat.le_refl _)
-        (stackRefK_nil n) (fill_termSubstL C t₁ t₂)
-    exact (locality_obsRefinesK n hls₁ hls₂ h_obs).2 n (Nat.le_refl _) hs
+    CtxRefines t₁ t₂ := fun C h_c1 =>
+  ⟨h_close_pres C h_c1,
+   obsRefines_of_openRel h_open hinit henv hnil C h_c1 (h_close_pres C h_c1)⟩
 
-/-- Per-context observation form: given `OpenRefines d t₁ t₂` and closedness
-    hypotheses on a specific context `C`, produce the `ObsRefines` directly
-    without any closedness-preservation packaging. Useful for call sites
-    that already have both closednesses in hand (e.g. `MIRCtxRefines`,
-    which takes both `hC1` and `hC2` in its observation clause). -/
+/-- Per-context form of `soundness_refines`. -/
 theorem obsRefines_of_openRefines {d : Nat} {t₁ t₂ : Term}
     (h_open : OpenRefines d t₁ t₂) (C : Context)
     (h_c1 : closedAt 0 (fill C t₁) = true)
     (h_c2 : closedAt 0 (fill C t₂) = true) :
-    ObsRefines (.compute [] .nil (fill C t₁)) (.compute [] .nil (fill C t₂)) := by
-  have hls₁ : LocalState (.compute [] .nil (fill C t₁))
-                         (.compute [] (dummyEnv d) (fill C t₁)) :=
-    LocalState.compute LocalEnv.zero h_c1 LocalStack.nil
-  have hls₂ : LocalState (.compute [] .nil (fill C t₂))
-                         (.compute [] (dummyEnv d) (fill C t₂)) :=
-    LocalState.compute LocalEnv.zero h_c2 LocalStack.nil
-  refine ⟨?_, ?_⟩
-  · rintro ⟨v, n, hs⟩
-    have h_obs : ObsRefinesK n
-        (.compute [] (dummyEnv d) (fill C t₁))
-        (.compute [] (dummyEnv d) (fill C t₂)) :=
-      term_obsRefines h_open n n (Nat.le_refl _)
-        (atLeastEnvRefinesK_dummyEnv n d)
-        (by rw [dummyEnv_length]; exact Nat.le_refl _)
-        (stackRefK_nil n) (fill_termSubstL C t₁ t₂)
-    exact (locality_obsRefinesK n hls₁ hls₂ h_obs).1 v ⟨n, Nat.le_refl _, hs⟩
-  · rintro ⟨n, hs⟩
-    have h_obs : ObsRefinesK n
-        (.compute [] (dummyEnv d) (fill C t₁))
-        (.compute [] (dummyEnv d) (fill C t₂)) :=
-      term_obsRefines h_open n n (Nat.le_refl _)
-        (atLeastEnvRefinesK_dummyEnv n d)
-        (by rw [dummyEnv_length]; exact Nat.le_refl _)
-        (stackRefK_nil n) (fill_termSubstL C t₁ t₂)
-    exact (locality_obsRefinesK n hls₁ hls₂ h_obs).2 n (Nat.le_refl _) hs
+    ObsRefines (.compute [] .nil (fill C t₁)) (.compute [] .nil (fill C t₂)) :=
+  obsRefines_of_openRel (openRefines_openRel h_open) (fun _ _ => trivial) trivial trivial
+    C h_c1 h_c2
+
+/-- **Unidirectional soundness**: `OpenRefines d` implies `CtxRefines` for any `d`. -/
+theorem soundness_refines {d : Nat} {t₁ t₂ : Term}
+    (h_open : OpenRefines d t₁ t₂)
+    (h_close_pres : ∀ (C : Context),
+      closedAt 0 (fill C t₁) = true → closedAt 0 (fill C t₂) = true) :
+    CtxRefines t₁ t₂ :=
+  soundness_of_openRel (openRefines_openRel h_open) (fun _ _ => trivial) trivial trivial
+    h_close_pres
 
 end Moist.Verified.Contextual.SoundnessRefines
