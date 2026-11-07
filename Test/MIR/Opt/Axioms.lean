@@ -22,5 +22,6 @@ import Test.MIR.Opt.Axioms.Records
 import Test.MIR.Opt.Axioms.Shapes
 import Test.MIR.Opt.Axioms.Sharing
 import Test.MIR.Opt.Axioms.StaticArguments
+import Test.MIR.Opt.Axioms.TagGuard
 import Test.MIR.Opt.Axioms.TagChains
 import Test.MIR.Opt.ShapeCertificates

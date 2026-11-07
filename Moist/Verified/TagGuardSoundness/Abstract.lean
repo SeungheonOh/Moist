@@ -28,11 +28,11 @@ open Moist.Verified.FailFast
 
 def IntHolds : IntInfo → CekValue → Prop
   | .exact n, v => v = .VCon (.Integer n)
-  | .notIn s, v => ∀ n ∈ s, v ≠ .VCon (.Integer n)
+  | .notIn s, v => ∃ n, v = .VCon (.Integer n) ∧ n ∉ s
 
 def PairHolds : IntInfo → CekValue → Prop
   | .exact n, v => ∃ d, v = .VCon (.Pair (.Integer n, d))
-  | .notIn s, v => ∀ n ∈ s, ∀ d, v ≠ .VCon (.Pair (.Integer n, d))
+  | .notIn s, v => ∃ n d, v = .VCon (.Pair (.Integer n, d)) ∧ n ∉ s
 
 def _root_.Moist.MIR.Advanced.AVal.Holds : AVal → CekValue → Prop
   | .top, _ => True
@@ -271,6 +271,11 @@ theorem dispatch_int (alts : List Term) (n : Int) :
   · have : 0 ≤ n := by omega
     simp [dispatch, constToTagAndFields, hn, this]
 
+theorem dispatch_pair (alts : List Term) (a b : Const) :
+    dispatch alts (.VCon (.Pair (a, b))) =
+      if alts.length > 1 then none else alts[0]?.map fun t => (t, [.VCon a, .VCon b]) := by
+  simp [dispatch, constToTagAndFields]
+
 theorem dispatch_mem {alts : List Term} {w : CekValue} {a : Term} {fs : List CekValue}
     (h : dispatch alts w = some (a, fs)) : a ∈ alts := by
   cases w with
@@ -318,7 +323,7 @@ theorem case_after {ρ : CekEnv} {ts : Term} {talts : List Term} {v : CekValue}
 theorem selectAlt_spec {fuel : Nat} {Γ : List (VarId × Expr)} {H L : List (VarId × AVal)}
     {env : List VarId} :
     ∀ (alts : List Expr) (talts : List Term), MIR.lowerTotalExprList env alts = some talts →
-      ∀ (n arity : Nat),
+      ∀ (n : Nat) (arity : List AVal),
         (talts[n]? = none ∧ selectAlt fuel Γ H L alts n arity = none) ∨
         ∃ a ta, a ∈ alts ∧ talts[n]? = some ta ∧ lowerTotalExpr env a = some ta ∧
           selectAlt fuel Γ H L alts n arity = applyAlt fuel Γ H L a arity
@@ -374,10 +379,19 @@ def GoodE (fuel : Nat) (Γ : List (VarId × Expr)) (H : List (VarId × AVal)) (e
   ∀ L outer ρ t, Ctx Γ H L outer ρ → lowerTotalExpr (L.map Prod.fst ++ outer) e = some t →
     Result (aeval fuel Γ H L e) (.compute [] ρ t)
 
+def HoldsAll : List AVal → List CekValue → Prop
+  | [], [] => True
+  | a :: as, v :: vs => a.Holds v ∧ HoldsAll as vs
+  | _, _ => False
+
+theorem holdsAll_replicate_top : ∀ (fs : List CekValue), HoldsAll (List.replicate fs.length .top) fs
+  | [] => trivial
+  | _ :: fs => ⟨trivial, holdsAll_replicate_top fs⟩
+
 def GoodA (fuel : Nat) (Γ : List (VarId × Expr)) (H : List (VarId × AVal)) (e : Expr) : Prop :=
-  ∀ L outer ρ t (fs : List CekValue), Ctx Γ H L outer ρ →
+  ∀ L outer ρ t (fas : List AVal) (fs : List CekValue), HoldsAll fas fs → Ctx Γ H L outer ρ →
     lowerTotalExpr (L.map Prod.fst ++ outer) e = some t →
-    Result (applyAlt fuel Γ H L e fs.length) (.compute (fs.map Frame.applyArg) ρ t)
+    Result (applyAlt fuel Γ H L e fas) (.compute (fs.map Frame.applyArg) ρ t)
 
 /-- The value of a variable. -/
 theorem varAVal_sound {fuel : Nat} {Γ : List (VarId × Expr)} {H : List (VarId × AVal)}
@@ -500,20 +514,27 @@ theorem halts_builtin_value {ρ : CekEnv} {b : BuiltinFun} {v : CekValue}
 
 theorem goodA_of_goodE {fuel : Nat} {Γ : List (VarId × Expr)} {H : List (VarId × AVal)} {e : Expr}
     (he : GoodE fuel Γ H e) (hbody : ∀ x b, e = .Lam x b → GoodA fuel Γ H b) : GoodA fuel Γ H e := by
-  intro L outer ρ t fs hctx hlow
-  cases fs with
+  intro L outer ρ t fas fs hall hctx hlow
+  cases fas with
   | nil =>
-    simp only [List.length_nil, List.map_nil]
+    cases fs with
+    | cons _ _ => exact absurd hall id
+    | nil =>
+    simp only [List.map_nil]
     rw [applyAlt]
     exact he L outer ρ t hctx hlow
-  | cons f fs =>
-    simp only [List.length_cons, List.map_cons]
+  | cons fa fas =>
+    cases fs with
+    | nil => exact absurd hall id
+    | cons f fs =>
+    obtain ⟨hfa, hall'⟩ := hall
+    simp only [List.map_cons]
     rw [applyAlt]
     cases e with
     | Lam x b =>
       rw [applyAltSucc]
       obtain ⟨tb, htb, rfl⟩ := lowerTotalExpr_lam_some hlow
-      have hr := hbody x b rfl ((x, .top) :: L) outer (ρ.extend f) tb fs (hctx.extend trivial)
+      have hr := hbody x b rfl ((x, fa) :: L) outer (ρ.extend f) tb fas fs hall' (hctx.extend hfa)
         (by simpa using htb)
       exact result_of_reaches (reaches_of_steps 2 rfl) hr
     | _ =>
@@ -588,20 +609,20 @@ theorem aeval_sound_at (Γ : List (VarId × Expr)) (H : List (VarId × AVal)) (f
       have hsr := (ihs scrutinee hss).1 L outer ρ ts hctx hts
       have hlenA := lowerTotalExprList_len htalts
       -- the alternative selected by a known dispatch
-      have select : ∀ (n : Nat) (fs : List CekValue),
+      have select : ∀ (n : Nat) (fas : List AVal) (fs : List CekValue), HoldsAll fas fs →
           (∀ v, Halts ρ (.Case ts talts) v → ∃ a', talts[n]? = some a' ∧
             Reaches (.compute (fs.map Frame.applyArg) ρ a') (.halt v)) →
-          Result (selectAlt fuel Γ H L alternatives n fs.length) (.compute [] ρ (.Case ts talts)) := by
-        intro n fs hsel
+          Result (selectAlt fuel Γ H L alternatives n fas) (.compute [] ρ (.Case ts talts)) := by
+        intro n fas fs hall hsel
         rcases selectAlt_spec (fuel := fuel) (Γ := Γ) (H := H) (L := L) alternatives talts htalts n
-            fs.length with ⟨hn, hs⟩ | ⟨am, ta, ham, hn, hla, hs⟩
+            fas with ⟨hn, hs⟩ | ⟨am, ta, ham, hn, hla, hs⟩
         · rw [hs]
           rintro ⟨v, hv⟩
           obtain ⟨a', ha', _⟩ := hsel v hv
           rw [hn] at ha'; cases ha'
         · rw [hs]
           refine result_via (s' := .compute (fs.map Frame.applyArg) ρ ta) (fun v hv => ?_)
-            ((ihs am (hmem am ham)).2 L outer ρ ta fs hctx hla)
+            ((ihs am (hmem am ham)).2 L outer ρ ta fas fs hall hctx hla)
           obtain ⟨a', ha', hr⟩ := hsel v hv
           rw [hn] at ha'; cases ha'; exact hr
       have fallback : Result (if allAltsFail fuel Γ H L alternatives = true then none else some AVal.top)
@@ -637,7 +658,7 @@ theorem aeval_sound_at (Γ : List (VarId × Expr)) (H : List (VarId × AVal)) (f
             rw [dispatch_bool, if_pos (by omega)] at hd
             cases hd
           · rename_i hlen
-            refine select (if b then 1 else 0) [] fun v hv => ?_
+            refine select (if b then 1 else 0) [] [] trivial fun v hv => ?_
             obtain ⟨w, hw, a', fs, hd, hr⟩ := case_after hv
             have hwb := hsr w hw
             simp only [AVal.Holds] at hwb
@@ -652,7 +673,7 @@ theorem aeval_sound_at (Γ : List (VarId × Expr)) (H : List (VarId × AVal)) (f
           · obtain ⟨w₀, hw₀, _, fs₀, _, _⟩ := case_after hv₀
             obtain ⟨fs₁, hfs₁, hlen₁⟩ := hsr w₀ hw₀
             rw [← hlen₁]
-            refine select tag fs₁ fun v hv => ?_
+            refine select tag _ fs₁ (holdsAll_replicate_top fs₁) fun v hv => ?_
             obtain ⟨w, hw, a', fs, hd, hr⟩ := case_after hv
             have hww := halts_unique hw hw₀
             subst hww
@@ -675,7 +696,7 @@ theorem aeval_sound_at (Γ : List (VarId × Expr)) (H : List (VarId × AVal)) (f
               rw [dispatch_int, if_pos hn] at hd
               cases hd
             · rename_i hn
-              refine select n.toNat [] fun v hv => ?_
+              refine select n.toNat [] [] trivial fun v hv => ?_
               obtain ⟨w, hw, a', fs, hd, hr⟩ := case_after hv
               have hwn := hsr w hw
               simp only [AVal.Holds, IntHolds] at hwn
@@ -684,9 +705,61 @@ theorem aeval_sound_at (Γ : List (VarId × Expr)) (H : List (VarId × AVal)) (f
               cases hl : talts[n.toNat]? with
               | none => rw [hl] at hd; cases hd
               | some a'' => rw [hl] at hd; cases hd; exact ⟨_, rfl, hr⟩
-          | notIn _ => exact fallback
+          | notIn s =>
+            show Result (if ((List.range alternatives.length).all fun k => s.contains (Int.ofNat k)) = true
+              then none else if allAltsFail fuel Γ H L alternatives = true then none else some AVal.top) _
+            split
+            · rename_i hall
+              rintro ⟨v, hv⟩
+              obtain ⟨w, hw, a', fs, hd, _⟩ := case_after hv
+              obtain ⟨n, rfl, hns⟩ := hsr w hw
+              rw [dispatch_int] at hd
+              split at hd
+              · cases hd
+              · rename_i hn
+                cases hl : talts[n.toNat]? with
+                | none => rw [hl] at hd; cases hd
+                | some _ =>
+                  have hlt : n.toNat < alternatives.length := by
+                    rw [← hlenA]; exact (List.getElem?_eq_some_iff.mp hl).1
+                  have := List.all_eq_true.mp hall n.toNat (List.mem_range.mpr hlt)
+                  have hmem := List.contains_iff_mem.mp this
+                  rw [Int.ofNat_eq_coe, Int.toNat_of_nonneg (by omega)] at hmem
+                  exact hns hmem
+            · exact fallback
         | top => exact fallback
-        | pair _ => exact fallback
+        | pair i =>
+          try dsimp only
+          split
+          · rename_i hlen
+            rintro ⟨v, hv⟩
+            obtain ⟨w, hw, a', fs, hd, _⟩ := case_after hv
+            obtain ⟨n, d, rfl⟩ : ∃ (n : Int) (d : Const), w = .VCon (.Pair (.Integer n, d)) := by
+              have := hsr w hw
+              cases i with
+              | exact n => obtain ⟨d, h⟩ := this; exact ⟨n, d, h⟩
+              | notIn s => obtain ⟨n, d, h, _⟩ := this; exact ⟨n, d, h⟩
+            rw [dispatch_pair, if_pos (by omega)] at hd
+            cases hd
+          · rename_i hlen
+            rcases Classical.em (∃ v, Halts ρ (.Case ts talts) v) with ⟨v₀, hv₀⟩ | hno
+            · obtain ⟨w₀, hw₀, _, _, _, _⟩ := case_after hv₀
+              have hw₀' := hsr w₀ hw₀
+              obtain ⟨n, d, rfl, hn⟩ : ∃ (n : Int) (d : Const), w₀ = .VCon (.Pair (.Integer n, d)) ∧
+                  IntHolds i (.VCon (.Integer n)) := by
+                cases i with
+                | exact n => obtain ⟨d, h⟩ := hw₀'; exact ⟨n, d, h, rfl⟩
+                | notIn s => obtain ⟨n, d, h, hs⟩ := hw₀'; exact ⟨n, d, h, n, rfl, hs⟩
+              refine select 0 [.int i, .top] [.VCon (.Integer n), .VCon d] ⟨hn, trivial, trivial⟩
+                fun v hv => ?_
+              obtain ⟨w, hw, a', fs, hd, hr⟩ := case_after hv
+              have hww := halts_unique hw hw₀
+              subst hww
+              rw [dispatch_pair, if_neg (by omega)] at hd
+              cases hl : talts[0]? with
+              | none => rw [hl] at hd; cases hd
+              | some a'' => rw [hl] at hd; cases hd; exact ⟨_, rfl, hr⟩
+            · exact result_of_no_halt hno
         | fstPairFn => exact fallback
         | eqIntFn _ => exact fallback
     | Let bindings body =>
@@ -865,7 +938,29 @@ theorem aeval_sound_at (Γ : List (VarId × Expr)) (H : List (VarId × AVal)) (f
                 | int i => exact ⟨wa, rfl, ha wa hwa⟩
                 | _ => trivial
               · simp [expectedArgs, ExpectedArgs.tail] at hnone
-          · rcases applyAVal_cases vf va with htop | ⟨i, rfl, rfl, heq⟩ | ⟨i, k, rfl, rfl, heq⟩
+          · split
+            · rename_i hucd
+              have : f = .Builtin .UnConstrData := by
+                unfold isUnConstrData at hucd
+                split at hucd
+                · rfl
+                · cases hucd
+              subst this
+              rw [lowerTotalExpr_builtin] at htf; cases htf
+              rw [halts_builtin_value hwf] at hrest
+              rcases apply_reaches hrest with ⟨_, _, h, _⟩ | ⟨b, args, ea, h, _, htail⟩
+              · cases h
+              · cases h
+                rcases htail with ⟨_, hr', _⟩ | ⟨_, hev⟩
+                · simp [expectedArgs, ExpectedArgs.tail] at hr'
+                · obtain ⟨c, r, rfl, hc, rfl⟩ := evalBuiltin_single (by decide) hev
+                  cases c with
+                  | Data dd =>
+                    cases dd with
+                    | Constr tag fields => cases hc; exact ⟨_, _, rfl, by simp⟩
+                    | _ => cases hc
+                  | _ => cases hc
+            rcases applyAVal_cases vf va with htop | ⟨i, rfl, rfl, heq⟩ | ⟨i, k, rfl, rfl, heq⟩
             · rw [htop]; trivial
             · rw [heq]
               have hwf' : wf = .VBuiltin .FstPair [] (.one .argV) := hf wf hwf
@@ -883,16 +978,16 @@ theorem aeval_sound_at (Γ : List (VarId × Expr)) (H : List (VarId × AVal)) (f
                       cases hd'
                       rfl
                     | notIn s =>
-                      intro n hn heq'
-                      cases heq'
-                      exact hpair n hn d rfl
+                      obtain ⟨n, d', hd', hn⟩ := hpair
+                      cases hd'
+                      exact ⟨n, rfl, hn⟩
                   · cases i with
                     | exact n =>
                       obtain ⟨d', hd'⟩ := hpair
                       cases hd'
                     | notIn s =>
-                      intro n hn heq'
-                      cases heq'
+                      obtain ⟨n, d', hd', hn⟩ := hpair
+                      cases hd'
             · rw [heq]
               obtain ⟨a0, rfl, ha0⟩ := hf wf hwf
               have hwk : wa = .VCon (.Integer k) := ha wa hwa
@@ -916,7 +1011,9 @@ theorem aeval_sound_at (Γ : List (VarId × Expr)) (H : List (VarId × AVal)) (f
                     · rename_i hk
                       have hnk : n ≠ k := by
                         intro hnk; subst hnk
-                        exact ha0 n (List.contains_iff_mem.mp hk) rfl
+                        obtain ⟨m, hm, hms⟩ := ha0
+                        cases hm
+                        exact hms (List.contains_iff_mem.mp hk)
                       simp [AVal.Holds, hnk]
                     · trivial
   refine ⟨hE, goodA_of_goodE hE fun x b hx => ?_⟩

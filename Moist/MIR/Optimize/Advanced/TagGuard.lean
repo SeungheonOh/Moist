@@ -68,6 +68,10 @@ def isForcedFstPair : Expr → Bool
   | .Force (.Builtin .FstPair) => true
   | _ => false
 
+def isUnConstrData : Expr → Bool
+  | .Builtin .UnConstrData => true
+  | _ => false
+
 def isEqualsInteger : Expr → Bool
   | .Builtin .EqualsInteger => true
   | _ => false
@@ -117,17 +121,23 @@ mutual
       match aeval fuel Γ H L f, aeval fuel Γ H L a with
       | none, _ => none
       | _, none => none
-      | some vf, some va => some (if isEqualsInteger f then eqIntPartial va else applyAVal vf va)
+      | some vf, some va => some (if isEqualsInteger f then eqIntPartial va
+          else if isUnConstrData f then .pair (.notIn []) else applyAVal vf va)
     | .Constr tag fields => if fieldsHalt fuel Γ H L fields then some (.constr tag fields.length) else none
     | .Case scrutinee alternatives =>
       match aeval fuel Γ H L scrutinee with
       | none => none
       | some (.bool b) =>
         if alternatives.length > 2 then none
-        else selectAlt fuel Γ H L alternatives (if b then 1 else 0) 0
-      | some (.constr tag arity) => selectAlt fuel Γ H L alternatives tag arity
+        else selectAlt fuel Γ H L alternatives (if b then 1 else 0) []
+      | some (.constr tag arity) => selectAlt fuel Γ H L alternatives tag (List.replicate arity .top)
+      | some (.pair i) =>
+        if alternatives.length > 1 then none else selectAlt fuel Γ H L alternatives 0 [.int i, .top]
       | some (.int (.exact n)) =>
-        if n < 0 then none else selectAlt fuel Γ H L alternatives n.toNat 0
+        if n < 0 then none else selectAlt fuel Γ H L alternatives n.toNat []
+      | some (.int (.notIn s)) =>
+        if (List.range alternatives.length).all fun k => s.contains (Int.ofNat k) then none
+        else if allAltsFail fuel Γ H L alternatives then none else some .top
       | some _ => if allAltsFail fuel Γ H L alternatives then none else some .top
     | .Let bindings body => aevalLet fuel Γ H L bindings body
   termination_by (fuel, sizeOf e, 1)
@@ -138,24 +148,24 @@ mutual
          apply Prod.Lex.right; apply Prod.Lex.left
          simp only [Expr.Force.sizeOf_spec]; omega)
 
-  /-- The alternative a case selects, applied to `arity` unknown fields. -/
+  /-- The alternative a case selects, applied to fields described by `fields`. -/
   def selectAlt (fuel : Nat) (Γ : List (VarId × Expr)) (H L : List (VarId × AVal)) :
-      List Expr → Nat → Nat → Option AVal
+      List Expr → Nat → List AVal → Option AVal
     | [], _, _ => none
-    | a :: _, 0, arity => applyAlt fuel Γ H L a arity
-    | _ :: rest, n + 1, arity => selectAlt fuel Γ H L rest n arity
+    | a :: _, 0, fields => applyAlt fuel Γ H L a fields
+    | _ :: rest, n + 1, fields => selectAlt fuel Γ H L rest n fields
   termination_by alts => (fuel, sizeOf alts, 2)
 
   def applyAlt (fuel : Nat) (Γ : List (VarId × Expr)) (H L : List (VarId × AVal)) (a : Expr) :
-      Nat → Option AVal
-    | 0 => aeval fuel Γ H L a
-    | arity + 1 => applyAltSucc fuel Γ H L a arity
+      List AVal → Option AVal
+    | [] => aeval fuel Γ H L a
+    | field :: fields => applyAltSucc fuel Γ H L a field fields
   termination_by (fuel, sizeOf a, 3)
 
   def applyAltSucc (fuel : Nat) (Γ : List (VarId × Expr)) (H L : List (VarId × AVal)) :
-      Expr → Nat → Option AVal
-    | .Lam x body, arity => applyAlt fuel Γ H ((x, .top) :: L) body arity
-    | a, _ => (aeval fuel Γ H L a).map fun _ => .top
+      Expr → AVal → List AVal → Option AVal
+    | .Lam x body, field, fields => applyAlt fuel Γ H ((x, field) :: L) body fields
+    | a, _, _ => (aeval fuel Γ H L a).map fun _ => .top
   termination_by a => (fuel, sizeOf a, 2)
 
   def allAltsFail (fuel : Nat) (Γ : List (VarId × Expr)) (H L : List (VarId × AVal)) :
@@ -190,17 +200,16 @@ inductive GuardTree where
 
 def unitExpr : Expr := .Lit (.Unit, .AtomicType .TypeUnit)
 
-/-- `case x [λtag fields. case tag alternatives]`: a pair case binds the
-    constructor tag without a `fstPair` call. Binders are numbered from
-    `base`, above every name the guard mentions. -/
-def GuardTree.toExpr (base : Nat) : GuardTree → Expr
+/-- `case x alternatives`, an integer case on the tag `x`. -/
+def GuardTree.toExpr : GuardTree → Expr
   | .ok => unitExpr
   | .fail => .Error
-  | .split x alternatives =>
-    let tag : VarId := { uid := base, origin := .gen, hint := "tag" }
-    let fields : VarId := { uid := base + 1, origin := .gen, hint := "fields" }
-    .Case (.Var x) [.Lam tag (.Lam fields (.Case (.Var tag)
-      (alternatives.attach.map fun ⟨t, _⟩ => t.toExpr (base + 2))))]
+  | .split x alternatives => .Case (.Var x) (alternatives.attach.map fun ⟨t, _⟩ => t.toExpr)
+
+/-- Every case variable of the guard is named below `base`. -/
+def GuardTree.varsBelow (base : Nat) : GuardTree → Bool
+  | .split x alternatives => decide (x.uid < base) && alternatives.attach.all fun ⟨t, _⟩ => t.varsBelow base
+  | _ => true
 
 def GuardTree.isFail : GuardTree → Bool
   | .fail => true
@@ -239,7 +248,7 @@ mutual
     | _, _, .ok => true
     | H, L, .fail => (aeval fuel Γ H L M).isNone
     | H, L, .split x alternatives =>
-      (let (H', L') := assume H L x (.pair (.notIn (tagRange alternatives.length)))
+      (let (H', L') := assume H L x (.int (.notIn (tagRange alternatives.length)))
        (aeval fuel Γ H' L' M).isNone) &&
       guardOKList fuel Γ M H L x 0 alternatives
 
@@ -247,7 +256,7 @@ mutual
       (H L : List (VarId × AVal)) (x : VarId) : Nat → List GuardTree → Bool
     | _, [] => true
     | n, t :: rest =>
-      (let (H', L') := assume H L x (.pair (.exact (Int.ofNat n)))
+      (let (H', L') := assume H L x (.int (.exact (Int.ofNat n)))
        guardOK fuel Γ M H' L' t) && guardOKList fuel Γ M H L x (n + 1) rest
 end
 
@@ -259,7 +268,7 @@ def maxTag : Nat := 16
 def tagCount (Γ : List (VarId × Expr)) (M : Expr) (H L : List (VarId × AVal)) (x : VarId) :
     Option Nat :=
   ((List.range maxTag).find? fun k =>
-    let (H', L') := assume H L x (.pair (.notIn (tagRange (k + 1))))
+    let (H', L') := assume H L x (.int (.notIn (tagRange (k + 1))))
     (aeval guardFuel Γ H' L' M).isNone).map (· + 1)
 
 def leaf (Γ : List (VarId × Expr)) (M : Expr) (H L : List (VarId × AVal)) : GuardTree :=
@@ -272,10 +281,10 @@ def splitOn (Γ : List (VarId × Expr)) (M : Expr) (x : VarId)
   | none => leaf Γ M H L
   | some count =>
     .split x ((List.range count).map fun (n : Nat) =>
-      let (H', L') := assume H L x (.pair (.exact (Int.ofNat n)))
+      let (H', L') := assume H L x (.int (.exact (Int.ofNat n)))
       inner H' L')
 
-/-! ## Moving a decoding binding up -/
+/-! ## Guarding a decoded pair -/
 
 def nestLets : List (VarId × Expr × Bool) → Expr → Expr
   | [], body => body
@@ -285,50 +294,57 @@ def isConstrDecode : Expr → Bool
   | .App (.Builtin .UnConstrData) _ => true
   | _ => false
 
-/-- The first later binding of a single-binding chain that decodes a
-    constructor and may move to the front of the chain. -/
-def findDecode : Expr → List (VarId × Expr × Bool) →
-    Option (List (VarId × Expr × Bool) × (VarId × Expr × Bool) × Expr)
-  | .Let [(y, rhs, er)] rest, before =>
-    if isConstrDecode rhs && terminates rhs && traceFree rhs &&
-        before.all (fun b => !(freeVars rhs).contains b.1 && !(freeVars b.2.1).contains y &&
-          !(b.1 == y) && traceFree b.2.1) then
-      some (before.reverse, (y, rhs, er), rest)
-    else findDecode rest ((y, rhs, er) :: before)
-  | _, _ => none
+/-- A pair case on a decoded constructor: `case (unConstrData e) [λtag fields. body]`. -/
+def pairCaseView : Expr → Option (Expr × VarId × VarId × Expr)
+  | .Case (.App (.Builtin .UnConstrData) e) [.Lam t (.Lam f body)] => some (e, t, f, body)
+  | _ => none
 
-/-- Insert a guard for the decoded `p` (and the next decoded `q`) in front of
-    `chain`, the scope of `p`. -/
-def guardChain (Γ : List (VarId × Expr)) (p : VarId) (chain : Expr) : Option Expr :=
-  let (hoisted, M, L) :=
-    match findDecode chain [] with
-    | some (before, (q, rq, er), rest) => (some (q, rq, er), nestLets before rest, [(q, AVal.top)])
-    | none => (none, chain, [])
-  let tree := splitOn Γ M p (fun H L' =>
-      match hoisted with
-      | some (q, _, _) => splitOn Γ M q (leaf Γ M) H L'
-      | none => leaf Γ M H L') [] L
-  let G := tree.toExpr (maxUidExpr chain + p.uid + 1)
-  if tree.mixedInner && terminates G && traceFree M && guardOK guardFuel Γ M [] L tree then
-    let guarded := Expr.Case G [M]
-    some (match hoisted with
-      | some binding => .Let [binding] guarded
-      | none => guarded)
-  else none
+/-- Split a chain of bindings in front of the next pair case. -/
+def bindingsBefore : Expr → List (VarId × Expr × Bool) → Option (List (VarId × Expr × Bool) × Expr)
+  | .Let [] rest, before => bindingsBefore rest before
+  | .Let ((y, rhs, er) :: more) rest, before => bindingsBefore (.Let more rest) ((y, rhs, er) :: before)
+  | e, before => if (pairCaseView e).isSome then some (before.reverse, e) else none
+termination_by e => sizeOf e
+decreasing_by
+  all_goals simp_wf
+  all_goals omega
 
-/-- Bottom-up walk; each constructor decoding tries to guard its scope. The
-    facts record the rewritten right-hand side of every enclosing binding. -/
+/-- Every case variable of the guard is `p` or `q`. -/
+def GuardTree.varsAmong (p q : VarId) : GuardTree → Bool
+  | .split x alternatives => (x == p || x == q) && alternatives.attach.all fun ⟨t, _⟩ => t.varsAmong p q
+  | _ => true
+
+/-- In the scope of `case (unConstrData _) [λt₁ f₁. body]`, move the bindings
+    in front of the next pair case `case (unConstrData e₂) [λt₂ f₂. B]` into its
+    alternative and guard it on the tags `t₁` and `t₂`. -/
+def pairGuard (Γ : List (VarId × Expr)) (t₁ f₁ : VarId) (body : Expr) : Option Expr :=
+  match bindingsBefore body [] with
+  | none => none
+  | some (bindings, inner) =>
+    match pairCaseView inner with
+    | none => none
+    | some (e₂, t₂, f₂, B) =>
+      let M := nestLets bindings B
+      let L : List (VarId × AVal) := [(f₂, .top), (t₂, .top), (f₁, .top), (t₁, .top)]
+      let tree := splitOn Γ M t₁ (splitOn Γ M t₂ (leaf Γ M)) [] L
+      let G := tree.toExpr
+      if !(t₁ == f₁) && !(t₁ == t₂) && !(t₁ == f₂) && !(f₁ == t₂) && !(f₁ == f₂) && !(t₂ == f₂) &&
+          terminates (.App (.Builtin .UnConstrData) e₂) && traceFree e₂ &&
+          bindings.all (fun b => !(freeVars e₂).contains b.1 && !(freeVars b.2.1).contains t₂ &&
+            !(freeVars b.2.1).contains f₂ && !(b.1 == t₂) && !(b.1 == f₂) && traceFree b.2.1) &&
+          tree.mixedInner && tree.varsAmong t₁ t₂ && terminates G && traceFree M &&
+          guardOK guardFuel Γ M [] L tree then
+        some (.Case (.App (.Builtin .UnConstrData) e₂) [.Lam t₂ (.Lam f₂ (.Case G [M]))])
+      else none
+
+/-- Bottom-up walk; each decoded pair tries to guard its scope. The facts
+    record the rewritten right-hand side of every enclosing binding. -/
 def tagGuardWalk (Γ : List (VarId × Expr)) (expression : Expr) : Expr :=
   match expression with
   | .Let [] body => tagGuardWalk Γ body
   | .Let ((x, rhs, erased) :: rest) body =>
     let rhs' := tagGuardWalk Γ rhs
-    let body' := tagGuardWalk ((x, rhs') :: Γ) (.Let rest body)
-    if isConstrDecode rhs' then
-      match guardChain ((x, rhs') :: Γ) x body' with
-      | some guarded => .Let [(x, rhs', erased)] guarded
-      | none => .Let [(x, rhs', erased)] body'
-    else .Let [(x, rhs', erased)] body'
+    consLet (x, rhs', erased) (tagGuardWalk ((x, rhs') :: Γ) (.Let rest body))
   | .Lam x body => .Lam x (tagGuardWalk Γ body)
   | .Fix f body => .Fix f (tagGuardWalk Γ body)
   | .App f a => .App (tagGuardWalk Γ f) (tagGuardWalk Γ a)
@@ -336,7 +352,14 @@ def tagGuardWalk (Γ : List (VarId × Expr)) (expression : Expr) : Expr :=
   | .Delay body => .Delay (tagGuardWalk Γ body)
   | .Constr tag fields => .Constr tag (fields.attach.map fun ⟨field, _⟩ => tagGuardWalk Γ field)
   | .Case scrutinee alternatives =>
-    .Case (tagGuardWalk Γ scrutinee) (alternatives.attach.map fun ⟨a, _⟩ => tagGuardWalk Γ a)
+    let walked := Expr.Case (tagGuardWalk Γ scrutinee)
+      (alternatives.attach.map fun ⟨a, _⟩ => tagGuardWalk Γ a)
+    match pairCaseView walked with
+    | some (e₁, t₁, f₁, body) =>
+      match pairGuard Γ t₁ f₁ body with
+      | some guarded => .Case (.App (.Builtin .UnConstrData) e₁) [.Lam t₁ (.Lam f₁ guarded)]
+      | none => walked
+    | none => walked
   | .Var _ | .Lit _ | .Builtin _ | .Error => expression
 termination_by exprSize expression
 decreasing_by

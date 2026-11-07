@@ -46,7 +46,8 @@ def prepare (expression : Expr) : Expr :=
   eliminateDeadFix (shareDelayedValues expression)
 
 def structural (expression : Expr) : Expr :=
-  failFast (fuseKnownListCases (unpackRecords (optimizeCheckedBranches (destructureProducts (fuseListChoices expression)))))
+  failFast (tagGuards (fuseKnownListCases (unpackRecords (optimizeCheckedBranches
+    (destructureProducts (fuseListChoices expression))))))
 
 def simplify (expression : Expr) : Expr :=
   caseTagChains (shapeDCE (insertKeyBytes (specializeDataChecks
