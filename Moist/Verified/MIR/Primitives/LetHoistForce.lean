@@ -63,29 +63,6 @@ private theorem stackRefK_funV_force_body {i d : Nat} {body : Term}
         (envRefinesK_extend (envRefinesK_mono hj henv) hv) j (Nat.le_refl _) _ _
         (stackRefK_force_augment (stackRefK_mono hj hπ))
 
-/-- Symmetric: `funV (VLam (.Force body) ρ₁) :: π₁` on the left related to
-    `funV (VLam body ρ₂) :: force :: π₂` on the right. -/
-private theorem stackRefK_funV_body_force {i d : Nat} {body : Term}
-    {π₁ π₂ : Stack} {ρ₁ ρ₂ : CekEnv}
-    (hclosed : closedAt (d + 1) body = true)
-    (henv : EnvRefinesK i d ρ₁ ρ₂)
-    (hπ : StackRefK ValueRefinesK i π₁ π₂) :
-    StackRefK ValueRefinesK i
-      (.funV (.VLam (.Force body) ρ₁) :: π₁)
-      (.funV (.VLam body ρ₂) :: .force :: π₂) := by
-  intro j hj v₁ v₂ hv
-  have h_lhs :
-      steps 2 (State.ret (.funV (.VLam (.Force body) ρ₁) :: π₁) v₁) =
-        State.compute (.force :: π₁) (ρ₁.extend v₁) body := rfl
-  have h_rhs :
-      steps 1 (State.ret (.funV (.VLam body ρ₂) :: .force :: π₂) v₂) =
-        State.compute (.force :: π₂) (ρ₂.extend v₂) body := rfl
-  exact obsRefinesK_of_steps_left h_lhs <|
-    obsRefinesK_of_steps_right h_rhs <|
-      ftlr (d + 1) body hclosed j j (Nat.le_refl _) (ρ₁.extend v₁) (ρ₂.extend v₂)
-        (envRefinesK_extend (envRefinesK_mono hj henv) hv) j (Nat.le_refl _) _ _
-        (stackRefK_force_augment (stackRefK_mono hj hπ))
-
 /-- Lowering shape lemma: `.Force (.Let [(v, rhs, false)] body)` lowers
     iff both `rhs` and `body` lower, and the result is
     `.Force (.Apply (.Lam 0 t_body) t_rhs)`. -/
@@ -182,20 +159,6 @@ private theorem lowerTotalExpr_force_let_eq_none (env : List VarId) (v : VarId)
     · rw [h] at hr; exact absurd hr (by simp)
     · rw [h] at hb; exact absurd hb (by simp)
 
-private theorem lowerTotalExpr_let_force_eq_none (env : List VarId) (v : VarId)
-    (rhs body : Expr)
-    (h : lowerTotalExpr env rhs = none ∨ lowerTotalExpr (v :: env) body = none) :
-    lowerTotalExpr env (.Let [(v, rhs, false)] (.Force body)) = none := by
-  cases hlhs : lowerTotalExpr env (.Let [(v, rhs, false)] (.Force body)) with
-  | none => rfl
-  | some _ =>
-    have hs : (lowerTotalExpr env (.Let [(v, rhs, false)] (.Force body))).isSome := by
-      rw [hlhs]; rfl
-    obtain ⟨hr, hb⟩ := (lowerTotalExpr_let_force_isSome env v rhs body).mp hs
-    rcases h with h | h
-    · rw [h] at hr; exact absurd hr (by simp)
-    · rw [h] at hb; exact absurd hb (by simp)
-
 /-- **MIRRefines for let-hoist-force (forward)**:
     `.Force (.Let [(v, rhs, false)] body) ⊑ᴹ .Let [(v, rhs, false)] (.Force body)`. -/
 theorem mirRefines_let_hoist_force_fwd (v : VarId) (rhs body : Expr) :
@@ -233,43 +196,6 @@ theorem mirRefines_let_hoist_force_fwd (v : VarId) (rhs body : Expr) :
           ftlr env.length t_r (lowerTotal_closedAt env _ t_r hr) j j (Nat.le_refl _)
             ρ₁ ρ₂ henv i hi _ _ (stackRefK_funV_force_body hclosed_b henv_i hπ)
 
-/-- **MIRRefines for let-hoist-force (backward)**:
-    `.Let [(v, rhs, false)] (.Force body) ⊑ᴹ .Force (.Let [(v, rhs, false)] body)`. -/
-theorem mirRefines_let_hoist_force_bwd (v : VarId) (rhs body : Expr) :
-    MIRRefines (.Let [(v, rhs, false)] (.Force body))
-               (.Force (.Let [(v, rhs, false)] body)) := by
-  refine ⟨fun env hsome => by
-    rw [(lowerTotalExpr_let_force_isSome env v rhs body).mp hsome |>
-      (lowerTotalExpr_force_let_isSome env v rhs body).mpr], ?_⟩
-  intro d k env hlen
-  cases hr : lowerTotalExpr env rhs with
-  | none =>
-    rw [lowerTotalExpr_let_force_eq_none env v rhs body (Or.inl hr)]; trivial
-  | some t_r =>
-    cases hb : lowerTotalExpr (v :: env) body with
-    | none =>
-      rw [lowerTotalExpr_let_force_eq_none env v rhs body (Or.inr hb)]; trivial
-    | some t_b =>
-      rw [lowerTotalExpr_let_force v hr hb, lowerTotalExpr_force_let v hr hb]
-      simp only
-      intro j hj ρ₁ ρ₂ henv i hi π₁ π₂ hπ
-      have h_steps_lhs :
-          steps 3 (State.compute π₁ ρ₁ (.Apply (.Lam 0 (.Force t_b)) t_r)) =
-            State.compute (.funV (.VLam (.Force t_b) ρ₁) :: π₁) ρ₁ t_r := rfl
-      have h_steps_rhs :
-          steps 4 (State.compute π₂ ρ₂ (.Force (.Apply (.Lam 0 t_b) t_r))) =
-            State.compute (.funV (.VLam t_b ρ₂) :: .force :: π₂) ρ₂ t_r := rfl
-      have hclosed_b : closedAt (env.length + 1) t_b := by
-        simpa [List.length_cons] using lowerTotal_closedAt (v :: env) _ t_b hb
-      subst hlen
-      have henv_i : EnvRefinesK i env.length ρ₁ ρ₂ := fun n hn hnd => by
-        obtain ⟨w₁, w₂, hl, hr', hw⟩ := henv n hn hnd
-        exact ⟨w₁, w₂, hl, hr', valueRefinesK_mono hi _ _ hw⟩
-      exact obsRefinesK_of_steps_left h_steps_lhs <|
-        obsRefinesK_of_steps_right h_steps_rhs <|
-          ftlr env.length t_r (lowerTotal_closedAt env _ t_r hr) j j (Nat.le_refl _)
-            ρ₁ ρ₂ henv i hi _ _ (stackRefK_funV_body_force hclosed_b henv_i hπ)
-
 private theorem let_hoist_force_close_pres_fwd (v : VarId) (rhs body : Expr) :
     ∀ env k t₁ t₂,
       lowerTotalExpr env (.Force (.Let [(v, rhs, false)] body)) = some t₁ →
@@ -294,38 +220,10 @@ private theorem let_hoist_force_close_pres_fwd (v : VarId) (rhs body : Expr) :
       simp only [closedAt, Bool.and_eq_true] at hc ⊢
       exact ⟨hc.1, hc.2⟩
 
-private theorem let_hoist_force_close_pres_bwd (v : VarId) (rhs body : Expr) :
-    ∀ env k t₁ t₂,
-      lowerTotalExpr env (.Let [(v, rhs, false)] (.Force body)) = some t₁ →
-      lowerTotalExpr env (.Force (.Let [(v, rhs, false)] body)) = some t₂ →
-      closedAt k t₁ = true → closedAt k t₂ = true := by
-  intro env k t₁ t₂ h₁ h₂ hc
-  have hsome₁ : (lowerTotalExpr env (.Let [(v, rhs, false)] (.Force body))).isSome := by
-    rw [h₁]; exact rfl
-  obtain ⟨hr_some, hb_some⟩ :=
-    (lowerTotalExpr_let_force_isSome env v rhs body).mp hsome₁
-  cases hr : lowerTotalExpr env rhs with
-  | none => rw [hr] at hr_some; exact absurd hr_some (by simp)
-  | some t_r =>
-    cases hb : lowerTotalExpr (v :: env) body with
-    | none => rw [hb] at hb_some; exact absurd hb_some (by simp)
-    | some t_b =>
-      rw [lowerTotalExpr_let_force v hr hb] at h₁
-      rw [lowerTotalExpr_force_let v hr hb] at h₂
-      cases h₁
-      cases h₂
-      simp only [closedAt, Bool.and_eq_true] at hc ⊢
-      exact ⟨hc.1, hc.2⟩
-
 theorem mirCtxRefines_let_hoist_force_fwd (v : VarId) (rhs body : Expr) :
     MIRCtxRefines (.Force (.Let [(v, rhs, false)] body))
                   (.Let [(v, rhs, false)] (.Force body)) :=
   mirRefines_to_mirCtxRefines (mirRefines_let_hoist_force_fwd v rhs body)
     (let_hoist_force_close_pres_fwd v rhs body)
 
-theorem mirCtxRefines_let_hoist_force_bwd (v : VarId) (rhs body : Expr) :
-    MIRCtxRefines (.Let [(v, rhs, false)] (.Force body))
-                  (.Force (.Let [(v, rhs, false)] body)) :=
-  mirRefines_to_mirCtxRefines (mirRefines_let_hoist_force_bwd v rhs body)
-    (let_hoist_force_close_pres_bwd v rhs body)
 end Moist.Verified.MIR

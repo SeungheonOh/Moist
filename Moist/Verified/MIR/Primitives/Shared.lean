@@ -146,21 +146,6 @@ theorem stackRefK_funV_id_augment_right {j : Nat} {π₁ π₂ : Stack} {ρ₂ :
     rw [hl]
   exact obsRefinesK_of_steps_right h_steps (hπ j' hj' v₁ v₂ hv)
 
-/-- Symmetric augmentation: an identity-funV frame on the *left* stack
-    is `StackRefK`-related to the underlying right stack. -/
-theorem stackRefK_funV_id_augment_left {j : Nat} {π₁ π₂ : Stack} {ρ₁ : CekEnv}
-    (hπ : StackRefK ValueRefinesK j π₁ π₂) :
-    StackRefK ValueRefinesK j (.funV (.VLam (.Var 1) ρ₁) :: π₁) π₂ := by
-  intro j' hj' v₁ v₂ hv
-  have h_steps :
-      steps 2 (State.ret (.funV (.VLam (.Var 1) ρ₁) :: π₁) v₁) = State.ret π₁ v₁ := by
-    have hl : (ρ₁.extend v₁).lookup 1 = some v₁ := by cases ρ₁ <;> rfl
-    show (match (ρ₁.extend v₁).lookup 1 with
-          | some v => State.ret π₁ v
-          | none => State.error) = State.ret π₁ v₁
-    rw [hl]
-  exact obsRefinesK_of_steps_left h_steps (hπ j' hj' v₁ v₂ hv)
-
 /-- Extending both sides of an `EnvRefinesK`-related env-pair by related
     values produces an `EnvRefinesK`-related env-pair at the bumped depth. -/
 theorem envRefinesK_extend {k d : Nat} {ρ₁ ρ₂ : CekEnv} {v₁ v₂ : CekValue}

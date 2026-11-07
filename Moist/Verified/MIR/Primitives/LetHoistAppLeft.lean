@@ -158,68 +158,6 @@ private theorem stackRefK_letHoistAppLeft_fwd {i d : Nat}
   exact ftlr (d + 1) t_b hclosed_b j j (Nat.le_refl _) (ρ₁.extend v₁) (ρ₂.extend v₂)
     henv_ext j (Nat.le_refl _) _ _ hπ_arg
 
-/-- Backward stack-frame helper: relates the augmented stacks at the
-    `arg`-frame layer for the backward direction. The shift is now on the LHS. -/
-private theorem stackRefK_arg_shift_bwd {i d : Nat}
-    {t_x : Term} {π₁ π₂ : Stack} {ρ₁ ρ₂ : CekEnv} {v₁ : CekValue}
-    (hclosed_x : closedAt d t_x = true)
-    (henv : EnvRefinesK i d ρ₁ ρ₂)
-    (hπ : StackRefK ValueRefinesK i π₁ π₂) :
-    StackRefK ValueRefinesK i
-      (.arg (renameTerm (shiftRename 1) t_x)
-            (ρ₁.extend v₁) :: π₁)
-      (.arg t_x ρ₂ :: π₂) := by
-  intro j hj vf₁ vf₂ hvf
-  have h_lhs : steps 1 (State.ret (.arg (renameTerm
-                          (shiftRename 1) t_x) (ρ₁.extend v₁) :: π₁) vf₁) =
-               State.compute (.funV vf₁ :: π₁) (ρ₁.extend v₁)
-                 (renameTerm (shiftRename 1) t_x) := rfl
-  have h_rhs : steps 1 (State.ret (.arg t_x ρ₂ :: π₂) vf₂) =
-               State.compute (.funV vf₂ :: π₂) ρ₂ t_x := rfl
-  apply obsRefinesK_of_steps_left h_lhs
-  apply obsRefinesK_of_steps_right h_rhs
-  have hπ_funV : StackRefK ValueRefinesK j (.funV vf₁ :: π₁) (.funV vf₂ :: π₂) :=
-    stackRefK_funV_top_aug hvf (stackRefK_mono hj hπ)
-  -- Apply renameRefines (shiftRename 1) — backward direction places shift on LHS
-  have henv_j : EnvRefinesK j d ρ₁ ρ₂ := envRefinesK_mono hj henv
-  have henv_RL : RenameEnvRef
-      (shiftRename 1) j d (ρ₁.extend v₁) ρ₂ :=
-    envRefinesK_to_renameEnvRef_shift henv_j
-  exact renameRefines_shift1 d t_x hclosed_x j j
-    (Nat.le_refl _) (ρ₁.extend v₁) ρ₂ henv_RL j (Nat.le_refl _)
-    (.funV vf₁ :: π₁) (.funV vf₂ :: π₂) hπ_funV
-
-/-- Backward augmented stack helper for the let-hoist-app-left primitive. -/
-private theorem stackRefK_letHoistAppLeft_bwd {i d : Nat}
-    {t_b t_x : Term} {π₁ π₂ : Stack} {ρ₁ ρ₂ : CekEnv}
-    (hclosed_b : closedAt (d + 1) t_b = true)
-    (hclosed_x : closedAt d t_x = true)
-    (henv : EnvRefinesK i d ρ₁ ρ₂)
-    (hπ : StackRefK ValueRefinesK i π₁ π₂) :
-    StackRefK ValueRefinesK i
-      (.funV (.VLam (.Apply t_b
-        (renameTerm (shiftRename 1) t_x)) ρ₁) :: π₁)
-      (.funV (.VLam t_b ρ₂) :: .arg t_x ρ₂ :: π₂) := by
-  intro j hj v₁ v₂ hv
-  have h_lhs : steps 2 (State.ret (.funV (.VLam (.Apply t_b
-                  (renameTerm (shiftRename 1) t_x)) ρ₁) :: π₁) v₁) =
-               State.compute (.arg (renameTerm
-                  (shiftRename 1) t_x) (ρ₁.extend v₁) :: π₁)
-                 (ρ₁.extend v₁) t_b := rfl
-  have h_rhs : steps 1 (State.ret (.funV (.VLam t_b ρ₂) :: .arg t_x ρ₂ :: π₂) v₂) =
-               State.compute (.arg t_x ρ₂ :: π₂) (ρ₂.extend v₂) t_b := rfl
-  apply obsRefinesK_of_steps_left h_lhs
-  apply obsRefinesK_of_steps_right h_rhs
-  have henv_j : EnvRefinesK j d ρ₁ ρ₂ := envRefinesK_mono hj henv
-  have henv_ext : EnvRefinesK j (d + 1) (ρ₁.extend v₁) (ρ₂.extend v₂) :=
-    envRefinesK_extend henv_j hv
-  have hπ_arg : StackRefK ValueRefinesK j
-      (.arg (renameTerm (shiftRename 1) t_x) (ρ₁.extend v₁) :: π₁)
-      (.arg t_x ρ₂ :: π₂) :=
-    stackRefK_arg_shift_bwd hclosed_x henv_j (stackRefK_mono hj hπ)
-  exact ftlr (d + 1) t_b hclosed_b j j (Nat.le_refl _) (ρ₁.extend v₁) (ρ₂.extend v₂)
-    henv_ext j (Nat.le_refl _) _ _ hπ_arg
-
 /-- Lowering shape lemma: `App (Let [(v, rhs, false)] body) xArg` lowers
     to `Apply (Apply (Lam 0 t_body) t_rhs) t_xArg`. -/
 private theorem lowerTotalExpr_app_let {env : List VarId} (v : VarId)
@@ -377,24 +315,6 @@ private theorem lowerTotalExpr_app_let_eq_none (env : List VarId) (v : VarId)
     · rw [h] at hb; exact absurd hb (by simp)
     · rw [h] at hx; exact absurd hx (by simp)
 
-/-- Helper: RHS of app-let lowers to none when any sub-expression fails to lower. -/
-private theorem lowerTotalExpr_let_app_eq_none (env : List VarId) (v : VarId)
-    (rhs body xArg : Expr) (hfresh : (freeVars xArg).contains v = false)
-    (h : lowerTotalExpr env rhs = none ∨
-         lowerTotalExpr (v :: env) body = none ∨
-         lowerTotalExpr env xArg = none) :
-    lowerTotalExpr env (.Let [(v, rhs, false)] (.App body xArg)) = none := by
-  cases hlhs : lowerTotalExpr env (.Let [(v, rhs, false)] (.App body xArg)) with
-  | none => rfl
-  | some _ =>
-    have hs : (lowerTotalExpr env (.Let [(v, rhs, false)] (.App body xArg))).isSome := by
-      rw [hlhs]; rfl
-    obtain ⟨hr, hb, hx⟩ := (lowerTotalExpr_let_app_isSome env v rhs body xArg hfresh).mp hs
-    rcases h with h | h | h
-    · rw [h] at hr; exact absurd hr (by simp)
-    · rw [h] at hb; exact absurd hb (by simp)
-    · rw [h] at hx; exact absurd hx (by simp)
-
 theorem mirRefines_let_hoist_app_left_fwd (v : VarId) (rhs body xArg : Expr)
     (hfresh : (freeVars xArg).contains v = false) :
     MIRRefines (.App (.Let [(v, rhs, false)] body) xArg)
@@ -458,65 +378,6 @@ theorem mirRefines_let_hoist_app_left_fwd (v : VarId) (rhs body xArg : Expr)
           exact ftlr env.length t_r hclosed_r j j (Nat.le_refl _) ρ₁ ρ₂ henv_j i hi
             _ _ hπ_aug
 
-theorem mirRefines_let_hoist_app_left_bwd (v : VarId) (rhs body xArg : Expr)
-    (hfresh : (freeVars xArg).contains v = false) :
-    MIRRefines (.Let [(v, rhs, false)] (.App body xArg))
-               (.App (.Let [(v, rhs, false)] body) xArg) := by
-  refine ⟨fun env hsome =>
-    (lowerTotalExpr_app_let_isSome env v rhs body xArg).mpr
-      ((lowerTotalExpr_let_app_isSome env v rhs body xArg hfresh).mp hsome), ?_⟩
-  intro d k env hlen
-  cases hr : lowerTotalExpr env rhs with
-  | none =>
-    rw [lowerTotalExpr_let_app_eq_none env v rhs body xArg hfresh (.inl hr)]; trivial
-  | some t_r =>
-    cases hb : lowerTotalExpr (v :: env) body with
-    | none =>
-      rw [lowerTotalExpr_let_app_eq_none env v rhs body xArg hfresh (.inr (.inl hb))]; trivial
-    | some t_b =>
-      cases hx : lowerTotalExpr env xArg with
-      | none =>
-        rw [lowerTotalExpr_let_app_eq_none env v rhs body xArg hfresh (.inr (.inr hx))]; trivial
-        | some t_x =>
-          rw [lowerTotalExpr_let_app v hfresh hr hb hx, lowerTotalExpr_app_let v hr hb hx]
-          simp only
-          intro j hj ρ₁ ρ₂ henv i hi π₁ π₂ hπ
-          have h_steps_lhs :
-              steps 3 (State.compute π₁ ρ₁ (.Apply (.Lam 0 (.Apply t_b
-                (renameTerm (shiftRename 1) t_x))) t_r)) =
-                State.compute (.funV (.VLam (.Apply t_b
-                  (renameTerm (shiftRename 1) t_x)) ρ₁) :: π₁)
-                  ρ₁ t_r := rfl
-          have h_steps_rhs :
-              steps 4 (State.compute π₂ ρ₂ (.Apply (.Apply (.Lam 0 t_b) t_r) t_x)) =
-                State.compute (.funV (.VLam t_b ρ₂) :: .arg t_x ρ₂ :: π₂) ρ₂ t_r := rfl
-          apply obsRefinesK_of_steps_left h_steps_lhs
-          apply obsRefinesK_of_steps_right h_steps_rhs
-          have hclosed_r : closedAt env.length t_r :=
-            lowerTotal_closedAt env _ t_r hr
-          have hclosed_b : closedAt (env.length + 1) t_b := by
-            have := lowerTotal_closedAt (v :: env) _ t_b hb
-            simpa [List.length_cons] using this
-          have hclosed_x : closedAt env.length t_x :=
-            lowerTotal_closedAt env _ t_x hx
-          have hd_eq : d = env.length := hlen.symm
-          subst hd_eq
-          have henv_j : EnvRefinesK j env.length ρ₁ ρ₂ := by
-            intro n hn hnd
-            obtain ⟨w₁, w₂, hl, hr', hw⟩ := henv n hn hnd
-            exact ⟨w₁, w₂, hl, hr', hw⟩
-          have henv_i : EnvRefinesK i env.length ρ₁ ρ₂ := by
-            intro n hn hnd
-            obtain ⟨w₁, w₂, hl, hr', hw⟩ := henv_j n hn hnd
-            exact ⟨w₁, w₂, hl, hr', valueRefinesK_mono hi _ _ hw⟩
-          have hπ_aug : StackRefK ValueRefinesK i
-              (.funV (.VLam (.Apply t_b
-                (renameTerm (shiftRename 1) t_x)) ρ₁) :: π₁)
-              (.funV (.VLam t_b ρ₂) :: .arg t_x ρ₂ :: π₂) :=
-            stackRefK_letHoistAppLeft_bwd hclosed_b hclosed_x henv_i hπ
-          exact ftlr env.length t_r hclosed_r j j (Nat.le_refl _) ρ₁ ρ₂ henv_j i hi
-            _ _ hπ_aug
-
 private theorem let_hoist_app_left_close_pres_fwd (v : VarId) (rhs body xArg : Expr)
     (hfresh : (freeVars xArg).contains v = false) :
     ∀ env k t₁ t₂,
@@ -544,34 +405,6 @@ private theorem let_hoist_app_left_close_pres_fwd (v : VarId) (rhs body xArg : E
         obtain ⟨⟨hb_c, hr_c⟩, hx_c⟩ := hc
         exact ⟨⟨hb_c, closedAt_renameTerm_shiftRename t_x k 1 (by omega) (by omega) hx_c⟩, hr_c⟩
 
-private theorem let_hoist_app_left_close_pres_bwd (v : VarId) (rhs body xArg : Expr)
-    (hfresh : (freeVars xArg).contains v = false) :
-    ∀ env k t₁ t₂,
-      lowerTotalExpr env (.Let [(v, rhs, false)] (.App body xArg)) = some t₁ →
-      lowerTotalExpr env (.App (.Let [(v, rhs, false)] body) xArg) = some t₂ →
-      closedAt k t₁ = true → closedAt k t₂ = true := by
-  intro env k t₁ t₂ h₁ h₂ hc
-  have hsome₁ : (lowerTotalExpr env (.Let [(v, rhs, false)] (.App body xArg))).isSome := by
-    rw [h₁]; exact rfl
-  obtain ⟨hr_some, hb_some, hx_some⟩ :=
-    (lowerTotalExpr_let_app_isSome env v rhs body xArg hfresh).mp hsome₁
-  cases hr : lowerTotalExpr env rhs with
-  | none => rw [hr] at hr_some; exact absurd hr_some (by simp)
-  | some t_r =>
-    cases hb : lowerTotalExpr (v :: env) body with
-    | none => rw [hb] at hb_some; exact absurd hb_some (by simp)
-    | some t_b =>
-      cases hx : lowerTotalExpr env xArg with
-      | none => rw [hx] at hx_some; exact absurd hx_some (by simp)
-      | some t_x =>
-        rw [lowerTotalExpr_let_app v hfresh hr hb hx] at h₁
-        rw [lowerTotalExpr_app_let v hr hb hx] at h₂
-        cases h₁; cases h₂
-        simp only [closedAt, Bool.and_eq_true] at hc ⊢
-        obtain ⟨⟨hb_c, hsh_c⟩, hr_c⟩ := hc
-        exact ⟨⟨hb_c, hr_c⟩,
-          closedAt_renameTerm_shiftRename_inv t_x k 1 (by omega) (by omega) hsh_c⟩
-
 theorem mirCtxRefines_let_hoist_app_left_fwd (v : VarId) (rhs body xArg : Expr)
     (hfresh : (freeVars xArg).contains v = false) :
     MIRCtxRefines (.App (.Let [(v, rhs, false)] body) xArg)
@@ -579,10 +412,4 @@ theorem mirCtxRefines_let_hoist_app_left_fwd (v : VarId) (rhs body xArg : Expr)
   mirRefines_to_mirCtxRefines (mirRefines_let_hoist_app_left_fwd v rhs body xArg hfresh)
     (let_hoist_app_left_close_pres_fwd v rhs body xArg hfresh)
 
-theorem mirCtxRefines_let_hoist_app_left_bwd (v : VarId) (rhs body xArg : Expr)
-    (hfresh : (freeVars xArg).contains v = false) :
-    MIRCtxRefines (.Let [(v, rhs, false)] (.App body xArg))
-                  (.App (.Let [(v, rhs, false)] body) xArg) :=
-  mirRefines_to_mirCtxRefines (mirRefines_let_hoist_app_left_bwd v rhs body xArg hfresh)
-    (let_hoist_app_left_close_pres_bwd v rhs body xArg hfresh)
 end Moist.Verified.MIR

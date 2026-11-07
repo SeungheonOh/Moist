@@ -148,31 +148,6 @@ theorem mirCtxRefines_let_hoist_app_left_iter_fwd :
     exact mirCtxRefines_let_cons_er_normalize_bwd v rhs er rest (.App body xArg)
   termination_by binds _ _ _ => binds.length
 
-/-- Iterated App-left hoist (backward). -/
-theorem mirCtxRefines_let_hoist_app_left_iter_bwd :
-    ∀ (binds : List (VarId × Expr × Bool)) (body xArg : Expr),
-      (∀ b ∈ binds, (freeVars xArg).contains b.1 = false) →
-      MIRCtxRefines (.Let binds (.App body xArg)) (.App (.Let binds body) xArg)
-  | [], body, xArg, _ =>
-    mirCtxRefines_trans (mirCtxRefines_let_nil_body _)
-      (mirCtxRefines_app (mirCtxRefines_let_nil_body_bwd body) (mirCtxRefines_refl _))
-  | (v, rhs, er) :: rest, body, xArg, hfresh => by
-    have hv_fresh := hfresh (v, rhs, er) (List.Mem.head _)
-    have hrest_fresh := fun b hb => hfresh b (List.Mem.tail _ hb)
-    refine mirCtxRefines_trans
-      (mirCtxRefines_let_cons_er_normalize_fwd v rhs er rest (.App body xArg)) ?_
-    refine mirCtxRefines_trans (mirCtxRefines_let_cons_split_fwd _ _ _) ?_
-    refine mirCtxRefines_trans
-      (mirCtxRefines_let_body
-        (mirCtxRefines_let_hoist_app_left_iter_bwd rest body xArg hrest_fresh)) ?_
-    refine mirCtxRefines_trans
-      (mirCtxRefines_let_hoist_app_left_bwd v rhs (.Let rest body) xArg hv_fresh) ?_
-    refine mirCtxRefines_trans
-      (mirCtxRefines_app (mirCtxRefines_let_cons_split_bwd _ _ _) (mirCtxRefines_refl _)) ?_
-    exact mirCtxRefines_app
-      (mirCtxRefines_let_cons_er_normalize_bwd v rhs er rest body) (mirCtxRefines_refl _)
-  termination_by binds _ _ _ => binds.length
-
 /-- Iterated App-right-atom hoist (forward). -/
 theorem mirCtxRefines_let_hoist_app_right_atom_iter_fwd :
     ∀ (binds : List (VarId × Expr × Bool)) (g body : Expr),
@@ -200,32 +175,6 @@ theorem mirCtxRefines_let_hoist_app_right_atom_iter_fwd :
     exact mirCtxRefines_let_cons_er_normalize_bwd v rhs er rest (.App g body)
   termination_by binds _ _ _ _ => binds.length
 
-/-- Iterated App-right-atom hoist (backward). -/
-theorem mirCtxRefines_let_hoist_app_right_atom_iter_bwd :
-    ∀ (binds : List (VarId × Expr × Bool)) (g body : Expr),
-      g.isAtom = true →
-      (∀ b ∈ binds, (freeVars g).contains b.1 = false) →
-      MIRCtxRefines (.Let binds (.App g body)) (.App g (.Let binds body))
-  | [], g, body, _, _ =>
-    mirCtxRefines_trans (mirCtxRefines_let_nil_body _)
-      (mirCtxRefines_app (mirCtxRefines_refl _) (mirCtxRefines_let_nil_body_bwd body))
-  | (v, rhs, er) :: rest, g, body, hg, hfresh => by
-    have hv_fresh := hfresh (v, rhs, er) (List.Mem.head _)
-    have hrest_fresh := fun b hb => hfresh b (List.Mem.tail _ hb)
-    refine mirCtxRefines_trans
-      (mirCtxRefines_let_cons_er_normalize_fwd v rhs er rest (.App g body)) ?_
-    refine mirCtxRefines_trans (mirCtxRefines_let_cons_split_fwd _ _ _) ?_
-    refine mirCtxRefines_trans
-      (mirCtxRefines_let_body
-        (mirCtxRefines_let_hoist_app_right_atom_iter_bwd rest g body hg hrest_fresh)) ?_
-    refine mirCtxRefines_trans
-      (mirCtxRefines_let_hoist_app_right_atom_bwd v rhs (.Let rest body) g hg hv_fresh) ?_
-    refine mirCtxRefines_trans
-      (mirCtxRefines_app (mirCtxRefines_refl _) (mirCtxRefines_let_cons_split_bwd _ _ _)) ?_
-    exact mirCtxRefines_app (mirCtxRefines_refl _)
-      (mirCtxRefines_let_cons_er_normalize_bwd v rhs er rest body)
-  termination_by binds _ _ _ _ => binds.length
-
 /-- Iterated Force hoist (forward). No freshness needed. -/
 theorem mirCtxRefines_let_hoist_force_iter_fwd :
     ∀ (binds : List (VarId × Expr × Bool)) (body : Expr),
@@ -246,24 +195,6 @@ theorem mirCtxRefines_let_hoist_force_iter_fwd :
     exact mirCtxRefines_let_cons_er_normalize_bwd v rhs er rest (.Force body)
   termination_by binds _ => binds.length
 
-/-- Iterated Force hoist (backward). -/
-theorem mirCtxRefines_let_hoist_force_iter_bwd :
-    ∀ (binds : List (VarId × Expr × Bool)) (body : Expr),
-      MIRCtxRefines (.Let binds (.Force body)) (.Force (.Let binds body))
-  | [], body =>
-    mirCtxRefines_trans (mirCtxRefines_let_nil_body _)
-      (mirCtxRefines_force (mirCtxRefines_let_nil_body_bwd body))
-  | (v, rhs, er) :: rest, body => by
-    refine mirCtxRefines_trans
-      (mirCtxRefines_let_cons_er_normalize_fwd v rhs er rest (.Force body)) ?_
-    refine mirCtxRefines_trans (mirCtxRefines_let_cons_split_fwd _ _ _) ?_
-    refine mirCtxRefines_trans
-      (mirCtxRefines_let_body (mirCtxRefines_let_hoist_force_iter_bwd rest body)) ?_
-    refine mirCtxRefines_trans (mirCtxRefines_let_hoist_force_bwd v rhs (.Let rest body)) ?_
-    refine mirCtxRefines_trans (mirCtxRefines_force (mirCtxRefines_let_cons_split_bwd _ _ _)) ?_
-    exact mirCtxRefines_force (mirCtxRefines_let_cons_er_normalize_bwd v rhs er rest body)
-  termination_by binds _ => binds.length
-
 /-- `ListRel MIRCtxRefines` reflexivity. -/
 theorem listRel_mirCtxRefines_refl : ∀ (l : List Expr), ListRel MIRCtxRefines l l
   | [] => True.intro
@@ -280,19 +211,6 @@ theorem mirCtxRefines_case_let_nil_scrut (body : Expr) (alts : List Expr) :
   rw [h]
   refine ⟨id, ?_⟩
   cases hl : lowerTotalExpr env (.Case body alts) with
-  | none => trivial
-  | some t => exact ctxRefines_refl t
-
-theorem mirCtxRefines_case_let_nil_scrut_bwd (body : Expr) (alts : List Expr) :
-    MIRCtxRefines (.Case body alts) (.Case (.Let [] body) alts) := by
-  intro env
-  have h : lowerTotalExpr env (.Case (.Let [] body) alts) =
-           lowerTotalExpr env (.Case body alts) := by
-    simp only [lowerTotalExpr, expandFix, expandFixBinds,
-      lowerTotal, lowerTotalLet]
-  rw [← h]
-  refine ⟨id, ?_⟩
-  cases hl : lowerTotalExpr env (.Case (.Let [] body) alts) with
   | none => trivial
   | some t => exact ctxRefines_refl t
 
@@ -320,33 +238,6 @@ theorem mirCtxRefines_let_hoist_case_scrut_iter_fwd :
         (mirCtxRefines_let_hoist_case_scrut_iter_fwd rest body alts hrest_fresh)) ?_
     refine mirCtxRefines_trans (mirCtxRefines_let_cons_split_bwd _ _ _) ?_
     exact mirCtxRefines_let_cons_er_normalize_bwd v rhs er rest (.Case body alts)
-  termination_by binds _ _ _ => binds.length
-
-/-- Iterated Case-scrutinee hoist (backward). -/
-theorem mirCtxRefines_let_hoist_case_scrut_iter_bwd :
-    ∀ (binds : List (VarId × Expr × Bool)) (body : Expr) (alts : List Expr),
-      (∀ b ∈ binds, (freeVarsList alts).contains b.1 = false) →
-      MIRCtxRefines (.Let binds (.Case body alts)) (.Case (.Let binds body) alts)
-  | [], body, alts, _ =>
-    mirCtxRefines_trans (mirCtxRefines_let_nil_body _)
-      (mirCtxRefines_case_let_nil_scrut_bwd body alts)
-  | (v, rhs, er) :: rest, body, alts, hfresh => by
-    have hv_fresh := hfresh (v, rhs, er) (List.Mem.head _)
-    have hrest_fresh := fun b hb => hfresh b (List.Mem.tail _ hb)
-    refine mirCtxRefines_trans
-      (mirCtxRefines_let_cons_er_normalize_fwd v rhs er rest (.Case body alts)) ?_
-    refine mirCtxRefines_trans (mirCtxRefines_let_cons_split_fwd _ _ _) ?_
-    refine mirCtxRefines_trans
-      (mirCtxRefines_let_body
-        (mirCtxRefines_let_hoist_case_scrut_iter_bwd rest body alts hrest_fresh)) ?_
-    refine mirCtxRefines_trans
-      (mirCtxRefines_let_hoist_case_scrut_bwd v rhs (.Let rest body) alts hv_fresh) ?_
-    refine mirCtxRefines_trans
-      (mirCtxRefines_case (mirCtxRefines_let_cons_split_bwd _ _ _)
-        (listRel_mirCtxRefines_refl alts)) ?_
-    exact mirCtxRefines_case
-      (mirCtxRefines_let_cons_er_normalize_bwd v rhs er rest body)
-      (listRel_mirCtxRefines_refl alts)
   termination_by binds _ _ _ => binds.length
 
 /-- `ListRel` preserved under append when the middle element is related and
@@ -433,50 +324,6 @@ theorem mirCtxRefines_let_hoist_constr_arg_iter_fwd :
           hpre_atom hrest_pre_fresh hrest_post_fresh)) ?_
     refine mirCtxRefines_trans (mirCtxRefines_let_cons_split_bwd _ _ _) ?_
     exact mirCtxRefines_let_cons_er_normalize_bwd v rhs er rest _
-  termination_by binds _ _ _ _ _ _ _ => binds.length
-
-/-- Iterated Constr-arg hoist (backward). -/
-theorem mirCtxRefines_let_hoist_constr_arg_iter_bwd :
-    ∀ (binds : List (VarId × Expr × Bool)) (tag : Nat) (pre : List Expr) (body : Expr)
-      (post : List Expr),
-      (∀ a ∈ pre, a.isAtom = true) →
-      (∀ a ∈ pre, ∀ b ∈ binds, (freeVars a).contains b.1 = false) →
-      (∀ a ∈ post, ∀ b ∈ binds, (freeVars a).contains b.1 = false) →
-      MIRCtxRefines (.Let binds (.Constr tag (pre ++ [body] ++ post)))
-                    (.Constr tag (pre ++ [.Let binds body] ++ post))
-  | [], tag, pre, body, post, _, _, _ => by
-    have h1 : MIRCtxRefines (.Let [] (.Constr tag (pre ++ [body] ++ post)))
-                            (.Constr tag (pre ++ [body] ++ post)) :=
-      mirCtxRefines_let_nil_body _
-    have hmid : MIRCtxRefines body (.Let [] body) := mirCtxRefines_let_nil_body_bwd body
-    have hrel : ListRel MIRCtxRefines (pre ++ [body] ++ post)
-                                      (pre ++ [.Let [] body] ++ post) :=
-      listRel_app_of_refl_mid (R := MIRCtxRefines) mirCtxRefines_refl hmid
-    have h2 : MIRCtxRefines (.Constr tag (pre ++ [body] ++ post))
-                            (.Constr tag (pre ++ [.Let [] body] ++ post)) :=
-      mirCtxRefines_constr_of_listRel tag hrel
-    exact mirCtxRefines_trans h1 h2
-  | (v, rhs, er) :: rest, tag, pre, body, post, hpre_atom, hpre_fresh, hpost_fresh => by
-    have hv_pre_fresh := fun a ha => hpre_fresh a ha (v, rhs, er) (List.Mem.head _)
-    have hv_post_fresh := fun a ha => hpost_fresh a ha (v, rhs, er) (List.Mem.head _)
-    have hrest_pre_fresh := fun a ha b hb => hpre_fresh a ha b (List.Mem.tail _ hb)
-    have hrest_post_fresh := fun a ha b hb => hpost_fresh a ha b (List.Mem.tail _ hb)
-    refine mirCtxRefines_trans
-      (mirCtxRefines_let_cons_er_normalize_fwd v rhs er rest _) ?_
-    refine mirCtxRefines_trans (mirCtxRefines_let_cons_split_fwd _ _ _) ?_
-    refine mirCtxRefines_trans
-      (mirCtxRefines_let_body
-        (mirCtxRefines_let_hoist_constr_arg_iter_bwd rest tag pre body post
-          hpre_atom hrest_pre_fresh hrest_post_fresh)) ?_
-    refine mirCtxRefines_trans
-      (mirCtxRefines_let_hoist_constr_arg_bwd tag pre v rhs (.Let rest body) post
-        hpre_atom hv_pre_fresh hv_post_fresh) ?_
-    refine mirCtxRefines_trans
-      (mirCtxRefines_constr_of_listRel tag
-        (listRel_app_of_refl_mid_mirCtxRefines (mirCtxRefines_let_cons_split_bwd _ _ _))) ?_
-    exact mirCtxRefines_constr_of_listRel tag
-      (listRel_app_of_refl_mid_mirCtxRefines
-        (mirCtxRefines_let_cons_er_normalize_bwd v rhs er rest body))
   termination_by binds _ _ _ _ _ _ _ => binds.length
 
 end Moist.Verified.MIR

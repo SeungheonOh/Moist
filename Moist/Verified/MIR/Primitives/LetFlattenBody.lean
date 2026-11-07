@@ -48,7 +48,7 @@ private theorem lowerTotalLet_append_eq :
     rw [lowerTotalLet_append_eq rest b₂ (x :: env) body]
 
 /-- **Let-flatten (body side)**: nested let in body equals appended bindings. -/
-private theorem lowerTotalExpr_let_flatten_body
+theorem lowerTotalExpr_let_flatten_body
     (binds₁ binds₂ : List (VarId × Expr × Bool)) (body : Expr) (env : List VarId) :
     lowerTotalExpr env (.Let binds₁ (.Let binds₂ body)) =
       lowerTotalExpr env (.Let (binds₁ ++ binds₂) body) := by
@@ -57,70 +57,9 @@ private theorem lowerTotalExpr_let_flatten_body
   simp only [expandFix, expandFixBinds_append,
     lowerTotalLet_append_eq (expandFixBinds binds₁) (expandFixBinds binds₂) env (expandFix body)]
 
-/-- **MIRRefines for let-flatten-body (forward)**: definitional via identical lowerings. -/
-theorem mirRefines_let_flatten_body_fwd
-    (binds₁ binds₂ : List (VarId × Expr × Bool)) (body : Expr) :
-    MIRRefines (.Let binds₁ (.Let binds₂ body)) (.Let (binds₁ ++ binds₂) body) := by
-  refine ⟨fun env => by rw [lowerTotalExpr_let_flatten_body]; exact id, ?_⟩
-  intro d k env hlen
-  rw [lowerTotalExpr_let_flatten_body binds₁ binds₂ body env]
-  cases h : lowerTotalExpr env (.Let (binds₁ ++ binds₂) body) with
-  | none => simp
-  | some t =>
-    simp only
-    intro j hj ρ₁ ρ₂ henv i hi π₁ π₂ hπ
-    subst hlen
-    exact ftlr env.length t (lowerTotal_closedAt env _ t h) j j (Nat.le_refl _)
-      ρ₁ ρ₂ henv i hi π₁ π₂ hπ
-
-/-- Symmetric (backward) direction. -/
-theorem mirRefines_let_flatten_body_bwd
-    (binds₁ binds₂ : List (VarId × Expr × Bool)) (body : Expr) :
-    MIRRefines (.Let (binds₁ ++ binds₂) body) (.Let binds₁ (.Let binds₂ body)) := by
-  refine ⟨fun env => by rw [← lowerTotalExpr_let_flatten_body]; exact id, ?_⟩
-  intro d k env hlen
-  rw [← lowerTotalExpr_let_flatten_body binds₁ binds₂ body env]
-  cases h : lowerTotalExpr env (.Let binds₁ (.Let binds₂ body)) with
-  | none => simp
-  | some t =>
-    simp only
-    intro j hj ρ₁ ρ₂ henv i hi π₁ π₂ hπ
-    subst hlen
-    exact ftlr env.length t (lowerTotal_closedAt env _ t h) j j (Nat.le_refl _)
-      ρ₁ ρ₂ henv i hi π₁ π₂ hπ
-
-/-- Closedness preservation for let-flatten-body (both directions equivalent). -/
-private theorem let_flatten_body_close_pres
-    (binds₁ binds₂ : List (VarId × Expr × Bool)) (body : Expr) :
-    ∀ env k t₁ t₂,
-      lowerTotalExpr env (.Let binds₁ (.Let binds₂ body)) = some t₁ →
-      lowerTotalExpr env (.Let (binds₁ ++ binds₂) body) = some t₂ →
-      closedAt k t₁ = true → closedAt k t₂ = true := by
-  intro env _ _ _ h₁ h₂ hc
-  rw [lowerTotalExpr_let_flatten_body binds₁ binds₂ body env, h₂] at h₁
-  cases h₁; exact hc
-
-private theorem let_flatten_body_close_pres_bwd
-    (binds₁ binds₂ : List (VarId × Expr × Bool)) (body : Expr) :
-    ∀ env k t₁ t₂,
-      lowerTotalExpr env (.Let (binds₁ ++ binds₂) body) = some t₁ →
-      lowerTotalExpr env (.Let binds₁ (.Let binds₂ body)) = some t₂ →
-      closedAt k t₁ = true → closedAt k t₂ = true := by
-  intro env _ _ _ h₁ h₂ hc
-  rw [← lowerTotalExpr_let_flatten_body binds₁ binds₂ body env, h₂] at h₁
-  cases h₁; exact hc
-
 theorem mirCtxRefines_let_flatten_body_fwd
     (binds₁ binds₂ : List (VarId × Expr × Bool)) (body : Expr) :
     MIRCtxRefines (.Let binds₁ (.Let binds₂ body)) (.Let (binds₁ ++ binds₂) body) :=
-  mirRefines_to_mirCtxRefines
-    (mirRefines_let_flatten_body_fwd binds₁ binds₂ body)
-    (let_flatten_body_close_pres binds₁ binds₂ body)
+  mirCtxRefines_of_lowerEq (lowerTotalExpr_let_flatten_body binds₁ binds₂ body)
 
-theorem mirCtxRefines_let_flatten_body_bwd
-    (binds₁ binds₂ : List (VarId × Expr × Bool)) (body : Expr) :
-    MIRCtxRefines (.Let (binds₁ ++ binds₂) body) (.Let binds₁ (.Let binds₂ body)) :=
-  mirRefines_to_mirCtxRefines
-    (mirRefines_let_flatten_body_bwd binds₁ binds₂ body)
-    (let_flatten_body_close_pres_bwd binds₁ binds₂ body)
 end Moist.Verified.MIR

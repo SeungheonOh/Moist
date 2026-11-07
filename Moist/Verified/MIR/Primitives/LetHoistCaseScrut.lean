@@ -201,135 +201,6 @@ private theorem stackRefK_caseScrutinee_shift_aug_fwd {i d : Nat}
     | .VBuiltin _ _ _, .VLam _ _ | .VBuiltin _ _ _, .VDelay _ _
     | .VBuiltin _ _ _, .VConstr _ _ => simp only [ValueRefinesK] at hw
 
-/-- Backward version of `stackRefK_caseScrutinee_shift_aug_fwd`. LHS has the
-    `extend`-ed env with shifted alts; RHS has the original env. -/
-private theorem stackRefK_caseScrutinee_shift_aug_bwd {i d : Nat}
-    {t_alts : List Term} {π₁ π₂ : Stack} {ρ₁ ρ₂ : CekEnv} {v₁ : CekValue}
-    (halts : closedAtList d t_alts = true)
-    (henv : EnvRefinesK i d ρ₁ ρ₂)
-    (hπ : StackRefK ValueRefinesK i π₁ π₂) :
-    StackRefK ValueRefinesK i
-      (.caseScrutinee (renameTermList (shiftRename 1) t_alts)
-          (ρ₁.extend v₁) :: π₁)
-      (.caseScrutinee t_alts ρ₂ :: π₂) := by
-  intro j hj w₁ w₂ hw
-  match j with
-  | 0 => exact obsRefinesK_zero_ret
-  | n + 1 =>
-    obsRefinesK_of_step_auto
-    have halts_j : closedAtList d t_alts = true := halts
-    have henv_j : EnvRefinesK (n + 1) d ρ₁ ρ₂ := by
-      intro p hp hpd
-      obtain ⟨w₁', w₂', hl, hr, hrel⟩ := henv p hp hpd
-      exact ⟨w₁', w₂', hl, hr, valueRefinesK_mono hj _ _ hrel⟩
-    match w₁, w₂ with
-    | .VConstr tag₁ fields₁, .VConstr tag₂ fields₂ =>
-      simp only [ValueRefinesK] at hw; obtain ⟨rfl, hfields_v⟩ := hw
-      simp only [step]
-      have hlen_eq : (renameTermList
-          (shiftRename 1) t_alts).length = t_alts.length :=
-        renameTermList_length _ _
-      split
-      · rename_i alt_val halt_case
-        have hsome₁ := List.getElem?_eq_some_iff.mp halt_case
-        have hi₁s : tag₁ < (renameTermList
-            (shiftRename 1) t_alts).length := hsome₁.1
-        have hi₁ : tag₁ < t_alts.length := by omega
-        have halt₂ : t_alts[tag₁]? = some (t_alts[tag₁]) :=
-          List.getElem?_eq_some_iff.mpr ⟨hi₁, rfl⟩
-        rw [halt₂]; simp only []
-        have hidx : (renameTermList (shiftRename 1) t_alts)[tag₁]'hi₁s
-            = renameTerm (shiftRename 1) (t_alts[tag₁]) :=
-          renameTermList_getElem _ _ _ hi₁
-        have halt_closed : closedAt d (t_alts[tag₁]) = true :=
-          Moist.Verified.Contextual.BisimRef.closedAtList_get d t_alts _ _ halts_j
-            (List.getElem?_eq_some_iff.mpr ⟨hi₁, rfl⟩)
-        have heq_alt : alt_val = (renameTermList
-            (shiftRename 1) t_alts)[tag₁] := hsome₁.2.symm
-        subst heq_alt
-        rw [hidx]
-        have henv_RL : RenameEnvRef
-            (shiftRename 1) (n + 1) d (ρ₁.extend v₁) ρ₂ :=
-          envRefinesK_to_renameEnvRef_shift henv_j
-        exact renameRefines_shift1 d (t_alts[tag₁]) halt_closed
-          (n + 1) (n + 1) (Nat.le_refl _) (ρ₁.extend v₁) ρ₂ henv_RL n (by omega)
-          ((fields₁.map Frame.applyArg) ++ π₁)
-          ((fields₂.map Frame.applyArg) ++ π₂)
-          (applyArgFrames_stackRefK
-            (listRel_mono (fun a b h => valueRefinesK_mono (by omega) a b h) hfields_v)
-            (stackRefK_mono (by omega) hπ))
-      · rename_i hnone₁
-        have hnone₂ : t_alts[tag₁]? = none := by
-          rw [List.getElem?_eq_none_iff] at hnone₁ ⊢; omega
-        rw [hnone₂]; simp only []; exact obsRefinesK_error _
-    | .VCon c₁, .VCon c₂ =>
-      simp only [ValueRefinesK] at hw; subst hw
-      simp only [step]
-      have hlen_eq : (renameTermList
-          (shiftRename 1) t_alts).length = t_alts.length :=
-        renameTermList_length _ _
-      split
-      · rename_i tag numCtors fields hconst
-        have hif_eq : (decide (numCtors > 0) && decide ((renameTermList
-              (shiftRename 1) t_alts).length > numCtors)) =
-            (decide (numCtors > 0) && decide (t_alts.length > numCtors)) := by
-          rw [hlen_eq]
-        split
-        · rename_i h_check
-          rw [hif_eq] at h_check; simp [h_check]; exact obsRefinesK_error _
-        · rename_i h_check
-          rw [hif_eq] at h_check; simp [h_check]
-          split
-          · rename_i alt_val halt_case
-            have hsome₁ := List.getElem?_eq_some_iff.mp halt_case
-            have hi₁s : tag < (renameTermList
-                (shiftRename 1) t_alts).length := hsome₁.1
-            have hi₁ : tag < t_alts.length := by omega
-            have halt₂ : t_alts[tag]? = some (t_alts[tag]) :=
-              List.getElem?_eq_some_iff.mpr ⟨hi₁, rfl⟩
-            rw [halt₂]; simp only []
-            have hidx : (renameTermList
-                (shiftRename 1) t_alts)[tag]'hi₁s =
-                renameTerm (shiftRename 1) (t_alts[tag]) :=
-              renameTermList_getElem _ _ _ hi₁
-            have halt_closed : closedAt d (t_alts[tag]) = true :=
-              Moist.Verified.Contextual.BisimRef.closedAtList_get d t_alts _ _ halts_j
-                (List.getElem?_eq_some_iff.mpr ⟨hi₁, rfl⟩)
-            have heq_alt : alt_val = (renameTermList
-                (shiftRename 1) t_alts)[tag] := hsome₁.2.symm
-            subst heq_alt
-            rw [hidx]
-            have hfields_vcon :=
-              constToTagAndFields_fields_vcon c₁
-            rw [hconst] at hfields_vcon
-            have henv_RL : RenameEnvRef
-                (shiftRename 1) (n + 1) d (ρ₁.extend v₁) ρ₂ :=
-              envRefinesK_to_renameEnvRef_shift henv_j
-            exact renameRefines_shift1 d (t_alts[tag]) halt_closed
-              (n + 1) (n + 1) (Nat.le_refl _) (ρ₁.extend v₁) ρ₂ henv_RL n (by omega)
-              ((fields.map Frame.applyArg) ++ π₁)
-              ((fields.map Frame.applyArg) ++ π₂)
-              (applyArgFrames_stackRefK
-                (Moist.Verified.Contextual.SoundnessRefines.listRel_refl_vcon_refines n
-                  fields hfields_vcon)
-                (stackRefK_mono (by omega) hπ))
-          · rename_i hnone₁
-            have hnone₂ : t_alts[tag]? = none := by
-              rw [List.getElem?_eq_none_iff] at hnone₁ ⊢; omega
-            rw [hnone₂]; simp only []; exact obsRefinesK_error _
-      · exact obsRefinesK_error _
-    | .VLam _ _, .VLam _ _ | .VDelay _ _, .VDelay _ _
-    | .VBuiltin _ _ _, .VBuiltin _ _ _ => simp only [step]; exact obsRefinesK_error _
-    | .VCon _, .VLam _ _ | .VCon _, .VDelay _ _ | .VCon _, .VConstr _ _
-    | .VCon _, .VBuiltin _ _ _ | .VLam _ _, .VCon _ | .VLam _ _, .VDelay _ _
-    | .VLam _ _, .VConstr _ _ | .VLam _ _, .VBuiltin _ _ _
-    | .VDelay _ _, .VCon _ | .VDelay _ _, .VLam _ _ | .VDelay _ _, .VConstr _ _
-    | .VDelay _ _, .VBuiltin _ _ _ | .VConstr _ _, .VCon _
-    | .VConstr _ _, .VLam _ _ | .VConstr _ _, .VDelay _ _
-    | .VConstr _ _, .VBuiltin _ _ _ | .VBuiltin _ _ _, .VCon _
-    | .VBuiltin _ _ _, .VLam _ _ | .VBuiltin _ _ _, .VDelay _ _
-    | .VBuiltin _ _ _, .VConstr _ _ => simp only [ValueRefinesK] at hw
-
 /-- Forward augmented stack helper for let-hoist-case-scrut, one layer above
     `stackRefK_caseScrutinee_shift_aug_fwd`. LHS has `funV (VLam t_body ρ₁)
     :: caseScrutinee t_alts ρ₁ :: π₁`; RHS has `funV (VLam (.Case t_body
@@ -367,42 +238,6 @@ private theorem stackRefK_funV_caseScrut_shift_fwd {i d : Nat}
       (.caseScrutinee (renameTermList (shiftRename 1) t_alts)
           (ρ₂.extend v₂) :: π₂) :=
     stackRefK_caseScrutinee_shift_aug_fwd hclosed_alts henv_j (stackRefK_mono hj hπ)
-  exact ftlr (d + 1) t_body hclosed_body j j (Nat.le_refl _) (ρ₁.extend v₁) (ρ₂.extend v₂)
-    henv_ext j (Nat.le_refl _) _ _ hπ_case
-
-/-- Backward augmented stack helper for let-hoist-case-scrut. LHS has `funV
-    (VLam (.Case t_body (shift t_alts)) ρ₁) :: π₁`; RHS has `funV (VLam
-    t_body ρ₂) :: caseScrutinee t_alts ρ₂ :: π₂`. -/
-private theorem stackRefK_funV_caseScrut_shift_bwd {i d : Nat}
-    {t_body : Term} {t_alts : List Term} {π₁ π₂ : Stack} {ρ₁ ρ₂ : CekEnv}
-    (hclosed_body : closedAt (d + 1) t_body = true)
-    (hclosed_alts : closedAtList d t_alts = true)
-    (henv : EnvRefinesK i d ρ₁ ρ₂)
-    (hπ : StackRefK ValueRefinesK i π₁ π₂) :
-    StackRefK ValueRefinesK i
-      (.funV (.VLam (.Case t_body
-        (renameTermList (shiftRename 1) t_alts)) ρ₁) :: π₁)
-      (.funV (.VLam t_body ρ₂) :: .caseScrutinee t_alts ρ₂ :: π₂) := by
-  intro j hj v₁ v₂ hv
-  have h_lhs :
-      steps 2 (State.ret (.funV (.VLam (.Case t_body
-          (renameTermList (shiftRename 1) t_alts)) ρ₁) :: π₁) v₁) =
-        State.compute (.caseScrutinee
-          (renameTermList (shiftRename 1) t_alts)
-          (ρ₁.extend v₁) :: π₁) (ρ₁.extend v₁) t_body := rfl
-  have h_rhs :
-      steps 1 (State.ret (.funV (.VLam t_body ρ₂) :: .caseScrutinee t_alts ρ₂ :: π₂) v₂) =
-        State.compute (.caseScrutinee t_alts ρ₂ :: π₂) (ρ₂.extend v₂) t_body := rfl
-  apply obsRefinesK_of_steps_left h_lhs
-  apply obsRefinesK_of_steps_right h_rhs
-  have henv_j : EnvRefinesK j d ρ₁ ρ₂ := envRefinesK_mono hj henv
-  have henv_ext : EnvRefinesK j (d + 1) (ρ₁.extend v₁) (ρ₂.extend v₂) :=
-    envRefinesK_extend henv_j hv
-  have hπ_case : StackRefK ValueRefinesK j
-      (.caseScrutinee (renameTermList (shiftRename 1) t_alts)
-          (ρ₁.extend v₁) :: π₁)
-      (.caseScrutinee t_alts ρ₂ :: π₂) :=
-    stackRefK_caseScrutinee_shift_aug_bwd hclosed_alts henv_j (stackRefK_mono hj hπ)
   exact ftlr (d + 1) t_body hclosed_body j j (Nat.le_refl _) (ρ₁.extend v₁) (ρ₂.extend v₂)
     henv_ext j (Nat.le_refl _) _ _ hπ_case
 
@@ -569,25 +404,6 @@ private theorem lowerTotalExpr_case_let_eq_none (env : List VarId) (v : VarId)
     · rw [h] at hb; exact absurd hb (by simp)
     · rw [h] at ha; exact absurd ha (by simp)
 
-/-- Helper: RHS of let-case lowers to none when any sub-expression fails to lower. -/
-private theorem lowerTotalExpr_let_case_eq_none (env : List VarId) (v : VarId)
-    (rhs body : Expr) (alts : List Expr)
-    (hfresh : (freeVarsList alts).contains v = false)
-    (h : lowerTotalExpr env rhs = none ∨
-         lowerTotalExpr (v :: env) body = none ∨
-         lowerTotalList env (expandFixList alts) = none) :
-    lowerTotalExpr env (.Let [(v, rhs, false)] (.Case body alts)) = none := by
-  cases hlhs : lowerTotalExpr env (.Let [(v, rhs, false)] (.Case body alts)) with
-  | none => rfl
-  | some _ =>
-    have hs : (lowerTotalExpr env (.Let [(v, rhs, false)] (.Case body alts))).isSome := by
-      rw [hlhs]; rfl
-    obtain ⟨hr, hb, ha⟩ := (lowerTotalExpr_let_case_isSome env v rhs body alts hfresh).mp hs
-    rcases h with h | h | h
-    · rw [h] at hr; exact absurd hr (by simp)
-    · rw [h] at hb; exact absurd hb (by simp)
-    · rw [h] at ha; exact absurd ha (by simp)
-
 theorem mirRefines_let_hoist_case_scrut_fwd (v : VarId) (rhs body : Expr) (alts : List Expr)
     (hfresh : (freeVarsList alts).contains v = false) :
     MIRRefines (.Case (.Let [(v, rhs, false)] body) alts)
@@ -652,67 +468,6 @@ theorem mirRefines_let_hoist_case_scrut_fwd (v : VarId) (rhs body : Expr) (alts 
           exact ftlr env.length t_r hclosed_r j j (Nat.le_refl _) ρ₁ ρ₂ henv_j i hi
             _ _ hπ_aug
 
-theorem mirRefines_let_hoist_case_scrut_bwd (v : VarId) (rhs body : Expr) (alts : List Expr)
-    (hfresh : (freeVarsList alts).contains v = false) :
-    MIRRefines (.Let [(v, rhs, false)] (.Case body alts))
-               (.Case (.Let [(v, rhs, false)] body) alts) := by
-  refine ⟨fun env hsome =>
-    (lowerTotalExpr_case_let_isSome env v rhs body alts).mpr
-      ((lowerTotalExpr_let_case_isSome env v rhs body alts hfresh).mp hsome), ?_⟩
-  intro d k env hlen
-  cases hr : lowerTotalExpr env rhs with
-  | none =>
-    rw [lowerTotalExpr_let_case_eq_none env v rhs body alts hfresh (.inl hr)]; trivial
-  | some t_r =>
-    cases hb : lowerTotalExpr (v :: env) body with
-    | none =>
-      rw [lowerTotalExpr_let_case_eq_none env v rhs body alts hfresh (.inr (.inl hb))]
-      trivial
-    | some t_b =>
-      cases ha : lowerTotalList env (expandFixList alts) with
-      | none =>
-        rw [lowerTotalExpr_let_case_eq_none env v rhs body alts hfresh (.inr (.inr ha))]
-        trivial
-      | some t_a =>
-          rw [lowerTotalExpr_let_case_fresh v hfresh hr hb ha, lowerTotalExpr_case_let v hr hb ha]
-          simp only
-          intro j hj ρ₁ ρ₂ henv i hi π₁ π₂ hπ
-          have h_steps_lhs :
-              steps 3 (State.compute π₁ ρ₁ (.Apply (.Lam 0 (.Case t_b
-                (renameTermList (shiftRename 1) t_a))) t_r)) =
-                State.compute (.funV (.VLam (.Case t_b
-                  (renameTermList (shiftRename 1) t_a)) ρ₁) :: π₁)
-                  ρ₁ t_r := rfl
-          have h_steps_rhs :
-              steps 4 (State.compute π₂ ρ₂ (.Case (.Apply (.Lam 0 t_b) t_r) t_a)) =
-                State.compute (.funV (.VLam t_b ρ₂) :: .caseScrutinee t_a ρ₂ :: π₂) ρ₂ t_r := rfl
-          apply obsRefinesK_of_steps_left h_steps_lhs
-          apply obsRefinesK_of_steps_right h_steps_rhs
-          have hclosed_r : closedAt env.length t_r :=
-            lowerTotal_closedAt env _ t_r hr
-          have hclosed_b : closedAt (env.length + 1) t_b := by
-            have := lowerTotal_closedAt (v :: env) _ t_b hb
-            simpa [List.length_cons] using this
-          have hclosed_a : closedAtList env.length t_a :=
-            lowerTotalList_closedAtList env _ t_a ha
-          have hd_eq : d = env.length := hlen.symm
-          subst hd_eq
-          have henv_j : EnvRefinesK j env.length ρ₁ ρ₂ := by
-            intro n hn hnd
-            obtain ⟨w₁, w₂, hl, hr', hw⟩ := henv n hn hnd
-            exact ⟨w₁, w₂, hl, hr', hw⟩
-          have henv_i : EnvRefinesK i env.length ρ₁ ρ₂ := by
-            intro n hn hnd
-            obtain ⟨w₁, w₂, hl, hr', hw⟩ := henv_j n hn hnd
-            exact ⟨w₁, w₂, hl, hr', valueRefinesK_mono hi _ _ hw⟩
-          have hπ_aug : StackRefK ValueRefinesK i
-              (.funV (.VLam (.Case t_b
-                (renameTermList (shiftRename 1) t_a)) ρ₁) :: π₁)
-              (.funV (.VLam t_b ρ₂) :: .caseScrutinee t_a ρ₂ :: π₂) :=
-            stackRefK_funV_caseScrut_shift_bwd hclosed_b hclosed_a henv_i hπ
-          exact ftlr env.length t_r hclosed_r j j (Nat.le_refl _) ρ₁ ρ₂ henv_j i hi
-            _ _ hπ_aug
-
 private theorem let_hoist_case_scrut_close_pres_fwd (v : VarId) (rhs body : Expr)
     (alts : List Expr) (hfresh : (freeVarsList alts).contains v = false) :
     ∀ env k t₁ t₂,
@@ -741,34 +496,6 @@ private theorem let_hoist_case_scrut_close_pres_fwd (v : VarId) (rhs body : Expr
         exact ⟨⟨hb_c,
           closedAtList_renameTermList_shiftRename t_a k 1 (by omega) (by omega) ha_c⟩, hr_c⟩
 
-private theorem let_hoist_case_scrut_close_pres_bwd (v : VarId) (rhs body : Expr)
-    (alts : List Expr) (hfresh : (freeVarsList alts).contains v = false) :
-    ∀ env k t₁ t₂,
-      lowerTotalExpr env (.Let [(v, rhs, false)] (.Case body alts)) = some t₁ →
-      lowerTotalExpr env (.Case (.Let [(v, rhs, false)] body) alts) = some t₂ →
-      closedAt k t₁ = true → closedAt k t₂ = true := by
-  intro env k t₁ t₂ h₁ h₂ hc
-  have hsome₁ : (lowerTotalExpr env (.Let [(v, rhs, false)] (.Case body alts))).isSome := by
-    rw [h₁]; exact rfl
-  obtain ⟨hr_some, hb_some, ha_some⟩ :=
-    (lowerTotalExpr_let_case_isSome env v rhs body alts hfresh).mp hsome₁
-  cases hr : lowerTotalExpr env rhs with
-  | none => rw [hr] at hr_some; exact absurd hr_some (by simp)
-  | some t_r =>
-    cases hb : lowerTotalExpr (v :: env) body with
-    | none => rw [hb] at hb_some; exact absurd hb_some (by simp)
-    | some t_b =>
-      cases ha : lowerTotalList env (expandFixList alts) with
-      | none => rw [ha] at ha_some; exact absurd ha_some (by simp)
-      | some t_a =>
-        rw [lowerTotalExpr_let_case_fresh v hfresh hr hb ha] at h₁
-        rw [lowerTotalExpr_case_let v hr hb ha] at h₂
-        cases h₁; cases h₂
-        simp only [closedAt, Bool.and_eq_true] at hc ⊢
-        obtain ⟨⟨hb_c, ha_sh_c⟩, hr_c⟩ := hc
-        exact ⟨⟨hb_c, hr_c⟩,
-          closedAtList_renameTermList_shiftRename_inv t_a k 1 (by omega) (by omega) ha_sh_c⟩
-
 theorem mirCtxRefines_let_hoist_case_scrut_fwd (v : VarId) (rhs body : Expr) (alts : List Expr)
     (hfresh : (freeVarsList alts).contains v = false) :
     MIRCtxRefines (.Case (.Let [(v, rhs, false)] body) alts)
@@ -777,11 +504,4 @@ theorem mirCtxRefines_let_hoist_case_scrut_fwd (v : VarId) (rhs body : Expr) (al
     (mirRefines_let_hoist_case_scrut_fwd v rhs body alts hfresh)
     (let_hoist_case_scrut_close_pres_fwd v rhs body alts hfresh)
 
-theorem mirCtxRefines_let_hoist_case_scrut_bwd (v : VarId) (rhs body : Expr) (alts : List Expr)
-    (hfresh : (freeVarsList alts).contains v = false) :
-    MIRCtxRefines (.Let [(v, rhs, false)] (.Case body alts))
-                  (.Case (.Let [(v, rhs, false)] body) alts) :=
-  mirRefines_to_mirCtxRefines
-    (mirRefines_let_hoist_case_scrut_bwd v rhs body alts hfresh)
-    (let_hoist_case_scrut_close_pres_bwd v rhs body alts hfresh)
 end Moist.Verified.MIR

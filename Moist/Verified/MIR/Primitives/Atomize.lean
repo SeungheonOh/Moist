@@ -100,33 +100,6 @@ theorem mirRefines_atomize_fwd (e : Expr) (x : VarId) :
       ftlr env.length t₁ (lowerTotal_closedAt env (expandFix e) t₁ ht)
         j j (Nat.le_refl _) ρ₁ ρ₂ henv i hi _ _ (stackRefK_funV_id_augment_right hπ)
 
-/-- **MIRRefines for atomize (backward direction)**: `let x = e in Var x ⊑ᴹ e`.
-
-    Symmetric to the forward direction: the LHS takes 3 admin steps to
-    reach `compute (funV ... :: π₁) ρ₁ t`, and we need this to refine
-    `compute π₂ ρ₂ t`. We do this by showing the funV frame is also
-    transparent on the *left* — so the goal reduces to `t in extended
-    stack ⊑ t in plain stack`, again via FTLR with a stack relation. -/
-theorem mirRefines_atomize_bwd (e : Expr) (x : VarId) :
-    MIRRefines (.Let [(x, e, false)] (.Var x)) e := by
-  refine ⟨fun env hsome => by
-    rw [lowerTotalExpr_let_var_self env x e, Option.isSome_map] at hsome; exact hsome, ?_⟩
-  intro d k env hlen
-  cases ht : lowerTotalExpr env e with
-  | none =>
-    rw [lowerTotalExpr_let_var_self_none x ht]; trivial
-  | some t₁ =>
-    rw [lowerTotalExpr_let_var_self_some x ht]
-    simp only
-    intro j hj ρ₁ ρ₂ henv i hi π₁ π₂ hπ
-    have h_steps :
-        steps 3 (State.compute π₁ ρ₁ (.Apply (.Lam 0 (.Var 1)) t₁)) =
-          State.compute (.funV (.VLam (.Var 1) ρ₁) :: π₁) ρ₁ t₁ := rfl
-    subst hlen
-    exact obsRefinesK_of_steps_left h_steps <|
-      ftlr env.length t₁ (lowerTotal_closedAt env (expandFix e) t₁ ht)
-        j j (Nat.le_refl _) ρ₁ ρ₂ henv i hi _ _ (stackRefK_funV_id_augment_left hπ)
-
 /-- Closedness preservation suffices for the atomize direction
     `e ↦ let x = e in Var x`: the wrapper is closed iff the body is. -/
 private theorem atomize_close_pres_fwd (e : Expr) (x : VarId) :
@@ -138,21 +111,9 @@ private theorem atomize_close_pres_fwd (e : Expr) (x : VarId) :
   rw [lowerTotalExpr_let_var_self env x e, h₁] at h₂
   cases h₂; rw [closedAt_atomize_iff]; exact hc
 
-private theorem atomize_close_pres_bwd (e : Expr) (x : VarId) :
-    ∀ env k t₁ t₂,
-      lowerTotalExpr env (.Let [(x, e, false)] (.Var x)) = some t₁ →
-      lowerTotalExpr env e = some t₂ →
-      closedAt k t₁ = true → closedAt k t₂ = true := by
-  intro env _ _ _ h₁ h₂ hc
-  rw [lowerTotalExpr_let_var_self env x e, h₂] at h₁
-  cases h₁; rwa [closedAt_atomize_iff] at hc
-
 /-- **MIRCtxRefines for atomize**, both directions. -/
 theorem mirCtxRefines_atomize_fwd (e : Expr) (x : VarId) :
     MIRCtxRefines e (.Let [(x, e, false)] (.Var x)) :=
   mirRefines_to_mirCtxRefines (mirRefines_atomize_fwd e x) (atomize_close_pres_fwd e x)
 
-theorem mirCtxRefines_atomize_bwd (e : Expr) (x : VarId) :
-    MIRCtxRefines (.Let [(x, e, false)] (.Var x)) e :=
-  mirRefines_to_mirCtxRefines (mirRefines_atomize_bwd e x) (atomize_close_pres_bwd e x)
 end Moist.Verified.MIR

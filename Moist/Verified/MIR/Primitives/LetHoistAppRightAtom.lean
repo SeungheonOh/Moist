@@ -298,24 +298,6 @@ private theorem lowerTotalExpr_app_g_let_eq_none (env : List VarId) (v : VarId)
     · rw [h] at hr; exact absurd hr (by simp)
     · rw [h] at hb; exact absurd hb (by simp)
 
-/-- Helper: RHS lowers to none when any sub-expression fails to lower. -/
-private theorem lowerTotalExpr_let_app_g_eq_none (env : List VarId) (v : VarId)
-    (g rhs body : Expr) (hfresh : (freeVars g).contains v = false)
-    (h : lowerTotalExpr env g = none ∨
-         lowerTotalExpr env rhs = none ∨
-         lowerTotalExpr (v :: env) body = none) :
-    lowerTotalExpr env (.Let [(v, rhs, false)] (.App g body)) = none := by
-  cases hlhs : lowerTotalExpr env (.Let [(v, rhs, false)] (.App g body)) with
-  | none => rfl
-  | some _ =>
-    have hs : (lowerTotalExpr env (.Let [(v, rhs, false)] (.App g body))).isSome := by
-      rw [hlhs]; rfl
-    obtain ⟨hg, hr, hb⟩ := (lowerTotalExpr_let_app_g_isSome env v g rhs body hfresh).mp hs
-    rcases h with h | h | h
-    · rw [h] at hg; exact absurd hg (by simp)
-    · rw [h] at hr; exact absurd hr (by simp)
-    · rw [h] at hb; exact absurd hb (by simp)
-
 /-- **MIRRefines for let-hoist-app-right-atom (forward)**:
     `.App g (.Let [(v, rhs, false)] body) ⊑ᴹ .Let [(v, rhs, false)] (.App g body)`
     when `g` is an atom and `v ∉ freeVars g`. -/
@@ -427,115 +409,6 @@ theorem mirRefines_let_hoist_app_right_atom_fwd (v : VarId) (rhs body g : Expr)
               (ρ₁.extend v₁') (ρ₂.extend v₂') henv_ext j' (Nat.le_refl _) _ _ hπ_funV
           exact ftlr env.length t_r hclosed_r j j (Nat.le_refl _) ρ₁ ρ₂ henv_j i hi _ _ hπ_aug
 
-/-- **MIRRefines for let-hoist-app-right-atom (backward)**: symmetric. -/
-theorem mirRefines_let_hoist_app_right_atom_bwd (v : VarId) (rhs body g : Expr)
-    (hgatom : g.isAtom = true)
-    (hfresh : (freeVars g).contains v = false) :
-    MIRRefines (.Let [(v, rhs, false)] (.App g body))
-               (.App g (.Let [(v, rhs, false)] body)) := by
-  refine ⟨fun env hsome =>
-    (lowerTotalExpr_app_g_let_isSome env v g rhs body).mpr
-      ((lowerTotalExpr_let_app_g_isSome env v g rhs body hfresh).mp hsome), ?_⟩
-  intro d k env hlen
-  cases hg : lowerTotalExpr env g with
-  | none =>
-    rw [lowerTotalExpr_let_app_g_eq_none env v g rhs body hfresh (.inl hg)]; trivial
-  | some t_g =>
-    cases hr : lowerTotalExpr env rhs with
-    | none =>
-      rw [lowerTotalExpr_let_app_g_eq_none env v g rhs body hfresh (.inr (.inl hr))]; trivial
-    | some t_r =>
-      cases hb : lowerTotalExpr (v :: env) body with
-      | none =>
-        rw [lowerTotalExpr_let_app_g_eq_none env v g rhs body hfresh (.inr (.inr hb))]; trivial
-      | some t_b =>
-          rw [lowerTotalExpr_let_app_g v hfresh hg hr hb,
-              lowerTotalExpr_app_g_let v hg hr hb]
-          simp only
-          intro j hj ρ₁ ρ₂ henv i hi π₁ π₂ hπ
-          have hgatom_term : isLeafAtomTerm t_g :=
-            lowerTotal_atom_isLeafAtom env g t_g hgatom hg
-          have hclosed_g : closedAt env.length t_g :=
-            lowerTotal_closedAt env _ t_g hg
-          have hclosed_r : closedAt env.length t_r :=
-            lowerTotal_closedAt env _ t_r hr
-          have hclosed_b : closedAt (env.length + 1) t_b := by
-            have := lowerTotal_closedAt (v :: env) _ t_b hb
-            simpa [List.length_cons] using this
-          have hd_eq : d = env.length := hlen.symm
-          subst hd_eq
-          obtain ⟨v_g₁, v_g₂, hvg_rel, hstep_lhs_any, hstep_rhs_any⟩ :=
-            leafAtomValues hgatom_term hclosed_g (k := i)
-              (by intro n hn hnd
-                  obtain ⟨w₁, w₂, hl, hr', hw⟩ := henv n hn hnd
-                  exact ⟨w₁, w₂, hl, hr', valueRefinesK_mono hi _ _ hw⟩)
-          have h_steps_lhs :
-              steps 3 (State.compute π₁ ρ₁ (.Apply (.Lam 0 (.Apply
-                (renameTerm (shiftRename 1) t_g) t_b)) t_r)) =
-                State.compute (.funV (.VLam (.Apply
-                  (renameTerm (shiftRename 1) t_g) t_b) ρ₁) :: π₁)
-                  ρ₁ t_r := rfl
-          have h_steps_rhs :
-              steps 6 (State.compute π₂ ρ₂ (.Apply t_g (.Apply (.Lam 0 t_b) t_r))) =
-                State.compute (.funV (.VLam t_b ρ₂) :: .funV v_g₂ :: π₂) ρ₂ t_r := by
-            show Moist.CEK.step (Moist.CEK.step (Moist.CEK.step (Moist.CEK.step
-              (Moist.CEK.step (Moist.CEK.step
-                (State.compute π₂ ρ₂ (.Apply t_g (.Apply (.Lam 0 t_b) t_r)))))))) = _
-            show Moist.CEK.step (Moist.CEK.step (Moist.CEK.step (Moist.CEK.step
-              (Moist.CEK.step (State.compute (.arg (.Apply (.Lam 0 t_b) t_r) ρ₂ :: π₂) ρ₂ t_g))))) = _
-            rw [hstep_rhs_any (.arg (.Apply (.Lam 0 t_b) t_r) ρ₂ :: π₂)]
-            rfl
-          apply obsRefinesK_of_steps_left h_steps_lhs
-          apply obsRefinesK_of_steps_right h_steps_rhs
-          have henv_j : EnvRefinesK j env.length ρ₁ ρ₂ := by
-            intro n hn hnd
-            obtain ⟨w₁, w₂, hl, hr', hw⟩ := henv n hn hnd
-            exact ⟨w₁, w₂, hl, hr', hw⟩
-          have hπ_aug : StackRefK ValueRefinesK i
-              (.funV (.VLam (.Apply
-                (renameTerm (shiftRename 1) t_g) t_b) ρ₁) :: π₁)
-              (.funV (.VLam t_b ρ₂) :: .funV v_g₂ :: π₂) := by
-            intro j' hj' v₁' v₂' hv'
-            have hshift_step :
-                Moist.CEK.step (.compute (.arg t_b (ρ₁.extend v₁') :: π₁) (ρ₁.extend v₁')
-                  (renameTerm (shiftRename 1) t_g)) =
-                  .ret (.arg t_b (ρ₁.extend v₁') :: π₁) v_g₁ := by
-              have hempty_step : Moist.CEK.step (.compute [] ρ₁ t_g) = .ret [] v_g₁ :=
-                hstep_lhs_any []
-              exact leafAtom_shift_step hgatom_term hclosed_g v₁' v_g₁
-                hempty_step (.arg t_b (ρ₁.extend v₁') :: π₁)
-            have h_lhs_step :
-                steps 4 (State.ret (.funV (.VLam (.Apply
-                  (renameTerm (shiftRename 1) t_g) t_b) ρ₁) :: π₁) v₁') =
-                  State.compute (.funV v_g₁ :: π₁) (ρ₁.extend v₁') t_b := by
-              show Moist.CEK.step (Moist.CEK.step (Moist.CEK.step (Moist.CEK.step
-                (State.ret (.funV (.VLam (.Apply
-                  (renameTerm (shiftRename 1) t_g) t_b) ρ₁) :: π₁) v₁')))) = _
-              show Moist.CEK.step (Moist.CEK.step
-                (State.compute (.arg t_b (ρ₁.extend v₁') :: π₁) (ρ₁.extend v₁')
-                  (renameTerm (shiftRename 1) t_g))) = _
-              rw [hshift_step]
-              rfl
-            apply obsRefinesK_of_steps_left h_lhs_step
-            have h_rhs_step :
-                steps 1 (State.ret (.funV (.VLam t_b ρ₂) :: .funV v_g₂ :: π₂) v₂') =
-                  State.compute (.funV v_g₂ :: π₂) (ρ₂.extend v₂') t_b := rfl
-            apply obsRefinesK_of_steps_right h_rhs_step
-            have henv_ij : EnvRefinesK j' env.length ρ₁ ρ₂ := by
-              intro n hn hnd
-              obtain ⟨w₁, w₂, hl, hr', hw⟩ := henv n hn hnd
-              exact ⟨w₁, w₂, hl, hr', valueRefinesK_mono (Nat.le_trans hj' hi) _ _ hw⟩
-            have henv_ext : EnvRefinesK j' (env.length + 1) (ρ₁.extend v₁') (ρ₂.extend v₂') :=
-              envRefinesK_extend henv_ij hv'
-            have hvg_rel' : ValueRefinesK j' v_g₁ v_g₂ :=
-              valueRefinesK_mono hj' _ _ hvg_rel
-            have hπ_j' : StackRefK ValueRefinesK j' π₁ π₂ := stackRefK_mono hj' hπ
-            have hπ_funV : StackRefK ValueRefinesK j' (.funV v_g₁ :: π₁) (.funV v_g₂ :: π₂) :=
-              stackRefK_funV_top_aug hvg_rel' hπ_j'
-            exact ftlr (env.length + 1) t_b hclosed_b j' j' (Nat.le_refl _)
-              (ρ₁.extend v₁') (ρ₂.extend v₂') henv_ext j' (Nat.le_refl _) _ _ hπ_funV
-          exact ftlr env.length t_r hclosed_r j j (Nat.le_refl _) ρ₁ ρ₂ henv_j i hi _ _ hπ_aug
-
 /-- Closedness preservation for let-hoist-app-right-atom (forward). -/
 private theorem let_hoist_app_right_atom_close_pres_fwd (v : VarId) (rhs body g : Expr)
     (hfresh : (freeVars g).contains v = false) :
@@ -564,36 +437,6 @@ private theorem let_hoist_app_right_atom_close_pres_fwd (v : VarId) (rhs body g 
         obtain ⟨hg_c, ⟨hb_c, hr_c⟩⟩ := hc
         exact ⟨⟨closedAt_renameTerm_shiftRename t_g k 1 (by omega) (by omega) hg_c, hb_c⟩, hr_c⟩
 
-/-- Closedness preservation for let-hoist-app-right-atom (backward). -/
-private theorem let_hoist_app_right_atom_close_pres_bwd (v : VarId) (rhs body g : Expr)
-    (hfresh : (freeVars g).contains v = false) :
-    ∀ env k t₁ t₂,
-      lowerTotalExpr env (.Let [(v, rhs, false)] (.App g body)) = some t₁ →
-      lowerTotalExpr env (.App g (.Let [(v, rhs, false)] body)) = some t₂ →
-      closedAt k t₁ = true → closedAt k t₂ = true := by
-  intro env k t₁ t₂ h₁ h₂ hc
-  have hsome₁ : (lowerTotalExpr env (.Let [(v, rhs, false)] (.App g body))).isSome := by
-    rw [h₁]; exact rfl
-  obtain ⟨hg_some, hr_some, hb_some⟩ :=
-    (lowerTotalExpr_let_app_g_isSome env v g rhs body hfresh).mp hsome₁
-  cases hg : lowerTotalExpr env g with
-  | none => rw [hg] at hg_some; exact absurd hg_some (by simp)
-  | some t_g =>
-    cases hr : lowerTotalExpr env rhs with
-    | none => rw [hr] at hr_some; exact absurd hr_some (by simp)
-    | some t_r =>
-      cases hb : lowerTotalExpr (v :: env) body with
-      | none => rw [hb] at hb_some; exact absurd hb_some (by simp)
-      | some t_b =>
-        rw [lowerTotalExpr_let_app_g v hfresh hg hr hb] at h₁
-        rw [lowerTotalExpr_app_g_let v hg hr hb] at h₂
-        cases h₁; cases h₂
-        simp only [closedAt, Bool.and_eq_true] at hc ⊢
-        obtain ⟨⟨hshg_c, hb_c⟩, hr_c⟩ := hc
-        have hg_c : closedAt k t_g = true :=
-          closedAt_renameTerm_shiftRename_inv t_g k 1 (by omega) (by omega) hshg_c
-        exact ⟨hg_c, hb_c, hr_c⟩
-
 theorem mirCtxRefines_let_hoist_app_right_atom_fwd (v : VarId) (rhs body g : Expr)
     (hgatom : g.isAtom = true)
     (hfresh : (freeVars g).contains v = false) :
@@ -603,12 +446,4 @@ theorem mirCtxRefines_let_hoist_app_right_atom_fwd (v : VarId) (rhs body g : Exp
     (mirRefines_let_hoist_app_right_atom_fwd v rhs body g hgatom hfresh)
     (let_hoist_app_right_atom_close_pres_fwd v rhs body g hfresh)
 
-theorem mirCtxRefines_let_hoist_app_right_atom_bwd (v : VarId) (rhs body g : Expr)
-    (hgatom : g.isAtom = true)
-    (hfresh : (freeVars g).contains v = false) :
-    MIRCtxRefines (.Let [(v, rhs, false)] (.App g body))
-                  (.App g (.Let [(v, rhs, false)] body)) :=
-  mirRefines_to_mirCtxRefines
-    (mirRefines_let_hoist_app_right_atom_bwd v rhs body g hgatom hfresh)
-    (let_hoist_app_right_atom_close_pres_bwd v rhs body g hfresh)
 end Moist.Verified.MIR
