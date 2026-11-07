@@ -110,16 +110,6 @@ protected theorem obsRefinesK_of_steps_left {k n : Nat} {s₁ s₁' s₂ : State
   · obtain ⟨m', hm', hs'⟩ := reach hs (.inl rfl)
     exact h.2 m' (by omega) hs'
 
-/-- Run the right state forward `n` steps. -/
-protected theorem obsRefinesK_of_steps_right {k n : Nat} {s₁ s₂ s₂' : State}
-    (h_steps : steps n s₂ = s₂') (h : ObsRefinesK k s₁ s₂') : ObsRefinesK k s₁ s₂ := by
-  subst h_steps
-  refine ⟨fun v hv => ?_, fun m hm hs => ?_⟩
-  · obtain ⟨v', m, hm⟩ := h.1 v hv
-    exact ⟨v', n + m, by rw [Equivalence.steps_trans]; exact hm⟩
-  · obtain ⟨m', hm'⟩ := h.2 m hm hs
-    exact ⟨n + m', by rw [Equivalence.steps_trans]; exact hm'⟩
-
 /-- ObsRefinesK 0 at compute-compute states. -/
 theorem obsRefinesK_zero_compute {π₁ : Stack} {ρ₁ : CekEnv} {t₁ : Term}
     {π₂ : Stack} {ρ₂ : CekEnv} {t₂ : Term} :
@@ -187,26 +177,6 @@ theorem listRel_reverse {R : α → α → Prop} {l₁ l₂ : List α}
     | cons b bs =>
       simp only [List.reverse_cons, ListRel] at h ⊢
       exact listRel_append (ih h.2) ⟨h.1, trivial⟩
-
-private theorem listRel_length {R : α → α → Prop} :
-    {l₁ l₂ : List α} → ListRel R l₁ l₂ → l₁.length = l₂.length
-  | [], [], _ => rfl
-  | _ :: _, [], h => absurd h id
-  | [], _ :: _, h => absurd h id
-  | _ :: _, _ :: _, h => by simp; exact listRel_length h.2
-
-theorem listRel_getElem {R : α → α → Prop} {l₁ l₂ : List α}
-    (h : ListRel R l₁ l₂) {i : Nat} (hi : i < l₁.length) :
-    R (l₁[i]'hi) (l₂[i]'(by have := listRel_length h; omega)) := by
-  induction l₁ generalizing l₂ i with
-  | nil => simp at hi
-  | cons a as ih =>
-    cases l₂ with
-    | nil => exact absurd h id
-    | cons b bs =>
-      cases i with
-      | zero => exact h.1
-      | succ i' => exact ih h.2 (by simp at hi ⊢; omega)
 
 theorem constToTagAndFields_fields_vcon (c : Const) :
     match constToTagAndFields c with

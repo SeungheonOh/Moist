@@ -39,9 +39,6 @@ context (evaluating it with `[funV (VLam body env)]` on the stack).
 
 /-! ## CekEnv helpers -/
 
-@[simp] theorem CekEnv.lookup_zero (env : CekEnv) : env.lookup 0 = none := by
-  cases env <;> rfl
-
 /-! ## liftState -/
 
 /-- Prepend a base continuation stack to every stack inside a state.

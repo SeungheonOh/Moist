@@ -28,8 +28,6 @@ must agree on the halted value. -/
 
 /-- `halt` is a fixed point of `step`. -/
 theorem step_halt (v : CekValue) : step (.halt v) = .halt v := rfl
-/-- `error` is a fixed point of `step`. -/
-theorem step_error : step .error = .error := rfl
 
 /-- Step counts compose: running `m + n` steps is the same as running `m`
     then `n`. -/
@@ -71,17 +69,6 @@ private theorem reaches_unique_aux : ∀ (m n : Nat) (s : State) (v w : CekValue
 theorem reaches_unique {s : State} {v w : CekValue}
     (hv : Reaches s (.halt v)) (hw : Reaches s (.halt w)) : v = w :=
   let ⟨m, hm⟩ := hv; let ⟨n, hn⟩ := hw; reaches_unique_aux m n s v w hm hn
-
-/-- **Consistency of outcomes**: a state cannot reach both `halt` and `error`.
-    Proof: extend both step sequences to the same total length using
-    `steps_halt`/`steps_error`, then observe the contradiction
-    `.halt v = .error`. -/
-theorem reaches_halt_not_error {s : State} {v : CekValue}
-    (hv : Reaches s (.halt v)) (he : Reaches s .error) : False := by
-  obtain ⟨m, hm⟩ := hv; obtain ⟨n, hn⟩ := he
-  have h1 : steps (m + n) s = .halt v := by rw [steps_trans, hm, steps_halt]
-  have h2 : steps (n + m) s = .error := by rw [steps_trans, hn, steps_error]
-  rw [show m + n = n + m from Nat.add_comm m n] at h1; rw [h1] at h2; exact absurd h2 (by simp)
 
 /-! ## Well-Sized Environments -/
 

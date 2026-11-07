@@ -6,26 +6,16 @@ import Moist.Verified.ClosedAt
 
 /-! # Contextual-tower definitions
 
-* `ObsRefines` — observational refinement of closed CEK states. (`ObsEq`,
-  its legacy two-sided version, lives in `Moist.Verified.Equivalence`.)
+* `ObsRefines` — observational refinement of closed CEK states.
 * `Context` / `fill` / `Context.binders` / `Context.closedAt` /
   `Context.compose` — program contexts and their operations.
-* `CtxRefines` — contextual refinement (`CtxEq` is the legacy two-sided
-  version).
+* `CtxRefines` — contextual refinement.
 -/
 
 namespace Moist.Verified.Equivalence
 
 open Moist.CEK
 open Moist.Plutus.Term
-
-/-- Full observational equivalence: both halt AND error behavior preserved.
-    Using a `structure` instead of `And ... ∧ ...` sidesteps Lean's anonymous-
-    constructor flattening: `⟨h, e⟩` and `h.halt`/`h.error` remain unambiguous
-    no matter how the inner `Iff`s look. -/
-structure ObsEq (c₁ c₂ : State) : Prop where
-  halt : (∃ v₁, Reaches c₁ (.halt v₁)) ↔ (∃ v₂, Reaches c₂ (.halt v₂))
-  error : Reaches c₁ .error ↔ Reaches c₂ .error
 
 end Moist.Verified.Equivalence
 
@@ -118,21 +108,12 @@ def Context.compose : Context → Context → Context
 
 /-! ## Contextual equivalence (legacy) -/
 
-/-- Guarded two-sided contextual equivalence: for every context closing both
-    sides, the empty-state CEK runs are observationally equivalent. -/
-def CtxEq (t₁ t₂ : Term) : Prop :=
-  ∀ (C : Context),
-    closedAt 0 (fill C t₁) = true →
-    closedAt 0 (fill C t₂) = true →
-    ObsEq (.compute [] .nil (fill C t₁))
-          (.compute [] .nil (fill C t₂))
-
 /-! ## Contextual refinement -/
 
 /-- Observational refinement: `c₂` refines `c₁`'s halt AND error behavior.
     This prevents unsound transforms like `Let x = Error in 10 ⊑ 10`.
-    Defined as a `structure` for the same reason `ObsEq` is — unambiguous
-    destructuring/construction with `.halt`/`.error`/`ObsRefines.mk`. -/
+    A `structure` gives unambiguous destructuring/construction with
+    `.halt`/`.error`/`ObsRefines.mk`. -/
 structure ObsRefines (c₁ c₂ : State) : Prop where
   halt : (∃ v₁, Reaches c₁ (.halt v₁)) → (∃ v₂, Reaches c₂ (.halt v₂))
   error : Reaches c₁ .error → Reaches c₂ .error

@@ -206,9 +206,6 @@ private theorem mem_erase {s : VarSet} {v w : VarId} :
 private theorem mem_var {x w : VarId} : (freeVars (.Var x)).contains w = true ↔ (x == w) = true := by
   rw [Moist.MIR.freeVars.eq_1, Moist.MIR.VarSet.singleton_contains']
 
-theorem contains_of_contains_erase {s : VarSet} {v w : VarId}
-    (h : (s.erase v).contains w = true) : s.contains w = true := (mem_erase.mp h).1
-
 mutual
   /-- Renaming `x` to `x'` frees only what was free besides `x`, and `x'`. -/
   theorem fv_rename (x x' : VarId) : ∀ (e : Expr) (w : VarId),
@@ -323,7 +320,6 @@ private theorem binderStep_fv (repl : Expr) (x : VarId) (b : Expr) (s : FreshSta
     · exact h'
     · rw [h'] at hne; cases hne
   · exact ⟨hw, hne⟩
-
 
 mutual
   /-- Substitution frees only what was free besides `v`, and the replacement's. -/

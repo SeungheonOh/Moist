@@ -63,9 +63,6 @@ def OpenRefinesKWF (k d : Nat) (t₁ t₂ : Term) : Prop :=
 
 def OpenRefinesWF (d : Nat) (t₁ t₂ : Term) : Prop := ∀ k, OpenRefinesKWF k d t₁ t₂
 
-theorem openRefinesWF_iff {d : Nat} {t₁ t₂ : Term} :
-    OpenRefinesWF d t₁ t₂ ↔ OpenRel wfGuard d t₁ t₂ := Iff.rfl
-
 open Moist.Verified.Contextual.Soundness (dummyEnv dummyEnv_length)
 
 private theorem dummyEnv_wellFormed : ∀ (n : Nat), EnvWellFormed n (dummyEnv n)

@@ -221,7 +221,6 @@ theorem valueRel_delay {k : Nat} {b₁ b₂ : Term} {ρ₁ ρ₂ : CekEnv}
     exact hbody j (by omega) i hi π₁ π₂ ⟨hs₁, hs₂, hfn⟩
       (W.step (W.ret.mpr ⟨W.force hs₁, hv₁⟩)) (W.step (W.ret.mpr ⟨W.force hs₂, hv₂⟩))
 
-
 /-- Evaluate after one CEK step on both sides. -/
 theorem eval_of_step {k : Nat} {ρ₁ ρ₂ : CekEnv} {t₁ t₂ : Term}
     (h : ∀ j < k, ∀ π₁ π₂, StackRel W j π₁ π₂ →
@@ -421,7 +420,6 @@ def AltsRel (W : Guard) (k : Nat) (ρ₁ ρ₂ : CekEnv) (as₁ as₂ : List Ter
   as₁.length = as₂.length ∧
   ∀ n : Nat, (as₁[n]? = none ∧ as₂[n]? = none) ∨
     ∃ a₁ a₂, as₁[n]? = some a₁ ∧ as₂[n]? = some a₂ ∧ Eval W k ρ₁ ρ₂ a₁ a₂
-
 
 theorem altsRel_of_listRel {k : Nat} {ρ₁ ρ₂ : CekEnv} :
     ∀ {as₁ as₂ : List Term}, ListRel (Eval W k ρ₁ ρ₂) as₁ as₂ → AltsRel W k ρ₁ ρ₂ as₁ as₂

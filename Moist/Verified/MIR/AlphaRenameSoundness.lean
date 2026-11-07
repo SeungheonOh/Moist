@@ -14,14 +14,6 @@ namespace Moist.Verified.MIR
 
 open Moist.MIR
 
-theorem VarId_beq_true_iff (a b : VarId) :
-    (a == b) = true ↔ a.origin = b.origin ∧ a.uid = b.uid :=
-  VarId.beq_true_iff a b
-
-theorem VarId_beq_false_iff (a b : VarId) :
-    (a == b) = false ↔ a.origin ≠ b.origin ∨ a.uid ≠ b.uid :=
-  VarId.beq_false_iff a b
-
 /-! ## Substitutions -/
 
 theorem substLookup_cons (old new : VarId) (rest : List (VarId × VarId)) (v : VarId) :

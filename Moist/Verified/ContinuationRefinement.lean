@@ -20,12 +20,6 @@ theorem TerminalRefines.refl (state : State) : TerminalRefines state state := by
   intro terminal _ reaches
   exact reaches
 
-theorem TerminalRefines.trans {first second third : State}
-    (left : TerminalRefines first second) (right : TerminalRefines second third) :
-    TerminalRefines first third := by
-  intro terminal final reaches
-  exact right terminal final (left terminal final reaches)
-
 theorem TerminalRefines.obs {source target : State} (refines : TerminalRefines source target) :
     ObsRefines source target := by
   constructor

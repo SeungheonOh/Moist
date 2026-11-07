@@ -254,7 +254,6 @@ end
 
 /-! ## Sub-expression lemmas -/
 
-
 private theorem barrier_lam_fv (x : VarId) (body : Expr) :
     ∀ v, VarSet.empty.contains v = true ∨ (Moist.MIR.freeVars body).contains v = true →
          (VarSet.empty.insert x).contains v = true ∨

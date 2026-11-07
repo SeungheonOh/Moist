@@ -29,25 +29,7 @@ inductive StateWellFormed : State → Prop
   | error : StateWellFormed .error
   | halt : ∀ {v}, ValueWellFormed v → StateWellFormed (.halt v)
 
-
 section EvalBuiltinWF
-
-private theorem diagonal : ∀ {args : List CekValue}, ValueListWellFormed args →
-    Moist.Verified.Equivalence.ListRel (fun x y => x = y ∧ ValueWellFormed x) args args
-  | [], _ => trivial
-  | _ :: _, h => by cases h with | cons h hs => exact ⟨⟨rfl, h⟩, diagonal hs⟩
-
-theorem evalBuiltin_preserves_wf {b : BuiltinFun}
-    {args : List CekValue} {v : CekValue}
-    (heval : evalBuiltin b args = some v)
-    (hargs : ValueListWellFormed args) :
-    ValueWellFormed v := by
-  have rel := evalBuiltin_rel (b := b)
-    (fun {c v} => ⟨fun h => h.1.symm, fun h => ⟨h.symm, .vcon c⟩⟩)
-    (fun {c v} => ⟨fun h => h.1, fun h => ⟨h, h ▸ .vcon c⟩⟩) (diagonal hargs)
-  rw [heval] at rel
-  cases rel with
-  | some r => exact r.2
 
 end EvalBuiltinWF
 

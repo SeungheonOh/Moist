@@ -141,14 +141,6 @@ theorem renameEnvRef2_extend {V : Nat → CekValue → CekValue → Prop}
   · rw [extend_lookup_lift h₁ ρ₁ v₁ n (by omega), extend_lookup_lift h₂ ρ₂ v₂ n (by omega)]
     exact henv (n - 1) (by omega) (by omega)
 
-theorem renameEnvRef_extend {r : Nat → Nat} (h_r : Is0Preserving r)
-    {k d : Nat} {ρ₁ ρ₂ : CekEnv} {v₁ v₂ : CekValue}
-    (henv : RenameEnvRef r k d ρ₁ ρ₂) (hv : ValueRefinesK k v₁ v₂) :
-    RenameEnvRef (Moist.Verified.liftRename r) k (d + 1)
-                 (ρ₁.extend v₁) (ρ₂.extend v₂) := by
-  have h := renameEnvRef2_extend (V := ValueRefinesK) h_r is0preserving_id henv hv
-  rwa [Moist.Verified.liftRename_id] at h
-
 theorem renameEnvRefR_extend {r : Nat → Nat} (h_r : Is0Preserving r)
     {k d : Nat} {ρ₁ ρ₂ : CekEnv} {v₁ v₂ : CekValue}
     (henv : RenameEnvRefR r k d ρ₁ ρ₂) (hv : ValueRefinesK k v₁ v₂) :
@@ -171,10 +163,6 @@ theorem renameEnvRef2_id {V : Nat → CekValue → CekValue → Prop} {k d : Nat
        | none, none => True
        | _, _ => False
   rw [hl, hr]; exact hrel
-
-theorem envRefinesK_to_renameEnvRef_id {k d : Nat} {ρ₁ ρ₂ : CekEnv}
-    (h : EnvRefinesK k d ρ₁ ρ₂) : RenameEnvRef id k d ρ₁ ρ₂ :=
-  renameEnvRef2_id h
 
 /-- `EnvRefinesK → RenameEnvRef (shiftRename 1)` on an `extend`-ed left env. -/
 theorem envRefinesK_to_renameEnvRef_shift {k d : Nat} {ρ₁ ρ₂ : CekEnv}

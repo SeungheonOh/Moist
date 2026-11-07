@@ -90,44 +90,6 @@ end
 
 /-! ## Reflexivity -/
 
-mutual
-
-theorem AlphaEq.refl (env : List VarId) (e : Expr) :
-    AlphaEq env env e e := by
-  match e with
-  | .Var x => exact .var rfl
-  | .Lit _ => exact .lit
-  | .Builtin _ => exact .builtin
-  | .Error => exact .error
-  | .Lam x body => exact .lam (AlphaEq.refl (x :: env) body)
-  | .Fix f body => exact .fix (AlphaEq.refl (f :: env) body)
-  | .App f a => exact .app (AlphaEq.refl env f) (AlphaEq.refl env a)
-  | .Force e => exact .force (AlphaEq.refl env e)
-  | .Delay e => exact .delay (AlphaEq.refl env e)
-  | .Constr tag args => exact .constr (AlphaEqList.refl env args)
-  | .Case scrut alts =>
-    exact .case_ (AlphaEq.refl env scrut) (AlphaEqList.refl env alts)
-  | .Let binds body => exact .let_ (AlphaEqBinds.refl env binds body)
-  termination_by sizeOf e
-
-theorem AlphaEqList.refl (env : List VarId) (es : List Expr) :
-    AlphaEqList env env es es := by
-  match es with
-  | [] => exact .nil
-  | e :: rest => exact .cons (AlphaEq.refl env e) (AlphaEqList.refl env rest)
-  termination_by sizeOf es
-
-theorem AlphaEqBinds.refl (env : List VarId)
-    (binds : List (VarId × Expr × Bool)) (body : Expr) :
-    AlphaEqBinds env env binds binds body body := by
-  match binds with
-  | [] => exact .nil (AlphaEq.refl env body)
-  | (x, rhs, er) :: rest =>
-    exact .cons (AlphaEq.refl env rhs) (AlphaEqBinds.refl (x :: env) rest body)
-  termination_by sizeOf binds + sizeOf body
-
-end
-
 /-! ## Environment agreement -/
 
 end Moist.Verified.MIR.AlphaEq

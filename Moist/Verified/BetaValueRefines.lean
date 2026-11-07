@@ -36,12 +36,6 @@ open Moist.Verified.Contextual.SoundnessRefines
 -- file) do not need to reach into that module's private namespace.
 --------------------------------------------------------------------------------
 
-/-- The unused position 0 always returns `none`. -/
-theorem lookup_zero (ρ : CekEnv) : ρ.lookup 0 = none := by
-  match ρ with
-  | .nil => rfl
-  | .cons _ _ => rfl
-
 /-- The new top of an `extend`ed env at position 1. -/
 theorem extend_lookup_one (ρ : CekEnv) (v : CekValue) :
     (ρ.extend v).lookup 1 = some v := by

@@ -324,14 +324,6 @@ mutual
   termination_by sizeOf binds + sizeOf body
 end
 
-theorem isPure_no_error (e : Expr) (t : Term) (env : List VarId) (ρ : CekEnv)
-    (hpure : isPure e = true) (hlower : lowerTotal env e = some t)
-    (hwf : WellSizedEnv env.length ρ) :
-    ¬ Reaches (.compute [] ρ t) .error := by
-  intro herr
-  have ⟨v, hv⟩ := isPure_halts e t env ρ hpure hlower hwf
-  exact reaches_halt_not_error hv herr
-
 /-! ## expandFix preserves isPure
 
 Because `isPure (.Fix _ _) = false`, the Z-combinator transformation only

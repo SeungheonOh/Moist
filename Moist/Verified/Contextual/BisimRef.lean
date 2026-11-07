@@ -286,15 +286,6 @@ theorem closedAtList_get : ∀ (d : Nat) (alts : List Term) (n : Nat) (alt : Ter
 -- 5. Inversion/destructuring lemmas for LocalValueList and LocalValue
 --------------------------------------------------------------------------------
 
-theorem localValueList_nil_inv : ∀ {xs : List CekValue},
-    LocalValueList [] xs → xs = []
-  | _, h => by cases h; rfl
-
-theorem localValueList_cons_inv : ∀ {v : CekValue} {vs xs : List CekValue},
-    LocalValueList (v :: vs) xs →
-    ∃ w ws, xs = w :: ws ∧ LocalValue v w ∧ LocalValueList vs ws
-  | _, _, _, h => by cases h with | cons hv hr => exact ⟨_, _, rfl, hv, hr⟩
-
 theorem localValue_vcon_inv : ∀ {c : Const} {v : CekValue},
     LocalValue (.VCon c) v → v = .VCon c
   | _, _, h => by cases h; rfl

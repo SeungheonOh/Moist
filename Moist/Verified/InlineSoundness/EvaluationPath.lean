@@ -1,7 +1,6 @@
 import Moist.Verified.InlineSoundness.Totality
 import Moist.MIR.Optimize.Safety
 
-
 /-! # Evaluation paths
 
 `EvaluationPath p t`: evaluating `t` reaches the variable `p` before anything
