@@ -33,6 +33,7 @@ import Test.MIR.Opt.SoundnessAudit
 import Test.MIR.Opt.Acceptance
 import Test.MIR.Opt.FormalCoverage
 import Test.MIR.Opt.FormalAxioms
+import Test.MIR.Opt.Axioms
 import Test.Onchain.ConstitutionEncoding
 import Test.Onchain.CollectionEncoding
 import Test.Onchain.RecursiveEncoding
