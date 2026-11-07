@@ -5,6 +5,7 @@ import Test.MIR.Opt.Axioms.CSE
 import Test.MIR.Opt.Axioms.CaseMerge
 import Test.MIR.Opt.Axioms.CheckedBranches
 import Test.MIR.Opt.Axioms.Compiler
+import Test.MIR.Opt.Axioms.DataShapes
 import Test.MIR.Opt.Axioms.DelaySharing
 import Test.MIR.Opt.Axioms.EtaReduce
 import Test.MIR.Opt.Axioms.FixLowering
