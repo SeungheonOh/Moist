@@ -81,6 +81,7 @@ check under `Test/MIR/Opt/Axioms/` or in `Test/MIR/Opt/FormalAxioms.lean`.
 | List destructor fusion | `fuseListDestructors_refines` | `ShapesSoundness/Destructors.lean` |
 | List choice fusion | `fuseListChoices_refines` | `ShapesSoundness/Choices.lean` |
 | Shape DCE, choice simplification | `shapeDCE_refines`, `simplifyChoices_refines` | `ShapesSoundness/Simplify.lean` |
+| Boolean results and Boolean case rewrites (inside shape DCE) | `booleanResultCore_sound`, `booleanCaseRewrite_factRel` | `ShapeFacts/Results.lean`, `ShapesSoundness/BooleanCases.lean` |
 | `Advanced.simplify` | `simplify_refines` | `ShapesSoundness/Pipeline.lean` |
 | Pre-lowering inline, `preLower` | `preLowerInlineExpr_refines`, `preLower_refines'` | `PreLowerSoundness.lean`, `CompilerSoundness.lean` |
 | Product destructuring | `destructureProducts_refines` | `ProductsSoundness.lean` |
@@ -96,6 +97,16 @@ Reusable fact infrastructure for the shape-driven passes lives in
 `Moist/Verified/ShapeFacts/`. It provides fact environments (`FactsHold`), the
 fact-indexed relation `FactRel` with congruences, soundness of `resolveHead`,
 and the known-shape analyses.
+
+The Boolean result analysis (`booleanResultCore`) accepts literals, Boolean
+builtins, `let` and `case` leaves, lazy `ifThenElse`/`chooseList` arms,
+saturated calls of applied, `let`-bound and recursive functions, and case
+alternatives that bind fields. An alternative may bind at most as many fields
+as the scrutinee is known to supply (two for a list cons or an `unConstrData`
+pair, none otherwise), so a partially applied alternative never escapes as a
+non-Boolean. Shape DCE uses it to turn lazy `ifThenElse` into `case`, to move
+an outer case with small alternatives into a Boolean case tree, and to drop
+`case b [False, True]`.
 
 ## Totality
 
