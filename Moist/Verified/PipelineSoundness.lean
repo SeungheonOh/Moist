@@ -292,9 +292,11 @@ theorem simplify_refines_of
 theorem structural_refines_of
     (hChoices : ∀ e, MIRCtxRefines e (Advanced.fuseListChoices e))
     (hProducts : ∀ e, MIRCtxRefines e (Advanced.destructureProducts e))
-    (hBranches : ∀ e, MIRCtxRefines e (Advanced.optimizeCheckedBranches e)) (e : Expr) :
+    (hBranches : ∀ e, MIRCtxRefines e (Advanced.optimizeCheckedBranches e))
+    (hRecords : ∀ e, MIRCtxRefines e (Advanced.unpackRecords e)) (e : Expr) :
     MIRCtxRefines e (Advanced.structural e) :=
-  mirCtxRefines_trans (hChoices e) (mirCtxRefines_trans (hProducts _) (hBranches _))
+  mirCtxRefines_trans (hChoices e)
+    (mirCtxRefines_trans (hProducts _) (mirCtxRefines_trans (hBranches _) (hRecords _)))
 
 theorem finish_refines_of
     (hLow : ∀ o e, MIRCtxRefines e (Advanced.shareLow o e))

@@ -15,6 +15,7 @@ import Test.MIR.Opt.Axioms.Placement
 import Test.MIR.Opt.Axioms.PreLower
 import Test.MIR.Opt.Axioms.Products
 import Test.MIR.Opt.Axioms.ProductAliases
+import Test.MIR.Opt.Axioms.Records
 import Test.MIR.Opt.Axioms.Shapes
 import Test.MIR.Opt.Axioms.Sharing
 import Test.MIR.Opt.Axioms.StaticArguments

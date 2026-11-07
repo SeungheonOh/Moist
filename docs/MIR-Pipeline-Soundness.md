@@ -51,7 +51,7 @@ graph TD
   S --> O["optimize<br>prepare, floatOut, betaReduce, ANF"]
   O --> L["simplifyLoop<br>simplify (incl. caseTagChains), CSE, DCE,<br>inline, beta, eta, forceDelay, caseMerge"]
   L --> P["preLower<br>preLowerInline, ANF"]
-  P --> T["structural<br>fuseListChoices, destructureProducts,<br>optimizeCheckedBranches"]
+  P --> T["structural<br>fuseListChoices, destructureProducts,<br>optimizeCheckedBranches, unpackRecords"]
   T --> W["lowerExpr ≈ lowerTotalExpr<br>(LoweringSoundness)"]
   W --> F["finish on liftUPLC<br>packing, low sharing,<br>builtin sharing, pooling"]
 ```
@@ -87,6 +87,7 @@ check under `Test/MIR/Opt/Axioms/` or in `Test/MIR/Opt/FormalAxioms.lean`.
 | Pre-lowering inline, `preLower` | `preLowerInlineExpr_refines`, `preLower_refines'` | `PreLowerSoundness.lean`, `CompilerSoundness.lean` |
 | Product destructuring (projections resolved through let aliases; whole-pair and bound-projection unboxing) | `destructureProducts_refines` (`unbox_factRel`, `unboxProjection_factRel`, `project_factRel`) | `ProductsSoundness.lean`, `ProductsSoundness/` |
 | Checked list branches | `lowerDelayedListChoices_refines`, `fuseCheckedListBranches_refines`, `optimizeCheckedBranches_refines` | `CheckedBranchesSoundness.lean` |
+| Record unpacking | `unpackRecords_refines` | `RecordsSoundness.lean`, `RecordsSoundness/` |
 | `Advanced.structural` | `structural_refines` | `CompilerSoundness.lean` |
 | Application packing | `packApplications_refines` | `ApplicationPackingSoundness.lean` |
 | Builtin sharing, constant pooling | `hoistBuiltinStates_refines`, `poolConstants_refines` | `SharingSoundness.lean` |
@@ -98,7 +99,10 @@ check under `Test/MIR/Opt/Axioms/` or in `Test/MIR/Opt/FormalAxioms.lean`.
 Reusable fact infrastructure for the shape-driven passes lives in
 `Moist/Verified/ShapeFacts/`. It provides fact environments (`FactsHold`), the
 fact-indexed relation `FactRel` with congruences, soundness of `resolveHead`,
-and the known-shape analyses.
+and the known-shape analyses. The return-shape analysis `shapeOf` (constructor
+tags with field shapes, through bindings, `case` alternatives and forced
+`ifThenElse`/`chooseList` selections) is proved in
+`RecordsSoundness/Analysis.lean`.
 
 The Boolean result analysis (`booleanResultCore`) accepts literals, Boolean
 builtins, `let` and `case` leaves, lazy `ifThenElse`/`chooseList` arms,
