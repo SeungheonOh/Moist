@@ -168,16 +168,6 @@ theorem listRel_mono {R S : α → α → Prop} (hRS : ∀ a b, R a b → S a b)
     | nil => simp [ListRel] at h
     | cons b bs => simp only [ListRel] at h ⊢; exact ⟨hRS _ _ h.1, ih h.2⟩
 
-private theorem listRel_cons_inv {R : α → α → Prop} {a : α} {as : List α} {l₂ : List α}
-    (h : ListRel R (a :: as) l₂) : ∃ b bs, l₂ = b :: bs ∧ R a b ∧ ListRel R as bs := by
-  cases l₂ with
-  | nil => exact absurd h id
-  | cons b bs => exact ⟨b, bs, rfl, h.1, h.2⟩
-
-private theorem listRel_nil_inv {R : α → α → Prop} {l₂ : List α}
-    (h : ListRel R ([] : List α) l₂) : l₂ = [] := by
-  cases l₂ with | nil => rfl | cons => exact absurd h id
-
 theorem listRel_append {R : α → α → Prop} {l₁ l₂ m₁ m₂ : List α}
     (hl : ListRel R l₁ l₂) (hm : ListRel R m₁ m₂) : ListRel R (l₁ ++ m₁) (l₂ ++ m₂) := by
   induction l₁ generalizing l₂ with
@@ -249,5 +239,265 @@ theorem constToTagAndFields_fields_vcon (c : Const) :
     simp only [constToTagAndFields]
     intro v hv; simp at hv; rcases hv with rfl | rfl <;> exact ⟨_, rfl⟩
   | _ => trivial
+
+/-! ## Builtins under a constant-respecting value relation
+
+`R` relates a constant exactly to itself (in both directions). All value
+relations used in the proofs (`ValueRefinesK`, `ValueRefinesKWF`,
+`LocalValue`) have this shape. -/
+
+theorem listRel_cons_inv {R : α → α → Prop} {a : α} {as : List α} {l₂ : List α}
+    (h : ListRel R (a :: as) l₂) : ∃ b bs, l₂ = b :: bs ∧ R a b ∧ ListRel R as bs := by
+  cases l₂ with
+  | nil => exact absurd h id
+  | cons b bs => exact ⟨b, bs, rfl, h.1, h.2⟩
+
+theorem listRel_nil_inv {R : α → α → Prop} {l₂ : List α}
+    (h : ListRel R ([] : List α) l₂) : l₂ = [] := by
+  cases l₂ with | nil => rfl | cons => exact absurd h id
+
+theorem extractConsts_rel {R : CekValue → CekValue → Prop}
+    (vconL : ∀ {c v}, R (.VCon c) v → v = .VCon c)
+    (vconR : ∀ {c v}, R v (.VCon c) → v = .VCon c)
+    {args₁ args₂ : List CekValue} (hargs : ListRel R args₁ args₂) :
+    extractConsts args₁ = extractConsts args₂ := by
+  induction args₁ generalizing args₂ with
+  | nil => rw [listRel_nil_inv hargs]
+  | cons a₁ as₁ ih =>
+    obtain ⟨a₂, as₂, rfl, ha, has⟩ := listRel_cons_inv hargs
+    match a₁ with
+    | .VCon c => rw [vconL ha]; simp only [extractConsts]; rw [ih has]
+    | .VLam _ _ | .VDelay _ _ | .VConstr _ _ | .VBuiltin _ _ _ =>
+      match a₂ with
+      | .VCon _ => cases vconR ha
+      | .VLam _ _ | .VDelay _ _ | .VConstr _ _ | .VBuiltin _ _ _ => rfl
+
+/-- Pass-through builtins on related arguments give related results, for any
+    value relation that relates a constant exactly to itself. -/
+theorem evalBuiltinPassThrough_rel {R : CekValue → CekValue → Prop}
+    (vconL : ∀ {c v}, R (.VCon c) v → v = .VCon c)
+    (vconR : ∀ {c v}, R v (.VCon c) → v = .VCon c)
+    (vconRefl : ∀ c, R (.VCon c) (.VCon c))
+    {b : BuiltinFun} {args₁ args₂ : List CekValue} (hargs : ListRel R args₁ args₂) :
+    match evalBuiltinPassThrough b args₁, evalBuiltinPassThrough b args₂ with
+    | some v₁, some v₂ => R v₁ v₂
+    | none, none => True
+    | _, _ => False := by
+  by_cases hb : b = .IfThenElse ∨ b = .ChooseUnit ∨ b = .Trace ∨
+                 b = .ChooseData ∨ b = .ChooseList ∨ b = .MkCons
+  · rcases hb with rfl | rfl | rfl | rfl | rfl | rfl
+    · -- IfThenElse
+      cases args₁ with
+      | nil => rw [listRel_nil_inv hargs]; simp [evalBuiltinPassThrough]
+      | cons e₁ r₁ =>
+      obtain ⟨e₂, r₂, rfl, he, hr⟩ := listRel_cons_inv hargs; cases r₁ with
+      | nil => rw [listRel_nil_inv hr]; simp [evalBuiltinPassThrough]
+      | cons t₁ s₁ =>
+      obtain ⟨t₂, s₂, rfl, ht, hs⟩ := listRel_cons_inv hr; cases s₁ with
+      | nil => rw [listRel_nil_inv hs]; simp [evalBuiltinPassThrough]
+      | cons c₁ u₁ =>
+      obtain ⟨c₂, u₂, rfl, hc, hu⟩ := listRel_cons_inv hs
+      match c₁ with
+      | .VCon c_const =>
+        rw [vconL hc]
+        cases u₁ with
+        | nil => rw [listRel_nil_inv hu]
+                 cases c_const <;> simp [evalBuiltinPassThrough]
+                 rename_i bv; cases bv <;> simp <;> assumption
+        | cons _ _ =>
+          obtain ⟨_, _, rfl, _, _⟩ := listRel_cons_inv hu
+          cases c_const <;> simp [evalBuiltinPassThrough]
+      | .VLam _ _ | .VDelay _ _ | .VConstr _ _ | .VBuiltin _ _ _ =>
+        match c₂ with
+        | .VCon _ => cases vconR hc
+        | .VLam _ _ | .VDelay _ _ | .VConstr _ _ | .VBuiltin _ _ _ =>
+          cases u₁ with
+          | nil => rw [listRel_nil_inv hu]; simp [evalBuiltinPassThrough]
+          | cons _ _ =>
+            obtain ⟨_, _, rfl, _, _⟩ := listRel_cons_inv hu; simp [evalBuiltinPassThrough]
+    · -- ChooseUnit
+      cases args₁ with
+      | nil => rw [listRel_nil_inv hargs]; simp [evalBuiltinPassThrough]
+      | cons r₁ s₁ =>
+      obtain ⟨r₂, s₂, rfl, hr, hs⟩ := listRel_cons_inv hargs; cases s₁ with
+      | nil => rw [listRel_nil_inv hs]; simp [evalBuiltinPassThrough]
+      | cons c₁ u₁ =>
+      obtain ⟨c₂, u₂, rfl, hc, hu⟩ := listRel_cons_inv hs
+      match c₁ with
+      | .VCon c_const =>
+        rw [vconL hc]
+        cases u₁ with
+        | nil => rw [listRel_nil_inv hu]
+                 cases c_const <;> simp [evalBuiltinPassThrough]
+                 exact hr
+        | cons _ _ =>
+          obtain ⟨_, _, rfl, _, _⟩ := listRel_cons_inv hu
+          cases c_const <;> simp [evalBuiltinPassThrough]
+      | .VLam _ _ | .VDelay _ _ | .VConstr _ _ | .VBuiltin _ _ _ =>
+        match c₂ with
+        | .VCon _ => cases vconR hc
+        | .VLam _ _ | .VDelay _ _ | .VConstr _ _ | .VBuiltin _ _ _ =>
+          cases u₁ with
+          | nil => rw [listRel_nil_inv hu]; simp [evalBuiltinPassThrough]
+          | cons _ _ =>
+            obtain ⟨_, _, rfl, _, _⟩ := listRel_cons_inv hu; simp [evalBuiltinPassThrough]
+    · -- Trace
+      cases args₁ with
+      | nil => rw [listRel_nil_inv hargs]; simp [evalBuiltinPassThrough]
+      | cons r₁ s₁ =>
+      obtain ⟨r₂, s₂, rfl, hr, hs⟩ := listRel_cons_inv hargs; cases s₁ with
+      | nil => rw [listRel_nil_inv hs]; simp [evalBuiltinPassThrough]
+      | cons c₁ u₁ =>
+      obtain ⟨c₂, u₂, rfl, hc, hu⟩ := listRel_cons_inv hs
+      match c₁ with
+      | .VCon c_const =>
+        rw [vconL hc]
+        cases u₁ with
+        | nil => rw [listRel_nil_inv hu]
+                 cases c_const <;> simp [evalBuiltinPassThrough]
+                 exact hr
+        | cons _ _ =>
+          obtain ⟨_, _, rfl, _, _⟩ := listRel_cons_inv hu
+          cases c_const <;> simp [evalBuiltinPassThrough]
+      | .VLam _ _ | .VDelay _ _ | .VConstr _ _ | .VBuiltin _ _ _ =>
+        match c₂ with
+        | .VCon _ => cases vconR hc
+        | .VLam _ _ | .VDelay _ _ | .VConstr _ _ | .VBuiltin _ _ _ =>
+          cases u₁ with
+          | nil => rw [listRel_nil_inv hu]; simp [evalBuiltinPassThrough]
+          | cons _ _ =>
+            obtain ⟨_, _, rfl, _, _⟩ := listRel_cons_inv hu; simp [evalBuiltinPassThrough]
+    · -- ChooseData
+      cases args₁ with
+      | nil => rw [listRel_nil_inv hargs]; simp [evalBuiltinPassThrough]
+      | cons a₁ r₁ =>
+      obtain ⟨a₂, r₂, rfl, ha, hr⟩ := listRel_cons_inv hargs; cases r₁ with
+      | nil => rw [listRel_nil_inv hr]; simp [evalBuiltinPassThrough]
+      | cons b₁ s₁ =>
+      obtain ⟨b₂, s₂, rfl, hb, hs⟩ := listRel_cons_inv hr; cases s₁ with
+      | nil => rw [listRel_nil_inv hs]; simp [evalBuiltinPassThrough]
+      | cons c₁ t₁ =>
+      obtain ⟨c₂, t₂, rfl, hc_val, ht⟩ := listRel_cons_inv hs; cases t₁ with
+      | nil => rw [listRel_nil_inv ht]; simp [evalBuiltinPassThrough]
+      | cons d₁ u₁ =>
+      obtain ⟨d₂, u₂, rfl, hd, hu⟩ := listRel_cons_inv ht; cases u₁ with
+      | nil => rw [listRel_nil_inv hu]; simp [evalBuiltinPassThrough]
+      | cons e₁ w₁ =>
+      obtain ⟨e₂, w₂, rfl, he_val, hw⟩ := listRel_cons_inv hu
+      cases w₁ with
+      | nil => rw [listRel_nil_inv hw]; simp [evalBuiltinPassThrough]
+      | cons f₁ x₁ =>
+      obtain ⟨f₂, x₂, rfl, hf, hx⟩ := listRel_cons_inv hw
+      match f₁ with
+      | .VCon c_const =>
+        rw [vconL hf]
+        cases x₁ with
+        | nil => rw [listRel_nil_inv hx]
+                 cases c_const <;> simp [evalBuiltinPassThrough]
+                 rename_i dat; cases dat <;> simp <;> assumption
+        | cons _ _ =>
+          obtain ⟨_, _, rfl, _, _⟩ := listRel_cons_inv hx
+          cases c_const <;> simp [evalBuiltinPassThrough]
+      | .VLam _ _ | .VDelay _ _ | .VConstr _ _ | .VBuiltin _ _ _ =>
+        match f₂ with
+        | .VCon _ => cases vconR hf
+        | .VLam _ _ | .VDelay _ _ | .VConstr _ _ | .VBuiltin _ _ _ =>
+          cases x₁ with
+          | nil => rw [listRel_nil_inv hx]; simp [evalBuiltinPassThrough]
+          | cons _ _ =>
+            obtain ⟨_, _, rfl, _, _⟩ := listRel_cons_inv hx; simp [evalBuiltinPassThrough]
+    · -- ChooseList
+      cases args₁ with
+      | nil => rw [listRel_nil_inv hargs]; simp [evalBuiltinPassThrough]
+      | cons r₁ s₁ =>
+      obtain ⟨r₂, s₂, rfl, hr, hs⟩ := listRel_cons_inv hargs; cases s₁ with
+      | nil => rw [listRel_nil_inv hs]; simp [evalBuiltinPassThrough]
+      | cons t₁ u₁ =>
+      obtain ⟨t₂, u₂, rfl, ht, hu⟩ := listRel_cons_inv hs; cases u₁ with
+      | nil => rw [listRel_nil_inv hu]; simp [evalBuiltinPassThrough]
+      | cons c₁ w₁ =>
+      obtain ⟨c₂, w₂, rfl, hc, hw⟩ := listRel_cons_inv hu
+      match c₁ with
+      | .VCon c_const =>
+        rw [vconL hc]
+        cases w₁ with
+        | nil => rw [listRel_nil_inv hw]
+                 cases c_const <;> simp [evalBuiltinPassThrough]
+                 all_goals (split <;> assumption)
+        | cons _ _ =>
+          obtain ⟨_, _, rfl, _, _⟩ := listRel_cons_inv hw
+          cases c_const <;> simp [evalBuiltinPassThrough]
+      | .VLam _ _ | .VDelay _ _ | .VConstr _ _ | .VBuiltin _ _ _ =>
+        match c₂ with
+        | .VCon _ => cases vconR hc
+        | .VLam _ _ | .VDelay _ _ | .VConstr _ _ | .VBuiltin _ _ _ =>
+          cases w₁ with
+          | nil => rw [listRel_nil_inv hw]; simp [evalBuiltinPassThrough]
+          | cons _ _ =>
+            obtain ⟨_, _, rfl, _, _⟩ := listRel_cons_inv hw; simp [evalBuiltinPassThrough]
+    · -- MkCons
+      cases args₁ with
+      | nil => rw [listRel_nil_inv hargs]; simp [evalBuiltinPassThrough]
+      | cons a₁ r₁ =>
+      obtain ⟨a₂, r₂, rfl, ha, hr⟩ := listRel_cons_inv hargs; cases r₁ with
+      | nil => rw [listRel_nil_inv hr]; simp [evalBuiltinPassThrough]
+      | cons b₁ s₁ =>
+      obtain ⟨b₂, s₂, rfl, hb, hs⟩ := listRel_cons_inv hr
+      cases s₁ with
+      | cons _ _ =>
+        obtain ⟨_, _, rfl, _, _⟩ := listRel_cons_inv hs; simp [evalBuiltinPassThrough]
+      | nil =>
+      rw [listRel_nil_inv hs]
+      match a₁ with
+      | .VCon c_const =>
+        rw [vconL ha]
+        cases c_const <;> simp [evalBuiltinPassThrough]
+        rename_i tail₁
+        match b₁ with
+        | .VCon c₁ => rw [vconL hb]; exact vconRefl _
+        | .VLam _ _ | .VDelay _ _ | .VConstr _ _ | .VBuiltin _ _ _ =>
+          match b₂ with
+          | .VCon _ => cases vconR hb
+          | .VLam _ _ | .VDelay _ _ | .VConstr _ _ | .VBuiltin _ _ _ => trivial
+      | .VLam _ _ | .VDelay _ _ | .VConstr _ _ | .VBuiltin _ _ _ =>
+        match a₂ with
+        | .VCon _ => cases vconR ha
+        | .VLam _ _ | .VDelay _ _ | .VConstr _ _ | .VBuiltin _ _ _ =>
+          simp [evalBuiltinPassThrough]
+  · have hb_not : b ≠ .IfThenElse ∧ b ≠ .ChooseUnit ∧ b ≠ .Trace ∧
+                   b ≠ .ChooseData ∧ b ≠ .ChooseList ∧ b ≠ .MkCons :=
+      ⟨fun h => hb (h ▸ .inl rfl), fun h => hb (h ▸ .inr (.inl rfl)),
+       fun h => hb (h ▸ .inr (.inr (.inl rfl))),
+       fun h => hb (h ▸ .inr (.inr (.inr (.inl rfl)))),
+       fun h => hb (h ▸ .inr (.inr (.inr (.inr (.inl rfl))))),
+       fun h => hb (h ▸ .inr (.inr (.inr (.inr (.inr rfl)))))⟩
+    rw [evalBuiltinPassThrough_none_of_not_passthrough b args₁ hb_not,
+        evalBuiltinPassThrough_none_of_not_passthrough b args₂ hb_not]; trivial
+
+/-- `evalBuiltin` on related arguments gives related results. -/
+theorem evalBuiltin_rel {R : CekValue → CekValue → Prop}
+    (vconL : ∀ {c v}, R (.VCon c) v → v = .VCon c)
+    (vconR : ∀ {c v}, R v (.VCon c) → v = .VCon c)
+    (vconRefl : ∀ c, R (.VCon c) (.VCon c))
+    {b : BuiltinFun} {args₁ args₂ : List CekValue} (hargs : ListRel R args₁ args₂) :
+    match evalBuiltin b args₁, evalBuiltin b args₂ with
+    | some v₁, some v₂ => R v₁ v₂
+    | none, none => True
+    | _, _ => False := by
+  have h_pt := evalBuiltinPassThrough_rel vconL vconR vconRefl (b := b) hargs
+  simp only [evalBuiltin]
+  revert h_pt
+  cases evalBuiltinPassThrough b args₁ <;> cases evalBuiltinPassThrough b args₂ <;> intro h_pt
+  · rw [extractConsts_rel vconL vconR hargs]
+    cases extractConsts args₂ with
+    | none => trivial
+    | some consts =>
+      simp only []
+      cases evalBuiltinConst b consts with
+      | none => trivial
+      | some c => exact vconRefl c
+  · exact absurd h_pt id
+  · exact absurd h_pt id
+  · exact h_pt
 
 end Moist.Verified.Equivalence
