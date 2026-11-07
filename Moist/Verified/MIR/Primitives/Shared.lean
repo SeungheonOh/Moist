@@ -11,45 +11,14 @@ frame (`funV`, `force`). -/
 
 namespace Moist.Verified.MIR
 
+export Moist.Verified.Equivalence (steps_trans obsRefinesK_of_steps_left obsRefinesK_of_steps_right)
+
 open Moist.CEK
 open Moist.Verified.Equivalence (ObsRefinesK steps obsRefinesK_mono obsRefinesK_zero_ret
   obsRefinesK_of_step_ret)
 open Moist.Verified.Contextual.SoundnessRefines (EnvRefinesK ValueRefinesK StackRefK
   valueRefinesK_mono stackRefK_mono obsRefinesK_error evalBuiltin_compat_refines
   listRel_valueRefinesK_mono)
-
-theorem steps_trans (m n : Nat) (s : State) : steps (m + n) s = steps n (steps m s) := by
-  induction m generalizing s with
-  | zero => simp [steps]
-  | succ m ih => simp only [Nat.succ_add, steps]; exact ih (step s)
-
-private theorem steps_fixed {t : State} (ht : step t = t) : ∀ n, steps n t = t
-  | 0 => rfl
-  | n + 1 => by simp only [steps, ht]; exact steps_fixed ht n
-
-/-- A fixed point reached after `m` steps is still reached `m - n` steps after step `n`. -/
-private theorem steps_after {n m : Nat} {s t : State} (ht : step t = t) (h : steps m s = t) :
-    steps (m - n) (steps n s) = t := by
-  by_cases hmn : m ≤ n
-  · rw [Nat.sub_eq_zero_of_le hmn, show n = m + (n - m) by omega, steps_trans, h, steps_fixed ht]
-    rfl
-  · rw [← steps_trans, show n + (m - n) = m by omega, h]
-
-/-- Running the right state forward preserves refinement. -/
-theorem obsRefinesK_of_steps_right {k n : Nat} {s₁ s₂ s₂' : State}
-    (h_steps : steps n s₂ = s₂') (h : ObsRefinesK k s₁ s₂') : ObsRefinesK k s₁ s₂ := by
-  refine ⟨fun v hv => ?_, fun m hm herr => ?_⟩
-  · obtain ⟨v', m, hm⟩ := h.1 v hv
-    exact ⟨v', n + m, by rw [steps_trans, h_steps]; exact hm⟩
-  · obtain ⟨m', hm'⟩ := h.2 m hm herr
-    exact ⟨n + m', by rw [steps_trans, h_steps]; exact hm'⟩
-
-/-- Running the left state forward preserves refinement. -/
-theorem obsRefinesK_of_steps_left {k n : Nat} {s₁ s₁' s₂ : State}
-    (h_steps : steps n s₁ = s₁') (h : ObsRefinesK k s₁' s₂) : ObsRefinesK k s₁ s₂ := by
-  subst h_steps
-  exact ⟨fun v ⟨m, hm, hs⟩ => h.1 v ⟨m - n, by omega, steps_after rfl hs⟩,
-    fun m hm hs => h.2 (m - n) (by omega) (steps_after rfl hs)⟩
 
 /-- The identity frame `funV (λ. 1)` is transparent on the right. -/
 theorem stackRefK_funV_id_augment_right {j : Nat} {π₁ π₂ : Stack} {ρ₂ : CekEnv}

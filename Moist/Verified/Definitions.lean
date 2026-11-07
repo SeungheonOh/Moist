@@ -36,9 +36,8 @@ theorem steps_halt : ∀ n (v : CekValue), steps n (.halt v) = .halt v
   | 0, _ => rfl
   | n + 1, v => steps_halt n v
 
-/-- Step counts compose. Protected: several proof files carry a local
-    `steps_trans` and open this namespace. -/
-protected theorem steps_trans (m n : Nat) (s : State) :
+/-- Step counts compose. -/
+theorem steps_trans (m n : Nat) (s : State) :
     steps (m + n) s = steps n (steps m s) := by
   induction m generalizing s with
   | zero => rw [Nat.zero_add]; rfl

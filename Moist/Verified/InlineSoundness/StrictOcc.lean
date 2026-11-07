@@ -274,13 +274,13 @@ section ErrorPropagation
 
 open Moist.CEK (State CekEnv CekValue Stack Frame step)
 open Moist.Verified.Equivalence (Reaches steps)
-open Moist.Verified.BetaValueRefines (steps_trans steps_error_fixed steps_halt_fixed)
+open Moist.Verified.Equivalence (steps_trans steps_error steps_halt)
 
 theorem halt_excludes_error {s : State} {v : CekValue}
     (hv : Reaches s (.halt v)) (he : Reaches s .error) : False := by
   obtain ⟨m, hm⟩ := hv; obtain ⟨n, hn⟩ := he
-  have h1 : steps (m + n) s = .halt v := by rw [steps_trans, hm, steps_halt_fixed]
-  have h2 : steps (n + m) s = .error := by rw [steps_trans, hn, steps_error_fixed]
+  have h1 : steps (m + n) s = .halt v := by rw [steps_trans, hm, steps_halt]
+  have h2 : steps (n + m) s = .error := by rw [steps_trans, hn, steps_error]
   rw [show m + n = n + m from Nat.add_comm m n] at h1; rw [h1] at h2
   exact State.noConfusion h2
 
@@ -292,7 +292,7 @@ section StackIndependence
 
 open Moist.CEK (State CekEnv CekValue Stack Frame step)
 open Moist.Verified.Equivalence (Reaches steps)
-open Moist.Verified.BetaValueRefines (steps_trans steps_error_fixed steps_halt_fixed)
+open Moist.Verified.Equivalence (steps_trans steps_error steps_halt)
 
 private theorem lift_first_inactive {ρ : CekEnv} {t : Term} {n : Nat} {s : State}
     (reaches : steps n (.compute [] ρ t) = s)
@@ -323,12 +323,12 @@ theorem error_on_all_stacks {ρ : CekEnv} {t : Term}
   generalize n - K = fuel at rest
   match state, fuel with
   | .error, _ => rfl
-  | .halt _, _ => rw [steps_halt_fixed] at rest; cases rest
+  | .halt _, _ => rw [steps_halt] at rest; cases rest
   | .ret [] _, 0 => cases rest
   | .ret [] _, fuel + 1 =>
     rw [Nat.add_comm, steps_trans] at rest
     change steps fuel (.halt _) = _ at rest
-    rw [steps_halt_fixed] at rest; cases rest
+    rw [steps_halt] at rest; cases rest
   | .ret (_ :: _) _, _ | .compute _ _ _, _ => cases inactive
 
 /-- A value reached from the empty stack is returned to every stack. -/
@@ -343,13 +343,13 @@ theorem halt_on_all_stacks {ρ : CekEnv} {t : Term} {v : CekValue}
   generalize steps K (.compute [] ρ t) = state at inactive rest
   generalize n - K = fuel at rest
   match state, fuel with
-  | .error, _ => rw [steps_error_fixed] at rest; cases rest
-  | .halt _, _ => rw [steps_halt_fixed] at rest; cases rest; rfl
+  | .error, _ => rw [steps_error] at rest; cases rest
+  | .halt _, _ => rw [steps_halt] at rest; cases rest; rfl
   | .ret [] _, 0 => cases rest
   | .ret [] _, fuel + 1 =>
     rw [Nat.add_comm, steps_trans] at rest
     change steps fuel (.halt _) = _ at rest
-    rw [steps_halt_fixed] at rest; cases rest; rfl
+    rw [steps_halt] at rest; cases rest; rfl
   | .ret (_ :: _) _, _ | .compute _ _ _, _ => cases inactive
 
 theorem ret_on_all_stacks {ρ : CekEnv} {t : Term} {v : CekValue} {n : Nat}
@@ -366,7 +366,7 @@ section StrictSubstErrorProp
 open Moist.CEK (State CekEnv CekValue Stack Frame step)
 open Moist.Verified.Equivalence (Reaches steps)
 open Moist.Verified (closedAt closedAtList)
-open Moist.Verified.BetaValueRefines (steps_trans steps_error_fixed steps_halt_fixed)
+open Moist.Verified.Equivalence (steps_trans steps_error steps_halt)
 
 /-- Error on `t_rhs` under `ρ` lifts to error on the shifted term under the
     extended env `ρ.extend w`. Uses `renameRefinesR_shift1` on the empty
@@ -413,7 +413,7 @@ section SameEnvBeta
 
 open Moist.CEK (State CekEnv CekValue Stack Frame step)
 open Moist.Verified.Equivalence (Reaches steps)
-open Moist.Verified.BetaValueRefines (steps_trans steps_error_fixed steps_halt_fixed)
+open Moist.Verified.Equivalence (steps_trans steps_error steps_halt)
 
 private theorem closedAtList_elem' {d : Nat} {ts : List Term}
     (h : Moist.Verified.closedAtList d ts = true) {idx : Nat} (hidx : idx < ts.length) :
@@ -696,10 +696,10 @@ open Moist.Verified.Contextual.SoundnessRefines
    applyArgFrames_stackRefK listRel_refl_vcon_refines) in
 open Moist.Verified.Equivalence
   (ObsRefinesK obsRefinesK_mono obsRefinesK_of_step_compute
-   obsRefinesK_zero_compute obsRefinesK_zero_ret ListRel constToTagAndFields_fields_vcon) in
+   obsRefinesK_zero_compute obsRefinesK_zero_ret ListRel constToTagAndFields_fields_vcon
+   obsRefinesK_of_steps_left obsRefinesK_of_steps_right) in
 open Moist.Verified.BetaValueRefines
-  (obsRefinesK_of_steps_left obsRefinesK_of_steps_right
-   valueRefinesK_refl EnvWellFormed ValueWellFormed stackRefK_refl
+  (valueRefinesK_refl EnvWellFormed ValueWellFormed stackRefK_refl
    StackWellFormed substTermList_getElem) in
 open Moist.Verified (substTermList_length closedAtList) in
 private theorem body_subst_multi_obsRefinesK_gen (sz : Nat) {d pos : Nat}

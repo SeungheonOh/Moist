@@ -51,31 +51,6 @@ theorem outcome_of_terminal {environment : CekEnv} {stack : Stack} {term : Term}
       exact .inl ⟨value, index + 1, by
         rw [vstep_eq, Semantics.steps_trans, reached]; rfl⟩
 
-/-- A same-environment observation on well-formed environments and stacks
-    lifts to contextual refinement. -/
-theorem contextual_of_wf_refinement {depth : Nat} {source target : Term}
-    (sourceClosed : closedAt depth source = true)
-    (closedPreserved : ∀ depth, closedAt depth source = true → closedAt depth target = true)
-    (localRefinement : ∀ environment stack, EnvWellFormed depth environment →
-      depth ≤ environment.length → StackWellFormed stack →
-      ObsRefines (.compute stack environment source) (.compute stack environment target)) :
-    CtxRefines source target := by
-  apply TermObsRefinesWF.soundness_refinesWF (d := depth)
-  · intro budget index indexBound leftEnv rightEnv environments leftWellFormed leftLength
-      rightWellFormed rightLength observation observationBound leftStack rightStack
-      leftStackWellFormed rightStackWellFormed stacks
-    exact SubstRefinesExt.obsRefinesK_compose_obsRefines_right
-      (FundamentalRefinesWF.ftlr_wf depth source sourceClosed
-        budget index indexBound leftEnv rightEnv environments leftWellFormed leftLength
-        rightWellFormed rightLength observation observationBound leftStack rightStack
-        leftStackWellFormed rightStackWellFormed stacks)
-      (localRefinement rightEnv rightStack rightWellFormed rightLength rightStackWellFormed)
-  · intro context sourceContextClosed
-    obtain ⟨contextClosed, termClosed⟩ :=
-      (fill_closedAt_iff context source 0).mp sourceContextClosed
-    exact (fill_closedAt_iff context target 0).mpr
-      ⟨contextClosed, closedPreserved _ termClosed⟩
-
 private theorem beta_rhs_outcome {environment : CekEnv} {stack : Stack}
     {body rhs : Term} {terminal : State}
     (isTerminal : terminal = .error ∨ ∃ value, terminal = .halt value)
@@ -149,7 +124,7 @@ theorem beta_ctxRefines_of_errorFrontier {depth : Nat} {body rhs : Term}
       Reaches (.compute [] environment rhs) .error →
       Reaches (.compute stack environment (Moist.Verified.substTerm 1 rhs body)) .error) :
     CtxRefines (.Apply (.Lam 0 body) rhs) (Moist.Verified.substTerm 1 rhs body) :=
-  contextual_of_wf_refinement (by simp [closedAt, bodyClosed, rhsClosed])
+  AdvancedRefinement.contextual_of_wf_refinement (by simp [closedAt, bodyClosed, rhsClosed])
     (fun depth closed => by
       simp only [closedAt, Bool.and_eq_true] at closed
       exact closedAt_substTerm 1 rhs body depth (by omega) (by omega) closed.2 closed.1)

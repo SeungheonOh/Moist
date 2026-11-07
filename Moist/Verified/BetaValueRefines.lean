@@ -13,8 +13,6 @@ import Moist.Verified.FundamentalRefines
   by the substitution proof in `InlineSoundness.StrictOcc`.
 * Well-formedness of CEK values, environments, frames and stacks, and the
   reflexivity of the step-indexed value and stack relations on them.
-* Builtin evaluation under any value relation rigid on constants
-  (`evalBuiltin_rel`).
 * The shift bisimulation: stepping commutes with renaming every closure body
   (`shiftBisimState_step_preserves`), and shift-related values are
   `ValueRefinesK`-related (`valueRefinesK_of_shiftBisim_wf`).
@@ -581,92 +579,6 @@ theorem envWellFormed_extend : ∀ (k : Nat) {ρ : CekEnv} {v : CekValue},
 --------------------------------------------------------------------------------
 -- 8. Builtin evaluation under value relations rigid on constants
 --------------------------------------------------------------------------------
-
-section BuiltinRelation
-
-variable {R : CekValue → CekValue → Prop}
-
-private theorem listRel_cons_left {a : CekValue} {as bs : List CekValue}
-    (h : ListRel R (a :: as) bs) : ∃ b bs', bs = b :: bs' ∧ R a b ∧ ListRel R as bs' := by
-  cases bs with
-  | nil => exact h.elim
-  | cons b bs' => exact ⟨b, bs', rfl, h⟩
-
-private theorem listRel_nil_left {bs : List CekValue} (h : ListRel R [] bs) : bs = [] := by
-  cases bs with
-  | nil => rfl
-  | cons _ _ => exact h.elim
-
-private theorem listRel_cons_vcon (vcon : ∀ {c v}, R (.VCon c) v ↔ v = .VCon c)
-    {c : Const} {as bs : List CekValue}
-    (h : ListRel R (.VCon c :: as) bs) : ∃ bs', bs = .VCon c :: bs' ∧ ListRel R as bs' := by
-  obtain ⟨b, bs', rfl, hb, h⟩ := listRel_cons_left h
-  exact ⟨bs', by rw [vcon.mp hb], h⟩
-
-private theorem listRel_flip : ∀ {as bs : List CekValue},
-    ListRel R as bs → ListRel (fun x y => R y x) bs as
-  | [], [], _ => trivial
-  | _ :: _, _ :: _, ⟨h, hs⟩ => ⟨h, listRel_flip hs⟩
-
-/-- Pass-through builtins only inspect constant arguments, so a value relation
-    that is rigid on constants is preserved. -/
-theorem evalBuiltinPassThrough_rel
-    (vcon : ∀ {c v}, R (.VCon c) v ↔ v = .VCon c)
-    {b : BuiltinFun} {args₁ args₂ : List CekValue} (hargs : ListRel R args₁ args₂)
-    {v₁ : CekValue} (heval : evalBuiltinPassThrough b args₁ = some v₁) :
-    ∃ v₂, evalBuiltinPassThrough b args₂ = some v₂ ∧ R v₁ v₂ := by
-  simp only [evalBuiltinPassThrough] at heval
-  split at heval <;> (repeat' split at heval) <;> cases heval
-  all_goals
-    repeat (first
-      | (replace hargs := listRel_cons_vcon vcon hargs; obtain ⟨_, rfl, hargs⟩ := hargs)
-      | (replace hargs := listRel_cons_left hargs; obtain ⟨_, _, rfl, _, hargs⟩ := hargs))
-    try obtain rfl := listRel_nil_left hargs
-    first
-      | refine ⟨_, ?_, ‹_›⟩; simp [evalBuiltinPassThrough, *]
-      | exact ⟨_, rfl, vcon.mpr rfl⟩
-
-private theorem extractConsts_rel (vcon : ∀ {c v}, R (.VCon c) v ↔ v = .VCon c)
-    (vconRev : ∀ {c v}, R v (.VCon c) ↔ v = .VCon c) :
-    ∀ {args₁ args₂ : List CekValue}, ListRel R args₁ args₂ →
-      extractConsts args₁ = extractConsts args₂
-  | [], _, h => by rw [listRel_nil_left h]
-  | a :: as, _, h => by
-    replace h := listRel_cons_left h
-    obtain ⟨b, bs, rfl, hab, h⟩ := h
-    cases a with
-    | VCon c => rw [vcon.mp hab]; simp only [extractConsts, extractConsts_rel vcon vconRev h]
-    | _ =>
-      cases b with
-      | VCon c => cases vconRev.mp hab
-      | _ => rfl
-
-/-- `evalBuiltin` relates its results under a relation rigid on constants in
-    both directions. -/
-theorem evalBuiltin_rel (vcon : ∀ {c v}, R (.VCon c) v ↔ v = .VCon c)
-    (vconRev : ∀ {c v}, R v (.VCon c) ↔ v = .VCon c)
-    {b : BuiltinFun} {args₁ args₂ : List CekValue} (hargs : ListRel R args₁ args₂) :
-    Option.Rel R (evalBuiltin b args₁) (evalBuiltin b args₂) := by
-  unfold evalBuiltin
-  cases h₁ : evalBuiltinPassThrough b args₁ with
-  | some v₁ =>
-    obtain ⟨v₂, h₂, r⟩ := evalBuiltinPassThrough_rel vcon hargs h₁
-    rw [h₂]; exact .some r
-  | none =>
-    cases h₂ : evalBuiltinPassThrough b args₂ with
-    | some v₂ =>
-      obtain ⟨_, h, _⟩ := evalBuiltinPassThrough_rel vconRev (listRel_flip hargs) h₂
-      rw [h₁] at h; cases h
-    | none =>
-      simp only
-      rw [extractConsts_rel vcon vconRev hargs]
-      split
-      · split
-        · exact .some (vcon.mpr rfl)
-        · exact .none
-      · exact .none
-
-end BuiltinRelation
 
 --------------------------------------------------------------------------------
 -- 9. ValueRefinesK reflexivity
@@ -1288,64 +1200,12 @@ theorem stackRefK_refl : ∀ (k : Nat) (π : Stack),
 -- 12. Step-composition helpers
 --------------------------------------------------------------------------------
 
-/-- Transitivity of `steps`: stepping `m + n` equals stepping `n` after stepping `m`. -/
-theorem steps_trans (m n : Nat) (s : State) :
-    steps (m + n) s = steps n (steps m s) := by
-  induction m generalizing s with
-  | zero => simp [steps]
-  | succ m ih => simp only [Nat.succ_add, steps]; exact ih (step s)
-
-/-- `halt v` is a fixed point of `step`. -/
-theorem steps_halt_fixed (n : Nat) (v : CekValue) :
-    steps n (.halt v) = .halt v := by
-  induction n with
-  | zero => rfl
-  | succ n ih => simp [steps, step, ih]
-
-/-- `.error` is a fixed point of `step`. -/
-theorem steps_error_fixed : ∀ (n : Nat), steps n (.error : State) = .error
-  | 0 => rfl
-  | n + 1 => by simp only [steps, step]; exact steps_error_fixed n
-
 --------------------------------------------------------------------------------
 -- 13. Leftward ObsRefinesK propagation
 --
 -- If LHS takes `n` deterministic steps to `s₁'` and `s₁'` Obs-refines `s₂`,
 -- then the pre-step `s₁` also Obs-refines `s₂`.
 --------------------------------------------------------------------------------
-
-theorem obsRefinesK_of_steps_left {k n : Nat} {s₁ s₁' s₂ : State}
-    (h_steps : steps n s₁ = s₁') (h : ObsRefinesK k s₁' s₂) :
-    ObsRefinesK k s₁ s₂ := by
-  refine ⟨?_, ?_⟩
-  · intro v ⟨m, hmk, hsteps_v⟩
-    by_cases hmn : m ≤ n
-    · have hs₁'_halt : s₁' = .halt v := by
-        rw [← h_steps]
-        have hsplit : n = m + (n - m) := by omega
-        rw [hsplit, steps_trans, hsteps_v, steps_halt_fixed]
-      rw [hs₁'_halt] at h
-      exact h.1 v ⟨0, Nat.zero_le _, rfl⟩
-    · have h_s₁'_halt : steps (m - n) s₁' = .halt v := by
-        have hsplit : m = n + (m - n) := by omega
-        rw [← h_steps, ← steps_trans, ← hsplit]
-        exact hsteps_v
-      have hmn_le : m - n ≤ k := by omega
-      exact h.1 v ⟨m - n, hmn_le, h_s₁'_halt⟩
-  · intro n' hn' herr
-    by_cases hmn : n' ≤ n
-    · have hs₁'_err : s₁' = .error := by
-        rw [← h_steps]
-        have hsplit : n = n' + (n - n') := by omega
-        rw [hsplit, steps_trans, herr, steps_error_fixed]
-      rw [hs₁'_err] at h
-      exact h.2 0 (Nat.zero_le _) rfl
-    · have h_s₁'_err : steps (n' - n) s₁' = .error := by
-        have hsplit : n' = n + (n' - n) := by omega
-        rw [← h_steps, ← steps_trans, ← hsplit]
-        exact herr
-      have hmn_le : n' - n ≤ k := by omega
-      exact h.2 (n' - n) hmn_le h_s₁'_err
 
 /-- Unbounded leftward propagation through a deterministic prefix. -/
 theorem obsRefines_of_steps_left {n : Nat} {s₁ s₁' s₂ : State}
@@ -1363,21 +1223,6 @@ theorem obsRefines_of_steps_left {n : Nat} {s₁ s₁' s₂ : State}
       rfl
     · exact ⟨m - n, by rw [← h_steps, ← steps_trans, show n + (m - n) = m by omega]; exact hm⟩
   exact ⟨fun ⟨v, hv⟩ => h.halt ⟨v, after rfl hv⟩, fun he => h.error (after rfl he)⟩
-
-/-- Rightward propagation: if RHS reaches `s₂'` in `n` steps and `s₁`
-    Obs-refines `s₂'`, then `s₁` also Obs-refines the pre-step `s₂`. -/
-theorem obsRefinesK_of_steps_right {k n : Nat} {s₁ s₂ s₂' : State}
-    (h_steps : steps n s₂ = s₂') (h : ObsRefinesK k s₁ s₂') :
-    ObsRefinesK k s₁ s₂ := by
-  refine ⟨?_, ?_⟩
-  · intro v hv
-    obtain ⟨v', m, hm⟩ := h.1 v hv
-    refine ⟨v', n + m, ?_⟩
-    rw [steps_trans n m, h_steps]; exact hm
-  · intro n' hn' herr
-    obtain ⟨m, hm⟩ := h.2 n' hn' herr
-    refine ⟨n + m, ?_⟩
-    rw [steps_trans n m, h_steps]; exact hm
 
 --------------------------------------------------------------------------------
 -- 14. `SubstEnvRef` lookups
@@ -1712,9 +1557,9 @@ private theorem shiftBisimState_evalBuiltin {b : BuiltinFun} {args₁ args₂ : 
     ShiftBisimState
       (match evalBuiltin b args₁ with | some v => .ret π₁ v | none => .error)
       (match evalBuiltin b args₂ with | some v => .ret π₂ v | none => .error) := by
-  have rel := evalBuiltin_rel (R := ShiftBisimValue) (b := b)
-    ⟨shiftBisimValue_vcon_inv, fun h => h ▸ .vcon _⟩
-    ⟨shiftBisimValue_vcon_inv_right, fun h => h ▸ .vcon _⟩ (shiftBisimValueList_listRel h)
+  have rel := Equivalence.evalBuiltin_optionRel (R := ShiftBisimValue) (b := b)
+    shiftBisimValue_vcon_inv shiftBisimValue_vcon_inv_right (fun _ => .vcon _)
+    (shiftBisimValueList_listRel h)
   generalize evalBuiltin b args₁ = o₁ at rel
   generalize evalBuiltin b args₂ = o₂ at rel
   cases rel with

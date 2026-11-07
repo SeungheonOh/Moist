@@ -26,6 +26,7 @@ open Moist.Plutus.Term (Term)
 open Moist.MIR
 open Moist.Verified (closedAt closedAtList renameTerm renameTermList shiftRename liftRename)
 open Moist.Verified.Equivalence (ListRel ObsRefinesK steps listRel_mono listRel_reverse
+  steps_trans obsRefinesK_of_steps_left obsRefinesK_of_steps_right
   obsRefinesK_zero_ret obsRefinesK_of_step_compute obsRefinesK_of_step_ret
   constToTagAndFields_fields_vcon)
 open Moist.Verified.Contextual (Context CtxRefines fill fill_closedAt_iff fill_compose
@@ -499,12 +500,6 @@ theorem openRefines_hoist (F : HoistFrame) {d : Nat} {tr tb : Term} (hF : F.WF d
     ftlr (d + 1) tb hb j' j' (Nat.le_refl _) _ _ (envRefinesK_extend henv' hv)
       j' (Nat.le_refl _) _ _ hstk
 
-theorem ctxRefines_fill (C : Context) {t₁ t₂ : Term} (h : CtxRefines t₁ t₂) :
-    CtxRefines (fill C t₁) (fill C t₂) := by
-  intro C' hC'
-  simp only [← fill_compose] at hC' ⊢
-  exact h _ hC'
-
 def HoistFrame.toContext : HoistFrame → Context
   | .force => .Force .Hole
   | .appFun x => .AppLeft .Hole x
@@ -691,7 +686,7 @@ theorem mirCtxRefines_fill (F : MFrame) {a b : Expr} (h : MIRCtxRefines a b) :
         refine ⟨fun _ => rfl, ?_⟩
         simp only [Option.bind_some, Option.map_some]
         rw [H.fill_eq, H.fill_eq]
-        exact ctxRefines_fill _ hc
+        exact Moist.Verified.Contextual.ctxRefines_fill hc _
 
 theorem mirCtxRefines_wrapLet_body {bs : List (VarId × Expr × Bool)} {b₁ b₂ : Expr}
     (h : MIRCtxRefines b₁ b₂) : MIRCtxRefines (wrapLet bs b₁) (wrapLet bs b₂) := by

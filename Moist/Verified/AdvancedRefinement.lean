@@ -50,27 +50,39 @@ theorem finite_join_refines {left right : State} {leftFuel rightFuel : Nat}
     rw [← join]
     exact (reaches_after_prefix leftFuel rfl).mp reaches
 
-theorem contextual_of_uniform_refinement {depth : Nat} {source target : Term}
+/-- A same-environment observation on well-formed environments and stacks
+    lifts to contextual refinement. -/
+theorem contextual_of_wf_refinement {depth : Nat} {source target : Term}
     (sourceClosed : closedAt depth source = true)
     (closedPreserved : ∀ depth, closedAt depth source = true → closedAt depth target = true)
-    (localRefinement : ∀ environment stack,
+    (localRefinement : ∀ environment stack, BetaValueRefines.EnvWellFormed depth environment →
+      depth ≤ environment.length → BetaValueRefines.StackWellFormed stack →
       ObsRefines (.compute stack environment source) (.compute stack environment target)) :
     CtxRefines source target := by
   apply TermObsRefinesWF.soundness_refinesWF (d := depth)
   · intro budget index indexBound leftEnv rightEnv environments leftWellFormed leftLength
       rightWellFormed rightLength observation observationBound leftStack rightStack
       leftStackWellFormed rightStackWellFormed stacks
-    have selfRefinement := FundamentalRefinesWF.ftlr_wf depth source sourceClosed
-      budget index indexBound leftEnv rightEnv environments leftWellFormed leftLength
-      rightWellFormed rightLength observation observationBound leftStack rightStack
-      leftStackWellFormed rightStackWellFormed stacks
     exact InlineSoundness.SubstRefinesExt.obsRefinesK_compose_obsRefines_right
-      selfRefinement (localRefinement rightEnv rightStack)
+      (FundamentalRefinesWF.ftlr_wf depth source sourceClosed
+        budget index indexBound leftEnv rightEnv environments leftWellFormed leftLength
+        rightWellFormed rightLength observation observationBound leftStack rightStack
+        leftStackWellFormed rightStackWellFormed stacks)
+      (localRefinement rightEnv rightStack rightWellFormed rightLength rightStackWellFormed)
   · intro context sourceContextClosed
     obtain ⟨contextClosed, termClosed⟩ :=
       (fill_closedAt_iff context source 0).mp sourceContextClosed
     exact (fill_closedAt_iff context target 0).mpr
       ⟨contextClosed, closedPreserved _ termClosed⟩
+
+theorem contextual_of_uniform_refinement {depth : Nat} {source target : Term}
+    (sourceClosed : closedAt depth source = true)
+    (closedPreserved : ∀ depth, closedAt depth source = true → closedAt depth target = true)
+    (localRefinement : ∀ environment stack,
+      ObsRefines (.compute stack environment source) (.compute stack environment target)) :
+    CtxRefines source target :=
+  contextual_of_wf_refinement sourceClosed closedPreserved fun environment stack _ _ _ =>
+    localRefinement environment stack
 
 theorem contextual_of_uniform_join {depth : Nat} {source target : Term}
     (sourceClosed : closedAt depth source = true)

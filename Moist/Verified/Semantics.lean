@@ -17,7 +17,7 @@ observation used by conformance tests. `steps` / `Reaches` come from
 -/
 
 -- `steps` and `Reaches` are the shared definitions from `Definitions.lean`.
-export Moist.Verified.Equivalence (steps Reaches steps_error)
+export Moist.Verified.Equivalence (steps Reaches steps_error steps_trans)
 
 /-! ## Determinism
 
@@ -28,11 +28,6 @@ must agree on the halted value. -/
 
 /-- `halt` is a fixed point of `step`. -/
 theorem step_halt (v : CekValue) : step (.halt v) = .halt v := rfl
-
-/-- Step counts compose: running `m + n` steps is the same as running `m`
-    then `n`. -/
-theorem steps_trans (m n : Nat) (s : State) : steps (m + n) s = steps n (steps m s) :=
-  Equivalence.steps_trans m n s
 
 /-- `halt` is absorbing: once halted, stepping any further stays at `halt v`. -/
 theorem steps_halt (v : CekValue) (n : Nat) : steps n (.halt v) = .halt v :=
