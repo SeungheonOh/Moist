@@ -132,14 +132,13 @@ def anfNormalizeProof (e : Expr) : FreshM ANFExpr := do
 `anfNormalizeFlat` first alpha-renames all `.Let` binders to fresh uids
 (so that `flattenLetBinds` can be applied without variable capture),
 then runs ANF normalization (in a new fresh supply), and finally
-applies `flattenLetBinds` at the top-level `.Let` *provided* a runtime
-`FlattenReady` check passes. The runtime check is always expected to
+applies `flattenLetBinds` at the top-level `.Let` *provided* the runtime
+`flattenReadyCheck` passes. The runtime check is always expected to
 succeed on pipeline outputs (because alpha-rename establishes the
 unique-binder invariant), but performing it makes the soundness proof
 self-contained. -/
 
-/-- Bool-valued `FlattenReady` check, mirroring the inductive
-    `FlattenReady` from `Verified/MIR/Primitives`. -/
+/-- Inner let binders must not capture the body or later right-hand sides. -/
 def flattenReadyCheck (body : Expr) : List (VarId × Expr × Bool) → Bool
   | [] => true
   | (_, e, _) :: rest =>
