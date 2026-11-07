@@ -441,4 +441,44 @@ theorem listRel_mirCtxRefines_toListCtxRefines :
 /-! ### 7d. Constr / Case / Fix-Lam congruences for `MIRCtxRefines`
     → moved to `Moist.Verified.MIR.Congruence`. -/
 
+/-! ## Generic refinement helpers -/
+
+/-- Expressions with identical lowerings in every environment refine each other. -/
+theorem mirCtxRefines_of_lowerEq {m₁ m₂ : Expr}
+    (h : ∀ env, lowerTotalExpr env m₁ = lowerTotalExpr env m₂) :
+    MIRCtxRefines m₁ m₂ := by
+  intro env
+  rw [h env]
+  refine ⟨id, ?_⟩
+  cases lowerTotalExpr env m₂ with
+  | none => trivial
+  | some t => exact ctxRefines_refl t
+
+/-- A source that never lowers refines anything. -/
+theorem mirCtxRefines_of_lhs_none {m₁ m₂ : Expr}
+    (h : ∀ env, lowerTotalExpr env m₁ = none) : MIRCtxRefines m₁ m₂ := by
+  intro env
+  rw [h env]
+  exact ⟨by simp, trivial⟩
+
+/-- `Fix` whose body is not a lambda never lowers. -/
+theorem lowerTotalExpr_fix_nonlam_none (env : List VarId) (f : VarId) (body : Expr)
+    (h : ∀ (x : VarId) (inner : Expr), body ≠ .Lam x inner) :
+    lowerTotalExpr env (.Fix f body) = none := by
+  cases body <;>
+    first
+    | exact absurd rfl (h _ _)
+    | simp only [lowerTotalExpr, Moist.MIR.expandFix, Moist.MIR.lowerTotal]
+
+theorem mirCtxRefines_fix_nonlam_lhs {f : VarId} {body target : Expr}
+    (h : ∀ (x : VarId) (inner : Expr), body ≠ .Lam x inner) :
+    MIRCtxRefines (.Fix f body) target :=
+  mirCtxRefines_of_lhs_none (fun env => lowerTotalExpr_fix_nonlam_none env f body h)
+
+theorem mirCtxRefines_fix_nonlam_both {f₁ f₂ : VarId} {body₁ body₂ : Expr}
+    (h₁ : ∀ (x : VarId) (inner : Expr), body₁ ≠ .Lam x inner)
+    (_h₂ : ∀ (x : VarId) (inner : Expr), body₂ ≠ .Lam x inner) :
+    MIRCtxRefines (.Fix f₁ body₁) (.Fix f₂ body₂) :=
+  mirCtxRefines_fix_nonlam_lhs h₁
+
 end Moist.Verified.MIR

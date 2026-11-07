@@ -304,4 +304,252 @@ theorem mirCtxRefines_fix_lam {f x : VarId} {body₁ body₂ : Expr}
           ctxRefines_refl _
         exact ctxRefines_app h_z_refl h_lam_outer
 
+/-! ## Let congruences -/
+
+section LetCongruence
+
+open Moist.MIR (lowerTotal lowerTotalLet)
+
+--------------------------------------------------------------------------------
+-- Let congruences: `lowerTotalExpr` decomposition on `.Let`
+--------------------------------------------------------------------------------
+
+/-- Unconditional decomposition: `lowerTotalExpr env (.Let binds body)` equals
+    `lowerTotalLet env (expandFixBinds binds) (expandFix body)`. Holds for any
+    binds/body, including those containing Fix nodes. The expansion happens
+    inside `expandFix` on the Let constructor. -/
+theorem lowerTotalExpr_let (env : List VarId)
+    (binds : List (VarId × Expr × Bool)) (body : Expr) :
+    lowerTotalExpr env (.Let binds body) =
+      lowerTotalLet env (Moist.MIR.expandFixBinds binds) (Moist.MIR.expandFix body) := by
+  simp only [lowerTotalExpr, Moist.MIR.expandFix, Moist.MIR.lowerTotal]
+
+--------------------------------------------------------------------------------
+-- 3. Helpers for `lowerTotalLet` body swap
+--
+-- Given `MIRCtxRefines body₁ body₂`, swap the body inside any `.Let binds body_i`.
+-- Proved via structural induction on `binds`, with `ctxRefines_app` /
+-- `ctxRefines_lam` wrapping at each level. All helpers go through `expandFix`
+-- internally so no fix-free precondition is needed.
+--------------------------------------------------------------------------------
+
+/-- Compile-preservation direction for body swap inside `lowerTotalLet`. The
+    body is `expandFix`-ed internally so we can use `MIRCtxRefines body₁ body₂`
+    directly. -/
+private theorem lowerTotalLet_some_body_swap :
+    ∀ (binds : List (VarId × Expr × Bool)) (env : List VarId)
+      (body₁ body₂ : Expr),
+      MIRCtxRefines body₁ body₂ →
+      (lowerTotalLet env binds (Moist.MIR.expandFix body₁)).isSome →
+      (lowerTotalLet env binds (Moist.MIR.expandFix body₂)).isSome
+  | [], env, body₁, body₂, h, hsome => by
+    -- lowerTotalLet env [] (expandFix body) = lowerTotal env (expandFix body)
+    -- = lowerTotalExpr env body, by definition.
+    simp only [lowerTotalLet] at hsome ⊢
+    exact h.toImp env hsome
+  | (x, rhs, er) :: rest, env, body₁, body₂, h, hsome => by
+    simp only [lowerTotalLet, Option.bind_eq_bind] at hsome ⊢
+    cases hrhs : lowerTotal env rhs with
+    | none => rw [hrhs] at hsome; simp at hsome
+    | some r =>
+      rw [hrhs] at hsome
+      simp only [Option.bind_some] at hsome
+      cases hinner₁ :
+          lowerTotalLet (x :: env) rest (Moist.MIR.expandFix body₁) with
+      | none => rw [hinner₁] at hsome; simp at hsome
+      | some inner₁ =>
+        have hinner_some :
+            (lowerTotalLet (x :: env) rest (Moist.MIR.expandFix body₁)).isSome := by
+          rw [hinner₁]; rfl
+        have hinner₂_some :=
+          lowerTotalLet_some_body_swap rest (x :: env) body₁ body₂ h hinner_some
+        cases hinner₂ :
+            lowerTotalLet (x :: env) rest (Moist.MIR.expandFix body₂) with
+        | none => rw [hinner₂] at hinner₂_some; exact absurd hinner₂_some (by simp)
+        | some inner₂ => simp
+
+/-- CtxRefines-preservation direction for body swap inside `lowerTotalLet`. -/
+private theorem lowerTotalLet_ctxRefines_body_swap :
+    ∀ (binds : List (VarId × Expr × Bool)) (env : List VarId)
+      (body₁ body₂ : Expr),
+      MIRCtxRefines body₁ body₂ →
+      ∀ t₁ t₂,
+        lowerTotalLet env binds (Moist.MIR.expandFix body₁) = some t₁ →
+        lowerTotalLet env binds (Moist.MIR.expandFix body₂) = some t₂ →
+        CtxRefines t₁ t₂
+  | [], env, body₁, body₂, h, t₁, t₂, hlow₁, hlow₂ => by
+    simp only [lowerTotalLet] at hlow₁ hlow₂
+    -- hlow₁ : lowerTotal env (expandFix body₁) = some t₁
+    -- = lowerTotalExpr env body₁ = some t₁ (definitionally)
+    have ⟨_, hobs⟩ := h env
+    show CtxRefines t₁ t₂
+    have h₁ : lowerTotalExpr env body₁ = some t₁ := hlow₁
+    have h₂ : lowerTotalExpr env body₂ = some t₂ := hlow₂
+    rw [h₁, h₂] at hobs
+    exact hobs
+  | (x, rhs, er) :: rest, env, body₁, body₂, h, t₁, t₂, hlow₁, hlow₂ => by
+    simp only [lowerTotalLet, Option.bind_eq_bind, Option.bind_eq_some_iff] at hlow₁ hlow₂
+    obtain ⟨r₁, hr₁, inner₁, hinner₁, heq₁⟩ := hlow₁
+    obtain ⟨r₂, hr₂, inner₂, hinner₂, heq₂⟩ := hlow₂
+    have hreq : r₁ = r₂ := by rw [hr₁] at hr₂; injection hr₂
+    subst hreq
+    injection heq₁ with heq₁
+    injection heq₂ with heq₂
+    subst heq₁; subst heq₂
+    have ih_inner :=
+      lowerTotalLet_ctxRefines_body_swap rest (x :: env) body₁ body₂ h
+        inner₁ inner₂ hinner₁ hinner₂
+    exact ctxRefines_app (ctxRefines_lam 0 ih_inner) (ctxRefines_refl _)
+
+/-- MIR-level body swap congruence for `.Let`. The lowering goes through
+    `expandFix` internally. -/
+theorem mirCtxRefines_let_body
+    {binds : List (VarId × Expr × Bool)} {body₁ body₂ : Expr}
+    (h : MIRCtxRefines body₁ body₂) :
+    MIRCtxRefines (.Let binds body₁) (.Let binds body₂) := by
+  intro env
+  rw [lowerTotalExpr_let env binds body₁,
+      lowerTotalExpr_let env binds body₂]
+  refine ⟨?_, ?_⟩
+  · exact lowerTotalLet_some_body_swap
+      (Moist.MIR.expandFixBinds binds) env body₁ body₂ h
+  · cases h₁ :
+        lowerTotalLet env (Moist.MIR.expandFixBinds binds) (Moist.MIR.expandFix body₁) with
+    | none => trivial
+    | some t₁ =>
+      cases h₂ :
+          lowerTotalLet env (Moist.MIR.expandFixBinds binds) (Moist.MIR.expandFix body₂) with
+      | none => trivial
+      | some t₂ =>
+        exact lowerTotalLet_ctxRefines_body_swap
+          (Moist.MIR.expandFixBinds binds) env body₁ body₂ h t₁ t₂ h₁ h₂
+
+--------------------------------------------------------------------------------
+-- 4. MIR-level head-rhs congruence for `.Let`
+--------------------------------------------------------------------------------
+
+/-- MIR-level head-rhs swap congruence for `.Let`. The lowering goes through
+    `expandFix` internally. -/
+theorem mirCtxRefines_let_rhs_head
+    {x : VarId} {rhs₁ rhs₂ : Expr} {er : Bool}
+    {rest : List (VarId × Expr × Bool)} {body : Expr}
+    (h : MIRCtxRefines rhs₁ rhs₂) :
+    MIRCtxRefines (.Let ((x, rhs₁, er) :: rest) body)
+                  (.Let ((x, rhs₂, er) :: rest) body) := by
+  intro env
+  rw [lowerTotalExpr_let env _ body,
+      lowerTotalExpr_let env _ body]
+  simp only [Moist.MIR.expandFixBinds, lowerTotalLet, Option.bind_eq_bind]
+  refine ⟨?_, ?_⟩
+  · intro hsome
+    cases hrhs₁_low : lowerTotal env (Moist.MIR.expandFix rhs₁) with
+    | none => rw [hrhs₁_low] at hsome; simp at hsome
+    | some r₁ =>
+      rw [hrhs₁_low] at hsome
+      simp only [Option.bind_some] at hsome
+      have hrhs₁_exp : (lowerTotalExpr env rhs₁).isSome := by
+        show (lowerTotal env (Moist.MIR.expandFix rhs₁)).isSome
+        rw [hrhs₁_low]; rfl
+      have hrhs₂_exp : (lowerTotalExpr env rhs₂).isSome := h.toImp env hrhs₁_exp
+      cases hrhs₂_low : lowerTotal env (Moist.MIR.expandFix rhs₂) with
+      | none =>
+        exfalso
+        have heq : lowerTotal env (Moist.MIR.expandFix rhs₂) = lowerTotalExpr env rhs₂ := rfl
+        rw [hrhs₂_low] at heq
+        rw [← heq] at hrhs₂_exp
+        exact absurd hrhs₂_exp (by simp)
+      | some r₂ =>
+        simp only [Option.bind_some]
+        cases hinner :
+            lowerTotalLet (x :: env) (Moist.MIR.expandFixBinds rest) (Moist.MIR.expandFix body) with
+        | none => rw [hinner] at hsome; simp at hsome
+        | some inner => simp
+  · cases hrhs₁_low : lowerTotal env (Moist.MIR.expandFix rhs₁) with
+    | none => simp
+    | some r₁ =>
+      simp only [Option.bind_some]
+      cases hrhs₂_low : lowerTotal env (Moist.MIR.expandFix rhs₂) with
+      | none => simp
+      | some r₂ =>
+        simp only [Option.bind_some]
+        cases hinner :
+            lowerTotalLet (x :: env) (Moist.MIR.expandFixBinds rest) (Moist.MIR.expandFix body) with
+        | none => simp
+        | some inner =>
+          simp only [Option.bind_some]
+          have hr_ref : CtxRefines r₁ r₂ := by
+            have ⟨_, hobs⟩ := h env
+            have h₁ : lowerTotalExpr env rhs₁ = some r₁ := hrhs₁_low
+            have h₂ : lowerTotalExpr env rhs₂ = some r₂ := hrhs₂_low
+            rw [h₁, h₂] at hobs
+            exact hobs
+          exact ctxRefines_app (ctxRefines_refl _) hr_ref
+
+--------------------------------------------------------------------------------
+-- 5. Empty let collapse
+--------------------------------------------------------------------------------
+
+/-- `lowerTotalExpr env (.Let [] body) = lowerTotalExpr env body` definitionally
+    via `lowerTotalExpr → lowerTotal ∘ expandFix → lowerTotal on .Let → lowerTotalLet`
+    → nil case → `lowerTotal env (expandFix body)` = `lowerTotalExpr env body`. -/
+theorem lowerTotalExpr_let_nil_eq (env : List VarId) (body : Expr) :
+    lowerTotalExpr env (.Let [] body) = lowerTotalExpr env body := by
+  simp only [lowerTotalExpr, Moist.MIR.expandFix, Moist.MIR.expandFixBinds, Moist.MIR.lowerTotal,
+    Moist.MIR.lowerTotalLet]
+
+/-- An empty `.Let [] body` is `MIRCtxRefines`-equivalent to `body`. -/
+theorem mirCtxRefines_let_nil {body : Expr} :
+    MIRCtxRefines (.Let [] body) body :=
+  mirCtxRefines_of_lowerEq (lowerTotalExpr_let_nil_eq · body)
+
+--------------------------------------------------------------------------------
+-- Binds-list congruence for .Let
+--
+-- Given per-rhs `MIRCtxRefines` pairings between `binds₁` and `binds₂`
+-- (matching names and `er` flags), swap the binds in a `.Let`. Proved by
+-- induction on `binds₁`, using `mirCtxRefines_let_rhs_head` at each step to
+-- swap the head rhs, then a body swap via `mirCtxRefines_let_body` applied
+-- with a recursive inner-Let swap.
+--------------------------------------------------------------------------------
+
+/-- Per-binding rhs swap congruence for `.Let`. Pass-through proof using the
+    head-rhs and body helpers. -/
+theorem mirCtxRefines_let_binds_congr :
+    ∀ (binds₁ binds₂ : List (VarId × Expr × Bool)) (body : Expr),
+      ListRel (fun b₁ b₂ => b₁.1 = b₂.1 ∧ b₁.2.2 = b₂.2.2 ∧
+                            MIRCtxRefines b₁.2.1 b₂.2.1) binds₁ binds₂ →
+      MIRCtxRefines (.Let binds₁ body) (.Let binds₂ body)
+  | [], [], _, _ => mirCtxRefines_refl _
+  | [], _ :: _, _, hrel => absurd hrel id
+  | _ :: _, [], _, hrel => absurd hrel id
+  | (v₁, rhs₁, er₁) :: rest₁, (v₂, rhs₂, er₂) :: rest₂, body, hrel => by
+    obtain ⟨⟨hname, her, hrhs_ref⟩, hrel_rest⟩ := hrel
+    subst hname; subst her
+    -- Step 1: swap head rhs from rhs₁ to rhs₂.
+    have h_step1 : MIRCtxRefines (.Let ((v₁, rhs₁, er₁) :: rest₁) body)
+                                  (.Let ((v₁, rhs₂, er₁) :: rest₁) body) :=
+      mirCtxRefines_let_rhs_head hrhs_ref
+    -- Step 2: swap body via inner Let-body swap.
+    have hrest_ref : MIRCtxRefines (.Let rest₁ body) (.Let rest₂ body) :=
+      mirCtxRefines_let_binds_congr rest₁ rest₂ body hrel_rest
+    have h_single_swap :
+        MIRCtxRefines (.Let [(v₁, rhs₂, er₁)] (.Let rest₁ body))
+                      (.Let [(v₁, rhs₂, er₁)] (.Let rest₂ body)) :=
+      mirCtxRefines_let_body hrest_ref
+    -- Identical lowerings between the two forms.
+    have hlow_eq : ∀ (rest_x : List (VarId × Expr × Bool)) env,
+        lowerTotalExpr env (.Let ((v₁, rhs₂, er₁) :: rest_x) body) =
+        lowerTotalExpr env (.Let [(v₁, rhs₂, er₁)] (.Let rest_x body)) := by
+      intro rest_x env
+      simp only [lowerTotalExpr, Moist.MIR.expandFix, Moist.MIR.expandFixBinds,
+        Moist.MIR.lowerTotal, Moist.MIR.lowerTotalLet]
+    have hunroll := mirCtxRefines_of_lowerEq (hlow_eq rest₁)
+    have hreroll := mirCtxRefines_of_lowerEq (fun env => (hlow_eq rest₂ env).symm)
+    exact mirCtxRefines_trans h_step1
+      (mirCtxRefines_trans hunroll
+        (mirCtxRefines_trans h_single_swap hreroll))
+termination_by binds₁ _ _ _ => List.length binds₁
+
+end LetCongruence
+
 end Moist.Verified.MIR

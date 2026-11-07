@@ -244,18 +244,6 @@ private theorem inlineBindings_cons_eq (v : VarId) (rhs : Expr) (er : Bool)
 -- 1b. Utility: MIRCtxRefines from universal lowerTotalExpr equality
 --------------------------------------------------------------------------------
 
-/-- If two MIR expressions have the same lowering in every environment,
-    they are `MIRCtxRefines`-equivalent (both directions). -/
-theorem mirCtxRefines_of_lowerEq {m₁ m₂ : Expr}
-    (h : ∀ env, lowerTotalExpr env m₁ = lowerTotalExpr env m₂) :
-    MIRCtxRefines m₁ m₂ := by
-  intro env
-  rw [h env]
-  refine ⟨id, ?_⟩
-  cases hlow : lowerTotalExpr env m₂ with
-  | none => trivial
-  | some t => exact ctxRefines_refl t
-
 /-- Shorthand: the `shouldInline` condition that the inline pass checks
     before substituting `rhs` for `v` in `body` and `rest`. This gates
     the substitution on one of the four `shouldInline` branches (atom /

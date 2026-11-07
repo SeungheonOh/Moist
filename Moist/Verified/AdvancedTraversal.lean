@@ -1,5 +1,5 @@
 import Moist.MIR.Optimize.Advanced.Traversal
-import Moist.Verified.DCESoundness
+import Moist.Verified.MIR.Congruence
 
 namespace Moist.Verified.MIR
 
@@ -105,14 +105,6 @@ theorem rewriteBottomUp_unique (rewrite candidate : Expr → Expr)
   exact rewriteBottomUp_unique rewrite candidate equation child
 termination_by exprSize expression
 
-theorem fix_nonlam_refines {binder : VarId} {body target : Expr}
-    (notLambda : ∀ parameter inner, body ≠ .Lam parameter inner) :
-    MIRCtxRefines (.Fix binder body) target := by
-  intro environment
-  have failed : lowerTotalExpr environment (.Fix binder body) = none := by
-    cases body <;> simp_all [lowerTotalExpr, expandFix, lowerTotal]
-  simp [failed]
-
 theorem listRel_map_refines (transform : Expr → Expr)
     (sound : ∀ expression, MIRCtxRefines expression (transform expression))
     (expressions : List Expr) : ListRel MIRCtxRefines expressions (expressions.map transform) := by
@@ -174,7 +166,7 @@ theorem rewriteBottomUp_refines (rewrite : Expr → Expr)
               exact mirCtxRefines_fix_lam (inductionHypothesis remaining (by omega) body)
           | Var _ | Lit _ | Builtin _ | Error | Fix _ _ | App _ _ | Force _ | Delay _
           | Constr _ _ | Case _ _ | Let _ _ =>
-            exact fix_nonlam_refines (by intros; intro impossible; cases impossible)
+            exact mirCtxRefines_fix_nonlam_lhs (by intros; intro impossible; cases impossible)
       · exact localSound _
 
 end Moist.Verified.MIR

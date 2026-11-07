@@ -479,47 +479,4 @@ theorem mirCtxRefines_let_hoist_constr_arg_iter_bwd :
         (mirCtxRefines_let_cons_er_normalize_bwd v rhs er rest body))
   termination_by binds _ _ _ _ _ _ _ => binds.length
 
-/-! ### Section 12e-bis. Fix-non-Lam vacuous refinement helpers
-
-For `.Fix f body` where `body` is not a `.Lam`, the lowering always returns
-`none`, so any refinement with such a Fix on either side is vacuous. -/
-
-theorem lowerTotalExpr_fix_nonlam_none' (env : List VarId) (f : VarId) (body : Expr)
-    (h : ∀ (x : VarId) (inner : Expr), body ≠ .Lam x inner) :
-    lowerTotalExpr env (.Fix f body) = none := by
-  cases body <;>
-    first
-    | exact absurd rfl (h _ _)
-    | simp only [lowerTotalExpr, expandFix, lowerTotal]
-
-theorem mirCtxRefines_of_lhs_none' {m₁ m₂ : Expr}
-    (h : ∀ env, lowerTotalExpr env m₁ = none) :
-    MIRCtxRefines m₁ m₂ := by
-  intro env
-  refine ⟨?_, ?_⟩
-  · intro hsome; rw [h env] at hsome; exact absurd hsome (by simp)
-  · rw [h env]; trivial
-
-/-- Specific version: Fix with non-Lam body on the LHS. -/
-theorem mirCtxRefines_fix_nonlam_lhs {f : VarId} {body : Expr} {target : Expr}
-    (h : ∀ (x : VarId) (inner : Expr), body ≠ .Lam x inner) :
-    MIRCtxRefines (.Fix f body) target :=
-  mirCtxRefines_of_lhs_none' (fun env => lowerTotalExpr_fix_nonlam_none' env f body h)
-
-/-- Specific version: Fix with non-Lam body on the RHS. This requires showing
-    the source also lowers to none (i.e., source has no halts/errors observable).
-    For our use case, the source is itself a Fix with non-Lam body, so it
-    also lowers to none. -/
-theorem mirCtxRefines_fix_nonlam_both {f₁ f₂ : VarId} {body₁ body₂ : Expr}
-    (h₁ : ∀ (x : VarId) (inner : Expr), body₁ ≠ .Lam x inner)
-    (h₂ : ∀ (x : VarId) (inner : Expr), body₂ ≠ .Lam x inner) :
-    MIRCtxRefines (.Fix f₁ body₁) (.Fix f₂ body₂) := by
-  intro env
-  have h1 : lowerTotalExpr env (.Fix f₁ body₁) = none :=
-    lowerTotalExpr_fix_nonlam_none' env f₁ body₁ h₁
-  have h2 : lowerTotalExpr env (.Fix f₂ body₂) = none :=
-    lowerTotalExpr_fix_nonlam_none' env f₂ body₂ h₂
-  rw [h1, h2]
-  refine ⟨id, trivial⟩
-
 end Moist.Verified.MIR

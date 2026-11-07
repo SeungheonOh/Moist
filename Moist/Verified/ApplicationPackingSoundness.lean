@@ -356,7 +356,7 @@ theorem packApplicationsFuel_refines (minimum fuel : Nat) (expression : Expr) :
           | succ remaining => exact mirCtxRefines_fix_lam (inductionHypothesis remaining (by omega) inner)
         | Var _ | Lit _ | Builtin _ | Error | Fix _ _ | App _ _ | Force _ | Delay _
         | Constr _ _ | Case _ _ | Let _ _ =>
-          exact fix_nonlam_refines (by intros; intro impossible; cases impossible)
+          exact mirCtxRefines_fix_nonlam_lhs (by intros; intro impossible; cases impossible)
 
 theorem packApplications_refines (minimum : Nat) (expression : Expr) :
     MIRCtxRefines expression (packApplications minimum expression) :=
