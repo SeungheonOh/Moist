@@ -2,6 +2,12 @@ import Moist.Verified.InlineSoundness.Totality
 import Moist.MIR.Optimize.Safety
 
 
+/-! # Evaluation paths
+
+`EvaluationPath p t`: evaluating `t` reaches the variable `p` before anything
+that could fail or diverge, passing only total terms. The inliner's
+`firstEvaluationUse` check lowers to such a path (`inlineGate_evaluationPath`). -/
+
 namespace Moist.Verified.InlineSoundness.Frontier
 
 open Moist.CEK Moist.Plutus.Term Moist.MIR

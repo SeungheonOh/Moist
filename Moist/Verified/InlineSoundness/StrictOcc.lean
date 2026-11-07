@@ -4,20 +4,19 @@ import Moist.Verified.FundamentalRefines
 import Moist.Verified.BetaValueRefines
 import Moist.Verified.StepWellFormed
 
-/-! # Strict single-occurrence predicates for UPLC terms
+/-! # Same-environment beta reduction for a halting right-hand side
 
-Predicates capturing "variable at de Bruijn position `pos` occurs exactly
-once, and that occurrence is outside deferred syntax."
+`same_env_beta_of_halts`: if `rhs` halts from the empty stack, the redex
+`(λ. body) rhs` is observationally refined by `body[rhs/1]` in the same
+environment and stack. The proof is a step-indexed substitution lemma
+(`body_subst_multi_obsRefinesK_gen`) relating `body` under the environment
+extended by `rhs`'s value to the substituted body, where each occurrence
+re-evaluates `rhs` (shifted under binders) to a related value.
 
-Strict positions: Apply arguments, Force body, Constr args, Case scrutinee.
-Deferred positions: Lam body, Delay body, Case alternatives.
-
-These capture only the MIR-level `countOccurrences == 1 && !occursInDeferred`
-conditions, not the production `firstEvaluationUse` condition. A strict
-occurrence need not be reached: a preceding application can diverge.
-The legacy impure error-propagation lemmas below rely on the false
-budget-exhaustion axiom. The single/multi pure-RHS lemmas instead use actual
-termination witnesses and do not depend on that axiom. -/
+The file also defines the occurrence predicates `freeOf`, `StrictSingleOcc`
+and `SingleOcc` that appear in the public beta statements, and the stack
+independence of terminal outcomes (`error_on_all_stacks`,
+`halt_on_all_stacks`). -/
 
 namespace Moist.Verified.InlineSoundness.StrictOcc
 
@@ -269,12 +268,7 @@ mutual
   termination_by sizeOf ts
 end
 
-/-! ## closedAt for substTerm of FreeOf terms -/
-
-/-! ## Strict evaluation order: error propagation
-
-If `t_rhs` errors in env `ρ` on all stacks, and `t_rhs` occurs once in
-strict position in `t_body`, then `substTerm pos t_rhs t_body` also errors. -/
+/-! ## Halting and erroring are exclusive -/
 
 section ErrorPropagation
 
@@ -365,10 +359,7 @@ theorem ret_on_all_stacks {ρ : CekEnv} {t : Term} {v : CekValue} {n : Nat}
 
 end StackIndependence
 
-/-! ## Strict subst reaches error (main)
-
-Combines `StrictSingleOcc`, error propagation helpers, and `renameRefinesR_shift1`
-to push the error hypothesis under lambda binders for the `.let_body` case. -/
+/-! ## Errors survive shifting under a binder -/
 
 section StrictSubstErrorProp
 
@@ -535,9 +526,6 @@ theorem is0preserving_multiShift (K : Nat) :
     split
     · omega
     · omega
-
--- Note: liftRename (multiShift K) ≠ multiShift K in general (they differ at n=1).
--- We don't need this identity directly; the iterShift rewrite uses a different path.
 
 theorem renameTerm_multiShift_zero (t : Term) :
     Moist.Verified.renameTerm (multiShift 0) t = t := by

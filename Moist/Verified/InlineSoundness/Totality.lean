@@ -1,6 +1,12 @@
 import Moist.Verified.InlineSoundness.StrictOcc
 import Moist.Verified.Purity
 
+/-! # Total terms
+
+`TotalTerm`: UPLC terms whose evaluation halts in every environment that
+defines their variables; the lowering of every pure MIR expression is one
+(`lowerTotal_total`). -/
+
 namespace Moist.Verified.InlineSoundness.Totality
 
 open Moist.CEK Moist.Plutus.Term

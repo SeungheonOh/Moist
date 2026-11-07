@@ -5,43 +5,20 @@ import Moist.Verified.RenameBase
 import Moist.Verified.StepLift
 import Moist.Verified.FundamentalRefines
 
-/-! # Infrastructure for the step-indexed β-value refinement
+/-! # Infrastructure for UPLC beta reduction
 
-This module collects the foundational lemmas used by the step-indexed
-substitution proof of the UPLC β-value rule:
-
-  `Apply (Lam n body) v_rhs  ⊑  substTerm 1 v_rhs body`   (when `v_rhs` is a value)
-
-The main (downstream) theorem is not stated here — this file hosts only
-the infrastructure pieces:
-
-* `closedAt_rename`, `closedAtList_renameTermList` — closedness is
-  preserved under variable renamings that respect the depth bound.
-
-* `closedAt_substTerm`, `closedAtList_substTermList` — closedness is
-  preserved under UPLC-level open substitution.
-
-* `SubstEnvRef` — the logical relation between two CEK environments
-  which differ by one "substituted" position: `ρ₁` has an extra
-  binding at position `pos`, which is related (via `ValueRefinesK`)
-  to a stand-alone value `v_rhs` supplied from outside, and every
-  other position of `ρ₁` is related to the corresponding (possibly
-  shifted) position of `ρ₂`.
-
-* `substEnvRef_mono`, `substEnvRef_extend` — monotonicity in the step
-  index and preservation under simultaneous `.extend` on both sides.
-
-* `vstep_eq` — propositional equality bridge between the two
-  syntactically distinct copies of `steps` that appear in the
-  codebase (`Verified.Equivalence.steps` and `Verified.Semantics.steps`).
-
-* `value_stack_poly` — lift a halt-witness / no-error witness from the
-  empty stack to an arbitrary stack, using `StepLift.steps_liftState`.
-
-* `extend_lookup_succ`, `extend_lookup_one`, `lookup_zero` — standard
-  `CekEnv` lookup identities re-exposed at the module level (they are
-  `private` in `FundamentalRefines`).
--/
+* Closedness under renaming and substitution (`closedAt_rename`,
+  `closedAt_substTerm`, `closedAt_shift`).
+* `SubstEnvRef`: environments related up to one substituted position, used
+  by the substitution proof in `InlineSoundness.StrictOcc`.
+* Well-formedness of CEK values, environments, frames and stacks, and the
+  reflexivity of the step-indexed value and stack relations on them.
+* Builtin evaluation under any value relation rigid on constants
+  (`evalBuiltin_rel`).
+* The shift bisimulation: stepping commutes with renaming every closure body
+  (`shiftBisimState_step_preserves`), and shift-related values are
+  `ValueRefinesK`-related (`valueRefinesK_of_shiftBisim_wf`).
+* Step composition and prefix lemmas for `ObsRefinesK`/`ObsRefines`. -/
 
 namespace Moist.Verified.BetaValueRefines
 
@@ -452,9 +429,7 @@ theorem iterShift_shift (n : Nat) (t : Term) :
 --------------------------------------------------------------------------------
 
 /-- The two `steps` definitions (`Verified.Semantics.steps` and
-    `Verified.Equivalence.steps`) both iterate `Moist.CEK.step`; they are
-    propositionally equal by induction on the step count. Re-exposed from
-    `DeadLet.lean` (where the analogous private helper lives). -/
+    `Verified.Equivalence.steps`) both iterate `Moist.CEK.step`. -/
 theorem vstep_eq : ∀ (n : Nat) (s : State),
     Moist.Verified.Equivalence.steps n s = Moist.Verified.Semantics.steps n s
   | 0, _ => rfl
@@ -464,17 +439,7 @@ theorem vstep_eq : ∀ (n : Nat) (s : State),
     exact vstep_eq n (step s)
 
 --------------------------------------------------------------------------------
--- 6. Stack-polymorphic value evaluation
---
--- Given a witness that `t` under `ρ` halts (on the empty stack) and never
--- errors, we can lift the trace to an arbitrary initial stack `π`: the
--- trace still hits `ret π v` and is error-free along the way. Uses
--- `StepLift.steps_liftState` + `firstInactive`, following the template
--- of `DeadLet.dead_let_pure_stack_poly`.
---------------------------------------------------------------------------------
-
---------------------------------------------------------------------------------
--- 7. Well-formedness predicates
+-- 6. Well-formedness predicates
 --
 -- Mutually-inductive unary predicates on CEK values / environments that
 -- capture closure well-formedness:
@@ -560,7 +525,7 @@ inductive StackWellFormed : Stack → Prop
       StackWellFormed (f :: π)
 
 --------------------------------------------------------------------------------
--- 8. Env well-formedness helpers
+-- 7. Env well-formedness helpers
 --------------------------------------------------------------------------------
 
 /-- Narrow a well-formedness depth down to a smaller one. -/
@@ -620,7 +585,7 @@ theorem envWellFormed_extend : ∀ (k : Nat) {ρ : CekEnv} {v : CekValue},
         exact hl_look
 
 --------------------------------------------------------------------------------
--- 8b. Builtin evaluation under value relations rigid on constants
+-- 8. Builtin evaluation under value relations rigid on constants
 --------------------------------------------------------------------------------
 
 section BuiltinRelation
@@ -841,7 +806,7 @@ theorem listRel_valueRefinesK_refl (k : Nat) {vs : List CekValue}
   listRel_valueRefinesK_refl_of_valueRefl (valueRefinesK_refl k) h
 
 --------------------------------------------------------------------------------
--- 9b. Closedness-of-list inversions
+-- 10. Closedness-of-list inversions
 --------------------------------------------------------------------------------
 
 /-- Closedness is inherited by every element of a closed list. -/
@@ -932,7 +897,7 @@ theorem vcon_fields_of_constToTagAndFields :
   | Bls12_381_MlResult => simp [constToTagAndFields] at hc
 
 --------------------------------------------------------------------------------
--- 10. StackRefK reflexivity
+-- 11. StackRefK reflexivity
 --
 -- By induction on the stack, showing `StackRefK ValueRefinesK k π π` for
 -- any well-formed `π`. Each frame case involves stepping both sides of
@@ -1326,38 +1291,7 @@ theorem stackRefK_refl : ∀ (k : Nat) (π : Stack),
       | .VBuiltin _ _ _, .VConstr _ _ => simp only [ValueRefinesK] at hv
 
 --------------------------------------------------------------------------------
--- 11. Halt/error shift refinement: ObsRefinesK core for β-value proof
---
--- The step-indexed core observation used by the β-value refinement: the
--- original term under `ρ` stack `π` is `ObsRefinesK`-refined by the shifted
--- term under `ρ.extend arg` on the same stack `π`. This follows directly
--- from `renameRefinesR_shift1` (the right-side specialization of the
--- generalized rename fundamental theorem) once we establish reflexivity
--- of the environment and stack via `envRefinesK_refl` / `stackRefK_refl`.
---
--- **Note on formulation**: The originally requested form of this theorem
--- used `steps m _ = .ret π v` / `.ret π v'` halt-witness style statements.
--- That formulation is **not provable in isolation** because:
---   * `ObsRefinesK`'s halt clause requires `.halt v`, not `.ret π v`.
---     Bridging `.ret π v` to a halt witness requires case analysis on `π`
---     (empty stack halts in one more step; non-empty stack processes frames
---     with complex, stack-descending behaviour).
---   * `ObsRefinesK`'s error clause says `LHS.error → RHS.error`, not the
---     direction needed to conclude `RHS.no-error` from `LHS.no-error`.
---     The latter direction requires a **bidirectional** relation (e.g.,
---     `ObsEqK`) which is not what `renameRefinesR_shift1` provides.
---
--- The `ObsRefinesK`-valued form below is the strongest statement
--- derivable from `renameRefinesR_shift1` + reflexivity, and it is
--- sufficient for the downstream β-value refinement argument: callers
--- extract whatever halt/error information they need from the refinement.
---------------------------------------------------------------------------------
-
---------------------------------------------------------------------------------
 -- 12. Step-composition helpers
---
--- Local copies of `steps_trans` / `steps_halt_fixed` / `steps_error_eq`.
--- Re-exposed since the originals in DeadLet.lean are `private`.
 --------------------------------------------------------------------------------
 
 /-- Transitivity of `steps`: stepping `m + n` equals stepping `n` after stepping `m`. -/
@@ -1452,19 +1386,7 @@ theorem obsRefinesK_of_steps_right {k n : Nat} {s₁ s₂ s₂' : State}
     rw [steps_trans n m, h_steps]; exact hm
 
 --------------------------------------------------------------------------------
--- 14. substRefinesR — the substitution fundamental theorem
---
--- Given a term `t` closed at depth `d + 1` and a replacement `r` closed at
--- depth `d`, for any `SubstEnvRef`-related pair of envs at position `pos`
--- with witness `v_rhs`, and any related stacks, we have
---   ObsRefinesK i (compute π₁ ρ₁ t) (compute π₂ ρ₂ (substTerm pos r t))
--- assuming `r` evaluates (from any sized env, on any initial stack) to a
--- value that `ValueRefinesK`-relates to `v_rhs`.
---
--- The `h_r_eval` hypothesis captures the required evaluation:
---   "r halts in any sized env, to a value related to v_rhs"
--- This is what lets the `Var n = pos` case step the RHS through `r`'s
--- evaluation and close using `SubstEnvRef`'s `v_rhs`-relation at position `pos`.
+-- 14. `SubstEnvRef` lookups
 --------------------------------------------------------------------------------
 
 /-- Apply `SubstEnvRef` at `n < pos`: lookups on both sides give
@@ -1536,7 +1458,7 @@ theorem closedAt_shift {d : Nat} {t : Moist.Plutus.Term.Term}
     omega
 
 --------------------------------------------------------------------------------
--- 16. Shift bisimulation (semantic).
+-- 16. Shift bisimulation
 --
 -- Mutual inductive relation pairing "original" state with its "shifted"
 -- counterpart. Each closure-forming constructor existentially quantifies
@@ -1545,8 +1467,6 @@ theorem closedAt_shift {d : Nat} {t : Moist.Plutus.Term.Term}
 -- binders, σ is lifted to `liftRename σ` — this is exactly the renaming
 -- structure produced by stepping, so the "env-ordering" apparent conflict
 -- resolves because the σ "bakes in" the positional correspondence.
---
--- Structure mirrors `Moist.Verified.Contextual.BisimRef.lean`.
 --------------------------------------------------------------------------------
 
 open Moist.Verified.FundamentalRefines (Is0Preserving is0preserving_id
@@ -1648,7 +1568,7 @@ inductive ShiftBisimFrame : Frame → Frame → Prop
 end
 
 --------------------------------------------------------------------------------
--- 19b. ShiftBisimEnv helpers
+-- 17. Shift bisimulation helpers
 --------------------------------------------------------------------------------
 
 /-- Narrow a `ShiftBisimEnv` down to a smaller depth. -/
@@ -1881,7 +1801,7 @@ theorem shiftBisimValueList_constToTagAndFields_refl :
   | Bls12_381_MlResult => simp [constToTagAndFields] at hc
 
 --------------------------------------------------------------------------------
--- 19d. step_preserves — the main shift bisimulation theorem
+-- 18. Stepping preserves the shift bisimulation
 --------------------------------------------------------------------------------
 
 /-- The shift bisimulation is preserved by one CEK step. -/
@@ -2195,7 +2115,7 @@ theorem shiftBisimState_step_preserves : ∀ {s₁ s₂ : State},
         | vbuiltin _ _ _ => exact ShiftBisimState.error
 
 --------------------------------------------------------------------------------
--- 19e. Iterated step + halt/error inversions
+-- 19. Iterated steps
 --------------------------------------------------------------------------------
 
 /-- Iterated version of `step_preserves`: `ShiftBisimState` is preserved
@@ -2217,20 +2137,7 @@ theorem shiftBisimState_ret_inv : ∀ {π : Stack} {v : CekValue} {s : State},
   | _, _, _, .ret h_v h_π => ⟨_, _, rfl, h_v, h_π⟩
 
 --------------------------------------------------------------------------------
--- 19f. ShiftBisimValue → ValueRefinesK extraction
---
--- Shows ShiftBisimValue implies ValueRefinesK at any step index.
--- Uses mutual induction on step index and value structure.
--- Closure cases use renameRefinesR_shift1 (via renameRefinesR with liftRename).
---------------------------------------------------------------------------------
-
-section ShiftBisimValueRefines
-open Moist.Verified.FundamentalRefines (renameRefinesR is0preserving_lift)
-
-end ShiftBisimValueRefines
-
---------------------------------------------------------------------------------
--- 19g. ShiftBisim reflexivity at identity σ on well-formed structures.
+-- 20. Reflexivity at the identity renaming
 --------------------------------------------------------------------------------
 
 section ShiftBisimRefl
@@ -2282,7 +2189,7 @@ theorem shiftBisimValue_refl_id : ∀ (v : CekValue),
 end ShiftBisimRefl
 
 --------------------------------------------------------------------------------
--- 19j. `valueRefinesK_trans_shiftBisim`: compose ValueRefinesK with ShiftBisim.
+-- 21. Shift-related values are `ValueRefinesK`-related
 --------------------------------------------------------------------------------
 
 private theorem renameEnvRefR_of_shiftBisimEnv_wf

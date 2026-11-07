@@ -2,6 +2,13 @@ import Moist.Verified.InlineSoundness.EvaluationPath
 import Moist.Verified.InlineSoundness.Frontier
 
 
+/-! # Errors propagate along evaluation paths
+
+Substituting an erroring term into a total term returns or errors
+(`subst_returns_or_errors`), so substituting it at the end of an evaluation
+path errors (`EvaluationPath.errors`). This discharges the error-frontier
+premise of the beta rule for the inliner's impure branch. -/
+
 namespace Moist.Verified.InlineSoundness.Frontier
 
 open Moist.CEK Moist.Plutus.Term

@@ -4,6 +4,11 @@ import Moist.MIR.LowerTotal
 import Moist.MIR.Optimize.Inline
 import Moist.MIR.WellScoped
 
+/-! # Consequences of `wellScoped`
+
+Subterms of a well-scoped term are well scoped, and the binders of a
+well-scoped let are distinct and not free in it. -/
+
 namespace Moist.Verified.InlineSoundness.WellScoped
 
 open Moist.MIR (Expr VarId VarSet freeVars freeVarsList freeVarsLet wellScoped
