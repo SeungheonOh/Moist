@@ -22,6 +22,7 @@ import Test.MIR.Opt.Differential
 import Test.MIR.Opt.Production
 import Test.MIR.Opt.Structural
 import Test.MIR.Lower.Golden
+import Test.MIR.Lower.FixCalls
 import Test.MIR.Eval.Golden
 import Test.MIR.Eval.Compile
 import Test.MIR.Eval.Policy
@@ -75,6 +76,7 @@ def testTree : TestTree := suite "mir" do
       Test.MIR.Opt.FormalCoverage.tests
   group "lower" do
     Test.MIR.Lower.Golden.goldenTree
+    Test.MIR.Lower.FixCalls.tests
   group "eval" do
     Test.ConstitutionEncoding.tests
     Test.CollectionEncoding.tests
