@@ -10,6 +10,7 @@ import Moist.MIR.Lower
 import Moist.MIR.Optimize
 import Moist.Verified.Semantics
 import Moist.Verified.DCESoundness
+import Moist.Verified.EtaReduceSoundness
 import Moist.Verified.Contextual.Congruence
 import Moist.Verified.MIR.Congruence
 import Moist.CEK.Machine

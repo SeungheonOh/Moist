@@ -18,61 +18,72 @@ not satisfy this condition in untyped call-by-value evaluation.
 The mandatory outer lambda of a Fix body is preserved for lowering.
 -/
 
-private def etaReduceLam (expression : Expr) : Expr :=
-  match expression with
+/-- `some f` when `λx. f x` may be replaced by `f`. -/
+def etaRule : Expr → Option Expr
   | .Lam parameter (.App function (.Var argument)) =>
     if parameter == argument && !(freeVars function).contains parameter && isCallableValue function then
-      function
-    else expression
-  | _ => expression
+      some function
+    else none
+  | _ => none
 
-/-- Run eta reduction over the entire expression tree.
-    Returns the reduced expression and whether any reduction occurred. -/
-partial def etaReduce : Expr → Expr × Bool
-  | .Lam x body =>
-    let (body', changed) := etaReduce body
+/-- Eta reduction with explicit recursion fuel. Every recursive call is on a
+    strictly smaller expression (a reduction only shrinks its input), so
+    `exprSize` fuel is never exhausted. The result of a reduction is revisited
+    only when the rule fired: `alphaEq` is not reflexive on every literal
+    (`ConstArray`), so comparing an unreduced lambda with itself could fail. -/
+def etaReduceFuel : Nat → Expr → Expr × Bool
+  | 0, e => (e, false)
+  | fuel + 1, .Lam x body =>
+    let (body', changed) := etaReduceFuel fuel body
     let full := Expr.Lam x body'
-    let reduced := etaReduceLam full
-    if alphaEq reduced full then (full, changed)
-    else
-      -- Recurse into the result in case it exposed more eta opportunities
-      let (reduced', changed2) := etaReduce reduced
-      (reduced', true || changed2)
-  | .Fix f (.Lam parameter body) =>
-    let (body', changed) := etaReduce body
+    match etaRule full with
+    | none => (full, changed)
+    | some reduced =>
+      if alphaEq reduced full then (full, changed)
+      else
+        -- Recurse into the result in case it exposed more eta opportunities
+        let (reduced', changed2) := etaReduceFuel fuel reduced
+        (reduced', true || changed2)
+  | fuel + 1, .Fix f (.Lam parameter body) =>
+    let (body', changed) := etaReduceFuel fuel body
     (.Fix f (.Lam parameter body'), changed)
-  | .Fix f body =>
-    let (body', changed) := etaReduce body
+  | fuel + 1, .Fix f body =>
+    let (body', changed) := etaReduceFuel fuel body
     (.Fix f body', changed)
-  | .App f x =>
-    let (f', c1) := etaReduce f
-    let (x', c2) := etaReduce x
+  | fuel + 1, .App f x =>
+    let (f', c1) := etaReduceFuel fuel f
+    let (x', c2) := etaReduceFuel fuel x
     (.App f' x', c1 || c2)
-  | .Force e =>
-    let (e', changed) := etaReduce e
+  | fuel + 1, .Force e =>
+    let (e', changed) := etaReduceFuel fuel e
     (.Force e', changed)
-  | .Delay e =>
-    let (e', changed) := etaReduce e
+  | fuel + 1, .Delay e =>
+    let (e', changed) := etaReduceFuel fuel e
     (.Delay e', changed)
-  | .Constr tag args =>
-    let results := args.map etaReduce
+  | fuel + 1, .Constr tag args =>
+    let results := args.map (etaReduceFuel fuel)
     let args' := results.map Prod.fst
     let changed := results.any Prod.snd
     (.Constr tag args', changed)
-  | .Case scrut alts =>
-    let (scrut', c1) := etaReduce scrut
-    let results := alts.map etaReduce
+  | fuel + 1, .Case scrut alts =>
+    let (scrut', c1) := etaReduceFuel fuel scrut
+    let results := alts.map (etaReduceFuel fuel)
     let alts' := results.map Prod.fst
     let changed := results.any Prod.snd
     (.Case scrut' alts', c1 || changed)
-  | .Let binds body =>
+  | fuel + 1, .Let binds body =>
     let bindResults := binds.map fun (v, rhs, er) =>
-      let (rhs', changed) := etaReduce rhs
+      let (rhs', changed) := etaReduceFuel fuel rhs
       ((v, rhs', er), changed)
     let binds' := bindResults.map Prod.fst
     let c1 := bindResults.any Prod.snd
-    let (body', c2) := etaReduce body
+    let (body', c2) := etaReduceFuel fuel body
     (.Let binds' body', c1 || c2)
-  | e => (e, false)
+  | _ + 1, e => (e, false)
+
+/-- Run eta reduction over the entire expression tree.
+    Returns the reduced expression and whether any reduction occurred. -/
+def etaReduce (e : Expr) : Expr × Bool :=
+  etaReduceFuel (exprSize e) e
 
 end Moist.MIR
