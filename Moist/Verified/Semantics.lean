@@ -2,6 +2,7 @@ import Moist.CEK.Machine
 import Moist.CEK.Readback
 import Moist.MIR.Lower
 import Moist.MIR.LowerTotal
+import Moist.Verified.Definitions
 
 namespace Moist.Verified.Semantics
 
@@ -26,18 +27,8 @@ The key ideas:
   reachability and produce `ValueEq`-related results at every depth.
 -/
 
-/-- Iterate `step` exactly `n` times starting from state `s`.
-    This is the "clock" used throughout the semantic development:
-    `steps 0 s = s` and `steps (n+1) s = steps n (step s)`. -/
-def steps : Nat → State → State
-  | 0, s => s
-  | n + 1, s => steps n (step s)
-
-/-- Existential reachability: `Reaches s s'` holds when there exists some
-    step count `n` such that `steps n s = s'`. This is the central notion
-    connecting concrete CEK execution to logical propositions. -/
-def Reaches (s s' : State) : Prop :=
-  ∃ n : Nat, steps n s = s'
+-- `steps` and `Reaches` are the shared definitions from `Definitions.lean`.
+export Moist.Verified.Equivalence (steps Reaches steps_error)
 
 /-- A state halts when it reaches some `halt v`. -/
 def Halts (s : State) : Prop := ∃ v : CekValue, Reaches s (.halt v)
@@ -54,22 +45,14 @@ theorem step_halt (v : CekValue) : step (.halt v) = .halt v := rfl
 /-- `error` is a fixed point of `step`. -/
 theorem step_error : step .error = .error := rfl
 
-/-- `error` is absorbing: once reached, stepping any further stays at `error`. -/
-theorem steps_error (n : Nat) : steps n .error = .error := by
-  induction n with | zero => rfl | succ n ih => simp [steps, step_error, ih]
-
 /-- Step counts compose: running `m + n` steps is the same as running `m`
-    then `n`. Proved by induction on `m`. -/
-theorem steps_trans (m n : Nat) (s : State) : steps (m + n) s = steps n (steps m s) := by
-  induction m generalizing s with
-  | zero => simp [steps]
-  | succ m ih => simp only [Nat.succ_add, steps]; exact ih (step s)
+    then `n`. -/
+theorem steps_trans (m n : Nat) (s : State) : steps (m + n) s = steps n (steps m s) :=
+  Equivalence.steps_trans m n s
 
 /-- `halt` is absorbing: once halted, stepping any further stays at `halt v`. -/
-theorem steps_halt (v : CekValue) (n : Nat) : steps n (.halt v) = .halt v := by
-  induction n with
-  | zero => rfl
-  | succ n ih => simp only [steps, step_halt, ih]
+theorem steps_halt (v : CekValue) (n : Nat) : steps n (.halt v) = .halt v :=
+  Equivalence.steps_halt n v
 
 /-- Auxiliary lemma for `reaches_unique`. If two different step counts both
     reach `halt` from the same state, the halted values must be identical.

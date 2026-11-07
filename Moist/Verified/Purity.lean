@@ -15,15 +15,7 @@ open Moist.MIR (Expr VarId lowerTotal lowerTotalList lowerTotalLet lowerTotalExp
                  fixCount fixCountList fixCountBinds)
 open Moist.Verified.Semantics
 open Moist.Verified.StepLift (liftState isActive liftState_ne_halt
-  step_liftState_active steps_liftState beta_apply_from_inner)
-
-/-! # lowerTotal success → fixCount = 0
-
-If `lowerTotal env e = some t`, then `fixCount e = 0`. This is because
-`lowerTotal` returns `none` on any `Fix` node. Used to bridge from
-`lowerTotalExpr` to `lowerTotal`: when both refer to the same expression
-and lowerTotal succeeds, they produce the same result.
--/
+  step_liftState_active steps_liftState beta_apply_from_inner firstInactive)
 
 /-! # isPure implies halting
 
@@ -44,36 +36,6 @@ private theorem no_builtin_one_argQ (b : BuiltinFun) : expectedArgs b ≠ .one .
 private theorem no_builtin_more_argQ_one_argQ (b : BuiltinFun) :
     expectedArgs b ≠ .more .argQ (.one .argQ) := by
   cases b <;> (simp [expectedArgs]; try decide)
-
-/-! ## firstInactive (local copy since StepLift's is private) -/
-
-private theorem firstInactive (s : State) (bound : Nat)
-    (hex : ∃ k, k ≤ bound ∧ isActive (steps k s) = false) :
-    ∃ K, K ≤ bound ∧ isActive (steps K s) = false ∧
-         (∀ j, j < K → isActive (steps j s) = true) := by
-  induction bound with
-  | zero =>
-    obtain ⟨k, hk, hinact⟩ := hex
-    have : k = 0 := by omega
-    subst this
-    exact ⟨0, Nat.le_refl _, hinact, fun _ h => absurd h (Nat.not_lt_zero _)⟩
-  | succ bound ih =>
-    by_cases h : ∃ k, k ≤ bound ∧ isActive (steps k s) = false
-    · obtain ⟨K, hK_le, hK_inact, hK_min⟩ := ih h
-      exact ⟨K, by omega, hK_inact, hK_min⟩
-    · have hall : ∀ j, j ≤ bound → isActive (steps j s) = true := by
-        intro j hj
-        by_cases heq : isActive (steps j s) = true
-        · exact heq
-        · exfalso; apply h; exact ⟨j, hj, by cases isActive (steps j s) <;> simp_all⟩
-      obtain ⟨k, hk, hinact⟩ := hex
-      have hk_eq : k = bound + 1 := by
-        by_cases heq : k = bound + 1
-        · exact heq
-        · exfalso; have hle : k ≤ bound := by omega
-          have := hall k hle; simp [hinact] at this
-      subst hk_eq
-      exact ⟨bound + 1, Nat.le_refl _, hinact, fun j hj => hall j (by omega)⟩
 
 /-! ## Generic liftState sub-computation embedding -/
 

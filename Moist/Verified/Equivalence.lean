@@ -22,16 +22,6 @@ open Moist.Verified (closedAt closedAtList)
 -- only hosts the theorems about them.
 --------------------------------------------------------------------------------
 
-theorem steps_error : ∀ n, steps n .error = .error := by
-  intro n; induction n with
-  | zero => rfl
-  | succ n ih => simp [steps, step, ih]
-
-theorem steps_halt : ∀ n (v : CekValue), steps n (.halt v) = .halt v := by
-  intro n v; induction n with
-  | zero => rfl
-  | succ n ih => simp [steps, step, ih]
-
 /-- `ObsRefinesK` is monotone in the step index. -/
 theorem obsRefinesK_mono {j k : Nat} (hjk : j ≤ k) {s₁ s₂ : State}
     (h : ObsRefinesK k s₁ s₂) : ObsRefinesK j s₁ s₂ :=
@@ -99,6 +89,39 @@ theorem obsRefinesK_of_step {s₁ s₂ : State} {k : Nat}
       have hstep : steps n' (step s₁) = .error := by simp only [steps] at hs; exact hs
       obtain ⟨m, hm⟩ := h.2 n' (by omega) hstep
       exact ⟨m + 1, by simp only [steps]; exact hm⟩
+
+/-- Run the left state forward `n` steps. No side conditions: if the left
+    state halts or errors before step `n`, it stays there (both are absorbing).
+    Protected because several proof files still carry a same-named local copy. -/
+protected theorem obsRefinesK_of_steps_left {k n : Nat} {s₁ s₁' s₂ : State}
+    (h_steps : steps n s₁ = s₁') (h : ObsRefinesK k s₁' s₂) : ObsRefinesK k s₁ s₂ := by
+  subst h_steps
+  have reach : ∀ {m t}, steps m s₁ = t → (t = .error ∨ ∃ v, t = .halt v) →
+      ∃ m' ≤ m, steps m' (steps n s₁) = t := by
+    intro m t hm ht
+    by_cases hle : m ≤ n
+    · refine ⟨0, Nat.zero_le _, ?_⟩
+      rw [show n = m + (n - m) by omega, Equivalence.steps_trans, hm]
+      rcases ht with rfl | ⟨v, rfl⟩
+      · exact steps_error _
+      · exact steps_halt _ v
+    · refine ⟨m - n, by omega, ?_⟩
+      rw [← Equivalence.steps_trans, show n + (m - n) = m by omega, hm]
+  refine ⟨fun v ⟨m, hm, hs⟩ => ?_, fun m hm hs => ?_⟩
+  · obtain ⟨m', hm', hs'⟩ := reach hs (.inr ⟨v, rfl⟩)
+    exact h.1 v ⟨m', by omega, hs'⟩
+  · obtain ⟨m', hm', hs'⟩ := reach hs (.inl rfl)
+    exact h.2 m' (by omega) hs'
+
+/-- Run the right state forward `n` steps. -/
+protected theorem obsRefinesK_of_steps_right {k n : Nat} {s₁ s₂ s₂' : State}
+    (h_steps : steps n s₂ = s₂') (h : ObsRefinesK k s₁ s₂') : ObsRefinesK k s₁ s₂ := by
+  subst h_steps
+  refine ⟨fun v hv => ?_, fun m hm hs => ?_⟩
+  · obtain ⟨v', m, hm⟩ := h.1 v hv
+    exact ⟨v', n + m, by rw [Equivalence.steps_trans]; exact hm⟩
+  · obtain ⟨m', hm'⟩ := h.2 m hm hs
+    exact ⟨n + m', by rw [Equivalence.steps_trans]; exact hm'⟩
 
 /-- Stepping consumes one fuel unit (two-way). -/
 theorem obsEqK_of_step {s₁ s₂ : State}
