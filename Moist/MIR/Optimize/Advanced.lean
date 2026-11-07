@@ -6,6 +6,7 @@ import Moist.MIR.Optimize.Advanced.Placement
 import Moist.MIR.Optimize.Advanced.Products
 import Moist.MIR.Optimize.Advanced.Recursion
 import Moist.MIR.Optimize.Advanced.CheckedBranches
+import Moist.MIR.Optimize.Advanced.TagChains
 import Moist.MIR.Optimize.CaseMerge
 import Moist.MIR.Optimize.PreLower
 
@@ -43,7 +44,7 @@ def structural (expression : Expr) : Expr :=
   optimizeCheckedBranches (destructureProducts (fuseListChoices expression))
 
 def simplify (expression : Expr) : Expr :=
-  shapeDCE (foldDataConstructors (constantFold (fuseListDestructors expression)))
+  caseTagChains (shapeDCE (foldDataConstructors (constantFold (fuseListDestructors expression))))
 
 def preLower (expression : Expr) : Expr :=
   go 4 expression

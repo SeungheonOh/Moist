@@ -281,11 +281,13 @@ theorem prepare_refines_of
 
 theorem simplify_refines_of
     (hFuse : ∀ e, MIRCtxRefines e (Advanced.fuseListDestructors e))
-    (hShape : ∀ e, MIRCtxRefines e (Advanced.shapeDCE e)) (e : Expr) :
+    (hShape : ∀ e, MIRCtxRefines e (Advanced.shapeDCE e))
+    (hTags : ∀ e, MIRCtxRefines e (Advanced.caseTagChains e)) (e : Expr) :
     MIRCtxRefines e (Advanced.simplify e) :=
   mirCtxRefines_trans (hFuse e)
     (mirCtxRefines_trans (Moist.Verified.MIR.constantFold_refines _)
-      (mirCtxRefines_trans (Moist.Verified.MIR.foldDataConstructors_refines _) (hShape _)))
+      (mirCtxRefines_trans (Moist.Verified.MIR.foldDataConstructors_refines _)
+        (mirCtxRefines_trans (hShape _) (hTags _))))
 
 theorem structural_refines_of
     (hChoices : ∀ e, MIRCtxRefines e (Advanced.fuseListChoices e))
