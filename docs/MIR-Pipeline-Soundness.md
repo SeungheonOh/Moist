@@ -38,7 +38,10 @@ composes the stages with `mirCtxRefines_trans` through the actual
 `simplifyLoop`, `optimize`, `preLower` and `prepareForLowering` definitions.
 `LoweringSoundness.lean` relates the production `lowerExpr` to the certified
 `lowerTotalExpr`. The two lowerings encode recursive functions differently,
-and are related by contextual refinement in both directions.
+and are related by contextual refinement in both directions: the certified
+lowering binds the recursive name to `λv. s s v`, the production lowering
+substitutes `s s` for it, so recursive calls run `[[s s] a]` directly
+(`fixLamWrap_forward`, `fixLamWrap_backward`, by induction on the step index).
 `liftUPLC_lowerExpr` gives an exact round trip for the post-lowering
 allocation stage.
 
@@ -87,6 +90,7 @@ check under `Test/MIR/Opt/Axioms/` or in `Test/MIR/Opt/FormalAxioms.lean`.
 | Builtin sharing, constant pooling | `hoistBuiltinStates_refines`, `poolConstants_refines` | `SharingSoundness.lean` |
 | `Advanced.finish`, all options | `finish_refines` | `AllocationFinishSoundness.lean` |
 | Lowering | `lowerExpr_sound`, `lowerExpr_complete`, `liftUPLC_lowerExpr` | `LoweringSoundness.lean`, `FixLowering.lean` |
+| Direct recursive calls in lowering | `fixLamWrap_forward`, `fixLamWrap_backward`, `lower_freeOf` | `FixLowering.lean`, `LoweringSoundness.lean` |
 
 Reusable fact infrastructure for the shape-driven passes lives in
 `Moist/Verified/ShapeFacts/`. It provides fact environments (`FactsHold`), the

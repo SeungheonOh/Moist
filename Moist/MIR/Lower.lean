@@ -22,24 +22,30 @@ Each `let v = rhs in body` is lowered to `(λ. body') rhs'`.
 
 Fix nodes are lowered via the Z combinator (CBV-safe), let-shared so the
 functional appears once:
-`Fix f (Lam x e)` → `(λz. z z) (λs. λx. e'[f := λv. s s v])`.
+`Fix f (Lam x e)` → `(λz. z z) (λs. λx. e'[f := s s])`.
 
 The body is lowered under `x :: f :: x :: env`: the third slot stands for
 `s` and is never reached by a lookup because `x` shadows it. The recursive
-reference `f` (index 2) is then replaced by `λv. s s v` with UPLC
-substitution, which also closes the gap left by `f`.
+reference `f` (index 2) is then replaced by the self application `s s` with
+UPLC substitution, which also closes the gap left by `f`. A recursive call
+`f a` therefore becomes `[[s s] a]`.
+
+Inside the functional `s` is always bound to the functional itself, so `s s`
+halts in four steps, without effects, with the closure of `λx. e'`. Moving it
+before the argument of a call is therefore unobservable
+(`Moist.Verified.FixLowering`).
 -/
 
 abbrev LowerM := ExceptT String FreshM
 
-/-- `λv. s s v` under the binder `x`, with `s` at index 2. -/
-def fixSelfApp : Term := .Lam 0 (.Apply (.Apply (.Var 3) (.Var 3)) (.Var 1))
+/-- `s s` under the binder `x`, with `s` at index 2 once `f` is removed. -/
+def fixSelfCall : Term := .Apply (.Var 2) (.Var 2)
 
 /-- Z-combinator wrapper around the lowered body of `Fix f (Lam x body)`;
     the body is lowered under `x :: f :: s :: env`. -/
 def fixLamWrap (body : Term) : Term :=
   .Apply (.Lam 0 (.Apply (.Var 1) (.Var 1)))
-    (.Lam 0 (.Lam 0 (Moist.Verified.substTerm 2 fixSelfApp body)))
+    (.Lam 0 (.Lam 0 (Moist.Verified.substTerm 2 fixSelfCall body)))
 
 mutual
   def lower (env : List VarId) (e : Expr) : Except String Term :=

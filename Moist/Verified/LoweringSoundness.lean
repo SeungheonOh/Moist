@@ -12,7 +12,9 @@ import Moist.MIR.Compile
   `lowerTotalExpr` does, and the two results are contextually equivalent
   (`CtxRefines` both ways). They differ only in the encoding of recursive
   lambdas: `lowerTotalExpr` keeps the redex `(λf. λx. B) (λv. s s v)`, the
-  production lowering substitutes it (`FixLowering`).
+  production lowering substitutes the self application `s s` for `f`, so
+  recursive calls run `[[s s] a]` (`FixLowering`). That needs `B` not to use
+  the slot of `s`, which lowering leaves shadowed (`lower_freeOf`).
 * `liftUPLC_lowerTotal`: lowering a lifted closed UPLC term gives back the term
   up to binder names and the meaningless index `0` (`canon`), which is
   contextually equivalent to it and the identity on lowering output.
@@ -23,10 +25,12 @@ namespace Moist.Verified.LoweringSoundness
 open Moist.CEK
 open Moist.Plutus.Term (Term)
 open Moist.MIR (Expr VarId lower lowerList lowerLet lowerExpr lowerTotal lowerTotalExpr
-  envLookupT expandFix maxUidExpr fixLamWrap fixLamWrapUplc fixSelfApp)
+  envLookupT expandFix maxUidExpr fixLamWrap fixLamWrapUplc fixSelfCall)
 open Moist.Verified (closedAt closedAtList substTerm substTermList renameTerm renameTermList)
 open Moist.Verified.Contextual
 open Moist.Verified.Equivalence (ListRel)
+open Moist.Verified.InlineSoundness.StrictOcc (freeOf freeOfList)
+open Moist.Verified.FixLowering (selfCallAt substTerm_selfCallAt_lam)
 open Moist.Verified.MIR (lowerTotalExprList lowerTotalExpr_lam lowerTotalExpr_app
   lowerTotalExpr_force lowerTotalExpr_delay lowerTotalExpr_constr_of_list
   lowerTotalExpr_case_of_list lowerTotalExprList_nil lowerTotalExprList_cons
@@ -119,9 +123,9 @@ theorem closedAt_of_ctxRefines {a b : Term} (h : CtxRefines a b) {d : Nat}
 
 /-! ## Recursive lambdas -/
 
-theorem fixLamWrap_ctxEquiv {d : Nat} {B : Term} (hB : closedAt (d + 3) B = true) :
-    CtxEquiv (fixLamWrapUplc B) (fixLamWrap B) :=
-  ⟨FixLowering.fixLamWrap_forward d B hB, FixLowering.fixLamWrap_backward d B hB⟩
+theorem fixLamWrap_ctxEquiv {d : Nat} {B : Term} (hB : closedAt (d + 3) B = true)
+    (hfree : freeOf 3 B = true) : CtxEquiv (fixLamWrapUplc B) (fixLamWrap B) :=
+  ⟨FixLowering.fixLamWrap_forward d B hB hfree, FixLowering.fixLamWrap_backward d B hB hfree⟩
 
 /-- `fixLamWrapUplc` is a context around its body. -/
 def fixLamWrapContext : Context :=
@@ -170,13 +174,14 @@ theorem lowerTotalExpr_fix_lam_shadow (env : List VarId) (f x : VarId) (body : E
     lowerTotalExpr_shadow_slot env f x body s (by show _ < max _ _ + 1; omega)]
 
 theorem fix_lowerRel {env : List VarId} {r : Except String Term} {o : Option Term}
-    (h : LowerRel r o) (hlen : ∀ t₀, o = some t₀ → closedAt (env.length + 3) t₀ = true) :
+    (h : LowerRel r o) (hlen : ∀ t₀, o = some t₀ → closedAt (env.length + 3) t₀ = true)
+    (hfree : ∀ t, r = .ok t → freeOf 3 t = true) :
     LowerRel (r.map fixLamWrap) (o.map fixLamWrapUplc) := by
-  cases r <;> cases o <;> simp only [LowerRel, Except.map, Option.map] at h ⊢
+  cases r <;> cases o <;> simp only [LowerRel, Except.map, Option.map] at h hfree ⊢
   rename_i t t₀
   have hc₀ := hlen t₀ rfl
   have hc := closedAt_of_ctxRefines h.1 hc₀
-  exact (h.fill fixLamWrapContext).trans (fixLamWrap_ctxEquiv hc)
+  exact (h.fill fixLamWrapContext).trans (fixLamWrap_ctxEquiv hc (hfree t rfl))
 
 theorem lower_fix_lam (env : List VarId) (f x : VarId) (body : Expr) :
     lower env (.Fix f (.Lam x body)) = (lower (x :: f :: x :: env) body).map fixLamWrap := by
@@ -187,6 +192,228 @@ theorem lower_fix_nonlam (env : List VarId) (f : VarId) (body : Expr)
   cases body with
   | Lam x inner => exact absurd rfl (h x inner)
   | _ => simp only [lower]; exact ⟨_, rfl⟩
+
+/-! ## Lowering never uses a shadowed slot -/
+
+theorem envLookupT_go_ge (v : VarId) :
+    ∀ (env : List VarId) (n m : Nat), envLookupT.go v env n = some m → n ≤ m
+  | [], _, _, h => by simp [envLookupT.go] at h
+  | x :: xs, n, m, h => by
+    simp only [envLookupT.go] at h
+    split at h
+    · cases h; exact Nat.le_refl _
+    · exact Nat.le_of_succ_le (envLookupT_go_ge v xs (n + 1) m h)
+
+/-- A name resolved at the position of `y` equals `y` and no earlier binder. -/
+theorem envLookupT_go_at (v y : VarId) (rest : List VarId) :
+    ∀ (pre : List VarId) (n : Nat), envLookupT.go v (pre ++ y :: rest) n = some (n + pre.length) →
+      (y == v) = true ∧ ∀ p ∈ pre, (p == v) = false
+  | [], n, h => by
+    simp only [List.nil_append, envLookupT.go, List.length_nil, Nat.add_zero] at h
+    split at h
+    · rename_i hyv
+      exact ⟨hyv, fun _ hp => absurd hp List.not_mem_nil⟩
+    · have := envLookupT_go_ge v rest (n + 1) n h
+      omega
+  | q :: qs, n, h => by
+    simp only [List.cons_append, envLookupT.go, List.length_cons] at h
+    split at h
+    · rename_i hqv
+      have := Option.some.inj h
+      omega
+    · rename_i hqv
+      obtain ⟨hy, hqs⟩ := envLookupT_go_at v y rest qs (n + 1)
+        (by rw [h]; congr 1; omega)
+      refine ⟨hy, fun p hp => ?_⟩
+      rcases List.mem_cons.mp hp with rfl | hp
+      · simpa using hqv
+      · exact hqs p hp
+
+/-- A binder shadowed by an earlier one never resolves a name. -/
+theorem envLookupT_ne_shadowed {pre : List VarId} {y : VarId} (rest : List VarId)
+    (hy : pre.any (· == y) = true) (v : VarId) :
+    envLookupT (pre ++ y :: rest) v ≠ some pre.length := by
+  intro h
+  obtain ⟨hyv, hpre⟩ := envLookupT_go_at v y rest pre 0 (by rw [Nat.zero_add]; exact h)
+  obtain ⟨p, hp, hpy⟩ := List.any_eq_true.mp hy
+  have := VarId.beq_trans p y v hpy hyv
+  rw [hpre p hp] at this
+  cases this
+
+mutual
+  theorem freeOf_substTerm_selfCall : ∀ (p m : Nat) (t : Term), 1 ≤ p → p < m →
+      freeOf (m + 1) t = true → freeOf m (substTerm p (selfCallAt p) t) = true
+    | p, m, .Var n, hp, hpm, ht => by
+      simp only [freeOf, bne_iff_ne, ne_eq] at ht
+      simp only [substTerm]
+      by_cases hn : n = p
+      · simp only [hn, if_true, selfCallAt, freeOf, bne_iff_ne, ne_eq, Bool.and_eq_true]
+        omega
+      · by_cases hgt : n > p
+        · simp only [hn, hgt, if_true, if_false, freeOf, bne_iff_ne, ne_eq]; omega
+        · simp only [hn, hgt, if_false, freeOf, bne_iff_ne, ne_eq]; omega
+    | p, m, .Lam nm body, hp, hpm, ht => by
+      simp only [freeOf] at ht
+      rw [substTerm_selfCallAt_lam hp]
+      simp only [freeOf]
+      exact freeOf_substTerm_selfCall (p + 1) (m + 1) body (by omega) (by omega) ht
+    | p, m, .Apply f x, hp, hpm, ht => by
+      simp only [freeOf, Bool.and_eq_true] at ht
+      simp only [substTerm, freeOf, Bool.and_eq_true]
+      exact ⟨freeOf_substTerm_selfCall p m f hp hpm ht.1,
+        freeOf_substTerm_selfCall p m x hp hpm ht.2⟩
+    | p, m, .Force e, hp, hpm, ht => by
+      simp only [freeOf] at ht
+      simp only [substTerm, freeOf]
+      exact freeOf_substTerm_selfCall p m e hp hpm ht
+    | p, m, .Delay e, hp, hpm, ht => by
+      simp only [freeOf] at ht
+      simp only [substTerm, freeOf]
+      exact freeOf_substTerm_selfCall p m e hp hpm ht
+    | p, m, .Constr _ args, hp, hpm, ht => by
+      simp only [freeOf] at ht
+      simp only [substTerm, freeOf]
+      exact freeOfList_substTermList_selfCall p m args hp hpm ht
+    | p, m, .Case sc alts, hp, hpm, ht => by
+      simp only [freeOf, Bool.and_eq_true] at ht
+      simp only [substTerm, freeOf, Bool.and_eq_true]
+      exact ⟨freeOf_substTerm_selfCall p m sc hp hpm ht.1,
+        freeOfList_substTermList_selfCall p m alts hp hpm ht.2⟩
+    | _, _, .Constant _, _, _, _ => by simp [substTerm, freeOf]
+    | _, _, .Builtin _, _, _, _ => by simp [substTerm, freeOf]
+    | _, _, .Error, _, _, _ => by simp [substTerm, freeOf]
+  termination_by _ _ t => sizeOf t
+
+  theorem freeOfList_substTermList_selfCall : ∀ (p m : Nat) (ts : List Term), 1 ≤ p → p < m →
+      freeOfList (m + 1) ts = true → freeOfList m (substTermList p (selfCallAt p) ts) = true
+    | _, _, [], _, _, _ => by simp [substTermList, freeOfList]
+    | p, m, t :: ts, hp, hpm, ht => by
+      simp only [freeOfList, Bool.and_eq_true] at ht
+      simp only [substTermList, freeOfList, Bool.and_eq_true]
+      exact ⟨freeOf_substTerm_selfCall p m t hp hpm ht.1,
+        freeOfList_substTermList_selfCall p m ts hp hpm ht.2⟩
+  termination_by _ _ ts => sizeOf ts
+end
+
+theorem freeOf_fixLamWrap {n : Nat} {B : Term} (h : freeOf (n + 4) B = true) :
+    freeOf (n + 1) (fixLamWrap B) = true := by
+  have hs := freeOf_substTerm_selfCall 2 (n + 3) B (by omega) (by omega) h
+  simp only [fixLamWrap, freeOf, Bool.and_eq_true, bne_iff_ne, ne_eq]
+  exact ⟨by omega, hs⟩
+
+theorem any_cons_of {x y : VarId} {pre : List VarId} (h : pre.any (· == y) = true) :
+    (x :: pre).any (· == y) = true := by simp [List.any_cons, h]
+
+mutual
+  /-- Lowering under an environment whose binder `y` is shadowed by an earlier
+      one never refers to the slot of `y`. -/
+  theorem lower_freeOf (pre : List VarId) (y : VarId) (rest : List VarId)
+      (hy : pre.any (· == y) = true) (e : Expr) (t : Term)
+      (h : lower (pre ++ y :: rest) e = .ok t) : freeOf (pre.length + 1) t = true := by
+    match e with
+    | .Var x =>
+      simp only [lower] at h
+      cases hl : envLookupT (pre ++ y :: rest) x <;> simp [hl] at h
+      subst h
+      rename_i idx
+      simp only [freeOf, bne_iff_ne, ne_eq]
+      intro heq
+      exact envLookupT_ne_shadowed rest hy x (by rw [hl]; congr 1; omega)
+    | .Lit (c, ty) => simp only [lower, Except.ok.injEq] at h; subst h; simp [freeOf]
+    | .Builtin b => simp only [lower, Except.ok.injEq] at h; subst h; simp [freeOf]
+    | .Error => simp only [lower, Except.ok.injEq] at h; subst h; simp [freeOf]
+    | .Lam x body =>
+      simp only [lower] at h
+      cases hb : lower (x :: (pre ++ y :: rest)) body <;>
+        simp [hb, bind, Except.bind, pure, Except.pure] at h
+      subst h
+      have := lower_freeOf (x :: pre) y rest (any_cons_of hy) body _ hb
+      simp only [List.length_cons] at this
+      simp [freeOf, this]
+    | .App f a =>
+      simp only [lower] at h
+      cases hf : lower (pre ++ y :: rest) f <;> cases ha : lower (pre ++ y :: rest) a <;>
+        simp [hf, ha, bind, Except.bind, pure, Except.pure] at h
+      subst h
+      simp [freeOf, lower_freeOf pre y rest hy f _ hf, lower_freeOf pre y rest hy a _ ha]
+    | .Force inner =>
+      simp only [lower] at h
+      cases hi : lower (pre ++ y :: rest) inner <;>
+        simp [hi, bind, Except.bind, pure, Except.pure] at h
+      subst h
+      simp [freeOf, lower_freeOf pre y rest hy inner _ hi]
+    | .Delay inner =>
+      simp only [lower] at h
+      cases hi : lower (pre ++ y :: rest) inner <;>
+        simp [hi, bind, Except.bind, pure, Except.pure] at h
+      subst h
+      simp [freeOf, lower_freeOf pre y rest hy inner _ hi]
+    | .Constr tag args =>
+      simp only [lower] at h
+      cases ha : lowerList (pre ++ y :: rest) args <;>
+        simp [ha, bind, Except.bind, pure, Except.pure] at h
+      subst h
+      simp [freeOf, lowerList_freeOf pre y rest hy args _ ha]
+    | .Case scrut alts =>
+      simp only [lower] at h
+      cases hs : lower (pre ++ y :: rest) scrut <;> cases ha : lowerList (pre ++ y :: rest) alts <;>
+        simp [hs, ha, bind, Except.bind, pure, Except.pure] at h
+      subst h
+      simp [freeOf, lower_freeOf pre y rest hy scrut _ hs,
+        lowerList_freeOf pre y rest hy alts _ ha]
+    | .Let binds body =>
+      simp only [lower] at h
+      exact lowerLet_freeOf pre y rest hy binds body t h
+    | .Fix f (.Lam x body) =>
+      rw [lower_fix_lam] at h
+      cases hb : lower (x :: f :: x :: (pre ++ y :: rest)) body <;> simp [hb, Except.map] at h
+      subst h
+      have := lower_freeOf (x :: f :: x :: pre) y rest
+        (any_cons_of (any_cons_of (any_cons_of hy))) body _ hb
+      simp only [List.length_cons] at this
+      exact freeOf_fixLamWrap this
+    | .Fix f (.Var _) | .Fix f (.Lit _) | .Fix f (.Builtin _) | .Fix f .Error
+    | .Fix f (.Fix _ _) | .Fix f (.App _ _) | .Fix f (.Force _) | .Fix f (.Delay _)
+    | .Fix f (.Constr _ _) | .Fix f (.Case _ _) | .Fix f (.Let _ _) =>
+      simp [lower] at h
+  termination_by sizeOf e
+
+  theorem lowerList_freeOf (pre : List VarId) (y : VarId) (rest : List VarId)
+      (hy : pre.any (· == y) = true) (es : List Expr) (ts : List Term)
+      (h : lowerList (pre ++ y :: rest) es = .ok ts) : freeOfList (pre.length + 1) ts = true := by
+    match es with
+    | [] => simp only [lowerList, Except.ok.injEq] at h; subst h; simp [freeOfList]
+    | e :: es =>
+      simp only [lowerList] at h
+      cases he : lower (pre ++ y :: rest) e <;> cases hr : lowerList (pre ++ y :: rest) es <;>
+        simp [he, hr, bind, Except.bind, pure, Except.pure] at h
+      subst h
+      simp [freeOfList, lower_freeOf pre y rest hy e _ he, lowerList_freeOf pre y rest hy es _ hr]
+  termination_by sizeOf es
+
+  theorem lowerLet_freeOf (pre : List VarId) (y : VarId) (rest : List VarId)
+      (hy : pre.any (· == y) = true) (binds : List (VarId × Expr × Bool)) (body : Expr)
+      (t : Term) (h : lowerLet (pre ++ y :: rest) binds body = .ok t) :
+      freeOf (pre.length + 1) t = true := by
+    match binds with
+    | [] => simp only [lowerLet] at h; exact lower_freeOf pre y rest hy body t h
+    | (x, rhs, _) :: bs =>
+      simp only [lowerLet] at h
+      cases hr : lower (pre ++ y :: rest) rhs <;>
+        cases hb : lowerLet (x :: (pre ++ y :: rest)) bs body <;>
+        simp [hr, hb, bind, Except.bind, pure, Except.pure] at h
+      subst h
+      have := lowerLet_freeOf (x :: pre) y rest (any_cons_of hy) bs body _ hb
+      simp only [List.length_cons] at this
+      simp [freeOf, this, lower_freeOf pre y rest hy rhs _ hr]
+  termination_by sizeOf binds + sizeOf body
+end
+
+/-- The slot of `s` in the body of a recursive lambda is never used. -/
+theorem lower_fix_body_freeOf {env : List VarId} {f x : VarId} {body : Expr} {t : Term}
+    (h : lower (x :: f :: x :: env) body = .ok t) : freeOf 3 t = true :=
+  lower_freeOf [x, f] x env (by simp [List.any_cons, (VarId.beq_true_iff x x).mpr ⟨rfl, rfl⟩])
+    body t h
 
 mutual
   theorem lower_correct (env : List VarId) (e : Expr) :
@@ -259,8 +486,9 @@ mutual
       exact lowerLet_correct env binds body
     | .Fix f (.Lam x body) =>
       rw [lower_fix_lam, lowerTotalExpr_fix_lam_shadow]
-      exact fix_lowerRel (lower_correct (x :: f :: x :: env) body) fun t₀ h => by
-        simpa [Nat.add_assoc] using lowerTotalExpr_closedAt h
+      exact fix_lowerRel (lower_correct (x :: f :: x :: env) body)
+        (fun t₀ h => by simpa [Nat.add_assoc] using lowerTotalExpr_closedAt h)
+        (fun t h => lower_fix_body_freeOf h)
     | .Fix f (.Var y) | .Fix f (.Lit _) | .Fix f (.Builtin _) | .Fix f .Error
     | .Fix f (.Fix _ _) | .Fix f (.App _ _) | .Fix f (.Force _) | .Fix f (.Delay _)
     | .Fix f (.Constr _ _) | .Fix f (.Case _ _) | .Fix f (.Let _ _) =>
@@ -683,7 +911,7 @@ end
 
 theorem canonical_fixLamWrap {B : Term} (h : Canonical B = true) :
     Canonical (fixLamWrap B) = true := by
-  have hs := canonical_substTerm 2 fixSelfApp B (by omega) (by simp [fixSelfApp, Canonical]) h
+  have hs := canonical_substTerm 2 fixSelfCall B (by omega) (by simp [fixSelfCall, Canonical]) h
   simp [fixLamWrap, Canonical, hs]
 
 mutual
