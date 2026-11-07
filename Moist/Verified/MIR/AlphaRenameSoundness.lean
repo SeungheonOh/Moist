@@ -3,891 +3,420 @@ import Moist.MIR.LowerTotal
 import Moist.Verified.Definitions.MIR
 import Moist.Verified.MIR.Congruence
 
-/-! # Alpha-rename soundness helpers -/
+/-! # Alpha-renaming preserves lowering
+
+`alphaRenameTop e K` renames every `let` binder of `e` to a fresh uid
+(numbered from `K`, above `maxUidExpr e`). Lowering only looks at binding
+positions, so the result lowers exactly like `e`
+(`alphaRenameTop_lowerTotalExpr_eq`, for `Fix`-free `e`). -/
 
 namespace Moist.Verified.MIR
 
-open Moist.Plutus.Term (Term)
 open Moist.MIR
-  (Expr VarId alphaRename alphaRenameList alphaRenameBinds
-   alphaRenameTop substLookup substShadow
-   lowerTotal lowerTotalList lowerTotalLet lowerTotalExpr envLookupT
-   maxUidExpr maxUidExprList maxUidExprBinds
-   freshVar FreshM FreshState runFresh expandFix fixCount)
-
-/-! ## VarId BEq helpers (local re-exposure) -/
 
 theorem VarId_beq_true_iff (a b : VarId) :
-    (a == b) = true ↔ a.origin = b.origin ∧ a.uid = b.uid := by
-  show (a.origin == b.origin && a.uid == b.uid) = true ↔ _
-  rw [Bool.and_eq_true]
-  constructor
-  · rintro ⟨ho, hu⟩
-    refine ⟨?_, of_decide_eq_true hu⟩
-    revert ho
-    cases a.origin <;> cases b.origin <;> intro ho <;> first | rfl | cases ho
-  · rintro ⟨ho, hu⟩
-    refine ⟨?_, decide_eq_true hu⟩
-    rw [ho]; cases b.origin <;> rfl
+    (a == b) = true ↔ a.origin = b.origin ∧ a.uid = b.uid :=
+  VarId.beq_true_iff a b
 
 theorem VarId_beq_false_iff (a b : VarId) :
-    (a == b) = false ↔ a.origin ≠ b.origin ∨ a.uid ≠ b.uid := by
-  constructor
-  · intro hb
-    by_cases ho : a.origin = b.origin
-    · by_cases hu : a.uid = b.uid
-      · exfalso
-        have := (VarId_beq_true_iff a b).mpr ⟨ho, hu⟩
-        rw [this] at hb; exact Bool.noConfusion hb
-      · exact Or.inr hu
-    · exact Or.inl ho
-  · intro h
-    cases hb : (a == b)
-    · rfl
-    · exfalso
-      have ⟨ho, hu⟩ := (VarId_beq_true_iff a b).mp hb
-      cases h with
-      | inl h' => exact h' ho
-      | inr h' => exact h' hu
+    (a == b) = false ↔ a.origin ≠ b.origin ∨ a.uid ≠ b.uid :=
+  VarId.beq_false_iff a b
 
-/-! ## substLookup / substShadow helpers -/
+/-! ## Substitutions -/
 
-theorem substLookup_cons_match
-    (old new : VarId) (rest : List (VarId × VarId)) (v : VarId)
-    (h : (old == v) = true) :
-    substLookup ((old, new) :: rest) v = new := by
-  show (if (old == v) = true then new else substLookup rest v) = new
-  rw [if_pos h]
+theorem substLookup_cons (old new : VarId) (rest : List (VarId × VarId)) (v : VarId) :
+    substLookup ((old, new) :: rest) v = if (old == v) = true then new else substLookup rest v :=
+  rfl
 
-theorem substLookup_cons_nomatch
-    (old new : VarId) (rest : List (VarId × VarId)) (v : VarId)
-    (h : (old == v) = false) :
-    substLookup ((old, new) :: rest) v = substLookup rest v := by
-  show (if (old == v) = true then new else substLookup rest v) = substLookup rest v
-  rw [if_neg (by simp [h])]
+theorem substShadow_cons (old new : VarId) (rest : List (VarId × VarId)) (v : VarId) :
+    substShadow ((old, new) :: rest) v =
+      if (old == v) = true then substShadow rest v else (old, new) :: substShadow rest v :=
+  rfl
 
-theorem substShadow_nil (v : VarId) : substShadow [] v = [] := rfl
-
-theorem substShadow_cons_match (old new : VarId)
-    (rest : List (VarId × VarId)) (v : VarId) (h : (old == v) = true) :
-    substShadow ((old, new) :: rest) v = substShadow rest v := by
-  simp only [substShadow, if_pos h]
-
-theorem substShadow_cons_nomatch (old new : VarId)
-    (rest : List (VarId × VarId)) (v : VarId) (h : (old == v) = false) :
-    substShadow ((old, new) :: rest) v = (old, new) :: substShadow rest v := by
-  show (if (old == v) = true then substShadow rest v
-        else (old, new) :: substShadow rest v) = (old, new) :: substShadow rest v
-  rw [if_neg (by simp [h])]
-
-theorem substShadow_mem_iff {σ : List (VarId × VarId)} {v : VarId}
-    {p : VarId × VarId} :
+theorem substShadow_mem_iff {σ : List (VarId × VarId)} {v : VarId} {p : VarId × VarId} :
     p ∈ substShadow σ v ↔ p ∈ σ ∧ (p.1 == v) = false := by
   induction σ with
-  | nil =>
-    rw [substShadow_nil]
-    constructor
-    · intro hm; exact absurd hm List.not_mem_nil
-    · intro ⟨hm, _⟩; exact absurd hm List.not_mem_nil
+  | nil => simp [substShadow]
   | cons q rest ih =>
     obtain ⟨old, new⟩ := q
+    rw [substShadow_cons]
     by_cases hov : (old == v) = true
-    · rw [substShadow_cons_match old new rest v hov]
-      rw [ih]
+    · rw [if_pos hov, ih, List.mem_cons]
       constructor
-      · intro ⟨hm, hne⟩; exact ⟨List.mem_cons_of_mem _ hm, hne⟩
-      · intro ⟨hm, hne⟩
-        rcases List.mem_cons.mp hm with heq | hm'
-        · exfalso
-          subst heq
-          rw [hov] at hne
-          exact Bool.noConfusion hne
-        · exact ⟨hm', hne⟩
-    · have hov' : (old == v) = false := by cases h : (old == v); rfl; exact absurd h hov
-      rw [substShadow_cons_nomatch old new rest v hov']
+      · exact fun ⟨hm, hne⟩ => ⟨.inr hm, hne⟩
+      · rintro ⟨rfl | hm, hne⟩
+        · rw [hov] at hne; cases hne
+        · exact ⟨hm, hne⟩
+    · rw [if_neg hov, List.mem_cons, List.mem_cons, ih]
       constructor
-      · intro hm
-        rcases List.mem_cons.mp hm with heq | hm'
-        · rw [heq]
-          exact ⟨List.mem_cons_self, hov'⟩
-        · obtain ⟨hm'', hne⟩ := ih.mp hm'
-          exact ⟨List.mem_cons_of_mem _ hm'', hne⟩
-      · intro ⟨hm, hne⟩
-        rcases List.mem_cons.mp hm with heq | hm'
-        · rw [heq]; exact List.mem_cons_self
-        · exact List.mem_cons_of_mem _ (ih.mpr ⟨hm', hne⟩)
+      · rintro (rfl | ⟨hm, hne⟩)
+        · exact ⟨.inl rfl, by simpa using hov⟩
+        · exact ⟨.inr hm, hne⟩
+      · rintro ⟨rfl | hm, hne⟩
+        · exact .inl rfl
+        · exact .inr ⟨hm, hne⟩
 
-theorem substLookup_identity_of_no_match
-    (σ : List (VarId × VarId)) (w : VarId)
-    (hnone : ∀ p ∈ σ, (p.1 == w) = false) :
-    substLookup σ w = w := by
+theorem substLookup_identity_of_no_match (σ : List (VarId × VarId)) (w : VarId)
+    (hnone : ∀ p ∈ σ, (p.1 == w) = false) : substLookup σ w = w := by
   induction σ with
   | nil => rfl
   | cons p rest ih =>
     obtain ⟨old, new⟩ := p
-    have hne : (old == w) = false := hnone _ List.mem_cons_self
-    rw [substLookup_cons_nomatch old new rest w hne]
-    exact ih (fun q hq => hnone q (List.mem_cons_of_mem _ hq))
+    rw [substLookup_cons, if_neg (by simp [hnone _ List.mem_cons_self])]
+    exact ih fun q hq => hnone q (List.mem_cons_of_mem _ hq)
 
-theorem substLookup_result_in_image_or_self
-    (σ : List (VarId × VarId)) (w : VarId) :
-    substLookup σ w = w ∨
-    ∃ p ∈ σ, substLookup σ w = p.2 := by
+theorem substLookup_result_in_image_or_self (σ : List (VarId × VarId)) (w : VarId) :
+    substLookup σ w = w ∨ ∃ p ∈ σ, substLookup σ w = p.2 := by
   induction σ with
   | nil => exact .inl rfl
   | cons p rest ih =>
     obtain ⟨old, new⟩ := p
-    by_cases hov : (old == w) = true
-    · right
-      refine ⟨(old, new), List.mem_cons_self, ?_⟩
-      rw [substLookup_cons_match old new rest w hov]
-    · have hov' : (old == w) = false := by cases h : (old == w); rfl; exact absurd h hov
-      rw [substLookup_cons_nomatch old new rest w hov']
-      rcases ih with heq | ⟨q, hq, hqeq⟩
+    rw [substLookup_cons]
+    split
+    · exact .inr ⟨(old, new), List.mem_cons_self, rfl⟩
+    · rcases ih with heq | ⟨q, hq, hqeq⟩
       · exact .inl heq
       · exact .inr ⟨q, List.mem_cons_of_mem _ hq, hqeq⟩
 
-theorem substLookup_substShadow_neq
-    (σ : List (VarId × VarId)) (v w : VarId) (h : (v == w) = false) :
-    substLookup (substShadow σ v) w = substLookup σ w := by
+theorem substLookup_substShadow_neq (σ : List (VarId × VarId)) (v w : VarId)
+    (h : (v == w) = false) : substLookup (substShadow σ v) w = substLookup σ w := by
   induction σ with
   | nil => rfl
   | cons p rest ih =>
     obtain ⟨old, new⟩ := p
+    rw [substShadow_cons, substLookup_cons]
     by_cases hov : (old == v) = true
-    · rw [substShadow_cons_match old new rest v hov, ih]
-      have hneq : (old == w) = false := by
-        -- If old == v and old == w, then v == w (by BEq transitivity).
-        cases hw : (old == w)
-        · rfl
-        · exfalso
-          -- old == v (true) means origin+uid match; same for old == w. So v == w.
-          have : (v == w) = true := by
-            rw [VarId_beq_true_iff] at hov hw
-            rw [VarId_beq_true_iff]
-            exact ⟨hov.1.symm.trans hw.1, hov.2.symm.trans hw.2⟩
-          rw [this] at h; exact Bool.noConfusion h
-      exact (substLookup_cons_nomatch old new rest w hneq).symm
-    · have hov' : (old == v) = false := by cases h : (old == v); rfl; exact absurd h hov
-      rw [substShadow_cons_nomatch old new rest v hov']
-      by_cases how : (old == w) = true
-      · rw [substLookup_cons_match old new _ w how,
-            substLookup_cons_match old new rest w how]
-      · have how' : (old == w) = false := by cases h : (old == w); rfl; exact absurd h how
-        rw [substLookup_cons_nomatch old new _ w how',
-            substLookup_cons_nomatch old new rest w how']
-        exact ih
-
-/-! ## envLookupT helpers -/
+    · have how : ¬(old == w) = true := fun how => by
+        rw [VarId.beq_true_iff] at hov how
+        have := (VarId.beq_true_iff v w).mpr ⟨hov.1.symm.trans how.1, hov.2.symm.trans how.2⟩
+        rw [h] at this; cases this
+      rw [if_pos hov, if_neg how, ih]
+    · rw [if_neg hov, substLookup_cons, ih]
 
 theorem envLookupT_cons_same_uid (v w : VarId) (env : List VarId)
-    (ho : v.origin = w.origin) (h : v.uid = w.uid) :
-    envLookupT (v :: env) w = some 0 := by
-  have hbeq : (v == w) = true := by
-    show (v.origin == w.origin && v.uid == w.uid) = true
-    rw [Bool.and_eq_true]
-    refine ⟨?_, decide_eq_true h⟩
-    rw [ho]
-    cases w.origin <;> rfl
-  show (if (v == w) = true then some 0
-        else envLookupT.go w env (0 + 1)) = some 0
-  rw [if_pos hbeq]
+    (ho : v.origin = w.origin) (h : v.uid = w.uid) : envLookupT (v :: env) w = some 0 := by
+  show (if (v == w) = true then some 0 else envLookupT.go w env (0 + 1)) = some 0
+  rw [if_pos ((VarId.beq_true_iff v w).mpr ⟨ho, h⟩)]
 
-/-! ## Main soundness theorem -/
+/-! ## Unfolding -/
 
-/-- An auxiliary equation lemma: running `alphaRename (substShadow σ v) body`
-    from state `s` and then wrapping in `.Lam v` gives the same result as
-    the do-block for `alphaRename σ (.Lam v body)`. -/
-private theorem alphaRename_lam_eq (σ : List (VarId × VarId))
-    (v : VarId) (body : Expr) (s : Moist.MIR.FreshState) :
-    (alphaRename σ (.Lam v body)) s =
-      (.Lam v (alphaRename (substShadow σ v) body s).1,
-       (alphaRename (substShadow σ v) body s).2) := by
-  show (do
-      let body' ← alphaRename (substShadow σ v) body
-      pure (Expr.Lam v body')) s = _
+section
+variable (σ : List (VarId × VarId)) (s : FreshState)
+
+private theorem alphaRename_lam_eq (v : VarId) (body : Expr) :
+    alphaRename σ (.Lam v body) s =
+      (.Lam v (alphaRename (substShadow σ v) body s).1, (alphaRename (substShadow σ v) body s).2) :=
   rfl
 
-private theorem alphaRename_fix_eq (σ : List (VarId × VarId))
-    (v : VarId) (body : Expr) (s : Moist.MIR.FreshState) :
-    (alphaRename σ (.Fix v body)) s =
-      (.Fix v (alphaRename (substShadow σ v) body s).1,
-       (alphaRename (substShadow σ v) body s).2) := by
-  show (do
-      let body' ← alphaRename (substShadow σ v) body
-      pure (Expr.Fix v body')) s = _
+private theorem alphaRename_fix_eq (v : VarId) (body : Expr) :
+    alphaRename σ (.Fix v body) s =
+      (.Fix v (alphaRename (substShadow σ v) body s).1, (alphaRename (substShadow σ v) body s).2) :=
   rfl
 
-private theorem alphaRename_app_eq (σ : List (VarId × VarId))
-    (f x : Expr) (s : Moist.MIR.FreshState) :
-    (alphaRename σ (.App f x)) s =
+private theorem alphaRename_app_eq (f x : Expr) :
+    alphaRename σ (.App f x) s =
       (.App (alphaRename σ f s).1 (alphaRename σ x (alphaRename σ f s).2).1,
-       (alphaRename σ x (alphaRename σ f s).2).2) := by
-  show (do
-      let f' ← alphaRename σ f
-      let x' ← alphaRename σ x
-      pure (Expr.App f' x')) s = _
-  rfl
+       (alphaRename σ x (alphaRename σ f s).2).2) := rfl
 
-private theorem alphaRename_force_eq (σ : List (VarId × VarId))
-    (e : Expr) (s : Moist.MIR.FreshState) :
-    (alphaRename σ (.Force e)) s =
-      (.Force (alphaRename σ e s).1, (alphaRename σ e s).2) := by
-  show (do let e' ← alphaRename σ e; pure (Expr.Force e')) s = _
-  rfl
+private theorem alphaRename_case_eq (scrut : Expr) (alts : List Expr) :
+    alphaRename σ (.Case scrut alts) s =
+      (.Case (alphaRename σ scrut s).1 (alphaRenameList σ alts (alphaRename σ scrut s).2).1,
+       (alphaRenameList σ alts (alphaRename σ scrut s).2).2) := rfl
 
-private theorem alphaRename_delay_eq (σ : List (VarId × VarId))
-    (e : Expr) (s : Moist.MIR.FreshState) :
-    (alphaRename σ (.Delay e)) s =
-      (.Delay (alphaRename σ e s).1, (alphaRename σ e s).2) := by
-  show (do let e' ← alphaRename σ e; pure (Expr.Delay e')) s = _
-  rfl
+private theorem alphaRename_let_eq (binds : List (VarId × Expr × Bool)) (body : Expr) :
+    alphaRename σ (.Let binds body) s =
+      (.Let (alphaRenameBinds σ binds s).1.1
+        (alphaRename (alphaRenameBinds σ binds s).1.2 body (alphaRenameBinds σ binds s).2).1,
+       (alphaRename (alphaRenameBinds σ binds s).1.2 body (alphaRenameBinds σ binds s).2).2) := rfl
 
-private theorem alphaRename_constr_eq (σ : List (VarId × VarId))
-    (tag : Nat) (args : List Expr) (s : Moist.MIR.FreshState) :
-    (alphaRename σ (.Constr tag args)) s =
-      (.Constr tag (alphaRenameList σ args s).1, (alphaRenameList σ args s).2) := by
-  show (do let args' ← alphaRenameList σ args; pure (Expr.Constr tag args')) s = _
-  rfl
-
-private theorem alphaRename_case_eq (σ : List (VarId × VarId))
-    (scrut : Expr) (alts : List Expr) (s : Moist.MIR.FreshState) :
-    (alphaRename σ (.Case scrut alts)) s =
-      (.Case (alphaRename σ scrut s).1
-        (alphaRenameList σ alts (alphaRename σ scrut s).2).1,
-       (alphaRenameList σ alts (alphaRename σ scrut s).2).2) := by
-  show (do
-      let scrut' ← alphaRename σ scrut
-      let alts' ← alphaRenameList σ alts
-      pure (Expr.Case scrut' alts')) s = _
-  rfl
-
-private theorem alphaRename_let_eq (σ : List (VarId × VarId))
-    (binds : List (VarId × Expr × Bool)) (body : Expr)
-    (s : Moist.MIR.FreshState) :
-    (alphaRename σ (.Let binds body)) s =
-      (let bb := (alphaRenameBinds σ binds s).1
-       let s1 := (alphaRenameBinds σ binds s).2
-       let br := (alphaRename bb.2 body s1).1
-       let s2 := (alphaRename bb.2 body s1).2
-       (.Let bb.1 br, s2)) := by
-  show (do
-      let (binds', subst') ← alphaRenameBinds σ binds
-      let body' ← alphaRename subst' body
-      pure (Expr.Let binds' body')) s = _
-  rfl
-
-private theorem alphaRenameList_nil_eq (σ : List (VarId × VarId))
-    (s : Moist.MIR.FreshState) :
-    (alphaRenameList σ []) s = (([] : List Expr), s) := rfl
-
-private theorem alphaRenameList_cons_eq (σ : List (VarId × VarId))
-    (e : Expr) (rest : List Expr) (s : Moist.MIR.FreshState) :
-    (alphaRenameList σ (e :: rest)) s =
+private theorem alphaRenameList_cons_eq (e : Expr) (rest : List Expr) :
+    alphaRenameList σ (e :: rest) s =
       ((alphaRename σ e s).1 :: (alphaRenameList σ rest (alphaRename σ e s).2).1,
-       (alphaRenameList σ rest (alphaRename σ e s).2).2) := by
-  show (do
-      let e' ← alphaRename σ e
-      let rest' ← alphaRenameList σ rest
-      pure (e' :: rest')) s = _
-  rfl
+       (alphaRenameList σ rest (alphaRename σ e s).2).2) := rfl
 
-private theorem alphaRenameBinds_nil_eq (σ : List (VarId × VarId))
-    (s : Moist.MIR.FreshState) :
-    (alphaRenameBinds σ ([] : List (VarId × Expr × Bool))) s = (([], σ), s) := rfl
+/-- The binder `v` is renamed to `fresh σ rhs s v`. -/
+private abbrev fresh (rhs : Expr) (v : VarId) : VarId :=
+  ⟨(alphaRename σ rhs s).2.next, .gen, v.hint⟩
 
-/-- Unfolding `alphaRenameBinds σ ((v, rhs, er) :: rest) s`:
-    the RHS is renamed first, then `v` is renamed to a fresh `v'`,
-    then the rest is recursively renamed under the extended subst. -/
-private theorem alphaRenameBinds_cons_eq
-    (σ : List (VarId × VarId))
-    (v : VarId) (rhs : Expr) (er : Bool)
-    (rest : List (VarId × Expr × Bool))
-    (s : Moist.MIR.FreshState) :
-    (alphaRenameBinds σ ((v, rhs, er) :: rest)) s =
-      ((((⟨(alphaRename σ rhs s).2.next, .gen, v.hint⟩ : VarId),
-          (alphaRename σ rhs s).1, er) ::
-        (alphaRenameBinds
-          ((v, (⟨(alphaRename σ rhs s).2.next, .gen, v.hint⟩ : VarId)) :: σ)
-          rest ⟨(alphaRename σ rhs s).2.next + 1⟩).1.1,
-       (alphaRenameBinds
-          ((v, (⟨(alphaRename σ rhs s).2.next, .gen, v.hint⟩ : VarId)) :: σ)
-          rest ⟨(alphaRename σ rhs s).2.next + 1⟩).1.2),
-       (alphaRenameBinds
-          ((v, (⟨(alphaRename σ rhs s).2.next, .gen, v.hint⟩ : VarId)) :: σ)
-          rest ⟨(alphaRename σ rhs s).2.next + 1⟩).2) := by
-  show (do
-      let rhs' ← alphaRename σ rhs
-      let v' ← freshVar v.hint
-      let (rest', subst') ← alphaRenameBinds ((v, v') :: σ) rest
-      pure ((v', rhs', er) :: rest', subst')) s = _
-  rfl
+private theorem alphaRenameBinds_cons_eq (v : VarId) (rhs : Expr) (er : Bool)
+    (rest : List (VarId × Expr × Bool)) :
+    alphaRenameBinds σ ((v, rhs, er) :: rest) s =
+      let r := alphaRenameBinds ((v, fresh σ s rhs v) :: σ) rest ⟨(alphaRename σ rhs s).2.next + 1⟩
+      (((fresh σ s rhs v, (alphaRename σ rhs s).1, er) :: r.1.1, r.1.2), r.2) := rfl
 
-/-! ## Main soundness theorem (mutual induction) -/
+end
 
-/-- Precondition: env1/env2 are compatible under σ for all variables
-    whose uid is ≤ B. This is the invariant carried through the
-    structural induction. -/
-private def Compat (σ : List (VarId × VarId))
-    (env1 env2 : List VarId) (B : Nat) : Prop :=
+/-! ## Lowering is preserved -/
+
+/-- `env1` and `env2` agree on every `w` with `w.uid ≤ B`, up to `σ`. -/
+private def Compat (σ : List (VarId × VarId)) (env1 env2 : List VarId) (B : Nat) : Prop :=
   ∀ w, w.uid ≤ B → envLookupT env1 w = envLookupT env2 (substLookup σ w)
 
-/-- Precondition: subst values have uids strictly between `B` and `s.next`. -/
-private def SubstFreshAbove (σ : List (VarId × VarId))
-    (s : Moist.MIR.FreshState) (B : Nat) : Prop :=
+/-- Renamed-to uids lie strictly between `B` and `s.next`. -/
+private def SubstFreshAbove (σ : List (VarId × VarId)) (s : FreshState) (B : Nat) : Prop :=
   ∀ p ∈ σ, B < p.2.uid ∧ p.2.uid < s.next
 
-/-- Extending `Compat` by a `.Lam`/`.Fix` binder (same variable on both
-    sides, `substShadow`-ed subst). -/
-private theorem Compat_lam
-    (σ : List (VarId × VarId)) (env1 env2 : List VarId) (B : Nat)
-    (v : VarId) (hv : v.uid ≤ B)
-    (hcompat : Compat σ env1 env2 B)
-    (hsubst_lo : ∀ p ∈ σ, B < p.2.uid)
-    : Compat (substShadow σ v) (v :: env1) (v :: env2) B := by
+private theorem SubstFreshAbove.mono {σ : List (VarId × VarId)} {s s' : FreshState} {B : Nat}
+    (h : SubstFreshAbove σ s B) (hs : s.next ≤ s'.next) : SubstFreshAbove σ s' B :=
+  fun p hp => ⟨(h p hp).1, Nat.lt_of_lt_of_le (h p hp).2 hs⟩
+
+/-- `Compat` under a `Lam`/`Fix` binder, which is kept but shadows `σ`. -/
+private theorem Compat_lam (σ : List (VarId × VarId)) (env1 env2 : List VarId) (B : Nat)
+    (v : VarId) (hv : v.uid ≤ B) (hcompat : Compat σ env1 env2 B)
+    (hsubst_lo : ∀ p ∈ σ, B < p.2.uid) :
+    Compat (substShadow σ v) (v :: env1) (v :: env2) B := by
   intro w hw
-  by_cases hvw_beq : (v == w) = true
-  · have ⟨ho, hu⟩ := (VarId_beq_true_iff v w).mp hvw_beq
-    rw [envLookupT_cons_same_uid v w env1 ho hu]
+  by_cases hvw : (v == w) = true
+  · have ⟨ho, hu⟩ := (VarId.beq_true_iff v w).mp hvw
     have hshad : substLookup (substShadow σ v) w = w := by
       apply substLookup_identity_of_no_match
       intro q hq
       rw [substShadow_mem_iff] at hq
       cases hqw : (q.1 == w)
       · rfl
-      · exfalso
-        have ⟨ho_qw, hu_qw⟩ := (VarId_beq_true_iff q.1 w).mp hqw
-        have hqv : (q.1 == v) = true := by
-          rw [VarId_beq_true_iff]
-          exact ⟨ho_qw.trans ho.symm, hu_qw.trans hu.symm⟩
-        rw [hqv] at hq
-        exact Bool.noConfusion hq.2
-    rw [hshad, envLookupT_cons_same_uid v w env2 ho hu]
-  · have hvw_false : (v == w) = false := by
-      cases hb : (v == w); rfl; exact absurd hb hvw_beq
-    -- General case: (v == w) = false. LHS = (envLookupT env1 w).map (·+1).
-    rw [Moist.MIR.envLookupT_cons_neq v w env1 hvw_false]
-    rw [substLookup_substShadow_neq σ v w hvw_false]
-    -- Need: envLookupT (v :: env2) (substLookup σ w) = (envLookupT env1 w).map (·+1).
-    -- Via Compat: envLookupT env1 w = envLookupT env2 (substLookup σ w).
-    -- So reduces to showing (v == substLookup σ w) = false.
-    have hv_ne_u : (v == substLookup σ w) = false := by
+      · have ⟨ho', hu'⟩ := (VarId.beq_true_iff q.1 w).mp hqw
+        have := (VarId.beq_true_iff q.1 v).mpr ⟨ho'.trans ho.symm, hu'.trans hu.symm⟩
+        rw [this] at hq; cases hq.2
+    rw [envLookupT_cons_same_uid v w env1 ho hu, hshad, envLookupT_cons_same_uid v w env2 ho hu]
+  · have hvw : (v == w) = false := by simpa using hvw
+    have hv_ne : (v == substLookup σ w) = false := by
       rcases substLookup_result_in_image_or_self σ w with heq | ⟨p, hp, hpeq⟩
-      · rw [heq]; exact hvw_false
-      · rw [hpeq]
-        -- v.uid ≤ B < p.2.uid, so v.uid ≠ p.2.uid.
-        rw [VarId_beq_false_iff]
-        refine Or.inr ?_
-        have := hsubst_lo p hp
-        omega
-    rw [Moist.MIR.envLookupT_cons_neq v (substLookup σ w) env2 hv_ne_u]
-    rw [hcompat w hw]
+      · rw [heq]; exact hvw
+      · rw [hpeq, VarId.beq_false_iff]; have := hsubst_lo p hp; omega
+    rw [envLookupT_cons_neq v w env1 hvw, substLookup_substShadow_neq σ v w hvw,
+      envLookupT_cons_neq v _ env2 hv_ne, hcompat w hw]
 
-/-- Extending `Compat` by a `.Let` binder (renames `v` to fresh `v'`). -/
-private theorem Compat_let
-    (σ : List (VarId × VarId)) (env1 env2 : List VarId) (B : Nat)
-    (s : Moist.MIR.FreshState) (hs : B < s.next)
-    (v v' : VarId) (_hv : v.uid ≤ B) (hv'_uid : v'.uid = s.next)
-    (hcompat : Compat σ env1 env2 B)
-    (hsubst : SubstFreshAbove σ s B)
-    : Compat ((v, v') :: σ) (v :: env1) (v' :: env2) B := by
+/-- `Compat` under a `Let` binder, renamed from `v` to a fresh `v'`. -/
+private theorem Compat_let (σ : List (VarId × VarId)) (env1 env2 : List VarId) (B : Nat)
+    (s : FreshState) (hs : B < s.next) (v v' : VarId) (hv'_uid : v'.uid = s.next)
+    (hcompat : Compat σ env1 env2 B) (hsubst : SubstFreshAbove σ s B) :
+    Compat ((v, v') :: σ) (v :: env1) (v' :: env2) B := by
   intro w hw
-  by_cases hvw_beq : (v == w) = true
-  · have ⟨ho, hu⟩ := (VarId_beq_true_iff v w).mp hvw_beq
-    rw [envLookupT_cons_same_uid v w env1 ho hu]
-    rw [substLookup_cons_match v v' σ w hvw_beq]
-    rw [envLookupT_cons_same_uid v' v' env2 rfl rfl]
-  · have hvw_false : (v == w) = false := by
-      cases hb : (v == w); rfl; exact absurd hb hvw_beq
-    -- General case: (v == w) = false.
-    rw [Moist.MIR.envLookupT_cons_neq v w env1 hvw_false]
-    rw [substLookup_cons_nomatch v v' σ w hvw_false]
-    -- Need: envLookupT (v' :: env2) (substLookup σ w) = (envLookupT env1 w).map (·+1).
-    -- Via Compat: envLookupT env1 w = envLookupT env2 (substLookup σ w).
-    -- Reduces to showing (v' == substLookup σ w) = false.
-    have hv'_ne_u : (v' == substLookup σ w) = false := by
+  rw [substLookup_cons]
+  by_cases hvw : (v == w) = true
+  · have ⟨ho, hu⟩ := (VarId.beq_true_iff v w).mp hvw
+    rw [if_pos hvw, envLookupT_cons_same_uid v w env1 ho hu,
+      envLookupT_cons_same_uid v' v' env2 rfl rfl]
+  · have hvw : (v == w) = false := by simpa using hvw
+    have hv'_ne : (v' == substLookup σ w) = false := by
+      rw [VarId.beq_false_iff]; refine .inr ?_
       rcases substLookup_result_in_image_or_self σ w with heq | ⟨p, hp, hpeq⟩
-      · rw [heq]
-        -- v'.uid = s.next > B ≥ w.uid, so v'.uid ≠ w.uid.
-        rw [VarId_beq_false_iff]
-        refine Or.inr ?_
-        rw [hv'_uid]
-        have : w.uid < s.next := Nat.lt_of_le_of_lt hw hs
-        omega
-      · rw [hpeq]
-        -- v'.uid = s.next, p.2.uid < s.next.
-        rw [VarId_beq_false_iff]
-        refine Or.inr ?_
-        rw [hv'_uid]
-        have := (hsubst p hp).2
-        omega
-    rw [Moist.MIR.envLookupT_cons_neq v' (substLookup σ w) env2 hv'_ne_u]
-    rw [hcompat w hw]
-
-/-! ## The main mutual induction -/
+      · rw [heq]; omega
+      · rw [hpeq]; have := (hsubst p hp).2; omega
+    rw [if_neg (by simp [hvw]), envLookupT_cons_neq v w env1 hvw,
+      envLookupT_cons_neq v' _ env2 hv'_ne, hcompat w hw]
 
 mutual
 
-/-- Main alpha-rename soundness: for any `e`, running `alphaRename σ e s`
-    yields an expression whose `lowerTotal` matches `lowerTotal env1 e`
-    (for envs in σ-compat, assuming a freshness bound `B`). -/
-theorem alphaRename_lowerTotal_eq (B : Nat) (e : Expr)
-    (σ : List (VarId × VarId)) (s : Moist.MIR.FreshState)
-    (env1 env2 : List VarId)
-    (he : maxUidExpr e ≤ B)
-    (hs : B < s.next)
-    (hsubst : SubstFreshAbove σ s B)
-    (hcompat : Compat σ env1 env2 B) :
+theorem alphaRename_lowerTotal_eq (B : Nat) (e : Expr) (σ : List (VarId × VarId))
+    (s : FreshState) (env1 env2 : List VarId) (he : maxUidExpr e ≤ B) (hs : B < s.next)
+    (hsubst : SubstFreshAbove σ s B) (hcompat : Compat σ env1 env2 B) :
     lowerTotal env1 e = lowerTotal env2 (alphaRename σ e s).1 ∧
     s.next ≤ (alphaRename σ e s).2.next := by
-  have hsubst_lo : ∀ p ∈ σ, B < p.2.uid := fun p hp => (hsubst p hp).1
+  have hlo : ∀ p ∈ σ, B < p.2.uid := fun p hp => (hsubst p hp).1
   match e with
   | .Var v =>
-    have hv_le : v.uid ≤ B := by
-      have hh : maxUidExpr (.Var v) ≤ B := he
-      simp only [maxUidExpr] at hh
-      exact hh
+    simp only [maxUidExpr] at he
     refine ⟨?_, Nat.le_refl _⟩
     show lowerTotal env1 (.Var v) = lowerTotal env2 (.Var (substLookup σ v))
-    have hcv := hcompat v hv_le
-    simp only [lowerTotal.eq_1]
-    rw [hcv]
+    simp only [lowerTotal, hcompat v he]
   | .Lit (c, ty) =>
-    refine ⟨?_, Nat.le_refl _⟩
-    show lowerTotal env1 (.Lit (c, ty)) = lowerTotal env2 (.Lit (c, ty))
-    simp only [lowerTotal.eq_2]
+    exact ⟨by show lowerTotal env1 (.Lit (c, ty)) = lowerTotal env2 (.Lit (c, ty)); simp [lowerTotal],
+      Nat.le_refl _⟩
   | .Builtin b =>
-    refine ⟨?_, Nat.le_refl _⟩
-    show lowerTotal env1 (.Builtin b) = lowerTotal env2 (.Builtin b)
-    simp only [lowerTotal.eq_3]
+    exact ⟨by show lowerTotal env1 (.Builtin b) = lowerTotal env2 (.Builtin b); simp [lowerTotal],
+      Nat.le_refl _⟩
   | .Error =>
-    refine ⟨?_, Nat.le_refl _⟩
-    show lowerTotal env1 .Error = lowerTotal env2 .Error
-    simp only [lowerTotal.eq_4]
+    exact ⟨by show lowerTotal env1 .Error = lowerTotal env2 .Error; simp [lowerTotal], Nat.le_refl _⟩
   | .Lam v body =>
-    rw [alphaRename_lam_eq σ v body s]
-    have hv_le : v.uid ≤ B := by
-      have hh : maxUidExpr (.Lam v body) ≤ B := he
-      simp only [maxUidExpr] at hh; omega
-    have hbody_le : maxUidExpr body ≤ B := by
-      have hh : maxUidExpr (.Lam v body) ≤ B := he
-      simp only [maxUidExpr] at hh; omega
-    have hsubst_shad : SubstFreshAbove (substShadow σ v) s B := by
-      intro p hp
-      rw [substShadow_mem_iff] at hp
-      exact hsubst p hp.1
-    have hcompat_shad : Compat (substShadow σ v) (v :: env1) (v :: env2) B :=
-      Compat_lam σ env1 env2 B v hv_le hcompat hsubst_lo
-    have ⟨hbody_eq, hbody_mono⟩ :=
-      alphaRename_lowerTotal_eq B body (substShadow σ v) s (v :: env1) (v :: env2)
-        hbody_le hs hsubst_shad hcompat_shad
-    refine ⟨?_, hbody_mono⟩
-    show lowerTotal env1 (.Lam v body) =
-         lowerTotal env2 (.Lam v (alphaRename (substShadow σ v) body s).1)
-    simp only [lowerTotal.eq_5, hbody_eq]
+    simp only [maxUidExpr] at he
+    rw [alphaRename_lam_eq]
+    have ⟨ih, hm⟩ := alphaRename_lowerTotal_eq B body (substShadow σ v) s (v :: env1) (v :: env2)
+      (by omega) hs (fun p hp => hsubst p (substShadow_mem_iff.mp hp).1)
+      (Compat_lam σ env1 env2 B v (by omega) hcompat hlo)
+    exact ⟨by simp only [lowerTotal, ih], hm⟩
   | .Fix v body =>
-    rw [alphaRename_fix_eq σ v body s]
-    have hv_le : v.uid ≤ B := by
-      have hh : maxUidExpr (.Fix v body) ≤ B := he
-      simp only [maxUidExpr] at hh; omega
-    have hbody_le : maxUidExpr body ≤ B := by
-      have hh : maxUidExpr (.Fix v body) ≤ B := he
-      simp only [maxUidExpr] at hh; omega
-    have hsubst_shad : SubstFreshAbove (substShadow σ v) s B := by
-      intro p hp
-      rw [substShadow_mem_iff] at hp
-      exact hsubst p hp.1
-    have hcompat_shad : Compat (substShadow σ v) (v :: env1) (v :: env2) B :=
-      Compat_lam σ env1 env2 B v hv_le hcompat hsubst_lo
-    have ⟨_, hbody_mono⟩ :=
-      alphaRename_lowerTotal_eq B body (substShadow σ v) s (v :: env1) (v :: env2)
-        hbody_le hs hsubst_shad hcompat_shad
-    refine ⟨?_, hbody_mono⟩
-    show lowerTotal env1 (.Fix v body) =
-         lowerTotal env2 (.Fix v (alphaRename (substShadow σ v) body s).1)
-    simp only [lowerTotal.eq_12]
+    simp only [maxUidExpr] at he
+    rw [alphaRename_fix_eq]
+    have ⟨_, hm⟩ := alphaRename_lowerTotal_eq B body (substShadow σ v) s (v :: env1) (v :: env2)
+      (by omega) hs (fun p hp => hsubst p (substShadow_mem_iff.mp hp).1)
+      (Compat_lam σ env1 env2 B v (by omega) hcompat hlo)
+    exact ⟨by simp only [lowerTotal], hm⟩
   | .App f x =>
-    rw [alphaRename_app_eq σ f x s]
-    have hf_le : maxUidExpr f ≤ B := by
-      have hh : maxUidExpr (.App f x) ≤ B := he
-      simp only [maxUidExpr] at hh; omega
-    have hx_le : maxUidExpr x ≤ B := by
-      have hh : maxUidExpr (.App f x) ≤ B := he
-      simp only [maxUidExpr] at hh; omega
-    have ⟨hf_eq, hf_mono⟩ :=
-      alphaRename_lowerTotal_eq B f σ s env1 env2 hf_le hs hsubst hcompat
-    have hs1_lt : B < (alphaRename σ f s).2.next := Nat.lt_of_lt_of_le hs hf_mono
-    have hsubst1 : SubstFreshAbove σ (alphaRename σ f s).2 B := by
-      intro p hp
-      refine ⟨(hsubst p hp).1, ?_⟩
-      exact Nat.lt_of_lt_of_le (hsubst p hp).2 hf_mono
-    have ⟨hx_eq, hx_mono⟩ :=
-      alphaRename_lowerTotal_eq B x σ (alphaRename σ f s).2 env1 env2
-        hx_le hs1_lt hsubst1 hcompat
-    refine ⟨?_, Nat.le_trans hf_mono hx_mono⟩
-    show lowerTotal env1 (.App f x) =
-         lowerTotal env2 (.App (alphaRename σ f s).1
-           (alphaRename σ x (alphaRename σ f s).2).1)
-    simp only [lowerTotal.eq_6, hf_eq, hx_eq]
-  | .Force inner =>
-    rw [alphaRename_force_eq σ inner s]
-    have hi_le : maxUidExpr inner ≤ B := by
-      have hh : maxUidExpr (.Force inner) ≤ B := he
-      simp only [maxUidExpr] at hh; exact hh
-    have ⟨hi_eq, hi_mono⟩ :=
-      alphaRename_lowerTotal_eq B inner σ s env1 env2 hi_le hs hsubst hcompat
-    refine ⟨?_, hi_mono⟩
-    show lowerTotal env1 (.Force inner) =
-         lowerTotal env2 (.Force (alphaRename σ inner s).1)
-    simp only [lowerTotal.eq_7, hi_eq]
-  | .Delay inner =>
-    rw [alphaRename_delay_eq σ inner s]
-    have hi_le : maxUidExpr inner ≤ B := by
-      have hh : maxUidExpr (.Delay inner) ≤ B := he
-      simp only [maxUidExpr] at hh; exact hh
-    have ⟨hi_eq, hi_mono⟩ :=
-      alphaRename_lowerTotal_eq B inner σ s env1 env2 hi_le hs hsubst hcompat
-    refine ⟨?_, hi_mono⟩
-    show lowerTotal env1 (.Delay inner) =
-         lowerTotal env2 (.Delay (alphaRename σ inner s).1)
-    simp only [lowerTotal.eq_8, hi_eq]
+    simp only [maxUidExpr] at he
+    rw [alphaRename_app_eq]
+    have ⟨ihf, hmf⟩ := alphaRename_lowerTotal_eq B f σ s env1 env2 (by omega) hs hsubst hcompat
+    have ⟨ihx, hmx⟩ := alphaRename_lowerTotal_eq B x σ _ env1 env2 (by omega) (by omega)
+      (hsubst.mono hmf) hcompat
+    exact ⟨by simp only [lowerTotal, ihf, ihx], Nat.le_trans hmf hmx⟩
+  | .Force e =>
+    simp only [maxUidExpr] at he
+    have ⟨ih, hm⟩ := alphaRename_lowerTotal_eq B e σ s env1 env2 he hs hsubst hcompat
+    exact ⟨by show _ = lowerTotal env2 (.Force _); simp only [lowerTotal, ih], hm⟩
+  | .Delay e =>
+    simp only [maxUidExpr] at he
+    have ⟨ih, hm⟩ := alphaRename_lowerTotal_eq B e σ s env1 env2 he hs hsubst hcompat
+    exact ⟨by show _ = lowerTotal env2 (.Delay _); simp only [lowerTotal, ih], hm⟩
   | .Constr tag args =>
-    rw [alphaRename_constr_eq σ tag args s]
-    have ha_le : maxUidExprList args ≤ B := by
-      have hh : maxUidExpr (.Constr tag args) ≤ B := he
-      simp only [maxUidExpr] at hh; exact hh
-    have ⟨ha_eq, ha_mono⟩ :=
-      alphaRenameList_lowerTotalList_eq B args σ s env1 env2 ha_le hs hsubst hcompat
-    refine ⟨?_, ha_mono⟩
-    show lowerTotal env1 (.Constr tag args) =
-         lowerTotal env2 (.Constr tag (alphaRenameList σ args s).1)
-    simp only [lowerTotal.eq_9, ha_eq]
+    simp only [maxUidExpr] at he
+    have ⟨ih, hm⟩ := alphaRenameList_lowerTotalList_eq B args σ s env1 env2 he hs hsubst hcompat
+    exact ⟨by show _ = lowerTotal env2 (.Constr tag _); simp only [lowerTotal, ih], hm⟩
   | .Case scrut alts =>
-    rw [alphaRename_case_eq σ scrut alts s]
-    have hscr_le : maxUidExpr scrut ≤ B := by
-      have hh : maxUidExpr (.Case scrut alts) ≤ B := he
-      simp only [maxUidExpr] at hh; omega
-    have ha_le : maxUidExprList alts ≤ B := by
-      have hh : maxUidExpr (.Case scrut alts) ≤ B := he
-      simp only [maxUidExpr] at hh; omega
-    have ⟨hscr_eq, hscr_mono⟩ :=
-      alphaRename_lowerTotal_eq B scrut σ s env1 env2 hscr_le hs hsubst hcompat
-    have hs1_lt : B < (alphaRename σ scrut s).2.next := Nat.lt_of_lt_of_le hs hscr_mono
-    have hsubst1 : SubstFreshAbove σ (alphaRename σ scrut s).2 B := by
-      intro p hp
-      refine ⟨(hsubst p hp).1, ?_⟩
-      exact Nat.lt_of_lt_of_le (hsubst p hp).2 hscr_mono
-    have ⟨ha_eq, ha_mono⟩ :=
-      alphaRenameList_lowerTotalList_eq B alts σ (alphaRename σ scrut s).2 env1 env2
-        ha_le hs1_lt hsubst1 hcompat
-    refine ⟨?_, Nat.le_trans hscr_mono ha_mono⟩
-    show lowerTotal env1 (.Case scrut alts) =
-         lowerTotal env2 (.Case (alphaRename σ scrut s).1
-           (alphaRenameList σ alts (alphaRename σ scrut s).2).1)
-    simp only [lowerTotal.eq_10, hscr_eq, ha_eq]
+    simp only [maxUidExpr] at he
+    rw [alphaRename_case_eq]
+    have ⟨ihs, hms⟩ := alphaRename_lowerTotal_eq B scrut σ s env1 env2 (by omega) hs hsubst hcompat
+    have ⟨iha, hma⟩ := alphaRenameList_lowerTotalList_eq B alts σ _ env1 env2 (by omega)
+      (by omega) (hsubst.mono hms) hcompat
+    exact ⟨by simp only [lowerTotal, ihs, iha], Nat.le_trans hms hma⟩
   | .Let binds body =>
-    rw [alphaRename_let_eq σ binds body s]
-    have hb_le : maxUidExprBinds binds ≤ B := by
-      have hh : maxUidExpr (.Let binds body) ≤ B := he
-      simp only [maxUidExpr] at hh; omega
-    have hbody_le : maxUidExpr body ≤ B := by
-      have hh : maxUidExpr (.Let binds body) ≤ B := he
-      simp only [maxUidExpr] at hh; omega
-    have ⟨hlet_eq, hlet_mono⟩ :=
-      alphaRenameBinds_lowerTotalLet_eq B binds body σ s env1 env2
-        hb_le hbody_le hs hsubst hcompat
-    refine ⟨?_, hlet_mono⟩
-    show lowerTotal env1 (.Let binds body) =
-         lowerTotal env2 (.Let (alphaRenameBinds σ binds s).1.1
-           (alphaRename (alphaRenameBinds σ binds s).1.2 body
-             (alphaRenameBinds σ binds s).2).1)
-    simp only [lowerTotal.eq_11, hlet_eq]
+    simp only [maxUidExpr] at he
+    rw [alphaRename_let_eq]
+    have ⟨ih, hm⟩ := alphaRenameBinds_lowerTotalLet_eq B binds body σ s env1 env2 (by omega)
+      (by omega) hs hsubst hcompat
+    exact ⟨by simp only [lowerTotal, ih], hm⟩
 termination_by sizeOf e
 
-/-- List version of alpha-rename soundness. -/
-theorem alphaRenameList_lowerTotalList_eq (B : Nat) (es : List Expr)
-    (σ : List (VarId × VarId)) (s : Moist.MIR.FreshState)
-    (env1 env2 : List VarId)
-    (he : maxUidExprList es ≤ B)
-    (hs : B < s.next)
-    (hsubst : SubstFreshAbove σ s B)
-    (hcompat : Compat σ env1 env2 B) :
+theorem alphaRenameList_lowerTotalList_eq (B : Nat) (es : List Expr) (σ : List (VarId × VarId))
+    (s : FreshState) (env1 env2 : List VarId) (he : maxUidExprList es ≤ B) (hs : B < s.next)
+    (hsubst : SubstFreshAbove σ s B) (hcompat : Compat σ env1 env2 B) :
     lowerTotalList env1 es = lowerTotalList env2 (alphaRenameList σ es s).1 ∧
     s.next ≤ (alphaRenameList σ es s).2.next := by
   match es with
   | [] =>
-    refine ⟨?_, Nat.le_refl _⟩
-    show lowerTotalList env1 [] = lowerTotalList env2 []
-    simp only [lowerTotalList.eq_1]
+    exact ⟨by show lowerTotalList env1 [] = lowerTotalList env2 []; simp [lowerTotalList],
+      Nat.le_refl _⟩
   | e :: rest =>
+    simp only [maxUidExprList] at he
     rw [alphaRenameList_cons_eq]
-    have he_le : maxUidExpr e ≤ B := by
-      have hh : maxUidExprList (e :: rest) ≤ B := he
-      simp only [maxUidExprList] at hh; omega
-    have hrest_le : maxUidExprList rest ≤ B := by
-      have hh : maxUidExprList (e :: rest) ≤ B := he
-      simp only [maxUidExprList] at hh; omega
-    have ⟨he_eq, he_mono⟩ :=
-      alphaRename_lowerTotal_eq B e σ s env1 env2 he_le hs hsubst hcompat
-    have hs1_lt : B < (alphaRename σ e s).2.next := Nat.lt_of_lt_of_le hs he_mono
-    have hsubst1 : SubstFreshAbove σ (alphaRename σ e s).2 B := by
-      intro p hp
-      refine ⟨(hsubst p hp).1, ?_⟩
-      exact Nat.lt_of_lt_of_le (hsubst p hp).2 he_mono
-    have ⟨hr_eq, hr_mono⟩ :=
-      alphaRenameList_lowerTotalList_eq B rest σ (alphaRename σ e s).2 env1 env2
-        hrest_le hs1_lt hsubst1 hcompat
-    refine ⟨?_, Nat.le_trans he_mono hr_mono⟩
-    show lowerTotalList env1 (e :: rest) =
-         lowerTotalList env2 ((alphaRename σ e s).1 ::
-           (alphaRenameList σ rest (alphaRename σ e s).2).1)
-    simp only [lowerTotalList.eq_2, he_eq, hr_eq]
+    have ⟨ihe, hme⟩ := alphaRename_lowerTotal_eq B e σ s env1 env2 (by omega) hs hsubst hcompat
+    have ⟨ihr, hmr⟩ := alphaRenameList_lowerTotalList_eq B rest σ _ env1 env2 (by omega)
+      (by omega) (hsubst.mono hme) hcompat
+    exact ⟨by simp only [lowerTotalList, ihe, ihr], Nat.le_trans hme hmr⟩
 termination_by sizeOf es
 
-/-- Let-binds version of alpha-rename soundness: proves the equality
-    of `lowerTotalLet env1 binds body` with the renamed counterpart,
-    where `body` gets renamed with the *output* subst of `alphaRenameBinds`. -/
-theorem alphaRenameBinds_lowerTotalLet_eq (B : Nat)
-    (binds : List (VarId × Expr × Bool)) (body : Expr)
-    (σ : List (VarId × VarId)) (s : Moist.MIR.FreshState)
-    (env1 env2 : List VarId)
-    (hb : maxUidExprBinds binds ≤ B)
-    (hbody : maxUidExpr body ≤ B)
-    (hs : B < s.next)
-    (hsubst : SubstFreshAbove σ s B)
-    (hcompat : Compat σ env1 env2 B) :
+/-- `body` is renamed under the substitution produced by the bindings. -/
+theorem alphaRenameBinds_lowerTotalLet_eq (B : Nat) (binds : List (VarId × Expr × Bool))
+    (body : Expr) (σ : List (VarId × VarId)) (s : FreshState) (env1 env2 : List VarId)
+    (hb : maxUidExprBinds binds ≤ B) (hbody : maxUidExpr body ≤ B) (hs : B < s.next)
+    (hsubst : SubstFreshAbove σ s B) (hcompat : Compat σ env1 env2 B) :
     lowerTotalLet env1 binds body =
-      lowerTotalLet env2
-        (alphaRenameBinds σ binds s).1.1
-        (alphaRename (alphaRenameBinds σ binds s).1.2 body
-          (alphaRenameBinds σ binds s).2).1 ∧
+      lowerTotalLet env2 (alphaRenameBinds σ binds s).1.1
+        (alphaRename (alphaRenameBinds σ binds s).1.2 body (alphaRenameBinds σ binds s).2).1 ∧
     s.next ≤ (alphaRename (alphaRenameBinds σ binds s).1.2 body
-               (alphaRenameBinds σ binds s).2).2.next := by
+      (alphaRenameBinds σ binds s).2).2.next := by
   match binds with
   | [] =>
-    rw [alphaRenameBinds_nil_eq]
-    -- alphaRenameBinds σ [] s = (([], σ), s)
-    -- Result: lowerTotalLet env1 [] body = lowerTotalLet env2 [] (alphaRename σ body s).1
-    have ⟨hbody_eq, hbody_mono⟩ :=
-      alphaRename_lowerTotal_eq B body σ s env1 env2 hbody hs hsubst hcompat
-    refine ⟨?_, hbody_mono⟩
-    show lowerTotalLet env1 [] body =
-         lowerTotalLet env2 [] (alphaRename σ body s).1
-    simp only [lowerTotalLet.eq_1, hbody_eq]
+    have ⟨ih, hm⟩ := alphaRename_lowerTotal_eq B body σ s env1 env2 hbody hs hsubst hcompat
+    exact ⟨by
+      show lowerTotalLet env1 [] body = lowerTotalLet env2 [] (alphaRename σ body s).1
+      simp only [lowerTotalLet, ih], hm⟩
   | (v, rhs, er) :: rest =>
-    rw [alphaRenameBinds_cons_eq σ v rhs er rest s]
-    have hv_le : v.uid ≤ B := by
-      have hh : maxUidExprBinds ((v, rhs, er) :: rest) ≤ B := hb
-      simp only [maxUidExprBinds] at hh; omega
-    have hrhs_le : maxUidExpr rhs ≤ B := by
-      have hh : maxUidExprBinds ((v, rhs, er) :: rest) ≤ B := hb
-      simp only [maxUidExprBinds] at hh; omega
-    have hrest_le : maxUidExprBinds rest ≤ B := by
-      have hh : maxUidExprBinds ((v, rhs, er) :: rest) ≤ B := hb
-      simp only [maxUidExprBinds] at hh; omega
-    have ⟨hrhs_eq, hrhs_mono⟩ :=
-      alphaRename_lowerTotal_eq B rhs σ s env1 env2 hrhs_le hs hsubst hcompat
-    -- Define the fresh v' and the new state s2 explicitly (not via `let`).
-    have hs1_lt : B < (alphaRename σ rhs s).2.next := Nat.lt_of_lt_of_le hs hrhs_mono
-    have hs2_lt : B < (⟨(alphaRename σ rhs s).2.next + 1⟩ : Moist.MIR.FreshState).next := by
-      show B < (alphaRename σ rhs s).2.next + 1
-      omega
-    have hv'_uid :
-        (⟨(alphaRename σ rhs s).2.next, .gen, v.hint⟩ : VarId).uid
-          = (alphaRename σ rhs s).2.next := rfl
-    have hsubst1 : SubstFreshAbove σ (alphaRename σ rhs s).2 B := by
-      intro p hp
-      refine ⟨(hsubst p hp).1, ?_⟩
-      exact Nat.lt_of_lt_of_le (hsubst p hp).2 hrhs_mono
-    have hsubst_ext :
-        SubstFreshAbove
-          ((v, (⟨(alphaRename σ rhs s).2.next, .gen, v.hint⟩ : VarId)) :: σ)
-          (⟨(alphaRename σ rhs s).2.next + 1⟩ : Moist.MIR.FreshState)
-          B := by
-      intro q hq
-      rcases List.mem_cons.mp hq with heq | hq_rest
-      · refine ⟨?_, ?_⟩
-        · show B < q.2.uid
-          rw [heq]; exact hs1_lt
-        · show q.2.uid < (alphaRename σ rhs s).2.next + 1
-          rw [heq]; exact Nat.lt_succ_self _
-      · refine ⟨(hsubst q hq_rest).1, ?_⟩
-        have hh : q.2.uid < s.next := (hsubst q hq_rest).2
-        show q.2.uid < (alphaRename σ rhs s).2.next + 1
-        have := hrhs_mono
-        omega
-    have hcompat_ext :
-        Compat
-          ((v, (⟨(alphaRename σ rhs s).2.next, .gen, v.hint⟩ : VarId)) :: σ)
-          (v :: env1)
-          ((⟨(alphaRename σ rhs s).2.next, .gen, v.hint⟩ : VarId) :: env2) B :=
-      Compat_let σ env1 env2 B (alphaRename σ rhs s).2 hs1_lt v
-        ⟨(alphaRename σ rhs s).2.next, .gen, v.hint⟩ hv_le hv'_uid hcompat hsubst1
-    have ⟨hrest_eq, hrest_mono⟩ :=
-      alphaRenameBinds_lowerTotalLet_eq B rest body
-        ((v, (⟨(alphaRename σ rhs s).2.next, .gen, v.hint⟩ : VarId)) :: σ)
-        ⟨(alphaRename σ rhs s).2.next + 1⟩
-        (v :: env1)
-        ((⟨(alphaRename σ rhs s).2.next, .gen, v.hint⟩ : VarId) :: env2)
-        hrest_le hbody hs2_lt hsubst_ext hcompat_ext
-    refine ⟨?_, ?_⟩
-    · -- Forward equality. With the projection-based `alphaRenameBinds_cons_eq`
-      -- applied, both sides reduce via the IHs.
-      simp only [lowerTotalLet.eq_2, hrhs_eq, hrest_eq]
-    · -- State monotonicity
-      have hmid : (alphaRename σ rhs s).2.next ≤
-                  (⟨(alphaRename σ rhs s).2.next + 1⟩ : Moist.MIR.FreshState).next := by
-        show (alphaRename σ rhs s).2.next ≤ (alphaRename σ rhs s).2.next + 1
-        omega
-      exact Nat.le_trans hrhs_mono (Nat.le_trans hmid hrest_mono)
+    simp only [maxUidExprBinds] at hb
+    rw [alphaRenameBinds_cons_eq]; dsimp only
+    have ⟨ihr, hmr⟩ := alphaRename_lowerTotal_eq B rhs σ s env1 env2 (by omega) hs hsubst hcompat
+    have ⟨ih, hm⟩ := alphaRenameBinds_lowerTotalLet_eq B rest body
+      ((v, fresh σ s rhs v) :: σ) ⟨(alphaRename σ rhs s).2.next + 1⟩ (v :: env1)
+      (fresh σ s rhs v :: env2) (by omega) hbody (by show B < _ + 1; omega)
+      (fun q hq => by
+        rcases List.mem_cons.mp hq with rfl | hq
+        · exact ⟨by show B < (alphaRename σ rhs s).2.next; omega, Nat.lt_succ_self _⟩
+        · exact ⟨(hsubst q hq).1, by show _ < _ + 1; have := (hsubst q hq).2; omega⟩)
+      (Compat_let σ env1 env2 B (alphaRename σ rhs s).2 (by omega) v _ rfl hcompat
+        (hsubst.mono hmr))
+    exact ⟨by simp only [lowerTotalLet, ihr, ih],
+      Nat.le_trans hmr (Nat.le_trans (Nat.le_succ _) hm)⟩
 termination_by sizeOf binds + sizeOf body
 
 end
 
-/-! ## Top-level corollaries -/
+/-! ## `Fix`-freedom is preserved -/
 
-open Moist.MIR (fixCountList fixCountBinds)
-
--- `alphaRename` preserves Fix-freedom: it never introduces new Fix nodes.
 mutual
-theorem alphaRename_fixCount_zero (σ : List (VarId × VarId)) (e : Expr)
-    (s : Moist.MIR.FreshState) (hfc : fixCount e = 0) :
-    fixCount (Moist.MIR.alphaRename σ e s).1 = 0 := by
+
+theorem alphaRename_fixCount_zero (σ : List (VarId × VarId)) (e : Expr) (s : FreshState)
+    (hfc : fixCount e = 0) : fixCount (alphaRename σ e s).1 = 0 := by
   match e with
-  | .Var v =>
-    show fixCount (.Var (substLookup σ v)) = 0
-    show Moist.MIR.fixCount (.Var (substLookup σ v)) = 0
-    simp [Moist.MIR.fixCount]
-  | .Lit _ =>
-    show Moist.MIR.fixCount (.Lit _) = 0
-    simp [Moist.MIR.fixCount]
-  | .Builtin _ =>
-    show Moist.MIR.fixCount (.Builtin _) = 0
-    simp [Moist.MIR.fixCount]
-  | .Error =>
-    show Moist.MIR.fixCount .Error = 0
-    simp [Moist.MIR.fixCount]
+  | .Var _ | .Lit _ | .Builtin _ | .Error => simp [alphaRename, pure, StateT.pure, fixCount]
   | .Lam v body =>
-    rw [alphaRename_lam_eq σ v body s]
-    show fixCount (.Lam v (alphaRename (substShadow σ v) body s).1) = 0
-    have hbody : fixCount body = 0 := by
-      simp only [Moist.MIR.fixCount] at hfc; exact hfc
-    have := alphaRename_fixCount_zero (substShadow σ v) body s hbody
-    simp only [Moist.MIR.fixCount]; exact this
-  | .Fix v body =>
-    -- Fix has fixCount > 0, contradicting hfc
-    simp only [Moist.MIR.fixCount] at hfc; omega
+    simp only [fixCount] at hfc
+    rw [alphaRename_lam_eq]; simp only [fixCount]
+    exact alphaRename_fixCount_zero _ body s hfc
+  | .Fix _ _ => simp only [fixCount] at hfc; omega
   | .App f x =>
-    rw [alphaRename_app_eq σ f x s]
-    have hf : fixCount f = 0 := by
-      simp only [Moist.MIR.fixCount] at hfc; omega
-    have hx : fixCount x = 0 := by
-      simp only [Moist.MIR.fixCount] at hfc; omega
-    have ihf := alphaRename_fixCount_zero σ f s hf
-    have ihx := alphaRename_fixCount_zero σ x (alphaRename σ f s).2 hx
-    show fixCount (.App _ _) = 0
-    simp only [Moist.MIR.fixCount]; omega
-  | .Force inner =>
-    rw [alphaRename_force_eq σ inner s]
-    have h : fixCount inner = 0 := by simp only [Moist.MIR.fixCount] at hfc; exact hfc
-    have ih := alphaRename_fixCount_zero σ inner s h
-    show fixCount (.Force _) = 0; simp only [Moist.MIR.fixCount]; exact ih
-  | .Delay inner =>
-    rw [alphaRename_delay_eq σ inner s]
-    have h : fixCount inner = 0 := by simp only [Moist.MIR.fixCount] at hfc; exact hfc
-    have ih := alphaRename_fixCount_zero σ inner s h
-    show fixCount (.Delay _) = 0; simp only [Moist.MIR.fixCount]; exact ih
+    simp only [fixCount] at hfc
+    rw [alphaRename_app_eq]; simp only [fixCount]
+    have := alphaRename_fixCount_zero σ f s (by omega)
+    have := alphaRename_fixCount_zero σ x (alphaRename σ f s).2 (by omega)
+    omega
+  | .Force e =>
+    simp only [fixCount] at hfc
+    show fixCount (.Force _) = 0; simp only [fixCount]
+    exact alphaRename_fixCount_zero σ e s hfc
+  | .Delay e =>
+    simp only [fixCount] at hfc
+    show fixCount (.Delay _) = 0; simp only [fixCount]
+    exact alphaRename_fixCount_zero σ e s hfc
   | .Constr tag args =>
-    rw [alphaRename_constr_eq σ tag args s]
-    have h : fixCountList args = 0 := by simp only [Moist.MIR.fixCount] at hfc; exact hfc
-    have ih := alphaRenameList_fixCountList_zero σ args s h
-    show fixCount (.Constr _ _) = 0; simp only [Moist.MIR.fixCount]; exact ih
+    simp only [fixCount] at hfc
+    show fixCount (.Constr tag _) = 0; simp only [fixCount]
+    exact alphaRenameList_fixCountList_zero σ args s hfc
   | .Case scrut alts =>
-    rw [alphaRename_case_eq σ scrut alts s]
-    have hs : fixCount scrut = 0 := by simp only [Moist.MIR.fixCount] at hfc; omega
-    have ha : fixCountList alts = 0 := by simp only [Moist.MIR.fixCount] at hfc; omega
-    have ihs := alphaRename_fixCount_zero σ scrut s hs
-    have iha := alphaRenameList_fixCountList_zero σ alts (alphaRename σ scrut s).2 ha
-    show fixCount (.Case _ _) = 0; simp only [Moist.MIR.fixCount]; omega
+    simp only [fixCount] at hfc
+    rw [alphaRename_case_eq]; simp only [fixCount]
+    have := alphaRename_fixCount_zero σ scrut s (by omega)
+    have := alphaRenameList_fixCountList_zero σ alts (alphaRename σ scrut s).2 (by omega)
+    omega
   | .Let binds body =>
-    rw [alphaRename_let_eq σ binds body s]
-    have hb : fixCountBinds binds = 0 := by simp only [Moist.MIR.fixCount] at hfc; omega
-    have hbody : fixCount body = 0 := by simp only [Moist.MIR.fixCount] at hfc; omega
-    have ihb := alphaRenameBinds_fixCountBinds_zero σ binds s hb
-    have ih_body := alphaRename_fixCount_zero
-      (alphaRenameBinds σ binds s).1.2 body
-      (alphaRenameBinds σ binds s).2 hbody
-    show fixCount (.Let _ _) = 0; simp only [Moist.MIR.fixCount]; omega
+    simp only [fixCount] at hfc
+    rw [alphaRename_let_eq]; simp only [fixCount]
+    have := alphaRenameBinds_fixCountBinds_zero σ binds s (by omega)
+    have := alphaRename_fixCount_zero (alphaRenameBinds σ binds s).1.2 body
+      (alphaRenameBinds σ binds s).2 (by omega)
+    omega
 termination_by sizeOf e
 
 theorem alphaRenameList_fixCountList_zero (σ : List (VarId × VarId)) (es : List Expr)
-    (s : Moist.MIR.FreshState) (hfc : fixCountList es = 0) :
-    fixCountList (Moist.MIR.alphaRenameList σ es s).1 = 0 := by
+    (s : FreshState) (hfc : fixCountList es = 0) :
+    fixCountList (alphaRenameList σ es s).1 = 0 := by
   match es with
-  | [] =>
-    rw [alphaRenameList_nil_eq]; exact hfc
+  | [] => exact hfc
   | e :: rest =>
-    rw [alphaRenameList_cons_eq]
-    have he : fixCount e = 0 := by simp only [Moist.MIR.fixCountList] at hfc; omega
-    have hr : fixCountList rest = 0 := by simp only [Moist.MIR.fixCountList] at hfc; omega
-    have ihe := alphaRename_fixCount_zero σ e s he
-    have ihr := alphaRenameList_fixCountList_zero σ rest (alphaRename σ e s).2 hr
-    show fixCountList (_ :: _) = 0; simp only [Moist.MIR.fixCountList]; omega
+    simp only [fixCountList] at hfc
+    rw [alphaRenameList_cons_eq]; simp only [fixCountList]
+    have := alphaRename_fixCount_zero σ e s (by omega)
+    have := alphaRenameList_fixCountList_zero σ rest (alphaRename σ e s).2 (by omega)
+    omega
 termination_by sizeOf es
 
 theorem alphaRenameBinds_fixCountBinds_zero (σ : List (VarId × VarId))
-    (binds : List (VarId × Expr × Bool)) (s : Moist.MIR.FreshState)
-    (hfc : fixCountBinds binds = 0) :
-    fixCountBinds (Moist.MIR.alphaRenameBinds σ binds s).1.1 = 0 := by
+    (binds : List (VarId × Expr × Bool)) (s : FreshState) (hfc : fixCountBinds binds = 0) :
+    fixCountBinds (alphaRenameBinds σ binds s).1.1 = 0 := by
   match binds with
-  | [] =>
-    show fixCountBinds (alphaRenameBinds σ [] s).1.1 = 0
-    rw [alphaRenameBinds_nil_eq]; exact hfc
+  | [] => exact hfc
   | (v, rhs, er) :: rest =>
-    rw [alphaRenameBinds_cons_eq σ v rhs er rest s]
-    have hrhs : fixCount rhs = 0 := by
-      simp only [Moist.MIR.fixCountBinds] at hfc; omega
-    have hrest : fixCountBinds rest = 0 := by
-      simp only [Moist.MIR.fixCountBinds] at hfc; omega
-    have ihrhs := alphaRename_fixCount_zero σ rhs s hrhs
-    have ihrest :=
-      alphaRenameBinds_fixCountBinds_zero
-        ((v, (⟨(alphaRename σ rhs s).2.next, .gen, v.hint⟩ : VarId)) :: σ)
-        rest ⟨(alphaRename σ rhs s).2.next + 1⟩ hrest
-    show fixCountBinds (_ :: _) = 0
-    simp only [Moist.MIR.fixCountBinds]; omega
+    simp only [fixCountBinds] at hfc
+    rw [alphaRenameBinds_cons_eq]; dsimp only; simp only [fixCountBinds]
+    have := alphaRename_fixCount_zero σ rhs s (by omega)
+    have := alphaRenameBinds_fixCountBinds_zero ((v, fresh σ s rhs v) :: σ) rest
+      ⟨(alphaRename σ rhs s).2.next + 1⟩ (by omega)
+    omega
 termination_by sizeOf binds
+
 end
 
-/-- Top-level corollary: `alphaRenameTop e` starting from a fresh state
-    strictly above `maxUidExpr e` produces a term whose `lowerTotal` is
-    the same as `e`'s in the same environment. -/
+/-! ## Top level -/
+
 theorem alphaRenameTop_lowerTotal_eq (e : Expr) (K : Moist.MIR.FreshState)
     (hK : maxUidExpr e < K.next) (env : List VarId) :
-    lowerTotal env e = lowerTotal env (Moist.MIR.alphaRenameTop e K).1 := by
-  have ⟨heq, _⟩ :=
-    alphaRename_lowerTotal_eq (maxUidExpr e) e [] K env env
-      (Nat.le_refl _)
-      hK
-      (by intro p hp; exact absurd hp List.not_mem_nil)
-      (by intro _ _; rfl)
-  exact heq
+    lowerTotal env e = lowerTotal env (Moist.MIR.alphaRenameTop e K).1 :=
+  (alphaRename_lowerTotal_eq (maxUidExpr e) e [] K env env (Nat.le_refl _) hK
+    (fun _ hp => absurd hp List.not_mem_nil) (fun _ _ => rfl)).1
 
-/-- `alphaRenameTop e K` has the same `lowerTotalExpr` as `e` under
-    every environment, for Fix-free `e`. -/
 theorem alphaRenameTop_lowerTotalExpr_eq (e : Expr) (K : Moist.MIR.FreshState)
-    (hK : maxUidExpr e < K.next)
-    (hFixFree : fixCount e = 0)
-    (env : List VarId) :
+    (hK : maxUidExpr e < K.next) (hFixFree : fixCount e = 0) (env : List VarId) :
     lowerTotalExpr env e = lowerTotalExpr env (Moist.MIR.alphaRenameTop e K).1 := by
-  have h_rename_fix_free : fixCount (Moist.MIR.alphaRenameTop e K).1 = 0 :=
-    alphaRename_fixCount_zero [] e K hFixFree
-  have h1 : lowerTotalExpr env e = lowerTotal env e :=
-    Moist.MIR.lowerTotalExpr_eq_lowerTotal env e hFixFree
-  have h2 : lowerTotalExpr env (Moist.MIR.alphaRenameTop e K).1 =
-            lowerTotal env (Moist.MIR.alphaRenameTop e K).1 :=
-    Moist.MIR.lowerTotalExpr_eq_lowerTotal env _ h_rename_fix_free
-  rw [h1, h2]
+  rw [lowerTotalExpr_eq_lowerTotal env e hFixFree, lowerTotalExpr_eq_lowerTotal env
+    (alphaRenameTop e K).1 (alphaRename_fixCount_zero [] e K hFixFree)]
   exact alphaRenameTop_lowerTotal_eq e K hK env
 
 end Moist.Verified.MIR
