@@ -56,6 +56,65 @@ private def head (list : Expr) : Expr := .App (.Force (.Builtin .HeadList)) list
 private def tail (list : Expr) : Expr := .App (.Force (.Builtin .TailList)) list
 private def null (list : Expr) : Expr := .App (.Force (.Builtin .NullList)) list
 
+/-- `case record [λf₀…fₙ₋₁. fₖ]` with binders numbered from `base`. -/
+private def readField (record : Expr) (base arity field : Nat) : Expr :=
+  let binders := (List.range arity).map fun index => sourceVar (base + index)
+  Expr.Case record [Advanced.lambdas binders (.Var (sourceVar (base + field)))]
+
+private def addInt (left right : Expr) : Expr :=
+  .App (.App (.Builtin .AddInteger) left) right
+
+private def isZero (value : Expr) : Expr :=
+  .App (.App (.Builtin .EqualsInteger) value) (intLit 0)
+
+private def recordInputs : List Expr :=
+  [intLit 0, intLit 1, intLit 2, boolLit true, .Lit (.Unit, .AtomicType .TypeUnit),
+   .Constr 0 [intLit 1, intLit 2], .Constr 0 [intLit 1], .Constr 0 [intLit 1, intLit 2, intLit 3],
+   .Constr 1 [intLit 1, intLit 2], dataLiteral (.I 3)]
+
+/-- Cases with a single lambda alternative: field reads and unpacking cases. -/
+private partial def countUnpackCases : Expr → Nat
+  | .Case scrutinee [.Lam _ body] => 1 + countUnpackCases scrutinee + countUnpackCases body
+  | .Case scrutinee alternatives =>
+    countUnpackCases scrutinee + (alternatives.map countUnpackCases).sum
+  | .Lam _ body | .Fix _ body | .Force body | .Delay body => countUnpackCases body
+  | .App function argument => countUnpackCases function + countUnpackCases argument
+  | .Constr _ fields => (fields.map countUnpackCases).sum
+  | .Let bindings body =>
+    (bindings.map fun (_, rhs, _) => countUnpackCases rhs).sum + countUnpackCases body
+  | _ => 0
+
+private partial def countRecordCases (record : VarId) : Expr → Nat
+  | .Case (.Var other) alternatives =>
+    (if other == record then 1 else 0) + (alternatives.map (countRecordCases record)).sum
+  | .Case scrutinee alternatives =>
+    countRecordCases record scrutinee + (alternatives.map (countRecordCases record)).sum
+  | .Lam _ body | .Fix _ body | .Force body | .Delay body => countRecordCases record body
+  | .App function argument => countRecordCases record function + countRecordCases record argument
+  | .Constr _ fields => (fields.map (countRecordCases record)).sum
+  | .Let bindings body =>
+    (bindings.map fun (_, rhs, _) => countRecordCases record rhs).sum + countRecordCases record body
+  | _ => 0
+
+private def compareRecords (label : String) (script : Expr) (arguments : List (List Expr)) : IO Unit := do
+  let baseline ← requireTerm (lowerExpr script)
+  let candidates ← [Advanced.unpackRecords, Advanced.structural].mapM
+    fun transform => requireTerm (lowerExpr (transform script))
+  let compiled ← (List.range 8).mapM fun mask => requireTerm (compileOptimized script 0 0 {
+    packApplications := mask % 2 == 1
+    shareBuiltinStates := (mask / 2) % 2 == 1
+    poolConstants := mask / 4 == 1 })
+  for (arguments, inputIndex) in arguments.zipIdx do
+    let values ← arguments.mapM fun argument => requireTerm (lowerExpr argument)
+    let original := values.foldl Term.Apply baseline
+    let expected ← observe original
+    let expectedTrace ← Soundness.tracedObservation (liftUPLC original)
+    for (candidate, variant) in (candidates ++ compiled).zipIdx do
+      let result := values.foldl Term.Apply candidate
+      checkEq s!"{label}/{inputIndex}/{variant}" (← observe result).1 expected.1
+      check s!"{label}/{inputIndex}/{variant}/trace"
+        ((← Soundness.tracedObservation (liftUPLC result)) == expectedTrace)
+
 def tests : TestTree := suite "structural" do
   test "pair_projection_runtime_types" do
     let input := sourceVar 200
@@ -191,6 +250,70 @@ def tests : TestTree := suite "structural" do
         .App (.Builtin .EqualsData) (trace "captured" (.Var input))] do
       let script := Expr.Lam input (.Let [(partialState, rhs, false)] (trace "after" (intLit 7)))
       compareScript "strict or invalid partial state" script (inputs.map fun value => [value])
+  test "record_unpacking_known_records" do
+    let selector := sourceVar 300
+    let record := sourceVar 301
+    -- a record chosen by a branch, read three times
+    let chosen := Expr.Lam selector (.Let
+      [(record, .Case (isZero (.Var selector))
+          [.Constr 0 [intLit 1, trace "middle" (intLit 2), intLit 3],
+           .Constr 0 [intLit 4, intLit 5, intLit 6]], false)]
+      (addInt (readField (.Var record) 310 3 0)
+        (addInt (trace "read" (readField (.Var record) 320 3 2)) (readField (.Var record) 330 3 1))))
+    let unpacked := Advanced.unpackRecords chosen
+    check "chosen record is unpacked" (!alphaEq unpacked chosen)
+    -- the single remaining use of the record is inlined into the unpacking case
+    checkEq "chosen record is cased once" (countUnpackCases unpacked) 1
+    compareRecords "chosen record" chosen (recordInputs.map fun value => [value])
+    -- a record returned by a checked selection
+    let checked := Expr.Lam selector (.Let
+      [(record, .Force (.App (.App (.App (.Force (.Builtin .IfThenElse)) (isZero (.Var selector)))
+          (.Delay (.Constr 0 [intLit 7, intLit 8]))) (.Delay .Error)), false)]
+      (addInt (readField (.Var record) 340 2 0) (readField (.Var record) 350 2 1)))
+    check "checked record is unpacked" (!alphaEq (Advanced.unpackRecords checked) checked)
+    compareRecords "checked record" checked (recordInputs.map fun value => [value])
+    -- a record read in two branches is unpacked before the branch
+    let branches := Expr.Lam selector (.Let [(record, .Constr 0 [trace "built" (intLit 9), intLit 10], false)]
+      (.Case (isZero (.Var selector))
+        [readField (.Var record) 360 2 0,
+         addInt (readField (.Var record) 370 2 0) (readField (.Var record) 380 2 1)]))
+    let placed := Advanced.unpackRecords branches
+    checkEq "branch reads share one case" (countUnpackCases placed) 1
+    compareRecords "branch reads" branches (recordInputs.map fun value => [value])
+  test "record_unpacking_alternative_binders" do
+    let selector := sourceVar 400
+    let state := sourceVar 401
+    let opened := sourceVar 402
+    let closed := sourceVar 403
+    let script := Expr.Lam selector (.Let
+      [(state, .Case (isZero (.Var selector))
+          [.Constr 1 [.Constr 0 [intLit 1, intLit 2, intLit 3]],
+           .Constr 0 [.Constr 0 [trace "open" (intLit 4), intLit 5]]], false)]
+      (.Case (.Var state)
+        [.Lam opened (addInt (readField (.Var opened) 410 2 0) (readField (.Var opened) 420 2 1)),
+         .Lam closed (addInt (readField (.Var closed) 430 3 0) (readField (.Var closed) 440 3 2))]))
+    let unpacked := Advanced.unpackRecords script
+    checkEq "open binder is cased once" (countRecordCases opened unpacked) 1
+    checkEq "closed binder is cased once" (countRecordCases closed unpacked) 1
+    compareRecords "alternative binders" script (recordInputs.map fun value => [value])
+  test "record_unpacking_requires_a_known_shape" do
+    let record := sourceVar 500
+    let other := sourceVar 501
+    -- an unknown parameter may be a constructor of another arity or a constant
+    let unknown := Expr.Lam record
+      (addInt (readField (.Var record) 510 2 0) (readField (.Var record) 520 2 1))
+    check "unknown record is kept" (alphaEq (Advanced.unpackRecords unknown) unknown)
+    compareRecords "unknown record" unknown (recordInputs.map fun value => [value])
+    -- reads at an arity other than the recorded one are kept
+    let mismatched := Expr.Lam other (.Let [(record, .Constr 0 [.Var other, intLit 2, intLit 3], false)]
+      (addInt (readField (.Var record) 530 2 0) (readField (.Var record) 540 2 1)))
+    check "arity mismatch is kept" (alphaEq (Advanced.unpackRecords mismatched) mismatched)
+    compareRecords "arity mismatch" mismatched (recordInputs.map fun value => [value])
+    -- a constructor of another tag is never unpacked
+    let tagged := Expr.Lam other (.Let [(record, .Constr 1 [.Var other, intLit 2], false)]
+      (addInt (readField (.Var record) 550 2 0) (readField (.Var record) 560 2 1)))
+    check "other tag is kept" (alphaEq (Advanced.unpackRecords tagged) tagged)
+    compareRecords "other tag" tagged (recordInputs.map fun value => [value])
   test "generated_structural_compositions" do
     for seed in List.range 256 do
       let expression := (Differential.generate 4 [] |>.run (seed + 811)).1
