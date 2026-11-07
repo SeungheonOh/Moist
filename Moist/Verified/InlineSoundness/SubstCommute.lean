@@ -493,6 +493,7 @@ private theorem substTerm_lam (pos : Nat) (R t : Term) :
 variable (hr : lowerTotalExpr env r = some tr)
 include hr
 
+set_option linter.unusedSectionVars false in
 mutual
   theorem subst_lower : ∀ (e : Expr) (pre : List VarId) (s : FreshState) (t : Term),
       Ready v r pre s → maxUidExpr e < s.next →
