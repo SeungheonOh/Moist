@@ -51,11 +51,13 @@ do not replace them with arbitrary recursion limits.
 
 ## Verification
 
-The [whole-pass coverage table](MIR-Remaining-Pass-Proofs.md#current-whole-pass-coverage)
-is the proof inventory. The contract is contextual halting/error refinement
-through `lowerTotalExpr`. It does not certify native CEK correspondence,
-trace equivalence, resource-cap preservation, or the entire production pipeline.
-Local rewrite lemmas and differential tests are not whole-pass certificates.
+[MIR-Pipeline-Soundness.md](MIR-Pipeline-Soundness.md) is the proof
+inventory. `compileOptimized_refines` certifies the complete production
+compiler, for every input and option set. Its contract is contextual
+halting/error refinement through `lowerTotalExpr`. It does not certify native
+CEK correspondence, trace equivalence or resource-cap preservation. When a
+pass changes, keep its whole-pass certificate building; local rewrite lemmas
+and differential tests do not replace it.
 
 The [acceptance re-audit](MIR-Acceptance-Reaudit.md) checks the stricter practical
 requirement that identical runtime inputs preserve both acceptance and rejection.
@@ -65,9 +67,10 @@ repeats its corpus in pinned plutus-core 1.65.0.0. These are bounded checks;
 budget exhaustion is inconclusive, and builtin failure diagnostics can differ
 even when both executions reject.
 
-The ordinary test build imports `Test.MIR.Opt.FormalAxioms`. Its allowlist
-rejects dependencies outside `propext`, `Classical.choice`, and `Quot.sound`
-for the listed certificates. The project declares no axioms of its own in
+The ordinary test build imports `Test.MIR.Opt.FormalAxioms` and
+`Test.MIR.Opt.Axioms`, which holds one check per pass plus the end-to-end
+theorem. The allowlist rejects dependencies outside `propext`,
+`Classical.choice`, and `Quot.sound` for the listed certificates. The project declares no axioms of its own in
 `Moist.Verified`.
 
 With the repository's Lean toolchain and Zig 0.15.2 available:

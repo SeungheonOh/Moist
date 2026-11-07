@@ -66,6 +66,10 @@ continue to pass the same audit.
 
 ## Current whole-pass coverage
 
+Superseded: every stage and the complete pipeline are now certified; see
+[MIR-Pipeline-Soundness.md](MIR-Pipeline-Soundness.md). The table below is the
+2026-09-09 checkpoint.
+
 The 2026-09-09 packing, hygiene, and list-shape work is described in
 `MIR-Packing-Hygiene-Proofs.md`; the validation snapshot below remains the
 2026-09-08 checkpoint.
