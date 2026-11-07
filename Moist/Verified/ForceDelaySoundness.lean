@@ -11,11 +11,19 @@ import Moist.MIR.Optimize.ForceDelay
 
 /-! # Soundness of force/delay cancellation
 
+`forceDelay_refines : MIRCtxRefines e (forceDelay e).1` for every MIR
+expression `e`.
+
 UPLC core. `FDRel I p t t'` says `t'` is `t` with some occurrences of
 `Force (Var p)` replaced by `I` shifted to the current depth, where position
 `p` holds the thunk `VDelay I ρ₀`. Forcing that thunk evaluates `I` in `ρ₀`,
 and the shifted copy evaluated in the current environment reads the same
 values, so the replacement is an open refinement (`fd_openRefines`).
+
+MIR side. `lower_replace` lowers `replaceForceVar v inner X` to an
+`FDRel`-related term when no binder of `X` captures `v` or a free variable of
+`inner` (the guard the pass checks). Direct `Force (Delay e)` cancellation is
+`forceDelay_openRefines`; the traversal composes both with the congruences.
 -/
 
 namespace Moist.Verified.ForceDelaySoundness
@@ -50,10 +58,6 @@ mutual
     | cons (p : Nat) {t t' : Term} {ts ts' : List Term} :
         FDRel I p t t' → FDRelList I p ts ts' → FDRelList I p (t :: ts) (t' :: ts')
 end
-
-theorem FDRelList.refl {I : Term} (p : Nat) : ∀ ts : List Term, FDRelList I p ts ts
-  | [] => .nil p
-  | t :: ts => .cons p (.refl p t) (FDRelList.refl p ts)
 
 /-! ## Closedness -/
 
