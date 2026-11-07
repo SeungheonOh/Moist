@@ -29,6 +29,7 @@ import Test.MIR.Eval.Policy
 import Test.MIR.Analysis.Unit
 import Test.Comparison.Tests
 import Test.MIR.Opt.Recursion
+import Test.MIR.Opt.BooleanCases
 import Test.MIR.Opt.CheckedBranches
 import Test.MIR.Opt.SoundnessAudit
 import Test.MIR.Opt.Acceptance
@@ -70,6 +71,7 @@ def testTree : TestTree := suite "mir" do
       Test.MIR.Opt.Production.tests
       Test.MIR.Opt.Structural.tests
       Test.MIR.Opt.Recursion.tests
+      Test.MIR.Opt.BooleanCases.tests
       Test.MIR.Opt.CheckedBranches.tests
       Test.MIR.Opt.SoundnessAudit.tests
       Test.MIR.Opt.Acceptance.tests

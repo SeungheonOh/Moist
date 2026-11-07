@@ -1,5 +1,6 @@
 -- Axiom allowlist checks for every certified optimizer pass.
 import Test.MIR.Opt.Axioms.BetaReduce
+import Test.MIR.Opt.Axioms.BooleanCases
 import Test.MIR.Opt.Axioms.CSE
 import Test.MIR.Opt.Axioms.CaseMerge
 import Test.MIR.Opt.Axioms.CheckedBranches
