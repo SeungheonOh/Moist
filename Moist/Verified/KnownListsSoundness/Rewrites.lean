@@ -363,4 +363,71 @@ theorem KnownRel.nullFuse {Γ : List (VarId × Expr)} {L : List VarId} {sel : Ex
     simp [steps, step, constToTagAndFields]
     exact hrE ρ π henv hlen hπ hF
 
+/-! ## The fields of a constructor pair -/
+
+theorem pair_dispatch {v : CekValue} (hv : PairValue v) :
+    ∃ c tl, ListValue tl ∧ ∀ (π : Stack) (ρ : CekEnv) (alts : List Term),
+      step (.ret (.caseScrutinee alts ρ :: π) v) =
+        if alts.length > 1 then .error else
+          match alts[0]? with
+          | some alt => .compute ([Frame.applyArg (.VCon c), Frame.applyArg tl] ++ π) ρ alt
+          | none => .error := by
+  obtain ⟨i, fields, rfl⟩ := hv
+  refine ⟨.Integer i, .VCon (.ConstDataList fields), trivial, fun π ρ alts => ?_⟩
+  cases e : alts[0]? <;> simp [step, constToTagAndFields, e]
+
+/-- The second binder of a `case` on the result of `unConstrData` holds the
+    data list of the fields. -/
+theorem KnownRel.pairCase {Γ : List (VarId × Expr)} {L : List VarId} {s s' C C' : Expr}
+    {h t : VarId} {rest rest' : List Expr}
+    (hs : KnownRel Γ L s s') (hpair : constructorPair 64 Γ s = true)
+    (hC : KnownRel Γ (t :: L) C C') (hrest : ListRel (KnownRel Γ L) rest rest') :
+    KnownRel Γ L (.Case s (.Lam h (.Lam t C) :: rest)) (.Case s' (.Lam h (.Lam t C') :: rest')) := by
+  intro env t₀ hd hfresh hk hsc hn hlow
+  simp only [freshIn, freshInList, Bool.and_eq_true] at hfresh
+  obtain ⟨hfs, ⟨hh, ht, hfC⟩, hfrest⟩ := hfresh
+  obtain ⟨ts, talts, hts, htalts, rfl⟩ := lowerTotalExpr_case_some hlow
+  rw [MIR.lowerTotalExprList_cons] at htalts
+  cases hA : lowerTotalExpr env (.Lam h (.Lam t C)) with
+  | none => rw [hA] at htalts; cases htalts
+  | some tA =>
+  cases hR : MIR.lowerTotalExprList env rest with
+  | none => rw [hA, hR] at htalts; cases htalts
+  | some tR =>
+  rw [hA, hR] at htalts; cases htalts
+  obtain ⟨tC, htC, rfl⟩ := lowerTotalExpr_consAlt hA
+  obtain ⟨tC', htC', hrC⟩ := consAlt_rel hC hd hk hsc hn hh ht hfC htC
+  obtain ⟨tR', htR', hrR⟩ := KnownRel.list hrest env tR hd hfrest hk hsc hn hR
+  obtain ⟨ts', hts', hrs⟩ := hs env ts hd hfs hk hsc hn hts
+  have hlowA' : lowerTotalExpr env (.Lam h (.Lam t C')) = some (.Lam 0 (.Lam 0 tC')) :=
+    lowerTotalExpr_consAlt_of htC'
+  refine ⟨.Case ts' (.Lam 0 (.Lam 0 tC') :: tR'), ?_, ?_⟩
+  · rw [MIR.lowerTotalExpr_case_of_list, hts', MIR.lowerTotalExprList_cons, hlowA', htR']
+    rfl
+  intro ρ π henv hlen hπ hF
+  have hlenR := listRel_length hrR
+  have hclosedAlts' : closedAtList env.length (.Lam 0 (.Lam 0 tC') :: tR') = true := by
+    have h1 := MIR.lowerTotalExpr_closedAt hlowA'
+    have h2 := lowerTotalExprList_closedAtList htR'
+    simp [closedAtList, h1, h2]
+  refine obsRefines_trans (s₂ := .compute π ρ (.Case ts (.Lam 0 (.Lam 0 tC') :: tR'))) ?_ ?_
+  · apply obsRefines_of_step
+    simp only [step]
+    apply obsRefines_of_continuation
+    intro v hv
+    have hpv := constructorPair_sound (fun _ _ _ _ h => h) 64 Γ s hpair hF.1 hd hts hv
+    obtain ⟨c, tl, htl, hdisp⟩ := pair_dispatch hpv
+    apply obsRefines_of_step
+    rw [hdisp, hdisp]
+    simp only [List.length_cons, hlenR, List.getElem?_cons_zero]
+    split
+    · exact obsRefines_refl _
+    · refine obsRefines_of_steps 4 4 ?_
+      rw [consAlt_steps, consAlt_steps]
+      obtain ⟨henv₂, hlen₂⟩ := consAlt_env (c := c) henv hlen htl
+      exact hrC _ π henv₂ hlen₂ hπ (consAlt_facts hF hn hk hh ht htl)
+  · apply obsRefines_of_step
+    simp only [step]
+    exact hrs ρ _ henv hlen (.cons (.caseScrutinee henv hlen hclosedAlts') hπ) hF
+
 end Moist.Verified.ShapeFacts

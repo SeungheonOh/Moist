@@ -122,6 +122,12 @@ def tests : TestTree := suite "known-lists" do
         [.Case (.Var tailBinder) [.Lam escape (.Lam other (unI (.Var escape)))],intLit 1]) (intLit 0)))
     check "let-bound list and its tail fused" (fused script)
     compare "let-bound list and tail" script
+  test "constructor_fields" do
+    let script := Expr.Lam input (.Case (.App (.Builtin .UnConstrData) (.Var input))
+      [.Lam other (.Lam bound (listMatch bound (unI (.Var headBinder)) (.Var other)))])
+    check "constructor field list fused" (fused script)
+    compare "constructor field list" script ([.Lit (.Data (.Constr 3 [.I 7]),.AtomicType .TypeData),
+      .Lit (.Data (.Constr 2 []),.AtomicType .TypeData)] ++ inputs)
   test "unknown_or_escaping_parameters_kept" do
     let unknown := Expr.Lam input (sumWalker (.App (.Var recursive)) (.Var input))
     check "unknown external argument kept" (kept unknown)

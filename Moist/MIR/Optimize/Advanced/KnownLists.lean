@@ -9,7 +9,8 @@ is only sound for lists: a `case` on an integer, a Boolean or a constructor
 value may select an alternative where `nullList` fails.
 
 A name is known to hold a list when its binding produces one (`knownList`),
-when it is the tail bound by a `case` on a known list, or when it is a
+when it is the tail bound by a `case` on a known list, the field list bound by a `case` on the
+result of `unConstrData`, or when it is a
 parameter of a recursive function every call of which passes a known list
 at that position. The last fact is a greatest fixed point: positions whose
 external argument is a known list are assumed to hold lists while the calls
@@ -289,8 +290,17 @@ def knownListWalk (environment : List (VarId × Expr)) (lists : List VarId) (exp
         .Case (knownListWalk environment lists scrutinee)
           [knownListWalk environment lists nonempty, knownListWalk environment lists empty]
     | .Var listBinder, .Lam headBinder (.Lam tailBinder body) :: rest =>
-      if listKnown environment lists (.Var listBinder) then
+      if listKnown environment lists (.Var listBinder) ||
+          constructorPair 64 environment (.Var listBinder) then
         .Case (.Var listBinder)
+          (.Lam headBinder (.Lam tailBinder (knownListWalk environment (tailBinder :: lists) body)) ::
+            rest.attach.map fun ⟨alternative, _⟩ => knownListWalk environment lists alternative)
+      else
+        .Case (knownListWalk environment lists scrutinee)
+          (alternatives.attach.map fun ⟨alternative, _⟩ => knownListWalk environment lists alternative)
+    | _, .Lam headBinder (.Lam tailBinder body) :: rest =>
+      if constructorPair 64 environment scrutinee then
+        .Case (knownListWalk environment lists scrutinee)
           (.Lam headBinder (.Lam tailBinder (knownListWalk environment (tailBinder :: lists) body)) ::
             rest.attach.map fun ⟨alternative, _⟩ => knownListWalk environment lists alternative)
       else

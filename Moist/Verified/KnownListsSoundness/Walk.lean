@@ -247,23 +247,45 @@ theorem knownListWalk_rel (e : Expr) (Γ : List (VarId × Expr)) (L : List VarId
       · obtain ⟨l, hd, tl, body, rest, rfl, rfl⟩ := hB
         rw [knownListWalk.eq_4]
         split
-        · rename_i hl
-          exact KnownRel.listCase hl (knownListWalk_rel body Γ (tl :: L))
-            (listRel_known_attach_map rest (knownListWalk Γ L) fun a _ => knownListWalk_rel a Γ L)
+        · rename_i hcond
+          simp only [Bool.or_eq_true] at hcond
+          by_cases hl : listKnown Γ L (.Var l) = true
+          · exact KnownRel.listCase hl (knownListWalk_rel body Γ (tl :: L))
+              (listRel_known_attach_map rest (knownListWalk Γ L) fun a _ => knownListWalk_rel a Γ L)
+          · have hp : constructorPair 64 Γ (.Var l) = true := by
+              rcases hcond with h | h
+              · exact absurd h hl
+              · exact h
+            exact KnownRel.pairCase (KnownRel.refl _ _ _) hp (knownListWalk_rel body Γ (tl :: L))
+              (listRel_known_attach_map rest (knownListWalk Γ L) fun a _ => knownListWalk_rel a Γ L)
         · exact KnownRel.case (knownListWalk_rel _ Γ L)
             (listRel_known_attach_map _ (knownListWalk Γ L) fun a _ => knownListWalk_rel a Γ L)
-      · rw [knownListWalk.eq_5 _ _ _ _ (fun sel l ne em h₁ h₂ => hA ⟨sel, l, ne, em, h₁, h₂⟩)
-          (fun l hd tl body rest h₁ h₂ => hB ⟨l, hd, tl, body, rest, h₁, h₂⟩)]
-        exact KnownRel.case (knownListWalk_rel scrutinee Γ L)
-          (listRel_known_attach_map alternatives (knownListWalk Γ L) fun a _ => knownListWalk_rel a Γ L)
+      · by_cases hC : ∃ hd tl body rest, alternatives = .Lam hd (.Lam tl body) :: rest
+        · obtain ⟨hd, tl, body, rest, rfl⟩ := hC
+          rw [knownListWalk.eq_5 _ _ _ _ _ _ _
+            (fun sel l em h₁ h₂ => hA ⟨sel, l, _, em, h₁, by rw [h₂]⟩)
+            (fun l h₁ => hB ⟨l, hd, tl, body, rest, h₁, rfl⟩)]
+          split
+          · rename_i hp
+            exact KnownRel.pairCase (knownListWalk_rel scrutinee Γ L) hp
+              (knownListWalk_rel body Γ (tl :: L))
+              (listRel_known_attach_map rest (knownListWalk Γ L) fun a _ => knownListWalk_rel a Γ L)
+          · exact KnownRel.case (knownListWalk_rel scrutinee Γ L)
+              (listRel_known_attach_map _ (knownListWalk Γ L) fun a _ => knownListWalk_rel a Γ L)
+        · rw [knownListWalk.eq_6 _ _ _ _ (fun hd tl body rest h => hC ⟨hd, tl, body, rest, h⟩)
+            (fun sel l ne em h₁ h₂ => hA ⟨sel, l, ne, em, h₁, h₂⟩)
+            (fun l hd tl body rest h₁ h₂ => hB ⟨l, hd, tl, body, rest, h₁, h₂⟩)]
+          exact KnownRel.case (knownListWalk_rel scrutinee Γ L)
+            (listRel_known_attach_map alternatives (knownListWalk Γ L) fun a _ =>
+              knownListWalk_rel a Γ L)
   | .Let [] body =>
-    rw [knownListWalk.eq_6]
+    rw [knownListWalk.eq_7]
     exact (knownListWalk_rel body Γ L).congr_left (fun env => lowerTotalExpr_let_nil env body)
       (fun avoid => freshIn_let_nil avoid body)
   | .Let ((x, r, er) :: rest) body =>
     by_cases hr : ∃ recursive parameter fixBody, r = .Fix recursive (.Lam parameter fixBody)
     · obtain ⟨recursive, parameter, fixBody, rfl⟩ := hr
-      rw [knownListWalk.eq_7]
+      rw [knownListWalk.eq_8]
       split
       · exact (KnownRel.let_single _ (.inr rfl) (knownListWalk_rel _ Γ L)
           (knownListWalk_rel (.Let rest body) _ L)).congr_left
@@ -282,31 +304,31 @@ theorem knownListWalk_rel (e : Expr) (Γ : List (VarId × Expr)) (L : List VarId
           hcheckBody (fun y hy => environmentLists_known hy)
           (knownListWalk_rel (.Let rest body) _ L)).congr_left
           (fun env => lowerTotalExpr_let_cons env _ _ _) (fun avoid => freshIn_let_cons avoid _ _ _)
-    · rw [knownListWalk.eq_8 _ _ _ _ _ _ _ (fun a b c h => hr ⟨a, b, c, h⟩)]
+    · rw [knownListWalk.eq_9 _ _ _ _ _ _ _ (fun a b c h => hr ⟨a, b, c, h⟩)]
       exact (KnownRel.let_single (knownListWalk Γ L r) (.inr rfl) (knownListWalk_rel r Γ L)
         (knownListWalk_rel (.Let rest body) _ L)).congr_left
         (fun env => lowerTotalExpr_let_cons env _ _ _) (fun avoid => freshIn_let_cons avoid _ _ _)
-  | .Lam x b => rw [knownListWalk.eq_9]; exact (knownListWalk_rel b Γ L).lam
+  | .Lam x b => rw [knownListWalk.eq_10]; exact (knownListWalk_rel b Γ L).lam
   | .Fix f b =>
-    rw [knownListWalk.eq_10]
+    rw [knownListWalk.eq_11]
     cases b with
     | Lam x inner =>
-      rw [knownListWalk.eq_9]
+      rw [knownListWalk.eq_10]
       exact (knownListWalk_rel inner Γ L).fix_lam
     | _ =>
       intro env t _ _ _ _ _ hlow
       rw [Moist.Verified.MIR.lowerTotalExpr_fix_nonlam_none env f _ (by intros; simp)] at hlow
       cases hlow
-  | .Force b => rw [knownListWalk.eq_11]; exact (knownListWalk_rel b Γ L).force
-  | .Delay b => rw [knownListWalk.eq_12]; exact (knownListWalk_rel b Γ L).delay
+  | .Force b => rw [knownListWalk.eq_12]; exact (knownListWalk_rel b Γ L).force
+  | .Delay b => rw [knownListWalk.eq_13]; exact (knownListWalk_rel b Γ L).delay
   | .Constr tag fields =>
-    rw [knownListWalk.eq_13]
+    rw [knownListWalk.eq_14]
     exact KnownRel.constr
       (listRel_known_attach_map fields (knownListWalk Γ L) fun a _ => knownListWalk_rel a Γ L)
-  | .Var _ => rw [knownListWalk.eq_14]; exact KnownRel.refl _ _ _
-  | .Lit _ => rw [knownListWalk.eq_15]; exact KnownRel.refl _ _ _
-  | .Builtin _ => rw [knownListWalk.eq_16]; exact KnownRel.refl _ _ _
-  | .Error => rw [knownListWalk.eq_17]; exact KnownRel.refl _ _ _
+  | .Var _ => rw [knownListWalk.eq_15]; exact KnownRel.refl _ _ _
+  | .Lit _ => rw [knownListWalk.eq_16]; exact KnownRel.refl _ _ _
+  | .Builtin _ => rw [knownListWalk.eq_17]; exact KnownRel.refl _ _ _
+  | .Error => rw [knownListWalk.eq_18]; exact KnownRel.refl _ _ _
 termination_by exprSize e
 decreasing_by
   all_goals first
