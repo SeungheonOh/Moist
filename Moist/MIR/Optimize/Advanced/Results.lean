@@ -8,8 +8,8 @@ open Moist.Plutus.Term
 are checked with unknown formal parameters, never specialized using one call's
 argument types. The recursive hypothesis applies only to saturated calls.
 It describes finite successful evaluation, not termination or purity.
-Parameter facts are recorded only for a lambda written at the application
-itself, whose arguments share the scope of its body.
+Application heads are read from the application itself, so a summarized
+function and its arguments share the scope of the analysed expression.
 -/
 
 def resultParameters : Expr → List VarId × Expr
@@ -28,7 +28,8 @@ def booleanResultCore : Nat → List (VarId × Expr) → List (VarId × Nat) →
       (environment.find? (fun entry => entry.1 == binder)).any (fun entry => recur entry.2)
     | .Let bindings body =>
       let environment' := bindings.foldl (fun available (binder, rhs, _) => (binder, rhs) :: available) environment
-      booleanResultCore fuel environment' summaries body
+      let bound := bindings.map (·.1)
+      booleanResultCore fuel environment' (summaries.filter (fun entry => !bound.contains entry.1)) body
     | .Case _ alternatives => !alternatives.isEmpty && alternatives.all recur
     | .Force body =>
       match resolveHead fuel environment body with
@@ -42,7 +43,7 @@ def booleanResultCore : Nat → List (VarId × Expr) → List (VarId × Nat) →
       let builtinResult := (builtinProtocolAfterSuccess resolved).any fun (builtin, remaining) =>
         remaining.head == .argV && remaining.isFinal && booleanBuiltin builtin
       if builtinResult then true else
-        let (head, arguments) := applicationSpine (resolveHead fuel environment expression)
+        let (head, arguments) := applicationSpine expression
         match head with
         | .Var binder => (summaries.find? (fun entry => entry.1 == binder)).any (fun entry => entry.2 == arguments.length)
         | .Fix recursive body =>
@@ -52,15 +53,12 @@ def booleanResultCore : Nat → List (VarId × Expr) → List (VarId × Nat) →
           let inherited := summaries.filter (fun entry => !hidden.contains entry.1)
           !parameters.isEmpty && parameters.length == arguments.length &&
             booleanResultCore fuel available ((recursive, parameters.length) :: inherited) result
-        | .Lam _ _ =>
-          match applicationSpine expression with
-          | (.Lam binder body, arguments) =>
-            let (parameters, result) := resultParameters (.Lam binder body)
-            let available := environment.filter (fun entry => !parameters.contains entry.1)
-            let inherited := summaries.filter (fun entry => !parameters.contains entry.1)
-            parameters.length == arguments.length &&
-              booleanResultCore fuel ((parameters.zip arguments).reverse ++ available) inherited result
-          | _ => false
+        | .Lam binder body =>
+          let (parameters, result) := resultParameters (.Lam binder body)
+          let available := environment.filter (fun entry => !parameters.contains entry.1)
+          let inherited := summaries.filter (fun entry => !parameters.contains entry.1)
+          parameters.length == arguments.length &&
+            booleanResultCore fuel ((parameters.zip arguments).reverse ++ available) inherited result
         | _ => false
     | _ => false
 
