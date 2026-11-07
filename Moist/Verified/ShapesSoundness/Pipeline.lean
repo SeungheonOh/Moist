@@ -1,12 +1,14 @@
 import Moist.MIR.Optimize.Advanced
 import Moist.Verified.ConstantFoldingSoundness
 import Moist.Verified.ShapesSoundness.Simplify
+import Moist.Verified.TagChainsSoundness
 
 /-! # The advanced simplification step
 
 `Advanced.simplify` fuses list destructors, folds constants and data
-constructors, and removes shape-checked dead code. Each stage refines its
-input, so the composition does.
+constructors, removes shape-checked dead code and compiles constructor-tag
+test chains to integer cases. Each stage refines its input, so the
+composition does.
 -/
 
 namespace Moist.Verified.MIR
@@ -17,6 +19,7 @@ theorem simplify_refines (e : Expr) : MIRCtxRefines e (Advanced.simplify e) := b
   unfold Advanced.simplify
   exact mirCtxRefines_trans (fuseListDestructors_refines e)
     (mirCtxRefines_trans (constantFold_refines _)
-      (mirCtxRefines_trans (foldDataConstructors_refines _) (shapeDCE_refines _)))
+      (mirCtxRefines_trans (foldDataConstructors_refines _)
+        (mirCtxRefines_trans (shapeDCE_refines _) (caseTagChains_refines _))))
 
 end Moist.Verified.MIR
