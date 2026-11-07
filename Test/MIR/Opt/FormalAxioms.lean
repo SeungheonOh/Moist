@@ -110,6 +110,8 @@ run_cmd do
     ``Moist.Verified.Contextual.SoundnessRefines.term_obsRefinesG,
     ``Moist.Verified.Contextual.SoundnessRefines.soundness_of_openRel,
     ``Moist.Verified.Contextual.SoundnessRefines.valueRel_trivial,
+    ``Moist.Verified.TermObsRefinesWF.soundness_refinesWF,
+    ``Moist.Verified.FundamentalRefinesWF.ftlr_wf,
     ``Moist.Verified.DeadLet.dead_let_pure_stack_poly,
     ``Test.MIR.Opt.BudgetModel.unbounded_budget_exhaustion_is_false,
     ``Test.MIR.Opt.StrictFrontier.legacy_occurrence_accepts_divergent_predecessor,
