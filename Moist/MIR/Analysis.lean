@@ -158,18 +158,26 @@ end VarSet
 
 /-! ## Equality Helpers -/
 
-partial def dataEq : Data → Data → Bool
-  | .Constr i1 args1, .Constr i2 args2 =>
-    i1 == i2 && args1.length == args2.length &&
-    (args1.zip args2).all fun (a, b) => dataEq a b
-  | .Map m1, .Map m2 =>
-    m1.length == m2.length &&
-    (m1.zip m2).all fun ((a1, b1), (a2, b2)) => dataEq a1 a2 && dataEq b1 b2
-  | .List l1, .List l2 =>
-    l1.length == l2.length && (l1.zip l2).all fun (a, b) => dataEq a b
-  | .I i1, .I i2 => i1 == i2
-  | .B b1, .B b2 => b1 == b2
-  | _, _ => false
+mutual
+  def dataEq : Data → Data → Bool
+    | .Constr i1 args1, .Constr i2 args2 => i1 == i2 && dataEqList args1 args2
+    | .Map m1, .Map m2 => dataEqPairs m1 m2
+    | .List l1, .List l2 => dataEqList l1 l2
+    | .I i1, .I i2 => i1 == i2
+    | .B b1, .B b2 => b1 == b2
+    | _, _ => false
+
+  /-- Pointwise `dataEq`; `false` when the lengths differ. -/
+  def dataEqList : List Data → List Data → Bool
+    | [], [] => true
+    | a :: as, b :: bs => dataEq a b && dataEqList as bs
+    | _, _ => false
+
+  def dataEqPairs : List (Data × Data) → List (Data × Data) → Bool
+    | [], [] => true
+    | (a1, b1) :: as, (a2, b2) :: bs => dataEq a1 a2 && dataEq b1 b2 && dataEqPairs as bs
+    | _, _ => false
+end
 
 mutual
   def builtinTypeEq : BuiltinType → BuiltinType → Bool
@@ -182,26 +190,30 @@ mutual
     | _, _ => false
 end
 
-partial def constEq : Const → Const → Bool
-  | .Integer a, .Integer b => a == b
-  | .ByteString a, .ByteString b => a == b
-  | .String a, .String b => a == b
-  | .Unit, .Unit => true
-  | .Bool a, .Bool b => a == b
-  | .ConstList a, .ConstList b =>
-    a.length == b.length && (a.zip b).all fun (x, y) => constEq x y
-  | .ConstDataList a, .ConstDataList b =>
-    a.length == b.length && (a.zip b).all fun (x, y) => dataEq x y
-  | .ConstPairDataList a, .ConstPairDataList b =>
-    a.length == b.length &&
-    (a.zip b).all fun ((a1, a2), (b1, b2)) => dataEq a1 a2 && dataEq b1 b2
-  | .Pair (a1, a2), .Pair (b1, b2) => constEq a1 b1 && constEq a2 b2
-  | .PairData (a1, a2), .PairData (b1, b2) => dataEq a1 a2 && dataEq b1 b2
-  | .Data a, .Data b => dataEq a b
-  | .Bls12_381_G1_element, .Bls12_381_G1_element => true
-  | .Bls12_381_G2_element, .Bls12_381_G2_element => true
-  | .Bls12_381_MlResult, .Bls12_381_MlResult => true
-  | _, _ => false
+mutual
+  def constEq : Const → Const → Bool
+    | .Integer a, .Integer b => a == b
+    | .ByteString a, .ByteString b => a == b
+    | .String a, .String b => a == b
+    | .Unit, .Unit => true
+    | .Bool a, .Bool b => a == b
+    | .ConstList a, .ConstList b => constEqList a b
+    | .ConstDataList a, .ConstDataList b => dataEqList a b
+    | .ConstPairDataList a, .ConstPairDataList b => dataEqPairs a b
+    | .Pair (a1, a2), .Pair (b1, b2) => constEq a1 b1 && constEq a2 b2
+    | .PairData (a1, a2), .PairData (b1, b2) => dataEq a1 b1 && dataEq a2 b2
+    | .Data a, .Data b => dataEq a b
+    | .Bls12_381_G1_element, .Bls12_381_G1_element => true
+    | .Bls12_381_G2_element, .Bls12_381_G2_element => true
+    | .Bls12_381_MlResult, .Bls12_381_MlResult => true
+    | _, _ => false
+
+  /-- Pointwise `constEq`; `false` when the lengths differ. -/
+  def constEqList : List Const → List Const → Bool
+    | [], [] => true
+    | a :: as, b :: bs => constEq a b && constEqList as bs
+    | _, _ => false
+end
 
 def litEq (a b : Const × BuiltinType) : Bool :=
   constEq a.1 b.1 && builtinTypeEq a.2 b.2
@@ -618,7 +630,7 @@ where
     | x :: xs, idx => if x == v then some idx else go xs (idx + 1)
 
 mutual
-  partial def alphaEqAux (env1 env2 : List VarId) : Expr → Expr → Bool
+  def alphaEqAux (env1 env2 : List VarId) : Expr → Expr → Bool
     | .Var x, .Var y =>
       match lookupIdx env1 x, lookupIdx env2 y with
       | some i, some j => i == j
@@ -636,23 +648,29 @@ mutual
     | .Force e1, .Force e2 => alphaEqAux env1 env2 e1 e2
     | .Delay e1, .Delay e2 => alphaEqAux env1 env2 e1 e2
     | .Constr t1 args1, .Constr t2 args2 =>
-      t1 == t2 && args1.length == args2.length &&
-      (args1.zip args2).all fun (a, b) => alphaEqAux env1 env2 a b
+      t1 == t2 && alphaEqAuxList env1 env2 args1 args2
     | .Case s1 alts1, .Case s2 alts2 =>
-      alphaEqAux env1 env2 s1 s2 && alts1.length == alts2.length &&
-      (alts1.zip alts2).all fun (a, b) => alphaEqAux env1 env2 a b
+      alphaEqAux env1 env2 s1 s2 && alphaEqAuxList env1 env2 alts1 alts2
     | .Let binds1 body1, .Let binds2 body2 =>
-      binds1.length == binds2.length &&
       alphaEqLet env1 env2 binds1 binds2 body1 body2
     | _, _ => false
+  termination_by a _ => sizeOf a
 
-  partial def alphaEqLet (env1 env2 : List VarId)
+  /-- Pointwise `alphaEqAux`; `false` when the lengths differ. -/
+  def alphaEqAuxList (env1 env2 : List VarId) : List Expr → List Expr → Bool
+    | [], [] => true
+    | a :: as, b :: bs => alphaEqAux env1 env2 a b && alphaEqAuxList env1 env2 as bs
+    | _, _ => false
+  termination_by as _ => sizeOf as
+
+  def alphaEqLet (env1 env2 : List VarId)
       : List (VarId × Expr × Bool) → List (VarId × Expr × Bool) → Expr → Expr → Bool
     | [], [], body1, body2 => alphaEqAux env1 env2 body1 body2
     | (x, rhs1, _) :: rest1, (y, rhs2, _) :: rest2, body1, body2 =>
       alphaEqAux env1 env2 rhs1 rhs2 &&
       alphaEqLet (x :: env1) (y :: env2) rest1 rest2 body1 body2
     | _, _, _, _ => false
+  termination_by bs _ body _ => sizeOf bs + sizeOf body
 end
 
 def alphaEq (e1 e2 : Expr) : Bool :=
@@ -729,22 +747,32 @@ def occursInDeferred (v : VarId) (e : Expr) : Bool :=
 
 /-! ## ANF Predicate and Subtype -/
 
-partial def Expr.isANF : Expr → Bool
-  | .Var _ | .Lit _ | .Builtin _ | .Error => true
-  | .Lam _ body => body.isANF
-  | .Fix _ body => body.isANF
-  | .Delay e => e.isANF
-  | .Let binds body =>
-    noSelfRef binds && distinctBinders binds && binds.all (fun (_, rhs, _) => rhs.isANF) && body.isANF
-  | .App f x => f.isAtom && x.isAtom
-  | .Force e => e.isAtom
-  | .Constr _ args => args.all (·.isAtom)
-  | .Case scrut alts => scrut.isAtom && alts.all (·.isANF)
+mutual
+  def Expr.isANF : Expr → Bool
+    | .Var _ | .Lit _ | .Builtin _ | .Error => true
+    | .Lam _ body => body.isANF
+    | .Fix _ body => body.isANF
+    | .Delay e => e.isANF
+    | .Let binds body =>
+      noSelfRef binds && distinctBinders binds && Expr.isANFBinds binds && body.isANF
+    | .App f x => f.isAtom && x.isAtom
+    | .Force e => e.isAtom
+    | .Constr _ args => args.all (·.isAtom)
+    | .Case scrut alts => scrut.isAtom && Expr.isANFList alts
+
+  def Expr.isANFList : List Expr → Bool
+    | [] => true
+    | e :: es => e.isANF && Expr.isANFList es
+
+  def Expr.isANFBinds : List (VarId × Expr × Bool) → Bool
+    | [] => true
+    | (_, rhs, _) :: rest => rhs.isANF && Expr.isANFBinds rest
+end
 
 abbrev ANFExpr := { e : Expr // e.isANF = true }
 
 instance : Inhabited ANFExpr where
-  default := ⟨.Error, by native_decide⟩
+  default := ⟨.Error, rfl⟩
 
 def Expr.toANF? (e : Expr) : Option ANFExpr :=
   if h : e.isANF then some ⟨e, h⟩ else none

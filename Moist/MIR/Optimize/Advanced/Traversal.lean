@@ -11,7 +11,7 @@ where
     | .App function argument, arguments => go function (argument :: arguments)
     | function, arguments => (function, arguments)
 
-partial def flattenBindings (bindings : List (VarId × Expr × Bool))
+def flattenBindings (bindings : List (VarId × Expr × Bool))
     (body : Expr) : List (VarId × Expr × Bool) × Expr :=
   match body with
   | .Let more suffix => flattenBindings (bindings ++ more) suffix

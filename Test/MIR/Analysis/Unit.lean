@@ -132,5 +132,15 @@ def unitTree : TestTree := suite "unit" do
     test "fixIsRecursive" do
       check "fixIsRecursive_yes" (fixIsRecursive f (.App (.Var f) (.Var x)))
       check "fixIsRecursive_no" (!fixIsRecursive f (.Var x))
+  group "constEq" do
+    test "pair_components" do
+      -- Each component must be compared with its counterpart, not its sibling.
+      let p := fun a b => Moist.Plutus.Term.Const.PairData (.I a, .I b)
+      check "pairData_distinct" (!constEq (p 0 0) (p 1 1))
+      check "pairData_equal" (constEq (p 0 1) (p 0 1))
+      check "pairDataList_distinct"
+        (!constEq (.ConstPairDataList [(.I 0, .I 0)]) (.ConstPairDataList [(.I 1, .I 1)]))
+      check "alphaEq_pairData_literal"
+        (!alphaEq (.Lit (p 0 0, .AtomicType .TypeData)) (.Lit (p 1 1, .AtomicType .TypeData)))
 
 end Test.MIR.Analysis.Unit

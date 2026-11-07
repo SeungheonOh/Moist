@@ -134,7 +134,7 @@ private def alphaLookup (env : AlphaEnv) (identifier : VarId) : Option Nat :=
   | (key, depth) :: rest => if key == identifier then some depth else alphaLookup rest identifier
 
 mutual
-  private partial def alphaEqCore (envL envR : AlphaEnv) (depth : Nat) : Expr → Expr → Bool
+  private def alphaEqCore (envL envR : AlphaEnv) (depth : Nat) : Expr → Expr → Bool
     | .Var a, .Var b =>
       match alphaLookup envL a, alphaLookup envR b with
       | some da, some db => da == db
@@ -158,19 +158,22 @@ mutual
       alphaEqCore envL envR depth s1 s2 && alphaEqList envL envR depth alts1 alts2
     | .Error, .Error => true
     | _, _ => false
+  termination_by a _ => sizeOf a
 
-  private partial def alphaEqList (eL eR : AlphaEnv) (d : Nat) : List Expr → List Expr → Bool
+  private def alphaEqList (eL eR : AlphaEnv) (d : Nat) : List Expr → List Expr → Bool
     | [], [] => true
     | a :: as, b :: bs => alphaEqCore eL eR d a b && alphaEqList eL eR d as bs
     | _, _ => false
+  termination_by as _ => sizeOf as
 
-  private partial def alphaEqBinds (eL eR : AlphaEnv) (d : Nat)
+  private def alphaEqBinds (eL eR : AlphaEnv) (d : Nat)
       : List (VarId × Expr × Bool) → List (VarId × Expr × Bool) → Expr → Expr → Bool
     | [], [], body1, body2 => alphaEqCore eL eR d body1 body2
     | (v1, rhs1, s1) :: rest1, (v2, rhs2, s2) :: rest2, body1, body2 =>
       s1 == s2 && alphaEqCore eL eR d rhs1 rhs2 &&
       alphaEqBinds ((v1, d) :: eL) ((v2, d) :: eR) (d + 1) rest1 rest2 body1 body2
     | _, _, _, _ => false
+  termination_by bs _ body _ => sizeOf bs + sizeOf body
 end
 
 def Expr.alphaEq (a b : Expr) : Bool :=
