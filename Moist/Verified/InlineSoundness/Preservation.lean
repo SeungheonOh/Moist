@@ -1,9 +1,14 @@
 import Moist.MIR.Optimize.Inline
-import Moist.MIR.LowerTotal
 import Moist.Verified.InlineSoundness.SubstCommute
-import Moist.Verified.InlineSoundness.WellScoped
 
-/-! # Preservation theorems for the inlining pass -/
+/-! # Invariants the inlining pass maintains
+
+* Free variables never increase (`freeVars_nonincreasing`), and substitution
+  only adds the replacement's (`freeVars_subst_tight`).
+* `NamesFresh`: no let binder is free in an earlier right-hand side; this
+  is what keeps the remaining binders from capturing an inlined right-hand
+  side.
+* Every uid stays below the fresh-name counter (`inlinePass_fresh`). -/
 
 namespace Moist.Verified.InlineSoundness.Preservation
 
@@ -13,221 +18,6 @@ open Moist.MIR (Expr VarId VarSet freeVars freeVarsList freeVarsLet
   shouldInline countOccurrences wellScoped
   rename renameList renameLet renameBinds freshVar)
 open Moist.MIR.VarSet (contains_union_left contains_union_right)
-open Moist.Verified.InlineSoundness.SubstCommute
-  (noCaptureFrom noCaptureFromList noCaptureFromLet
-   noCaptureFrom_lam noCaptureFrom_fix noCaptureFrom_app
-   noCaptureFrom_force noCaptureFrom_delay
-   noCaptureFrom_constr noCaptureFrom_case noCaptureFrom_let
-   noCaptureFromList_cons noCaptureFromLet_cons
-   freeVars_subst_not_contains)
-open Moist.Verified.InlineSoundness.WellScoped
-  (noCaptureFrom_mono noCaptureFrom_subst noCaptureFrom_union
-   wellScoped_noCaptureFrom wellScoped_let_noCaptureFrom wellScoped_let_peel
-   wellScoped_sub_lam wellScoped_sub_fix wellScoped_sub_app
-   wellScoped_sub_force wellScoped_sub_delay wellScoped_sub_constr
-   wellScoped_sub_case wellScoped_sub_let wellScoped_app_lam_noCaptureFrom
-   wellScoped_let_cross_nc)
-
-abbrev NC (fv : VarSet) (e : Expr) : Prop := noCaptureFrom fv e = true
-abbrev FVSub (fv : VarSet) (e : Expr) : Prop :=
-  ∀ w, (freeVars e).contains w = true → fv.contains w = true
-
-private theorem fv_subst_bound (v : VarId) (rhs e : Expr) (s : Moist.MIR.FreshState)
-    (h_nc : noCaptureFrom (freeVars rhs) e = true)
-    (w : VarId) (hw : (freeVars (subst v rhs e s).1).contains w = true) :
-    (freeVars e).contains w = true ∨ (freeVars rhs).contains w = true := by
-  cases h1 : (freeVars e).contains w with
-  | true => exact Or.inl rfl
-  | false =>
-    cases h2 : (freeVars rhs).contains w with
-    | true => exact Or.inr rfl
-    | false =>
-      have := freeVars_subst_not_contains v rhs e w s h_nc h1 h2
-      exact absurd hw (by simp [this])
-
-theorem nc_subst_via_bound (v : VarId) (rhs target e_src : Expr)
-    (s_target s_src : Moist.MIR.FreshState)
-    (h_nc_1 : noCaptureFrom (freeVars e_src) target = true)
-    (h_nc_2 : noCaptureFrom (freeVars rhs) target = true)
-    (h_nc_1r : noCaptureFrom (freeVars e_src) rhs = true)
-    (h_nc_2r : noCaptureFrom (freeVars rhs) rhs = true)
-    (h_no_rename_t : noCaptureFrom (freeVars rhs) target = true)
-    (h_no_rename_s : noCaptureFrom (freeVars rhs) e_src = true) :
-    noCaptureFrom (freeVars (subst v rhs e_src s_src).1)
-      (subst v rhs target s_target).1 = true := by
-  apply noCaptureFrom_mono ((freeVars e_src).union (freeVars rhs))
-  · exact noCaptureFrom_subst _ v rhs target s_target
-      (noCaptureFrom_union _ _ target h_nc_1 h_nc_2)
-      (noCaptureFrom_union _ _ rhs h_nc_1r h_nc_2r)
-      h_no_rename_t
-  · intro w hw
-    rcases fv_subst_bound v rhs e_src s_src h_no_rename_s w hw with h | h
-    · exact contains_union_left _ _ _ h
-    · exact contains_union_right _ _ _ h
-
---------------------------------------------------------------------------------
--- PairwiseNC: condition 3 uses plain freeVars (not expandFix)
---------------------------------------------------------------------------------
-
-def PairwiseNC : List (VarId × Expr × Bool) → Expr → Prop
-  | [], _ => True
-  | (_, rhs, _) :: rest, body =>
-    noCaptureFrom (freeVars rhs) body = true ∧
-    rest.all (fun b => noCaptureFrom (freeVars rhs) b.2.1) = true ∧
-    rest.all (fun b => !(freeVars rhs).contains b.1) = true ∧
-    PairwiseNC rest body
-
-theorem pairwiseNC_tail {v : VarId} {rhs : Expr} {er : Bool}
-    {rest : List (VarId × Expr × Bool)} {body : Expr}
-    (h : PairwiseNC ((v, rhs, er) :: rest) body) :
-    PairwiseNC rest body := h.2.2.2
-
-theorem pairwiseNC_expandFix {v : VarId} {rhs : Expr} {er : Bool}
-    {rest : List (VarId × Expr × Bool)} {body : Expr}
-    (h : PairwiseNC ((v, rhs, er) :: rest) body) :
-    rest.all (fun b => !(freeVars (expandFix rhs)).contains b.1) = true := by
-  have ⟨_, _, h_names, _⟩ := h
-  rw [List.all_eq_true] at h_names ⊢
-  intro b hb; simp only [Bool.not_eq_true'] at *
-  exact Moist.MIR.expandFix_freeVars_not_contains rhs b.1 (h_names b hb)
-
-private theorem noCaptureFromLet_implies_names_local (fv : VarSet)
-    (binds : List (VarId × Expr × Bool)) (body : Expr)
-    (h : noCaptureFromLet fv binds body = true) :
-    ∀ b ∈ binds, fv.contains b.1 = false := by
-  induction binds with
-  | nil => intro b hb; exact absurd hb (by simp)
-  | cons bd rest ih =>
-    intro b hb; rcases List.mem_cons.mp hb with rfl | hb
-    · exact (noCaptureFromLet_cons h).1
-    · exact ih (noCaptureFromLet_cons h).2.2 b hb
-
-theorem pairwiseNC_of_wellScoped
-    (binds : List (VarId × Expr × Bool)) (body : Expr)
-    (h : wellScoped (.Let binds body) = true) :
-    PairwiseNC binds body := by
-  induction binds with
-  | nil => exact True.intro
-  | cons bd rest ih =>
-    obtain ⟨v, rhs, er⟩ := bd
-    have ⟨hnr_body, hnr_rest_all, _⟩ := wellScoped_let_noCaptureFrom h
-    have hrest := (wellScoped_let_peel h).2
-    have hnc_let := noCaptureFrom_let (wellScoped_noCaptureFrom h)
-    simp only [Moist.MIR.freeVars] at hnc_let
-    have hnames := noCaptureFromLet_implies_names_local _ _ body hnc_let
-    refine ⟨hnr_body, hnr_rest_all, ?_, ih hrest⟩
-    rw [List.all_eq_true]; intro b hb; simp only [Bool.not_eq_true']
-    have hfv := hnames b (List.mem_cons_of_mem _ hb)
-    rw [Moist.MIR.freeVarsLet.eq_2] at hfv
-    exact (Moist.MIR.VarSet.union_not_contains' _ _ _ hfv).1
-
---------------------------------------------------------------------------------
--- PairwiseNC preservation through substitution
---------------------------------------------------------------------------------
-
-private theorem substInBindings_all_nc (v : VarId) (rhs e_src : Expr)
-    (rest : List (VarId × Expr × Bool)) (s_src s₀ : Moist.MIR.FreshState)
-    (h_nc_src : ∀ b ∈ rest, noCaptureFrom (freeVars e_src) b.2.1 = true)
-    (h_nc_rhs_rest : ∀ b ∈ rest, noCaptureFrom (freeVars rhs) b.2.1 = true)
-    (h_rev_src : noCaptureFrom (freeVars e_src) rhs = true)
-    (h_nc_rhs_self : noCaptureFrom (freeVars rhs) rhs = true)
-    (h_no_rename_src : noCaptureFrom (freeVars rhs) e_src = true) :
-    (substInBindings v rhs rest s₀).1.val.all
-      (fun b => noCaptureFrom (freeVars (subst v rhs e_src s_src).1) b.2.1) = true := by
-  rw [List.all_eq_true]
-  intro b hb
-  induction rest generalizing s₀ with
-  | nil => simp only [substInBindings, pure, StateT.pure] at hb; exact absurd hb (by simp)
-  | cons bd rest_tail ih =>
-    obtain ⟨w', rhs', er'⟩ := bd
-    simp only [substInBindings, bind, StateT.bind] at hb
-    rcases List.mem_cons.mp hb with rfl | hb_tail
-    · exact nc_subst_via_bound v rhs rhs' e_src _ s_src
-        (h_nc_src (w', rhs', er') (List.mem_cons_self ..))
-        (h_nc_rhs_rest (w', rhs', er') (List.mem_cons_self ..))
-        h_rev_src h_nc_rhs_self
-        (h_nc_rhs_rest (w', rhs', er') (List.mem_cons_self ..))
-        h_no_rename_src
-    · exact ih _
-               (fun b hb => h_nc_src b (List.mem_cons_of_mem _ hb))
-               (fun b hb => h_nc_rhs_rest b (List.mem_cons_of_mem _ hb))
-               hb_tail
-
-private theorem substInBindings_all_name_fresh (v : VarId) (rhs e_src : Expr)
-    (rest : List (VarId × Expr × Bool)) (s_src s₀ : Moist.MIR.FreshState)
-    (h_names_src : ∀ b ∈ rest, (freeVars e_src).contains b.1 = false)
-    (h_names_rhs : ∀ b ∈ rest, (freeVars rhs).contains b.1 = false)
-    (h_no_rename : noCaptureFrom (freeVars rhs) e_src = true) :
-    (substInBindings v rhs rest s₀).1.val.all
-      (fun b => !(freeVars (subst v rhs e_src s_src).1).contains b.1) = true := by
-  rw [List.all_eq_true]
-  intro b hb; simp only [Bool.not_eq_true']
-  induction rest generalizing s₀ with
-  | nil => simp only [substInBindings, pure, StateT.pure] at hb; exact absurd hb (by simp)
-  | cons bd rest_tail ih =>
-    obtain ⟨w', rhs', er'⟩ := bd
-    simp only [substInBindings, bind, StateT.bind] at hb
-    rcases List.mem_cons.mp hb with rfl | hb_tail
-    · exact freeVars_subst_not_contains v rhs e_src w' s_src h_no_rename
-        (h_names_src (w', rhs', er') (List.mem_cons_self ..))
-        (h_names_rhs (w', rhs', er') (List.mem_cons_self ..))
-    · exact ih _
-               (fun b hb => h_names_src b (List.mem_cons_of_mem _ hb))
-               (fun b hb => h_names_rhs b (List.mem_cons_of_mem _ hb))
-               hb_tail
-
-private theorem pairwiseNC_subst_aux (v : VarId) (rhs : Expr)
-    (rest : List (VarId × Expr × Bool)) (body : Expr)
-    (s s₀ : Moist.MIR.FreshState)
-    (h_nc_body : noCaptureFrom (freeVars rhs) body = true)
-    (h_nc_rest : ∀ b ∈ rest, noCaptureFrom (freeVars rhs) b.2.1 = true)
-    (h_names : ∀ b ∈ rest, (freeVars rhs).contains b.1 = false)
-    (hpc_rest : PairwiseNC rest body)
-    (h_nc_rhs_self : noCaptureFrom (freeVars rhs) rhs = true)
-    (h_nc_rhs_rev : ∀ b ∈ rest, noCaptureFrom (freeVars b.2.1) rhs = true) :
-    PairwiseNC
-      (substInBindings v rhs rest s₀).1.val
-      (subst v rhs body s).1 := by
-  induction rest generalizing s₀ with
-  | nil => simp only [substInBindings, pure, StateT.pure]; exact True.intro
-  | cons bd rest_tail ih =>
-    obtain ⟨w, rhs_w, er_w⟩ := bd
-    simp only [substInBindings, bind, StateT.bind]
-    have h_nc_rhs_w := h_nc_rest (w, rhs_w, er_w) (List.mem_cons_self ..)
-    have h_rev_w := h_nc_rhs_rev (w, rhs_w, er_w) (List.mem_cons_self ..)
-    obtain ⟨h_nc_body_w, h_nc_rest_w, h_names_w, hpc_tail⟩ := hpc_rest
-    rw [List.all_eq_true] at h_nc_rest_w h_names_w
-    refine ⟨?_, ?_, ?_, ih (subst v rhs rhs_w s₀).2
-      (fun b hb => h_nc_rest b (List.mem_cons_of_mem _ hb))
-      (fun b hb => h_names b (List.mem_cons_of_mem _ hb))
-      hpc_tail
-      (fun b hb => h_nc_rhs_rev b (List.mem_cons_of_mem _ hb))⟩
-    · exact nc_subst_via_bound v rhs body rhs_w s s₀
-        h_nc_body_w h_nc_body h_rev_w h_nc_rhs_self h_nc_body h_nc_rhs_w
-    · exact substInBindings_all_nc v rhs rhs_w rest_tail s₀ _
-        h_nc_rest_w
-        (fun b hb => h_nc_rest b (List.mem_cons_of_mem _ hb))
-        h_rev_w h_nc_rhs_self h_nc_rhs_w
-    · exact substInBindings_all_name_fresh v rhs rhs_w rest_tail s₀ _
-        (fun b hb => by have := h_names_w b hb; simp only [Bool.not_eq_true'] at this; exact this)
-        (fun b hb => h_names b (List.mem_cons_of_mem _ hb))
-        h_nc_rhs_w
-
-theorem pairwiseNC_subst (v : VarId) (rhs : Expr) (er : Bool)
-    (rest : List (VarId × Expr × Bool)) (body : Expr)
-    (s s₀ : Moist.MIR.FreshState)
-    (hpc : PairwiseNC ((v, rhs, er) :: rest) body)
-    (h_nc_rhs_self : noCaptureFrom (freeVars rhs) rhs = true)
-    (h_nc_rhs_rev : ∀ b ∈ rest, noCaptureFrom (freeVars b.2.1) rhs = true) :
-    PairwiseNC
-      (substInBindings v rhs rest s₀).1.val
-      (subst v rhs body s).1 := by
-  obtain ⟨h_nc_body, h_nc_rest_all, h_names_all, hpc_rest⟩ := hpc
-  rw [List.all_eq_true] at h_nc_rest_all h_names_all
-  exact pairwiseNC_subst_aux v rhs rest body s s₀
-    h_nc_body h_nc_rest_all
-    (fun b hb => by have := h_names_all b hb; simp only [Bool.not_eq_true'] at this; exact this)
-    hpc_rest h_nc_rhs_self h_nc_rhs_rev
 
 --------------------------------------------------------------------------------
 -- Free variables never increase through inlinePass
@@ -540,7 +330,7 @@ end
 
 set_option maxHeartbeats 800000 in
 mutual
-private theorem freeVars_subst_tight (v : VarId) (rhs e : Expr)
+theorem freeVars_subst_tight (v : VarId) (rhs e : Expr)
     (s : Moist.MIR.FreshState) (w : VarId)
     (hw : (freeVars (subst v rhs e s).1).contains w = true) :
     ((freeVars e).erase v).contains w = true ∨ (freeVars rhs).contains w = true := by
@@ -1304,802 +1094,363 @@ theorem inlineBindings_freeVarsLet_mono (binds : List (VarId × Expr × Bool))
 termination_by sizeOf binds
 end
 
-theorem inlinePass_fvsub (fv : VarSet) (e : Expr) (s : Moist.MIR.FreshState)
-    (hfv : FVSub fv e) : FVSub fv (inlinePass e s).1.1 :=
-  fun w hw => hfv w (freeVars_nonincreasing e s w hw)
 
---------------------------------------------------------------------------------
--- NC preservation through inlinePass
---------------------------------------------------------------------------------
+/-! ## The let-binding decision -/
+end Moist.Verified.InlineSoundness.Preservation
 
--- NC of App from components (reverse of noCaptureFrom_app)
-private theorem noCaptureFrom_mk_app (fv : VarSet) (f x : Expr)
-    (hf : noCaptureFrom fv f = true) (hx : noCaptureFrom fv x = true) :
-    noCaptureFrom fv (.App f x) = true := by
-  simp only [noCaptureFrom, Bool.and_eq_true]; exact ⟨hf, hx⟩
+namespace Moist.Verified.MIR
 
--- betaReduce NC helper
-private theorem betaReduce_nc (fv : VarSet) (f x : Expr) (s : Moist.MIR.FreshState)
-    (hnc_f : NC fv f) (hnc_x : NC fv x)
-    (h_nr : noCaptureFrom (Moist.MIR.freeVars x) f = true) :
-    NC fv (betaReduce f x s).1.1 := by
-  -- Show that betaReduce either returns subst result or App f x
-  -- In either case, NC fv is preserved
-  have h_app : noCaptureFrom fv (.App f x) = true :=
-    noCaptureFrom_mk_app fv f x hnc_f hnc_x
-  unfold betaReduce
-  match f with
-  | .Lam param body =>
-    simp only []
-    by_cases hatom : x.isAtom = true
-    · simp only [hatom, ite_true, bind, StateT.bind, pure, StateT.pure]
-      have ⟨_, h_body⟩ := noCaptureFrom_lam hnc_f
-      have ⟨_, h_nr_body⟩ := noCaptureFrom_lam h_nr
-      exact noCaptureFrom_subst fv param x body s h_body hnc_x h_nr_body
-    · simp only [Bool.not_eq_true] at hatom
-      simp only [hatom, pure]
-      exact h_app
-  | .Var _ => exact h_app
-  | .Lit _ => exact h_app
-  | .Builtin _ => exact h_app
-  | .Error => exact h_app
-  | .Fix _ _ => exact h_app
-  | .App _ _ => exact h_app
-  | .Force _ => exact h_app
-  | .Delay _ => exact h_app
-  | .Constr _ _ => exact h_app
-  | .Case _ _ => exact h_app
-  | .Let _ _ => exact h_app
+/-- The `shouldInline` condition that `inlineLetGo` checks before
+    substituting `rhs` for `v` in `body` and `rest`. -/
+def InlineGate (v : Moist.MIR.VarId) (rhs body : Moist.MIR.Expr)
+    (rest : List (Moist.MIR.VarId × Moist.MIR.Expr × Bool)) : Bool :=
+  Moist.MIR.shouldInline rhs
+    (Moist.MIR.countOccurrences v body +
+      rest.foldl (fun n (_, e, _) => n + Moist.MIR.countOccurrences v e) 0)
+    (Moist.MIR.occursUnderFix v body ||
+      rest.any (fun (_, e, _) => Moist.MIR.occursUnderFix v e))
+    (Moist.MIR.occursInDeferred v body ||
+      rest.any (fun (_, e, _) => Moist.MIR.occursInDeferred v e) ||
+      !Moist.MIR.firstEvaluationUse v (.Let rest body))
 
--- noCaptureFromLet decomposition (needed before the mutual block)
-private theorem noCaptureFromLet_implies_body' (fv : VarSet)
-    (binds : List (VarId × Expr × Bool)) (body : Expr)
-    (h : noCaptureFromLet fv binds body = true) : NC fv body := by
-  induction binds with
-  | nil => unfold noCaptureFromLet at h; exact h
-  | cons b rest ih => exact ih (noCaptureFromLet_cons h).2.2
+end Moist.Verified.MIR
 
-private theorem noCaptureFromLet_implies_rhss' (fv : VarSet)
-    (binds : List (VarId × Expr × Bool)) (body : Expr)
-    (h : noCaptureFromLet fv binds body = true) :
-    ∀ b ∈ binds, NC fv b.2.1 := by
-  induction binds with
-  | nil => intro b hb; exact absurd hb (by simp)
-  | cons bd rest ih =>
-    intro b hb; rcases List.mem_cons.mp hb with rfl | hb
-    · exact (noCaptureFromLet_cons h).2.1
-    · exact ih (noCaptureFromLet_cons h).2.2 b hb
+namespace Moist.Verified.InlineSoundness.Preservation
 
-private theorem noCaptureFromLet_implies_names' (fv : VarSet)
-    (binds : List (VarId × Expr × Bool)) (body : Expr)
-    (h : noCaptureFromLet fv binds body = true) :
-    ∀ b ∈ binds, fv.contains b.1 = false :=
-  noCaptureFromLet_implies_names_local fv binds body h
+open Moist.MIR (Expr VarId VarSet freeVars freeVarsList freeVarsLet
+  inlinePass inlinePassList inlineBindings inlineLetBindings inlineLetGo
+  betaReduce substInBindings subst substList substLet expandFix)
+open Moist.MIR (FreshState maxUidExpr maxUidExprList maxUidExprBinds distinctBinders)
+open Moist.Verified.MIR (InlineGate)
+open Moist.Verified.InlineSoundness.SubstCommute (subst_fresh substInBindings_fresh
+  substInBindings_cons_val substInBindings_nil)
+open Moist.Verified.InlineSoundness.Rename (maxUid_let_cons maxUid_list_cons)
 
--- Binding names preserved through inlineBindings (needed before the mutual block)
-private theorem inlineBindings_names' (_fv : VarSet)
-    (binds : List (VarId × Expr × Bool)) (s : Moist.MIR.FreshState)
-    (hnames : ∀ b ∈ binds, _fv.contains b.1 = false) :
-    ∀ b ∈ (inlineBindings binds s).1.1, _fv.contains b.1 = false := by
+theorem inlineLetGo_nil (acc : List (VarId × Expr × Bool)) (body : Expr) (changed : Bool)
+    (s : FreshState) :
+    inlineLetGo [] acc body changed s =
+      ((match acc.reverse with | [] => body | kept => .Let kept body, changed), s) := by
+  rw [Moist.MIR.inlineLetGo.eq_1]
+  generalize acc.reverse = kept
+  cases kept <;> rfl
+
+theorem inlineLetGo_cons (v : VarId) (rhs : Expr) (er : Bool)
+    (rest acc : List (VarId × Expr × Bool)) (body : Expr) (changed : Bool) (s : FreshState) :
+    inlineLetGo ((v, rhs, er) :: rest) acc body changed s =
+      if InlineGate v rhs body rest then
+        inlineLetGo (substInBindings v rhs rest (subst v rhs body s).2).1.val acc
+          (subst v rhs body s).1 true (substInBindings v rhs rest (subst v rhs body s).2).2
+      else inlineLetGo rest ((v, rhs, er) :: acc) body changed s := by
+  rw [Moist.MIR.inlineLetGo.eq_2]
+  unfold InlineGate
+  split <;> rfl
+
+/-! ## Equations of the pass -/
+
+section Equations
+variable (s : FreshState)
+
+theorem inlinePass_leaf (e : Expr)
+    (leaf : match e with | .Var _ | .Lit _ | .Builtin _ | .Error => True | _ => False) :
+    inlinePass e s = ((e, false), s) := by
+  cases e <;> first | exact leaf.elim | (rw [Moist.MIR.inlinePass.eq_9] <;> first | rfl | (intros; simp_all))
+
+theorem inlinePass_lam (x : VarId) (b : Expr) :
+    (inlinePass (.Lam x b) s).1.1 = .Lam x (inlinePass b s).1.1 ∧
+      (inlinePass (.Lam x b) s).2 = (inlinePass b s).2 := by
+  rw [Moist.MIR.inlinePass.eq_2]; exact ⟨rfl, rfl⟩
+
+theorem inlinePass_fix (f : VarId) (b : Expr) :
+    (inlinePass (.Fix f b) s).1.1 = .Fix f (inlinePass b s).1.1 ∧
+      (inlinePass (.Fix f b) s).2 = (inlinePass b s).2 := by
+  rw [Moist.MIR.inlinePass.eq_3]; exact ⟨rfl, rfl⟩
+
+theorem inlinePass_app (f x : Expr) :
+    (inlinePass (.App f x) s).1.1 =
+        (betaReduce (inlinePass f s).1.1 (inlinePass x (inlinePass f s).2).1.1
+          (inlinePass x (inlinePass f s).2).2).1.1 ∧
+      (inlinePass (.App f x) s).2 =
+        (betaReduce (inlinePass f s).1.1 (inlinePass x (inlinePass f s).2).1.1
+          (inlinePass x (inlinePass f s).2).2).2 := by
+  rw [Moist.MIR.inlinePass.eq_4]; exact ⟨rfl, rfl⟩
+
+theorem inlinePass_force (e : Expr) :
+    (inlinePass (.Force e) s).1.1 = .Force (inlinePass e s).1.1 ∧
+      (inlinePass (.Force e) s).2 = (inlinePass e s).2 := by
+  rw [Moist.MIR.inlinePass.eq_5]; exact ⟨rfl, rfl⟩
+
+theorem inlinePass_delay (e : Expr) :
+    (inlinePass (.Delay e) s).1.1 = .Delay (inlinePass e s).1.1 ∧
+      (inlinePass (.Delay e) s).2 = (inlinePass e s).2 := by
+  rw [Moist.MIR.inlinePass.eq_6]; exact ⟨rfl, rfl⟩
+
+theorem inlinePass_constr (tag : Nat) (args : List Expr) :
+    (inlinePass (.Constr tag args) s).1.1 = .Constr tag (inlinePassList args s).1.1 ∧
+      (inlinePass (.Constr tag args) s).2 = (inlinePassList args s).2 := by
+  rw [Moist.MIR.inlinePass.eq_7]; exact ⟨rfl, rfl⟩
+
+theorem inlinePass_case (scrut : Expr) (alts : List Expr) :
+    (inlinePass (.Case scrut alts) s).1.1 =
+        .Case (inlinePass scrut s).1.1 (inlinePassList alts (inlinePass scrut s).2).1.1 ∧
+      (inlinePass (.Case scrut alts) s).2 = (inlinePassList alts (inlinePass scrut s).2).2 := by
+  rw [Moist.MIR.inlinePass.eq_8]; exact ⟨rfl, rfl⟩
+
+theorem inlinePass_let (binds : List (VarId × Expr × Bool)) (body : Expr) :
+    (inlinePass (.Let binds body) s).1.1 =
+        (inlineLetBindings (inlineBindings binds s).1.1 (inlinePass body (inlineBindings binds s).2).1.1
+          (inlinePass body (inlineBindings binds s).2).2).1.1 ∧
+      (inlinePass (.Let binds body) s).2 =
+        (inlineLetBindings (inlineBindings binds s).1.1 (inlinePass body (inlineBindings binds s).2).1.1
+          (inlinePass body (inlineBindings binds s).2).2).2 := by
+  rw [Moist.MIR.inlinePass.eq_1]; exact ⟨rfl, rfl⟩
+
+theorem inlinePassList_nil : inlinePassList [] s = (([], false), s) := by
+  rw [Moist.MIR.inlinePassList.eq_1]; rfl
+
+theorem inlinePassList_cons (e : Expr) (rest : List Expr) :
+    (inlinePassList (e :: rest) s).1.1 =
+        (inlinePass e s).1.1 :: (inlinePassList rest (inlinePass e s).2).1.1 ∧
+      (inlinePassList (e :: rest) s).2 = (inlinePassList rest (inlinePass e s).2).2 := by
+  rw [Moist.MIR.inlinePassList.eq_2]; exact ⟨rfl, rfl⟩
+
+theorem inlineBindings_nil : inlineBindings [] s = (([], false), s) := by
+  rw [Moist.MIR.inlineBindings.eq_1]; rfl
+
+theorem inlineBindings_cons (v : VarId) (rhs : Expr) (er : Bool) (rest : List (VarId × Expr × Bool)) :
+    (inlineBindings ((v, rhs, er) :: rest) s).1.1 =
+        (v, (inlinePass rhs s).1.1, er) :: (inlineBindings rest (inlinePass rhs s).2).1.1 ∧
+      (inlineBindings ((v, rhs, er) :: rest) s).2 = (inlineBindings rest (inlinePass rhs s).2).2 := by
+  rw [Moist.MIR.inlineBindings.eq_2]; exact ⟨rfl, rfl⟩
+
+end Equations
+
+/-! ## Let binders never capture an earlier right-hand side -/
+
+/-- No let binder is free in the right-hand side of an earlier binding. -/
+def NamesFresh : List (VarId × Expr × Bool) → Prop
+  | [] => True
+  | (_, rhs, _) :: rest => (∀ b ∈ rest, (freeVars rhs).contains b.1 = false) ∧ NamesFresh rest
+
+/-- Binders that are distinct and not free in the whole let are fresh for
+    every earlier right-hand side. -/
+theorem namesFresh_of_distinct : ∀ (binds : List (VarId × Expr × Bool)) (body : Expr),
+    distinctBinders binds = true →
+    (∀ b ∈ binds, (freeVarsLet binds body).contains b.1 = false) → NamesFresh binds
+  | [], _, _, _ => trivial
+  | (x, rhs, er) :: rest, body, hd, hfv => by
+    simp only [distinctBinders, Bool.and_eq_true, List.all_eq_true] at hd
+    have split : ∀ b ∈ rest, (freeVars rhs).contains b.1 = false ∧
+        (freeVarsLet rest body).contains b.1 = false := fun b hb => by
+      have := hfv b (.tail _ hb)
+      rw [Moist.MIR.freeVarsLet.eq_2] at this
+      obtain ⟨hr, he⟩ := Moist.MIR.VarSet.union_not_contains' _ _ _ this
+      refine ⟨hr, ?_⟩
+      rcases Moist.MIR.VarSet.erase_not_contains_imp' _ _ _ he with h | h
+      · exact h
+      · have := hd.1 b hb
+        rw [Moist.Verified.InlineSoundness.Rename.beq_comm] at h
+        simp [h] at this
+    exact ⟨fun b hb => (split b hb).1, namesFresh_of_distinct rest body hd.2 fun b hb => (split b hb).2⟩
+
+private theorem listRel_mem {R : α → α → Prop} : ∀ {xs ys : List α} {y : α},
+    Moist.Verified.Equivalence.ListRel R xs ys → y ∈ ys → ∃ x ∈ xs, R x y
+  | [], [], _, _, hy => by cases hy
+  | _ :: _, [], _, h, _ => h.elim
+  | [], _ :: _, _, h, _ => h.elim
+  | x :: xs, y' :: ys, y, ⟨hr, hrest⟩, hy => by
+    cases hy with
+    | head => exact ⟨x, .head _, hr⟩
+    | tail _ hy =>
+      obtain ⟨x', hx', h⟩ := listRel_mem hrest hy
+      exact ⟨x', .tail _ hx', h⟩
+
+/-- `NamesFresh` survives replacing right-hand sides by ones whose free
+    variables are old ones or `extra` names that are no binder. -/
+theorem namesFresh_mono (extra : VarId → Prop) : ∀ (binds binds' : List (VarId × Expr × Bool)),
+    Moist.Verified.Equivalence.ListRel (fun b b' => b.1 = b'.1 ∧
+      ∀ w, (freeVars b'.2.1).contains w = true → (freeVars b.2.1).contains w = true ∨ extra w)
+      binds binds' →
+    (∀ b ∈ binds, ¬ extra b.1) → NamesFresh binds → NamesFresh binds'
+  | [], [], _, _, _ => trivial
+  | _ :: _, [], h, _, _ => h.elim
+  | [], _ :: _, h, _, _ => h.elim
+  | (x, e, er) :: bs, (x', e', er') :: bs', ⟨⟨_, hfv⟩, hrel⟩, hext, ⟨head, tail⟩ => by
+    refine ⟨fun c' hc' => ?_, namesFresh_mono extra bs bs' hrel (fun c hc => hext c (.tail _ hc)) tail⟩
+    obtain ⟨c, hc, hcname, _⟩ := listRel_mem hrel hc'
+    cases h : (freeVars e').contains c'.1
+    · rfl
+    · rcases hfv _ h with h' | h'
+      · rw [← hcname, head c hc] at h'; cases h'
+      · exact absurd (hcname ▸ h') (hext c (.tail _ hc))
+
+theorem namesFresh_inlineBindings (binds : List (VarId × Expr × Bool)) (s : FreshState)
+    (h : NamesFresh binds) : NamesFresh (inlineBindings binds s).1.1 := by
+  refine namesFresh_mono (fun _ => False) binds _ ?_ (fun _ _ h => h) h
+  clear h
   induction binds generalizing s with
-  | nil => intro b hb; simp only [inlineBindings, pure, StateT.pure, List.not_mem_nil] at hb
-  | cons bd rest ih =>
-    obtain ⟨w, e, er⟩ := bd
-    intro b hb; simp only [inlineBindings, bind, StateT.bind] at hb
-    rcases List.mem_cons.mp hb with rfl | hb
-    · exact hnames (w, e, er) (List.mem_cons_self ..)
-    · exact ih (inlinePass e s).2
-              (fun b' hb' => hnames b' (List.mem_cons_of_mem _ hb')) b hb
+  | nil => rw [inlineBindings_nil]; trivial
+  | cons b rest ih =>
+    obtain ⟨v, rhs, er⟩ := b
+    rw [(inlineBindings_cons s v rhs er rest).1]
+    exact ⟨⟨rfl, fun w hw => .inl (freeVars_nonincreasing rhs s w hw)⟩, ih _⟩
 
--- substInBindings preserves NC and names (needed before the mutual block)
-private theorem substInBindings_nc_names' (fv : VarSet) (v : VarId) (rhs : Expr)
-    (binds : List (VarId × Expr × Bool)) (s : Moist.MIR.FreshState)
-    (hnc_rhs : NC fv rhs) (hnc_binds : ∀ b ∈ binds, NC fv b.2.1)
-    (hnames : ∀ b ∈ binds, fv.contains b.1 = false)
-    (hnr : ∀ b ∈ binds, noCaptureFrom (freeVars rhs) b.2.1 = true) :
-    (∀ b ∈ (substInBindings v rhs binds s).1.val, NC fv b.2.1) ∧
-    (∀ b ∈ (substInBindings v rhs binds s).1.val, fv.contains b.1 = false) := by
-  induction binds generalizing s with
-  | nil =>
-    simp only [substInBindings, pure, StateT.pure]
-    exact ⟨fun b hb => absurd hb (by simp), fun b hb => absurd hb (by simp)⟩
-  | cons bd rest ih =>
-    obtain ⟨w, e, er⟩ := bd
-    simp only [substInBindings, bind, StateT.bind]
-    have ⟨ih_nc, ih_names⟩ := ih (subst v rhs e s).2
-      (fun b hb => hnc_binds b (List.mem_cons_of_mem _ hb))
-      (fun b hb => hnames b (List.mem_cons_of_mem _ hb))
-      (fun b hb => hnr b (List.mem_cons_of_mem _ hb))
-    exact ⟨fun b hb => by
-        rcases List.mem_cons.mp hb with rfl | hb
-        · exact noCaptureFrom_subst fv v rhs e s
-            (hnc_binds (w,e,er) (List.mem_cons_self ..)) hnc_rhs
-            (hnr (w,e,er) (List.mem_cons_self ..))
-        · exact ih_nc b hb,
-      fun b hb => by
-        rcases List.mem_cons.mp hb with rfl | hb
-        · exact hnames (w, e, er) (List.mem_cons_self ..)
-        · exact ih_names b hb⟩
+theorem namesFresh_substInBindings (v : VarId) (rhs : Expr) (rest : List (VarId × Expr × Bool))
+    (s : FreshState) (names : ∀ b ∈ rest, (freeVars rhs).contains b.1 = false)
+    (h : NamesFresh rest) : NamesFresh (substInBindings v rhs rest s).1.val := by
+  refine namesFresh_mono (fun w => (freeVars rhs).contains w = true) rest _ ?_
+    (fun b hb hc => absurd hc (by simp [names b hb])) h
+  clear h
+  induction rest generalizing s with
+  | nil => rw [substInBindings_nil]; trivial
+  | cons b rest ih =>
+    obtain ⟨y, e, er⟩ := b
+    rw [substInBindings_cons_val]
+    refine ⟨⟨rfl, fun w hw => ?_⟩, ih _ fun b hb => names b (.tail _ hb)⟩
+    rcases freeVars_subst_tight v rhs e s w hw with h | h
+    · exact .inl (contains_of_contains_erase h)
+    · exact .inr h
 
--- NC reconstruction for Let
-private theorem noCaptureFrom_mk_let (fv : VarSet)
-    (binds : List (VarId × Expr × Bool)) (body : Expr)
-    (h_body : NC fv body) (h_rhss : ∀ b ∈ binds, NC fv b.2.1)
-    (h_names : ∀ b ∈ binds, fv.contains b.1 = false) :
-    noCaptureFromLet fv binds body = true := by
-  induction binds with
-  | nil => simp only [noCaptureFromLet]; exact h_body
-  | cons bd rest ih =>
-    obtain ⟨v, rhs, er⟩ := bd
-    simp only [noCaptureFromLet, Bool.and_eq_true, Bool.not_eq_true']
-    exact ⟨⟨h_names (v, rhs, er) (List.mem_cons_self ..),
-            h_rhss (v, rhs, er) (List.mem_cons_self ..)⟩,
-           ih (fun b hb => h_rhss b (List.mem_cons_of_mem _ hb))
-              (fun b hb => h_names b (List.mem_cons_of_mem _ hb))⟩
+/-! ## Every uid stays below the counter -/
 
--- substInBindings reverse NC and cross-NC (copies needed before inlineLetGo_nc)
-private theorem substInBindings_all_nc_rev_pre (v : VarId) (rhs e_tgt : Expr)
-    (rest : List (VarId × Expr × Bool)) (s_tgt s₀ : Moist.MIR.FreshState)
-    (h_nc_tgt : ∀ b ∈ rest, noCaptureFrom (freeVars b.2.1) e_tgt = true)
-    (h_nc_rhs_rest : ∀ b ∈ rest, noCaptureFrom (freeVars rhs) b.2.1 = true)
-    (h_rest_rev : ∀ b ∈ rest, noCaptureFrom (freeVars b.2.1) rhs = true)
-    (h_nc_rhs_self : noCaptureFrom (freeVars rhs) rhs = true)
-    (h_no_rename_tgt : noCaptureFrom (freeVars rhs) e_tgt = true) :
-    ∀ b ∈ (substInBindings v rhs rest s₀).1.val,
-      noCaptureFrom (freeVars b.2.1) (subst v rhs e_tgt s_tgt).1 = true := by
-  intro b hb
-  induction rest generalizing s₀ with
-  | nil => simp only [substInBindings, pure, StateT.pure] at hb; exact absurd hb (by simp)
-  | cons bd rest_tail ih =>
-    obtain ⟨w', rhs', er'⟩ := bd
-    simp only [substInBindings, bind, StateT.bind] at hb
-    rcases List.mem_cons.mp hb with rfl | hb_tail
-    · exact nc_subst_via_bound v rhs e_tgt rhs' s_tgt _
-        (h_nc_tgt (w', rhs', er') (List.mem_cons_self ..))
-        h_no_rename_tgt
-        (h_rest_rev (w', rhs', er') (List.mem_cons_self ..))
-        h_nc_rhs_self h_no_rename_tgt
-        (h_nc_rhs_rest (w', rhs', er') (List.mem_cons_self ..))
-    · exact ih _ (fun b hb => h_nc_tgt b (List.mem_cons_of_mem _ hb))
-               (fun b hb => h_nc_rhs_rest b (List.mem_cons_of_mem _ hb))
-               (fun b hb => h_rest_rev b (List.mem_cons_of_mem _ hb)) hb_tail
+private theorem maxUidBinds_reverse : ∀ (xs : List (VarId × Expr × Bool)),
+    maxUidExprBinds xs.reverse ≤ maxUidExprBinds xs
+  | [] => Nat.le_refl _
+  | (v, rhs, er) :: rest => by
+    have := maxUidBinds_reverse rest
+    have := Moist.MIR.maxUidExprBinds_append rest.reverse [(v, rhs, er)]
+    simp only [List.reverse_cons, maxUidExprBinds] at *; omega
 
-private theorem substInBindings_cross_nc_pre (v : VarId) (rhs : Expr)
-    (binds : List (VarId × Expr × Bool)) (s : Moist.MIR.FreshState)
-    (h_cross : ∀ b₁ ∈ binds, ∀ b₂ ∈ binds, noCaptureFrom (freeVars b₁.2.1) b₂.2.1 = true)
-    (h_rhs_self : noCaptureFrom (freeVars rhs) rhs = true)
-    (h_rhs_cross : ∀ b ∈ binds, noCaptureFrom (freeVars rhs) b.2.1 = true)
-    (h_rhs_rev : ∀ b ∈ binds, noCaptureFrom (freeVars b.2.1) rhs = true) :
-    ∀ b₁ ∈ (substInBindings v rhs binds s).1.val,
-      ∀ b₂ ∈ (substInBindings v rhs binds s).1.val,
-        noCaptureFrom (freeVars b₁.2.1) b₂.2.1 = true := by
-  intro b₁ hb₁ b₂ hb₂
-  induction binds generalizing s with
-  | nil => simp only [substInBindings, pure, StateT.pure] at hb₁; exact absurd hb₁ (by simp)
-  | cons bd rest ih =>
-    obtain ⟨w, e, er⟩ := bd
-    simp only [substInBindings, bind, StateT.bind] at hb₁ hb₂
-    have h_nc_e := h_rhs_cross (w, e, er) (List.mem_cons_self ..)
-    have h_rev_e := h_rhs_rev (w, e, er) (List.mem_cons_self ..)
-    rcases List.mem_cons.mp hb₁ with rfl | hb₁_tail <;>
-      rcases List.mem_cons.mp hb₂ with rfl | hb₂_tail
-    · exact nc_subst_via_bound v rhs e e s s
-        (h_cross (w,e,er) (List.mem_cons_self ..) (w,e,er) (List.mem_cons_self ..))
-        h_nc_e h_rev_e h_rhs_self h_nc_e h_nc_e
-    · have hall := substInBindings_all_nc v rhs e rest s (subst v rhs e s).2
-        (fun b hb => h_cross (w,e,er) (List.mem_cons_self ..) b (List.mem_cons_of_mem _ hb))
-        (fun b hb => h_rhs_cross b (List.mem_cons_of_mem _ hb))
-        h_rev_e h_rhs_self h_nc_e
-      rw [List.all_eq_true] at hall; exact hall b₂ hb₂_tail
-    · exact substInBindings_all_nc_rev_pre v rhs e rest s _
-        (fun b hb => h_cross b (List.mem_cons_of_mem _ hb) (w,e,er) (List.mem_cons_self ..))
-        (fun b hb => h_rhs_cross b (List.mem_cons_of_mem _ hb))
-        (fun b hb => h_rhs_rev b (List.mem_cons_of_mem _ hb))
-        h_rhs_self h_nc_e b₁ hb₁_tail
-    · exact ih _ (fun b₁ hb₁ b₂ hb₂ =>
-          h_cross b₁ (List.mem_cons_of_mem _ hb₁) b₂ (List.mem_cons_of_mem _ hb₂))
-        (fun b hb => h_rhs_cross b (List.mem_cons_of_mem _ hb))
-        (fun b hb => h_rhs_rev b (List.mem_cons_of_mem _ hb))
-        hb₁_tail hb₂_tail
+theorem betaReduce_lam (p : VarId) (b x : Expr) (s : FreshState) :
+    betaReduce (.Lam p b) x s =
+      if x.isAtom then (((subst p x b s).1, true), (subst p x b s).2)
+      else ((.App (.Lam p b) x, false), s) := by
+  simp only [betaReduce]; split <;> rfl
 
--- inlineLetGo NC preservation
-private theorem inlineLetGo_nc (fv : VarSet)
-    (binds : List (VarId × Expr × Bool))
-    (acc : List (VarId × Expr × Bool))
-    (body : Expr) (changed : Bool) (s : Moist.MIR.FreshState)
-    (h_body : NC fv body)
-    (h_binds : ∀ b ∈ binds, NC fv b.2.1)
-    (h_acc : ∀ b ∈ acc, NC fv b.2.1)
-    (h_names_binds : ∀ b ∈ binds, fv.contains b.1 = false)
-    (h_names_acc : ∀ b ∈ acc, fv.contains b.1 = false)
-    (h_nr : ∀ b ∈ binds, noCaptureFrom (Moist.MIR.freeVars b.2.1) body = true)
-    (h_nr_binds : ∀ b₁ ∈ binds, ∀ b₂ ∈ binds,
-      noCaptureFrom (Moist.MIR.freeVars b₁.2.1) b₂.2.1 = true) :
-    NC fv (inlineLetGo binds acc body changed s).1.1 := by
-  match binds with
-  | [] =>
-    rw [Moist.MIR.inlineLetGo.eq_1]
-    cases hacc : acc.reverse with
-    | nil => simp only [pure, StateT.pure]; exact h_body
-    | cons s' rest' =>
-      simp only [pure, StateT.pure]
-      show noCaptureFrom fv (.Let (s' :: rest') body) = true
-      simp only [noCaptureFrom]
-      have hmem : ∀ b ∈ s' :: rest', b ∈ acc := by
-        intro b hb
-        have h1 : b ∈ (s' :: rest') := hb
-        have h2 : (s' :: rest') = acc.reverse := hacc.symm
-        rw [h2] at h1; exact List.mem_reverse.mp h1
-      have h_rev_acc : ∀ b ∈ s' :: rest', NC fv b.2.1 :=
-        fun b hb => h_acc b (hmem b hb)
-      have h_rev_names : ∀ b ∈ s' :: rest', fv.contains b.1 = false :=
-        fun b hb => h_names_acc b (hmem b hb)
-      exact noCaptureFrom_mk_let fv (s' :: rest') body h_body h_rev_acc h_rev_names
-  | (v, rhs, er) :: rest =>
-    rw [Moist.MIR.inlineLetGo.eq_2]
-    simp only [bind, StateT.bind]
-    have h_nc_rhs := h_binds (v, rhs, er) (List.mem_cons_self ..)
-    have h_name_v := h_names_binds (v, rhs, er) (List.mem_cons_self ..)
-    have h_nr_body := h_nr (v, rhs, er) (List.mem_cons_self ..)
-    have h_nc_rest := fun b hb => h_binds b (List.mem_cons_of_mem _ hb)
-    have h_names_rest := fun b hb => h_names_binds b (List.mem_cons_of_mem _ hb)
-    have h_nr_rest := fun b hb => h_nr b (List.mem_cons_of_mem _ hb)
-    have h_nr_binds_rest := fun b₁ hb₁ b₂ hb₂ =>
-      h_nr_binds b₁ (List.mem_cons_of_mem _ hb₁) b₂ (List.mem_cons_of_mem _ hb₂)
-    by_cases hinline : (shouldInline rhs
-        (Moist.MIR.countOccurrences v body +
-          rest.foldl (fun n (_, e, _) => n + Moist.MIR.countOccurrences v e) 0)
-        (Moist.MIR.occursUnderFix v body ||
-          rest.any (fun (_, e, _) => Moist.MIR.occursUnderFix v e))
-        (Moist.MIR.occursInDeferred v body ||
-          rest.any (fun (_, e, _) => Moist.MIR.occursInDeferred v e) ||
-          !Moist.MIR.firstEvaluationUse v (.Let rest body))) = true
-    · -- Inline case: substitute rhs for v in body and rest
-      simp only [hinline, ↓reduceIte]
-      have h_nr_rest_all : ∀ b ∈ rest, noCaptureFrom (freeVars rhs) b.2.1 = true :=
-        fun b hb => h_nr_binds (v, rhs, er) (List.mem_cons_self ..) b (List.mem_cons_of_mem _ hb)
-      have h_nc_rhs_self := h_nr_binds (v, rhs, er) (List.mem_cons_self ..) (v, rhs, er) (List.mem_cons_self ..)
-      have h_body' := noCaptureFrom_subst fv v rhs body s h_body h_nc_rhs h_nr_body
-      have ⟨h_rest_nc, h_rest_names⟩ := substInBindings_nc_names' fv v rhs rest
-        (subst v rhs body s).2 h_nc_rhs h_nc_rest h_names_rest h_nr_rest_all
-      have h_rev_rest : ∀ b ∈ rest, noCaptureFrom (freeVars b.2.1) rhs = true :=
-        fun b hb => h_nr_binds b (List.mem_cons_of_mem _ hb) (v, rhs, er) (List.mem_cons_self ..)
-      have h_nr_body' := substInBindings_all_nc_rev_pre
-          v rhs body rest s (subst v rhs body s).2
-          (fun b hb => h_nr b (List.mem_cons_of_mem _ hb))
-          h_nr_rest_all h_rev_rest h_nc_rhs_self h_nr_body
-      have h_cross' := substInBindings_cross_nc_pre
-          v rhs rest (subst v rhs body s).2
-          h_nr_binds_rest h_nc_rhs_self h_nr_rest_all h_rev_rest
-      have hdec : (substInBindings v rhs rest (subst v rhs body s).2).1.val.length <
-          ((v, rhs, er) :: rest).length := by
-        simp only [List.length_cons, (substInBindings v rhs rest (subst v rhs body s).2).1.property]; omega
-      exact inlineLetGo_nc fv _ acc _ true _ h_body' h_rest_nc h_acc h_rest_names h_names_acc
-        h_nr_body' h_cross'
-    · -- Keep case: move binding to acc
-      have hinline' : (shouldInline rhs
-          (Moist.MIR.countOccurrences v body +
-            rest.foldl (fun n (_, e, _) => n + Moist.MIR.countOccurrences v e) 0)
-          (Moist.MIR.occursUnderFix v body ||
-            rest.any (fun (_, e, _) => Moist.MIR.occursUnderFix v e))
-          (Moist.MIR.occursInDeferred v body ||
-            rest.any (fun (_, e, _) => Moist.MIR.occursInDeferred v e) ||
-            !Moist.MIR.firstEvaluationUse v (.Let rest body))) = false := by
-        cases h : shouldInline rhs _ _ _ with | true => exact absurd h hinline | false => rfl
-      simp only [hinline', Bool.false_eq_true, ↓reduceIte]
-      exact inlineLetGo_nc fv rest ((v, rhs, er) :: acc) body changed s h_body
-        h_nc_rest
-        (fun b hb => by rcases List.mem_cons.mp hb with rfl | hb
-                        · exact h_nc_rhs
-                        · exact h_acc b hb)
-        h_names_rest
-        (fun b hb => by rcases List.mem_cons.mp hb with rfl | hb
-                        · exact h_name_v
-                        · exact h_names_acc b hb)
-        h_nr_rest h_nr_binds_rest
-  termination_by binds.length
+theorem betaReduce_other (f x : Expr) (s : FreshState) (h : ∀ p b, f ≠ .Lam p b) :
+    betaReduce f x s = ((.App f x, false), s) := by
+  cases f <;> first | rfl | exact absurd rfl (h _ _)
 
--- inlineLetBindings NC preservation
-private theorem inlineLetBindings_nc (fv : VarSet)
-    (binds : List (VarId × Expr × Bool)) (body : Expr) (s : Moist.MIR.FreshState)
-    (h_body : NC fv body)
-    (h_binds : ∀ b ∈ binds, NC fv b.2.1)
-    (h_names : ∀ b ∈ binds, fv.contains b.1 = false)
-    (h_nr : ∀ b ∈ binds, noCaptureFrom (Moist.MIR.freeVars b.2.1) body = true)
-    (h_nr_binds : ∀ b₁ ∈ binds, ∀ b₂ ∈ binds,
-      noCaptureFrom (Moist.MIR.freeVars b₁.2.1) b₂.2.1 = true) :
-    NC fv (inlineLetBindings binds body s).1.1 := by
-  unfold inlineLetBindings
-  exact inlineLetGo_nc fv binds [] body false s h_body h_binds
-    (fun _ hb => by simp at hb)
-    h_names
-    (fun _ hb => by simp at hb)
-    h_nr h_nr_binds
+private theorem betaReduce_fresh (f x : Expr) (s : FreshState) (hf : maxUidExpr f < s.next)
+    (hx : maxUidExpr x < s.next) :
+    maxUidExpr (betaReduce f x s).1.1 < (betaReduce f x s).2.next ∧
+      s.next ≤ (betaReduce f x s).2.next := by
+  cases f with
+  | Lam p b =>
+    rw [betaReduce_lam]
+    split
+    · simp only [maxUidExpr] at hf
+      exact subst_fresh p x b s (by omega) hx
+    · simp only [maxUidExpr] at hf ⊢; omega
+  | _ => rw [betaReduce_other _ _ _ (by intros; simp)]; simp only [maxUidExpr] at hf ⊢; omega
+
+private theorem inlineLetGo_fresh : ∀ (binds acc : List (VarId × Expr × Bool)) (body : Expr)
+    (changed : Bool) (s : FreshState),
+    maxUidExpr (.Let binds body) < s.next → maxUidExprBinds acc < s.next →
+    maxUidExpr (inlineLetGo binds acc body changed s).1.1 < (inlineLetGo binds acc body changed s).2.next ∧
+      s.next ≤ (inlineLetGo binds acc body changed s).2.next
+  | [], acc, body, changed, s, fe, fa => by
+    rw [inlineLetGo_nil]
+    simp only [maxUidExpr, maxUidExprBinds] at fe
+    have := maxUidBinds_reverse acc
+    generalize acc.reverse = kept at this
+    cases kept <;> simp only [maxUidExpr] <;> omega
+  | (v, rhs, er) :: rest, acc, body, changed, s, fe, fa => by
+    rw [maxUid_let_cons] at fe
+    simp only [maxUidExpr] at fe
+    rw [inlineLetGo_cons]
+    split
+    · obtain ⟨h₁, s₁⟩ := subst_fresh v rhs body s (by omega) (by omega)
+      obtain ⟨h₂, s₂⟩ := substInBindings_fresh v rhs rest (subst v rhs body s).2 (by omega) (by omega)
+      have := (substInBindings v rhs rest (subst v rhs body s).2).1.property
+      have ih := inlineLetGo_fresh (substInBindings v rhs rest (subst v rhs body s).2).1.val acc
+        (subst v rhs body s).1 true (substInBindings v rhs rest (subst v rhs body s).2).2
+        (by simp only [maxUidExpr]; omega) (by omega)
+      omega
+    · have ih := inlineLetGo_fresh rest ((v, rhs, er) :: acc) body changed s
+        (by simp only [maxUidExpr]; omega) (by simp only [maxUidExprBinds]; omega)
+      exact ih
+  termination_by binds => binds.length
+  decreasing_by all_goals simp_wf; all_goals omega
 
 mutual
-theorem inlinePass_nc (fv : VarSet) (e : Expr) (s : Moist.MIR.FreshState)
-    (hnc : NC fv e) (hws : wellScoped e = true) :
-    NC fv (inlinePass e s).1.1 := by
-  match e with
-  | .Var v =>
-    rw [inlinePass_leaf_eq (by intros; intro h; cases h) (by intros; intro h; cases h)
-      (by intros; intro h; cases h) (by intros; intro h; cases h)
-      (by intros; intro h; cases h) (by intros; intro h; cases h)
-      (by intros; intro h; cases h) (by intros; intro h; cases h)]
-    exact hnc
-  | .Lit c =>
-    rw [inlinePass_leaf_eq (by intros; intro h; cases h) (by intros; intro h; cases h)
-      (by intros; intro h; cases h) (by intros; intro h; cases h)
-      (by intros; intro h; cases h) (by intros; intro h; cases h)
-      (by intros; intro h; cases h) (by intros; intro h; cases h)]
-    exact hnc
-  | .Builtin b =>
-    rw [inlinePass_leaf_eq (by intros; intro h; cases h) (by intros; intro h; cases h)
-      (by intros; intro h; cases h) (by intros; intro h; cases h)
-      (by intros; intro h; cases h) (by intros; intro h; cases h)
-      (by intros; intro h; cases h) (by intros; intro h; cases h)]
-    exact hnc
-  | .Error =>
-    rw [inlinePass_leaf_eq (by intros; intro h; cases h) (by intros; intro h; cases h)
-      (by intros; intro h; cases h) (by intros; intro h; cases h)
-      (by intros; intro h; cases h) (by intros; intro h; cases h)
-      (by intros; intro h; cases h) (by intros; intro h; cases h)]
-    exact hnc
-  | .Lam x body =>
-    have heq : (inlinePass (.Lam x body) s).1.1 = .Lam x (inlinePass body s).1.1 := by
-      simp only [Moist.MIR.inlinePass.eq_2]; rfl
-    rw [heq]; show noCaptureFrom fv (.Lam x (inlinePass body s).1.1) = true
-    have ⟨hx, hbody⟩ := noCaptureFrom_lam hnc
-    have hws_body := wellScoped_sub_lam hws
-    simp only [noCaptureFrom, Bool.and_eq_true, Bool.not_eq_true']
-    exact ⟨hx, inlinePass_nc fv body s hbody hws_body⟩
-  | .Fix f body =>
-    have heq : (inlinePass (.Fix f body) s).1.1 = .Fix f (inlinePass body s).1.1 := by
-      simp only [Moist.MIR.inlinePass.eq_3]; rfl
-    rw [heq]; show noCaptureFrom fv (.Fix f (inlinePass body s).1.1) = true
-    have ⟨hf, hbody⟩ := noCaptureFrom_fix hnc
-    have hws_body := wellScoped_sub_fix hws
-    simp only [noCaptureFrom, Bool.and_eq_true, Bool.not_eq_true']
-    exact ⟨hf, inlinePass_nc fv body s hbody hws_body⟩
-  | .Force inner =>
-    have heq : (inlinePass (.Force inner) s).1.1 = .Force (inlinePass inner s).1.1 := by
-      simp only [Moist.MIR.inlinePass.eq_5]; rfl
-    rw [heq]; show noCaptureFrom fv (.Force (inlinePass inner s).1.1) = true
-    have h_inner := noCaptureFrom_force hnc
-    have hws_inner := wellScoped_sub_force hws
-    simp only [noCaptureFrom]
-    exact inlinePass_nc fv inner s h_inner hws_inner
-  | .Delay inner =>
-    have heq : (inlinePass (.Delay inner) s).1.1 = .Delay (inlinePass inner s).1.1 := by
-      simp only [Moist.MIR.inlinePass.eq_6]; rfl
-    rw [heq]; show noCaptureFrom fv (.Delay (inlinePass inner s).1.1) = true
-    have h_inner := noCaptureFrom_delay hnc
-    have hws_inner := wellScoped_sub_delay hws
-    simp only [noCaptureFrom]
-    exact inlinePass_nc fv inner s h_inner hws_inner
-  | .Constr tag args =>
-    have heq : (inlinePass (.Constr tag args) s).1.1 =
-      .Constr tag (inlinePassList args s).1.1 := by
-      simp only [Moist.MIR.inlinePass.eq_7]; rfl
-    rw [heq]; show noCaptureFrom fv (.Constr tag (inlinePassList args s).1.1) = true
-    have h_args := noCaptureFrom_constr hnc
-    have ⟨_, hws_args⟩ := wellScoped_sub_constr hws
-    simp only [noCaptureFrom]
-    exact inlinePassList_nc fv args s h_args hws_args
-  | .Case scrut alts =>
-    have heq : (inlinePass (.Case scrut alts) s).1.1 =
-      .Case (inlinePass scrut s).1.1
-            (inlinePassList alts (inlinePass scrut s).2).1.1 := by
-      simp only [Moist.MIR.inlinePass.eq_8]; rfl
-    rw [heq]
-    show noCaptureFrom fv (.Case (inlinePass scrut s).1.1
-      (inlinePassList alts (inlinePass scrut s).2).1.1) = true
-    have ⟨hnc_s, hnc_a⟩ := noCaptureFrom_case hnc
-    have ⟨hws_s, _, hws_a⟩ := wellScoped_sub_case hws
-    simp only [noCaptureFrom, Bool.and_eq_true]
-    exact ⟨inlinePass_nc fv scrut s hnc_s hws_s,
-           inlinePassList_nc fv alts (inlinePass scrut s).2 hnc_a hws_a⟩
-  | .App f x =>
-    have heq : (inlinePass (.App f x) s).1.1 =
-      (betaReduce (inlinePass f s).1.1
-        (inlinePass x (inlinePass f s).2).1.1
-        (inlinePass x (inlinePass f s).2).2).1.1 := by
-      simp only [Moist.MIR.inlinePass.eq_4]; rfl
-    rw [heq]
-    have ⟨hnc_f, hnc_x⟩ := noCaptureFrom_app hnc
-    have ⟨hws_f, hws_x⟩ := wellScoped_sub_app hws
-    -- NC fv for the inlined sub-expressions
-    have ih_f := inlinePass_nc fv f s hnc_f hws_f
-    have ih_x := inlinePass_nc fv x (inlinePass f s).2 hnc_x hws_x
-    -- NC (freeVars x) for f, from wellScoped: freeVars x ⊆ freeVars (.App f x)
-    -- and NC (freeVars (.App f x)) f
-    have h_ws_nc := wellScoped_noCaptureFrom hws
-    have h_nc_fvx_f : noCaptureFrom (Moist.MIR.freeVars x) f = true :=
-      noCaptureFrom_mono (Moist.MIR.freeVars (.App f x)) (Moist.MIR.freeVars x) f
-        (noCaptureFrom_app h_ws_nc).1
-        (fun w hw => by rw [Moist.MIR.freeVars.eq_7]; exact contains_union_right _ _ _ hw)
-    -- IH: NC (freeVars x) on the inlined f
-    have ih_fvx_f := inlinePass_nc (Moist.MIR.freeVars x) f s h_nc_fvx_f hws_f
-    -- freeVars of inlined x ⊆ freeVars of original x
-    have h_fv_mono := freeVars_nonincreasing x (inlinePass f s).2
-    -- NC (freeVars x') f' by monotonicity
-    have h_nr : noCaptureFrom (Moist.MIR.freeVars (inlinePass x (inlinePass f s).2).1.1)
-        (inlinePass f s).1.1 = true :=
-      noCaptureFrom_mono (Moist.MIR.freeVars x)
-        (Moist.MIR.freeVars (inlinePass x (inlinePass f s).2).1.1)
-        (inlinePass f s).1.1 ih_fvx_f h_fv_mono
-    exact betaReduce_nc fv _ _ _ ih_f ih_x h_nr
-  | .Let binds body =>
-    have heq : (inlinePass (.Let binds body) s).1.1 =
-      (inlineLetBindings (inlineBindings binds s).1.1
-        (inlinePass body (inlineBindings binds s).2).1.1
-        (inlinePass body (inlineBindings binds s).2).2).1.1 := by
-      simp only [Moist.MIR.inlinePass.eq_1]; rfl
-    rw [heq]
-    have h_let_nc := noCaptureFrom_let hnc
-    have h_body_nc := noCaptureFromLet_implies_body' fv binds body h_let_nc
-    have h_rhss_nc := noCaptureFromLet_implies_rhss' fv binds body h_let_nc
-    have h_names := noCaptureFromLet_implies_names' fv binds body h_let_nc
-    have ⟨hws_body, _, hws_binds⟩ := wellScoped_sub_let hws
-    have h_body'_nc := inlinePass_nc fv body (inlineBindings binds s).2 h_body_nc hws_body
-    have h_binds'_nc := inlineBindings_nc fv binds s h_rhss_nc hws_binds
-    have h_names' := inlineBindings_names' fv binds s h_names
-    have hpc_orig := pairwiseNC_of_wellScoped binds body hws
-    have hnc_ws := wellScoped_noCaptureFrom hws
-    have h_fvlet := noCaptureFrom_let hnc_ws
-    simp only [Moist.MIR.freeVars] at h_fvlet
-    have h_fv_names := noCaptureFromLet_implies_names_local _ _ body h_fvlet
-    have h_fv_rhss := noCaptureFromLet_implies_rhss' _ _ body h_fvlet
-    have h_nr : ∀ b ∈ (inlineBindings binds s).1.1,
-        noCaptureFrom (Moist.MIR.freeVars b.2.1)
-          (inlinePass body (inlineBindings binds s).2).1.1 = true := by
-      intro b hb
-      suffices ∀ (bs : List (VarId × Expr × Bool)) (s₀ : Moist.MIR.FreshState),
-          (∀ b ∈ bs, noCaptureFrom (Moist.MIR.freeVars b.2.1) body = true) →
-          (∀ b ∈ bs, wellScoped b.2.1 = true) →
-          b ∈ (inlineBindings bs s₀).1.1 →
-          noCaptureFrom (Moist.MIR.freeVars b.2.1) (inlinePass body (inlineBindings binds s).2).1.1 = true from
-        this binds s
-          (fun b hb => by
-            have hpc_unf := hpc_orig
-            suffices ∀ (bs : List _), PairwiseNC bs body → b ∈ bs →
-                noCaptureFrom (Moist.MIR.freeVars b.2.1) body = true from
-              this binds hpc_unf hb
-            intro bs hpc hbm
-            induction bs with
-            | nil => exact absurd hbm (by simp)
-            | cons _ _ ih => rcases List.mem_cons.mp hbm with rfl | h
-                             · exact hpc.1
-                             · exact ih hpc.2.2.2 h)
-          hws_binds hb
-      intro bs s₀ h_nc_bs hws_bs hb_bs
-      induction bs generalizing s₀ with
-      | nil => simp only [inlineBindings, pure, StateT.pure] at hb_bs; exact absurd hb_bs (by simp)
-      | cons bd rest ih =>
-        obtain ⟨w, rhs_w, er_w⟩ := bd
-        simp only [inlineBindings, bind, StateT.bind] at hb_bs
-        rcases List.mem_cons.mp hb_bs with rfl | hb_rest
-        · exact noCaptureFrom_mono _ _ _ (inlinePass_nc _ body _
-            (h_nc_bs (w, rhs_w, er_w) (List.mem_cons_self ..)) hws_body)
-            (freeVars_nonincreasing rhs_w s₀)
-        · exact ih _ (fun b hb => h_nc_bs b (List.mem_cons_of_mem _ hb))
-                   (fun b hb => hws_bs b (List.mem_cons_of_mem _ hb)) hb_rest
-    have h_orig_cross := wellScoped_let_cross_nc hws
-    -- For each b₁ in processed bindings, NC (freeVars b₁.2.1) b₂.2.1:
-    -- Use inlineBindings_nc (mutual) with freeVars of the ORIGINAL b₁ RHS,
-    -- then mono down using freeVars_nonincreasing.
-    -- The key: inlineBindings_nc gives NC for any fv, including freeVars of any original RHS.
-    -- We derive the original RHS's freeVars condition from h_orig_cross.
-    have h_cross : ∀ b₁ ∈ (inlineBindings binds s).1.1,
-        ∀ b₂ ∈ (inlineBindings binds s).1.1,
-          noCaptureFrom (freeVars b₁.2.1) b₂.2.1 = true := by
-      -- For every original b_orig ∈ binds, NC (freeVars b_orig.2.1) b₂.2.1 for all b₂ in output
-      have h_all_nc : ∀ b_orig ∈ binds, ∀ b₂ ∈ (inlineBindings binds s).1.1,
-          noCaptureFrom (Moist.MIR.freeVars b_orig.2.1) b₂.2.1 = true :=
-        fun b_orig hb_orig => inlineBindings_nc (Moist.MIR.freeVars b_orig.2.1) binds s
-          (fun b hb => h_orig_cross b_orig hb_orig b hb) hws_binds
-      -- For each b₁ in output, freeVars b₁.2.1 ⊆ freeVars of its original (by freeVars_nonincreasing)
-      -- Use induction on binds to match b₁ with its original
-      intro b₁ hb₁ b₂ hb₂
-      suffices ∀ (bs : List _) (s₀ : Moist.MIR.FreshState),
-          (∀ b_orig ∈ bs, ∀ b₂ ∈ (inlineBindings binds s).1.1,
-            noCaptureFrom (Moist.MIR.freeVars b_orig.2.1) b₂.2.1 = true) →
-          b₁ ∈ (inlineBindings bs s₀).1.1 →
-          noCaptureFrom (freeVars b₁.2.1) b₂.2.1 = true from
-        this binds s (fun b_orig hb => h_all_nc b_orig hb) hb₁
-      intro bs s₀ h_all hb₁_bs
-      induction bs generalizing s₀ with
-      | nil => simp only [inlineBindings, pure, StateT.pure] at hb₁_bs; exact absurd hb₁_bs (by simp)
-      | cons bd rest ih =>
-        obtain ⟨w, rhs_w, er_w⟩ := bd
-        simp only [inlineBindings, bind, StateT.bind] at hb₁_bs
-        rcases List.mem_cons.mp hb₁_bs with rfl | hb₁_rest
-        · -- b₁ = processed head: freeVars b₁.2.1 ⊆ freeVars rhs_w (by freeVars_nonincreasing)
-          exact noCaptureFrom_mono _ _ _
-            (h_all (w, rhs_w, er_w) (List.mem_cons_self ..) b₂ hb₂)
-            (freeVars_nonincreasing rhs_w s₀)
-        · exact ih _ (fun b_orig hb => h_all b_orig (List.mem_cons_of_mem _ hb)) hb₁_rest
-    exact inlineLetBindings_nc fv _ _ _ h_body'_nc h_binds'_nc h_names' h_nr h_cross
-termination_by sizeOf e
-theorem inlinePassList_nc (fv : VarSet) (es : List Expr) (s : Moist.MIR.FreshState)
-    (hnc : noCaptureFromList fv es = true) (hws : ∀ e ∈ es, wellScoped e = true) :
-    noCaptureFromList fv (inlinePassList es s).1.1 = true := by
-  match es with
-  | [] =>
-    have heq : (inlinePassList ([] : List Expr) s).1.1 = [] := by
-      rw [Moist.MIR.inlinePassList.eq_1]; rfl
-    rw [heq]; simp only [noCaptureFromList]
-  | e :: rest =>
-    have heq : (inlinePassList (e :: rest) s).1.1 =
-      (inlinePass e s).1.1 :: (inlinePassList rest (inlinePass e s).2).1.1 := by
-      simp only [Moist.MIR.inlinePassList.eq_2]; rfl
-    rw [heq]
-    have ⟨hnc_e, hnc_rest⟩ := noCaptureFromList_cons hnc
-    show noCaptureFromList fv ((inlinePass e s).1.1 ::
-      (inlinePassList rest (inlinePass e s).2).1.1) = true
-    simp only [noCaptureFromList, Bool.and_eq_true]
-    exact ⟨inlinePass_nc fv e s hnc_e (hws e (List.mem_cons_self ..)),
-           inlinePassList_nc fv rest (inlinePass e s).2 hnc_rest
-             (fun e' he' => hws e' (List.mem_cons_of_mem _ he'))⟩
-termination_by sizeOf es
-theorem inlineBindings_nc (fv : VarSet) (binds : List (VarId × Expr × Bool))
-    (s : Moist.MIR.FreshState) (hnc : ∀ b ∈ binds, NC fv b.2.1)
-    (hws : ∀ b ∈ binds, wellScoped b.2.1 = true) :
-    ∀ b ∈ (inlineBindings binds s).1.1, NC fv b.2.1 := by
-  match binds with
-  | [] =>
-    have heq : (inlineBindings ([] : List (VarId × Expr × Bool)) s).1.1 = [] := by
-      rw [Moist.MIR.inlineBindings.eq_1]; rfl
-    rw [heq]
-    intro b hb; simp at hb
-  | (v, rhs, er) :: rest =>
-    have heq : (inlineBindings ((v, rhs, er) :: rest) s).1.1 =
-      (v, (inlinePass rhs s).1.1, er) ::
-        (inlineBindings rest (inlinePass rhs s).2).1.1 := by
-      simp only [Moist.MIR.inlineBindings.eq_2]; rfl
-    rw [heq]
-    intro b hb
-    rcases List.mem_cons.mp hb with rfl | hb_rest
-    · exact inlinePass_nc fv rhs s
-        (hnc (v, rhs, er) (List.mem_cons_self ..))
-        (hws (v, rhs, er) (List.mem_cons_self ..))
-    · exact inlineBindings_nc fv rest (inlinePass rhs s).2
-        (fun b' hb' => hnc b' (List.mem_cons_of_mem _ hb'))
-        (fun b' hb' => hws b' (List.mem_cons_of_mem _ hb'))
-        b hb_rest
-termination_by sizeOf binds
+  theorem inlinePass_fresh : ∀ (e : Expr) (s : FreshState), maxUidExpr e < s.next →
+      maxUidExpr (inlinePass e s).1.1 < (inlinePass e s).2.next ∧ s.next ≤ (inlinePass e s).2.next
+    | .Var _, s, fe | .Lit _, s, fe | .Builtin _, s, fe | .Error, s, fe => by
+      rw [inlinePass_leaf s _ trivial]; exact ⟨fe, Nat.le_refl _⟩
+    | .Lam x b, s, fe => by
+      obtain ⟨h₁, h₂⟩ := inlinePass_lam s x b
+      simp only [maxUidExpr] at fe
+      have := inlinePass_fresh b s (by omega)
+      rw [h₁, h₂]; simp only [maxUidExpr]; omega
+    | .Fix f b, s, fe => by
+      obtain ⟨h₁, h₂⟩ := inlinePass_fix s f b
+      simp only [maxUidExpr] at fe
+      have := inlinePass_fresh b s (by omega)
+      rw [h₁, h₂]; simp only [maxUidExpr]; omega
+    | .App f x, s, fe => by
+      obtain ⟨h₁, h₂⟩ := inlinePass_app s f x
+      simp only [maxUidExpr] at fe
+      have hf := inlinePass_fresh f s (by omega)
+      have hx := inlinePass_fresh x (inlinePass f s).2 (by omega)
+      have := betaReduce_fresh (inlinePass f s).1.1 (inlinePass x (inlinePass f s).2).1.1
+        (inlinePass x (inlinePass f s).2).2 (by omega) hx.1
+      rw [h₁, h₂]; omega
+    | .Force e, s, fe => by
+      obtain ⟨h₁, h₂⟩ := inlinePass_force s e
+      simp only [maxUidExpr] at fe
+      have := inlinePass_fresh e s fe
+      rw [h₁, h₂]; simp only [maxUidExpr]; omega
+    | .Delay e, s, fe => by
+      obtain ⟨h₁, h₂⟩ := inlinePass_delay s e
+      simp only [maxUidExpr] at fe
+      have := inlinePass_fresh e s fe
+      rw [h₁, h₂]; simp only [maxUidExpr]; omega
+    | .Constr tag args, s, fe => by
+      obtain ⟨h₁, h₂⟩ := inlinePass_constr s tag args
+      simp only [maxUidExpr] at fe
+      have := inlinePassList_fresh args s fe
+      rw [h₁, h₂]; simp only [maxUidExpr]; omega
+    | .Case scrut alts, s, fe => by
+      obtain ⟨h₁, h₂⟩ := inlinePass_case s scrut alts
+      simp only [maxUidExpr] at fe
+      have hs := inlinePass_fresh scrut s (by omega)
+      have := inlinePassList_fresh alts (inlinePass scrut s).2 (by omega)
+      rw [h₁, h₂]; simp only [maxUidExpr]; omega
+    | .Let binds body, s, fe => by
+      obtain ⟨h₁, h₂⟩ := inlinePass_let s binds body
+      simp only [maxUidExpr] at fe
+      have hb := inlineBindings_fresh binds s (by omega)
+      have hbody := inlinePass_fresh body (inlineBindings binds s).2 (by omega)
+      have := inlineLetGo_fresh (inlineBindings binds s).1.1 [] (inlinePass body (inlineBindings binds s).2).1.1
+        false (inlinePass body (inlineBindings binds s).2).2
+        (by simp only [maxUidExpr]; omega) (by simp only [maxUidExprBinds]; omega)
+      rw [h₁, h₂]; unfold inlineLetBindings; omega
+  termination_by e => sizeOf e
+
+  theorem inlinePassList_fresh : ∀ (es : List Expr) (s : FreshState), maxUidExprList es < s.next →
+      maxUidExprList (inlinePassList es s).1.1 < (inlinePassList es s).2.next ∧
+        s.next ≤ (inlinePassList es s).2.next
+    | [], s, fe => by rw [inlinePassList_nil]; exact ⟨fe, Nat.le_refl _⟩
+    | e :: rest, s, fe => by
+      obtain ⟨h₁, h₂⟩ := inlinePassList_cons s e rest
+      rw [maxUid_list_cons] at fe
+      have he := inlinePass_fresh e s (by omega)
+      have := inlinePassList_fresh rest (inlinePass e s).2 (by omega)
+      rw [h₁, h₂, maxUid_list_cons]; omega
+  termination_by es => sizeOf es
+
+  theorem inlineBindings_fresh : ∀ (binds : List (VarId × Expr × Bool)) (s : FreshState),
+      maxUidExprBinds binds < s.next →
+      maxUidExprBinds (inlineBindings binds s).1.1 < (inlineBindings binds s).2.next ∧
+        s.next ≤ (inlineBindings binds s).2.next
+    | [], s, fe => by rw [inlineBindings_nil]; exact ⟨fe, Nat.le_refl _⟩
+    | (v, rhs, er) :: rest, s, fe => by
+      obtain ⟨h₁, h₂⟩ := inlineBindings_cons s v rhs er rest
+      simp only [maxUidExprBinds] at fe
+      have hr := inlinePass_fresh rhs s (by omega)
+      have := inlineBindings_fresh rest (inlinePass rhs s).2 (by omega)
+      rw [h₁, h₂]; simp only [maxUidExprBinds]; omega
+  termination_by binds => sizeOf binds
 end
-
---------------------------------------------------------------------------------
--- Binding names preserved through inlineBindings
---------------------------------------------------------------------------------
-
-theorem inlineBindings_names (_fv : VarSet) (binds : List (VarId × Expr × Bool))
-    (s : Moist.MIR.FreshState) (hnames : ∀ b ∈ binds, _fv.contains b.1 = false) :
-    ∀ b ∈ (inlineBindings binds s).1.1, _fv.contains b.1 = false := by
-  induction binds generalizing s with
-  | nil => intro b hb; simp only [inlineBindings, pure, StateT.pure, List.not_mem_nil] at hb
-  | cons bd rest ih =>
-    obtain ⟨w, e, er⟩ := bd
-    intro b hb; simp only [inlineBindings, bind, StateT.bind] at hb
-    rcases List.mem_cons.mp hb with rfl | hb
-    · exact hnames (w, e, er) (List.mem_cons_self ..)
-    · exact ih (inlinePass e s).2
-              (fun b' hb' => hnames b' (List.mem_cons_of_mem _ hb')) b hb
-
---------------------------------------------------------------------------------
--- substInBindings preserves NC and names
---------------------------------------------------------------------------------
-
-theorem substInBindings_nc_names (fv : VarSet) (v : VarId) (rhs : Expr)
-    (binds : List (VarId × Expr × Bool)) (s : Moist.MIR.FreshState)
-    (hnc_rhs : NC fv rhs) (hnc_binds : ∀ b ∈ binds, NC fv b.2.1)
-    (hnames : ∀ b ∈ binds, fv.contains b.1 = false)
-    (hnr : ∀ b ∈ binds, noCaptureFrom (freeVars rhs) b.2.1 = true) :
-    (∀ b ∈ (substInBindings v rhs binds s).1.val, NC fv b.2.1) ∧
-    (∀ b ∈ (substInBindings v rhs binds s).1.val, fv.contains b.1 = false) := by
-  induction binds generalizing s with
-  | nil =>
-    simp only [substInBindings, pure, StateT.pure]
-    exact ⟨fun b hb => absurd hb (by simp), fun b hb => absurd hb (by simp)⟩
-  | cons bd rest ih =>
-    obtain ⟨w, e, er⟩ := bd
-    simp only [substInBindings, bind, StateT.bind]
-    have ⟨ih_nc, ih_names⟩ := ih (subst v rhs e s).2
-      (fun b hb => hnc_binds b (List.mem_cons_of_mem _ hb))
-      (fun b hb => hnames b (List.mem_cons_of_mem _ hb))
-      (fun b hb => hnr b (List.mem_cons_of_mem _ hb))
-    exact ⟨fun b hb => by
-        rcases List.mem_cons.mp hb with rfl | hb
-        · exact noCaptureFrom_subst fv v rhs e s
-            (hnc_binds (w,e,er) (List.mem_cons_self ..)) hnc_rhs
-            (hnr (w,e,er) (List.mem_cons_self ..))
-        · exact ih_nc b hb,
-      fun b hb => by
-        rcases List.mem_cons.mp hb with rfl | hb
-        · exact hnames (w, e, er) (List.mem_cons_self ..)
-        · exact ih_names b hb⟩
-
---------------------------------------------------------------------------------
--- noCaptureFromLet decomposition helpers
---------------------------------------------------------------------------------
-
-theorem noCaptureFromLet_implies_body (fv : VarSet) (binds : List (VarId × Expr × Bool))
-    (body : Expr) (h : noCaptureFromLet fv binds body = true) : NC fv body := by
-  induction binds with
-  | nil => unfold noCaptureFromLet at h; exact h
-  | cons b rest ih => exact ih (noCaptureFromLet_cons h).2.2
-
-theorem noCaptureFromLet_implies_rhss (fv : VarSet) (binds : List (VarId × Expr × Bool))
-    (body : Expr) (h : noCaptureFromLet fv binds body = true) :
-    ∀ b ∈ binds, NC fv b.2.1 := by
-  induction binds with
-  | nil => intro b hb; exact absurd hb (by simp)
-  | cons bd rest ih =>
-    intro b hb; rcases List.mem_cons.mp hb with rfl | hb
-    · exact (noCaptureFromLet_cons h).2.1
-    · exact ih (noCaptureFromLet_cons h).2.2 b hb
-
-theorem noCaptureFromLet_implies_names (fv : VarSet) (binds : List (VarId × Expr × Bool))
-    (body : Expr) (h : noCaptureFromLet fv binds body = true) :
-    ∀ b ∈ binds, fv.contains b.1 = false :=
-  noCaptureFromLet_implies_names_local fv binds body h
-
---------------------------------------------------------------------------------
--- Cross-NC preservation through substInBindings
---------------------------------------------------------------------------------
-
-private theorem substInBindings_all_nc_rev (v : VarId) (rhs e_tgt : Expr)
-    (rest : List (VarId × Expr × Bool)) (s_tgt s₀ : Moist.MIR.FreshState)
-    (h_nc_tgt : ∀ b ∈ rest, noCaptureFrom (freeVars b.2.1) e_tgt = true)
-    (h_nc_rhs_rest : ∀ b ∈ rest, noCaptureFrom (freeVars rhs) b.2.1 = true)
-    (h_rest_rev : ∀ b ∈ rest, noCaptureFrom (freeVars b.2.1) rhs = true)
-    (h_nc_rhs_self : noCaptureFrom (freeVars rhs) rhs = true)
-    (h_no_rename_tgt : noCaptureFrom (freeVars rhs) e_tgt = true) :
-    ∀ b ∈ (substInBindings v rhs rest s₀).1.val,
-      noCaptureFrom (freeVars b.2.1) (subst v rhs e_tgt s_tgt).1 = true := by
-  intro b hb
-  induction rest generalizing s₀ with
-  | nil => simp only [substInBindings, pure, StateT.pure] at hb; exact absurd hb (by simp)
-  | cons bd rest_tail ih =>
-    obtain ⟨w', rhs', er'⟩ := bd
-    simp only [substInBindings, bind, StateT.bind] at hb
-    rcases List.mem_cons.mp hb with rfl | hb_tail
-    · exact nc_subst_via_bound v rhs e_tgt rhs' s_tgt _
-        (h_nc_tgt (w', rhs', er') (List.mem_cons_self ..))
-        h_no_rename_tgt
-        (h_rest_rev (w', rhs', er') (List.mem_cons_self ..))
-        h_nc_rhs_self h_no_rename_tgt
-        (h_nc_rhs_rest (w', rhs', er') (List.mem_cons_self ..))
-    · exact ih _
-               (fun b hb => h_nc_tgt b (List.mem_cons_of_mem _ hb))
-               (fun b hb => h_nc_rhs_rest b (List.mem_cons_of_mem _ hb))
-               (fun b hb => h_rest_rev b (List.mem_cons_of_mem _ hb))
-               hb_tail
-
-theorem substInBindings_cross_nc (v : VarId) (rhs : Expr)
-    (binds : List (VarId × Expr × Bool)) (s : Moist.MIR.FreshState)
-    (h_cross : ∀ b₁ ∈ binds, ∀ b₂ ∈ binds,
-      noCaptureFrom (freeVars b₁.2.1) b₂.2.1 = true)
-    (h_rhs_self : noCaptureFrom (freeVars rhs) rhs = true)
-    (h_rhs_cross : ∀ b ∈ binds, noCaptureFrom (freeVars rhs) b.2.1 = true)
-    (h_rhs_rev : ∀ b ∈ binds, noCaptureFrom (freeVars b.2.1) rhs = true) :
-    ∀ b₁ ∈ (substInBindings v rhs binds s).1.val,
-      ∀ b₂ ∈ (substInBindings v rhs binds s).1.val,
-        noCaptureFrom (freeVars b₁.2.1) b₂.2.1 = true := by
-  intro b₁ hb₁ b₂ hb₂
-  induction binds generalizing s with
-  | nil => simp only [substInBindings, pure, StateT.pure] at hb₁; exact absurd hb₁ (by simp)
-  | cons bd rest ih =>
-    obtain ⟨w, e, er⟩ := bd
-    simp only [substInBindings, bind, StateT.bind] at hb₁ hb₂
-    have h_nc_e := h_rhs_cross (w, e, er) (List.mem_cons_self ..)
-    have h_rev_e := h_rhs_rev (w, e, er) (List.mem_cons_self ..)
-    rcases List.mem_cons.mp hb₁ with rfl | hb₁_tail <;>
-      rcases List.mem_cons.mp hb₂ with rfl | hb₂_tail
-    · exact nc_subst_via_bound v rhs e e s s
-        (h_cross (w,e,er) (List.mem_cons_self ..) (w,e,er) (List.mem_cons_self ..))
-        h_nc_e h_rev_e h_rhs_self h_nc_e h_nc_e
-    · have hall := substInBindings_all_nc v rhs e rest s (subst v rhs e s).2
-        (fun b hb => h_cross (w,e,er) (List.mem_cons_self ..) b (List.mem_cons_of_mem _ hb))
-        (fun b hb => h_rhs_cross b (List.mem_cons_of_mem _ hb))
-        h_rev_e h_rhs_self h_nc_e
-      rw [List.all_eq_true] at hall; exact hall b₂ hb₂_tail
-    · exact substInBindings_all_nc_rev v rhs e rest s _
-        (fun b hb => h_cross b (List.mem_cons_of_mem _ hb) (w,e,er) (List.mem_cons_self ..))
-        (fun b hb => h_rhs_cross b (List.mem_cons_of_mem _ hb))
-        (fun b hb => h_rhs_rev b (List.mem_cons_of_mem _ hb))
-        h_rhs_self h_nc_e b₁ hb₁_tail
-    · exact ih _
-        (fun b₁ hb₁ b₂ hb₂ =>
-          h_cross b₁ (List.mem_cons_of_mem _ hb₁) b₂ (List.mem_cons_of_mem _ hb₂))
-        (fun b hb => h_rhs_cross b (List.mem_cons_of_mem _ hb))
-        (fun b hb => h_rhs_rev b (List.mem_cons_of_mem _ hb))
-        hb₁_tail hb₂_tail
-
---------------------------------------------------------------------------------
--- Inline-pass preservation of PairwiseNC + cross-NC
---------------------------------------------------------------------------------
-
-theorem inlinePass_pairwiseNC_cross
-    (binds : List (VarId × Expr × Bool)) (body : Expr)
-    (s : Moist.MIR.FreshState)
-    (hws : wellScoped (.Let binds body) = true) :
-    let binds' := (inlineBindings binds s).1.1
-    let body' := (inlinePass body (inlineBindings binds s).2).1.1
-    PairwiseNC binds' body' ∧
-    (∀ b₁ ∈ binds', ∀ b₂ ∈ binds',
-      noCaptureFrom (freeVars b₁.2.1) b₂.2.1 = true) := by
-  have ⟨hws_body, _, hws_binds⟩ := wellScoped_sub_let hws
-  have hpc_orig := pairwiseNC_of_wellScoped binds body hws
-  have h_orig_cross := wellScoped_let_cross_nc hws
-  constructor
-  · -- PairwiseNC
-    suffices ∀ (bs : List _) (s₀ : Moist.MIR.FreshState),
-        PairwiseNC bs body → (∀ b ∈ bs, wellScoped b.2.1 = true) →
-        PairwiseNC (inlineBindings bs s₀).1.1 (inlinePass body (inlineBindings binds s).2).1.1 from
-      this binds s hpc_orig hws_binds
-    intro bs s₀ hpc hws_bs
-    induction bs generalizing s₀ with
-    | nil => simp only [inlineBindings, pure, StateT.pure]; exact True.intro
-    | cons bd rest ih =>
-      obtain ⟨w, rhs_w, er_w⟩ := bd
-      simp only [inlineBindings, bind, StateT.bind]
-      refine ⟨?_, ?_, ?_, ih _ (pairwiseNC_tail hpc) (fun b hb => hws_bs b (List.mem_cons_of_mem _ hb))⟩
-      · exact noCaptureFrom_mono _ _ _
-          (inlinePass_nc _ body _ hpc.1 hws_body) (freeVars_nonincreasing rhs_w s₀)
-      · rw [List.all_eq_true]; intro b hb
-        exact noCaptureFrom_mono _ _ _
-          (inlineBindings_nc (Moist.MIR.freeVars rhs_w) rest (inlinePass rhs_w s₀).2
-            (fun b hb => by have ⟨_, h, _, _⟩ := hpc; rw [List.all_eq_true] at h; exact h b hb)
-            (fun b hb => hws_bs b (List.mem_cons_of_mem _ hb)) b hb)
-          (freeVars_nonincreasing rhs_w s₀)
-      · rw [List.all_eq_true]; intro b hb; simp only [Bool.not_eq_true']
-        have ⟨_, _, h_names_pc, _⟩ := hpc
-        rw [List.all_eq_true] at h_names_pc
-        -- h_names_pc is for original rest, but hb is for inlineBindings rest
-        -- Use inlineBindings_names' to transfer
-        have h_names_processed := inlineBindings_names' (Moist.MIR.freeVars rhs_w) rest
-          (inlinePass rhs_w s₀).2
-          (fun b' hb' => by have := h_names_pc b' hb'; simp only [Bool.not_eq_true'] at this; exact this)
-        have h_name := h_names_processed b hb
-        cases h_new : (Moist.MIR.freeVars (inlinePass rhs_w s₀).1.1).contains b.1
-        · rfl
-        · exact absurd (freeVars_nonincreasing rhs_w s₀ b.1 (show _ = true from h_new))
-            (by simp [h_name])
-  · -- Cross-NC: same proof as the Let case of inlinePass_nc
-    have h_all_nc : ∀ b_orig ∈ binds, ∀ b₂ ∈ (inlineBindings binds s).1.1,
-        noCaptureFrom (Moist.MIR.freeVars b_orig.2.1) b₂.2.1 = true :=
-      fun b_orig hb_orig => inlineBindings_nc (Moist.MIR.freeVars b_orig.2.1) binds s
-        (fun b hb => h_orig_cross b_orig hb_orig b hb) hws_binds
-    intro b₁ hb₁ b₂ hb₂
-    suffices ∀ (bs : List _) (s₀ : Moist.MIR.FreshState),
-        (∀ b_orig ∈ bs, ∀ b₂ ∈ (inlineBindings binds s).1.1,
-          noCaptureFrom (Moist.MIR.freeVars b_orig.2.1) b₂.2.1 = true) →
-        b₁ ∈ (inlineBindings bs s₀).1.1 →
-        noCaptureFrom (freeVars b₁.2.1) b₂.2.1 = true from
-      this binds s (fun b_orig hb => h_all_nc b_orig hb) hb₁
-    intro bs s₀ h_all hb₁_bs
-    induction bs generalizing s₀ with
-    | nil => simp only [inlineBindings, pure, StateT.pure] at hb₁_bs; exact absurd hb₁_bs (by simp)
-    | cons bd rest ih =>
-      obtain ⟨w, rhs_w, er_w⟩ := bd
-      simp only [inlineBindings, bind, StateT.bind] at hb₁_bs
-      rcases List.mem_cons.mp hb₁_bs with rfl | hb₁_rest
-      · exact noCaptureFrom_mono _ _ _
-          (h_all (w, rhs_w, er_w) (List.mem_cons_self ..) b₂ hb₂)
-          (freeVars_nonincreasing rhs_w s₀)
-      · exact ih _ (fun b_orig hb => h_all b_orig (List.mem_cons_of_mem _ hb)) hb₁_rest
-
---------------------------------------------------------------------------------
--- Helpers used by InlineSoundness.lean
---------------------------------------------------------------------------------
-
-theorem nc_wellScoped_app (f x : Expr) (hws : wellScoped (.App f x) = true) :
-    NC (freeVars (.App f x)) f ∧ NC (freeVars (.App f x)) x :=
-  noCaptureFrom_app (wellScoped_noCaptureFrom hws)
-
-theorem fvSub_app_right (f x : Expr) : FVSub (freeVars (.App f x)) x :=
-  fun w hw => by rw [Moist.MIR.freeVars.eq_7]; exact contains_union_right _ _ _ hw
 
 end Moist.Verified.InlineSoundness.Preservation

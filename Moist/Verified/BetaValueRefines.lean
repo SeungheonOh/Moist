@@ -1722,31 +1722,6 @@ theorem shiftBisimEnv_extend : ∀ {σ : Nat → Nat} (h_σ : Is0Preserving σ)
           extend_lookup_succ ρ₂ v_new₂ (σ (n + 1)) hσ_ge
         rw [heq]; exact hl₂
 
-/-- Inversion for `ShiftBisimValueList` on empty head list. -/
-theorem shiftBisimValueList_nil_inv : ∀ {xs : List CekValue},
-    ShiftBisimValueList [] xs → xs = []
-  | _, h => by cases h; rfl
-
-/-- Inversion for `ShiftBisimValueList` on cons head list. -/
-theorem shiftBisimValueList_cons_inv : ∀ {v : CekValue} {vs xs : List CekValue},
-    ShiftBisimValueList (v :: vs) xs →
-    ∃ w ws, xs = w :: ws ∧ ShiftBisimValue v w ∧ ShiftBisimValueList vs ws
-  | _, _, _, h => by cases h with | cons hv hr => exact ⟨_, _, rfl, hv, hr⟩
-
-/-- Reverse inversion: when the RIGHT list is empty, so is the LEFT. -/
-theorem shiftBisimValueList_nil_inv_right : ∀ {xs : List CekValue},
-    ShiftBisimValueList xs [] → xs = []
-  | [], _ => rfl
-  | _ :: _, h => by cases h
-
-/-- Reverse inversion: when the RIGHT list is `w :: ws`, the LEFT is
-    `v :: vs` for some related `v`, `vs`. -/
-theorem shiftBisimValueList_cons_inv_right : ∀ {w : CekValue} {ws xs : List CekValue},
-    ShiftBisimValueList xs (w :: ws) →
-    ∃ v vs, xs = v :: vs ∧ ShiftBisimValue v w ∧ ShiftBisimValueList vs ws
-  | _, _, [], h => by cases h
-  | _, _, _ :: _, h => by cases h with | cons hv hr => exact ⟨_, _, rfl, hv, hr⟩
-
 /-- Reverse inversion for `VCon` on RHS. -/
 theorem shiftBisimValue_vcon_inv_right : ∀ {c : Moist.Plutus.Term.Const} {v : CekValue},
     ShiftBisimValue v (.VCon c) → v = .VCon c
