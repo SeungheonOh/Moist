@@ -1,4 +1,5 @@
 import Moist.MIR.Optimize.Advanced.Shapes
+import Moist.MIR.Optimize.Advanced.Products
 import Moist.MIR.Optimize.PreLower
 
 namespace Moist.MIR.Advanced
@@ -182,9 +183,16 @@ def isErrorExpr : Expr → Bool
   | _ => false
 
 /-- A check that the binding `x = rhs` may be moved below. -/
+def isLamExpr : Expr → Bool
+  | .Lam _ _ => true
+  | _ => false
+
+/-- A check that the binding `x = rhs` may be moved below. Alternatives that
+    bind fields keep their lambdas outermost, so later placement passes still
+    see through them. -/
 def sinkCheck (x : VarId) (rhs scrutinee : Expr) (alternatives : List Expr) : Bool :=
   !(freeVars scrutinee).contains x && terminates scrutinee && traceFree scrutinee &&
-    traceFree rhs && alternatives.any isErrorExpr &&
+    traceFree rhs && alternatives.any isErrorExpr && !alternatives.any isLamExpr &&
     decide ((alternatives.filter fun a => !isErrorExpr a).length ≤ 1)
 
 /-- Move `x = rhs` into the alternatives of the check `body`, and further
@@ -217,7 +225,7 @@ def failFastWalk (expression : Expr) : Expr :=
     let rhs' := failFastWalk rhs
     let body' := failFastWalk (.Let rest body)
     if reachesCheck x rhs' body' then sinkInto x rhs' erased body'
-    else .Let [(x, rhs', erased)] body'
+    else consLet (x, rhs', erased) body'
   | .Lam x body => .Lam x (failFastWalk body)
   | .Fix f body => .Fix f (failFastWalk body)
   | .App f a => .App (failFastWalk f) (failFastWalk a)
@@ -234,10 +242,9 @@ decreasing_by
     | (have := exprSize_lt_of_mem (by assumption); simp only [exprSize]; omega)
     | (simp only [exprSize, exprSizeBinds]; have := exprSize_pos rhs; omega)
 
-/-- Fail-fast reordering on a binder-hygienic copy of the program, followed by
-    pre-lowering inlining of the moved single-use bindings. -/
+/-- Fail-fast reordering on a binder-hygienic copy of the program. -/
 def failFast (expression : Expr) : Expr :=
   let prepared := uniqueOptimizationBinders expression
-  preLowerInlineExpr (if wellScoped prepared then failFastWalk prepared else prepared)
+  if wellScoped prepared then failFastWalk prepared else prepared
 
 end Moist.MIR.Advanced

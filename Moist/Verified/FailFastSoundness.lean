@@ -29,6 +29,13 @@ def SinkOK (x : VarId) (rhs : Expr) (er : Bool) (body : Expr) : Prop :=
     ∃ t', lowerTotalExpr env (sinkInto x rhs er body) = some t' ∧
       ∀ F, FactRefines env.length F (.Apply (.Lam 0 tb) tr) t'
 
+theorem lowerTotalExpr_consLet' (env : List VarId) (binding : VarId × Expr × Bool) (e : Expr) :
+    lowerTotalExpr env (consLet binding e) = lowerTotalExpr env (.Let [binding] e) := by
+  unfold consLet
+  split
+  · exact lowerTotalExpr_let_cons env _ _ _
+  · rfl
+
 theorem isErrorExpr_eq {a : Expr} (h : isErrorExpr a = true) : a = .Error := by
   cases a <;> simp_all [isErrorExpr]
 
@@ -78,7 +85,7 @@ theorem sinkCheck_spec {x : VarId} {rhs c : Expr} {alts : List Expr}
     (h : sinkCheck x rhs c alts = true) :
     (freeVars c).contains x = false ∧ terminates c = true := by
   simp only [sinkCheck, Bool.and_eq_true, Bool.not_eq_true'] at h
-  exact ⟨h.1.1.1.1.1, h.1.1.1.1.2⟩
+  exact h.1.1.1.1.1
 
 theorem sinkInto_ok : ∀ (N : Nat) (body : Expr), sizeOf body < N →
     ∀ x rhs er, SinkOK x rhs er body := by
@@ -169,7 +176,7 @@ theorem failFastWalk_factRel : ∀ (N : Nat) (e : Expr), exprSize e < N →
     · refine FactRel.post hlet fun env t₁ ht₁ => ?_
       obtain ⟨tr, tb, htr, htb, rfl⟩ := lowerTotalExpr_let_single_some ht₁
       exact sinkInto_ok _ _ (Nat.lt_succ_self _) x _ er env tr tb htr htb
-    · exact hlet
+    · exact hlet.congr_right fun env => lowerTotalExpr_consLet' env _ _
   | .Lam x b =>
     rw [failFastWalk]
     simp only [exprSize] at hsize
@@ -222,8 +229,7 @@ open Moist.MIR Moist.MIR.Advanced Moist.Verified.ShapeFacts Moist.Verified.FailF
 theorem failFast_refines (e : Expr) : MIRCtxRefines e (Advanced.failFast e) := by
   unfold Advanced.failFast
   simp only
-  refine mirCtxRefines_trans (Hygiene.uniqueOptimizationBinders_refines e)
-    (mirCtxRefines_trans ?_ (PreLower.preLowerInlineExpr_refines _ _))
+  refine mirCtxRefines_trans (Hygiene.uniqueOptimizationBinders_refines e) ?_
   split
   · rename_i hws
     exact mirCtxRefines_of_factRel hws (fun _ _ => trivial) (fun _ _ => trivial)
