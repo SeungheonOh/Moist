@@ -398,4 +398,95 @@ end
 
 end StaticArguments
 
+open StaticArguments
+
+/-! ## The local rewrite -/
+
+/-- Moving an invariant leading parameter out of a recursive worker. -/
+theorem staticArgument_local (r p n : VarId) (body : Expr) (hpr : (p == r) = false)
+    (hinv : invariantUses r p (.Lam n body) = true) :
+    MIRCtxRefines (.Fix r (.Lam p (.Lam n body)))
+      (.Lam p (.Fix r (removeArgument r (.Lam n body)))) := by
+  intro env
+  let σ : VarId := ⟨maxUidExpr (expandFix body) + maxUidExpr (expandFix (removeArgument r body)) +
+    maxUidExpr body + n.uid + p.uid + 1, .gen, "s"⟩
+  have hs₁ : (freeVars (expandFix (.Lam n body))).contains σ = false :=
+    maxUidExpr_fresh _ σ (by simp only [expandFix, maxUidExpr, σ]; omega)
+  have hs₂ : (freeVars (expandFix (removeArgument r body))).contains σ = false :=
+    maxUidExpr_fresh _ σ (by simp only [σ]; omega)
+  have hsrc : lowerTotalExpr env (.Fix r (.Lam p (.Lam n body))) =
+      (lowerTotalExpr (p :: r :: σ :: env) (.Lam n body)).map fixLamWrapUplc :=
+    lowerTotalExpr_fix_lam_with_fresh env r p (.Lam n body) σ hs₁
+  have htgt : lowerTotalExpr env (.Lam p (.Fix r (removeArgument r (.Lam n body)))) =
+      ((lowerTotalExpr (n :: r :: σ :: p :: env) (removeArgument r body)).map
+        fixLamWrapUplc).map (.Lam 0) := by
+    rw [lowerTotalExpr_lam]
+    simp only [removeArgument]
+    rw [lowerTotalExpr_fix_lam_with_fresh (p :: env) r n _ σ hs₂]
+    rfl
+  rw [hsrc, htgt]
+  cases hW : lowerTotalExpr (p :: r :: σ :: env) (.Lam n body) with
+  | none => exact ⟨fun h => absurd h (by simp), trivial⟩
+  | some ts =>
+    obtain ⟨tt, htt, hrel⟩ := lower_rel r p σ env hpr (.Lam n body) [] ts hinv
+      (by simp only [maxUidExpr, σ]; omega) (fun _ h => absurd h List.not_mem_nil) hW
+    rw [lowerTotalExpr_lam] at hW
+    obtain ⟨bodyS, -, rfl⟩ := Option.map_eq_some_iff.mp hW
+    simp only [List.nil_append, removeArgument, lowerTotalExpr_lam] at htt
+    obtain ⟨bodyT, hbodyT, rfl⟩ := Option.map_eq_some_iff.mp htt
+    cases hrel with
+    | lam hbody =>
+    rw [hbodyT]
+    simp only [Option.map_some, Option.isSome_some]
+    refine ⟨fun _ => trivial, ?_⟩
+    refine ctxRefines_of_openRefines (fun k hk => ?_) (openRefines_static hbody)
+    simp only [fixLamWrapUplc, closedAt, Bool.and_eq_true, decide_eq_true_eq] at hk ⊢
+    refine ⟨⟨by omega, by omega⟩, ?_, ⟨by omega, by omega⟩, by omega⟩
+    have hidx : ([] : List VarId).length + 1 + 3 + k = k + 1 + 1 + 1 + 1 := by
+      simp only [List.length_nil]; omega
+    have := hbody.closedAt k (by rw [hidx]; exact hk.2.1)
+    rwa [hidx] at this
+
+/-! ## The traversal -/
+
+theorem staticArgumentsRoot_refines (recurse : Expr → Expr)
+    (sound : ∀ expression, MIRCtxRefines expression (recurse expression)) (expression : Expr) :
+    MIRCtxRefines expression (staticArgumentsRoot recurse expression) := by
+  unfold staticArgumentsRoot
+  split
+  · rename_i r p n body
+    dsimp only
+    split
+    · rename_i guard
+      simp only [Bool.and_eq_true] at guard
+      exact mirCtxRefines_trans (staticArgument_local r p n body (not_bne guard.1.1) guard.2)
+        (mirCtxRefines_lam (sound _))
+    · exact mirCtxRefines_refl _
+  · exact mirCtxRefines_refl _
+
+theorem staticArgumentsFuel_refines (fuel : Nat) (expression : Expr) :
+    MIRCtxRefines expression (staticArgumentsFuel fuel expression) := by
+  induction fuel using Nat.strongRecOn generalizing expression with
+  | ind fuel ih =>
+    cases fuel with
+    | zero => exact mirCtxRefines_refl expression
+    | succ fuel =>
+      refine mirCtxRefines_trans
+        (mapChildren_refines _ expression (fun child _ => ih fuel (by omega) child) ?_)
+        (staticArgumentsRoot_refines _ (ih fuel (by omega)) _)
+      intro binder body _
+      cases fuel with
+      | zero => exact ⟨body, rfl, mirCtxRefines_refl body⟩
+      | succ remaining => exact ⟨_, rfl, ih remaining (by omega) body⟩
+
+theorem staticArgumentsCore_refines (expression : Expr) :
+    MIRCtxRefines expression (staticArgumentsCore expression) :=
+  staticArgumentsFuel_refines _ expression
+
+/-- Whole-pass certificate for the static argument transformation. -/
+theorem staticArguments_refines (expression : Expr) :
+    MIRCtxRefines expression (staticArguments expression) :=
+  mirCtxRefines_trans (Hygiene.uniqueOptimizationBinders_refines expression)
+    (staticArgumentsCore_refines _)
+
 end Moist.Verified.MIR
