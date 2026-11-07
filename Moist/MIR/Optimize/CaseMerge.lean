@@ -29,15 +29,15 @@ def renameMany (pairs : List (VarId × VarId)) (expression : Expr) : Expr :=
       result ← subst temporary (.Var replacement) result
     return result) start
 
-private structure KnownCtor where
+structure KnownCtor where
   tag : Nat
   constructorCount : Nat
   fields : List Expr
   listValue : Bool := false
 
-private abbrev KnownCtors := List (VarId × KnownCtor)
+abbrev KnownCtors := List (VarId × KnownCtor)
 
-private def knownConstructor (environment : KnownCtors) : Expr → Option KnownCtor
+def knownConstructor (environment : KnownCtors) : Expr → Option KnownCtor
   | .Var identifier => (environment.find? (fun entry => entry.1 == identifier)).map Prod.snd
   | .Constr tag fields =>
     if fields.all (·.isAtom) then some ⟨tag, 0, fields, false⟩ else none
@@ -57,33 +57,37 @@ private def knownConstructor (environment : KnownCtors) : Expr → Option KnownC
     return ⟨tag, constructorCount, fields, listValue⟩
   | _ => none
 
-private def filterKnown (binder : VarId) (environment : KnownCtors) : KnownCtors :=
+def filterKnown (binder : VarId) (environment : KnownCtors) : KnownCtors :=
   environment.filter fun (identifier, info) =>
     identifier != binder && !(freeVarsList info.fields).contains binder
 
-private def selectAlternative (tag constructorCount : Nat) (fields alternatives : List Expr) : Expr :=
+def selectAlternative (tag constructorCount : Nat) (fields alternatives : List Expr) : Expr :=
   if constructorCount > 0 && alternatives.length > constructorCount then .Error
   else match alternatives[tag]? with
     | some alternative => fields.foldl Expr.App alternative
     | none => .Error
 
-private def reduceConstructorCase (tag : Nat) (fields alternatives : List Expr) : Expr :=
-  runFresh (do
-    let mut bindings := []
-    let mut arguments := []
-    for field in fields do
-      if field.isAtom then
-        arguments := arguments ++ [field]
-      else
-        let identifier ← freshVar "field"
-        bindings := bindings ++ [(identifier, field, false)]
-        arguments := arguments ++ [.Var identifier]
-    let result := selectAlternative tag 0 arguments alternatives
-    return if bindings.isEmpty then result else .Let bindings result)
-    (maxUidExpr (.Case (.Constr tag fields) alternatives) + 1)
+/-- Bind every non-atomic field to a fresh variable (uids from `next`), in
+    field order, and return the bindings with the resulting atomic arguments. -/
+def caseFieldBindings (next : Nat) : List Expr → List (VarId × Expr × Bool) × List Expr
+  | [] => ([], [])
+  | field :: rest =>
+    if field.isAtom then
+      let (bindings, arguments) := caseFieldBindings next rest
+      (bindings, field :: arguments)
+    else
+      let identifier : VarId := { uid := next, origin := .gen, hint := "field" }
+      let (bindings, arguments) := caseFieldBindings (next + 1) rest
+      ((identifier, field, false) :: bindings, .Var identifier :: arguments)
+
+def reduceConstructorCase (tag : Nat) (fields alternatives : List Expr) : Expr :=
+  let (bindings, arguments) :=
+    caseFieldBindings (maxUidExpr (.Case (.Constr tag fields) alternatives) + 1) fields
+  let result := selectAlternative tag 0 arguments alternatives
+  if bindings.isEmpty then result else .Let bindings result
 
 mutual
-  private partial def caseMerge (environment : KnownCtors) : Expr → Expr × Bool
+  def caseMerge (environment : KnownCtors) : Expr → Expr × Bool
     | .Let bindings body =>
       let (bindings', environment', changedBindings) := caseMergeBinds environment bindings
       let (body', changedBody) := caseMerge environment' body
@@ -119,14 +123,21 @@ mutual
     | .Constr tag fields =>
       let (fields', changed) := caseMergeList environment fields
       (.Constr tag fields', changed)
-    | expression => (expression, false)
+    | .Var identifier => (.Var identifier, false)
+    | .Lit literal => (.Lit literal, false)
+    | .Builtin builtin => (.Builtin builtin, false)
+    | .Error => (.Error, false)
+  termination_by expression => sizeOf expression
 
-  private partial def caseMergeList (environment : KnownCtors) (expressions : List Expr) :
-      List Expr × Bool :=
-    let results := expressions.map (caseMerge environment)
-    (results.map Prod.fst, results.any Prod.snd)
+  def caseMergeList (environment : KnownCtors) : List Expr → List Expr × Bool
+    | [] => ([], false)
+    | expression :: rest =>
+      let (expression', changed) := caseMerge environment expression
+      let (rest', changedRest) := caseMergeList environment rest
+      (expression' :: rest', changed || changedRest)
+  termination_by expressions => sizeOf expressions
 
-  private partial def caseMergeBinds (environment : KnownCtors) :
+  def caseMergeBinds (environment : KnownCtors) :
       List (VarId × Expr × Bool) → List (VarId × Expr × Bool) × KnownCtors × Bool
     | [] => ([], environment, false)
     | (binder, expression, erased) :: rest =>
@@ -139,6 +150,7 @@ mutual
         | none => shadowed
       let (rest', finalEnvironment, changedRest) := caseMergeBinds environment' rest
       ((binder, expression', erased) :: rest', finalEnvironment, changedExpression || changedRest)
+  termination_by bindings => sizeOf bindings
 end
 
 def caseMergePass (expression : Expr) : Expr × Bool :=
