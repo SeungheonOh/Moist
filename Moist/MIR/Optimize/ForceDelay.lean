@@ -199,7 +199,8 @@ def processDelayBindings.go :
   | (v, rhs, er) :: rest, acc, body, ch =>
     match rhs with
     | .Delay inner =>
-      let restExpr := if rest.isEmpty then body else .Let rest body
+      -- `Let [] body` analyses exactly like `body`.
+      let restExpr := Expr.Let rest body
       if countOccurrences v restExpr > 0 && allUsesAreForce v restExpr &&
           !(freeVars inner).contains v &&
           bindersAvoid ((freeVars inner).insert v) restExpr then
