@@ -11,6 +11,7 @@ import Moist.Verified.PreLowerSoundness
 import Moist.Verified.FloatOutSoundness
 import Moist.Verified.ShapesSoundness
 import Moist.Verified.ProductsSoundness
+import Moist.Verified.RecordsSoundness
 import Moist.Verified.CheckedBranchesSoundness
 
 /-! # Soundness of `compileOptimized`
@@ -32,7 +33,8 @@ open Moist.Verified.MIR (MIRCtxRefines)
 theorem structural_refines (e : Expr) : MIRCtxRefines e (Advanced.structural e) :=
   structural_refines_of Moist.Verified.MIR.fuseListChoices_refines
     Moist.Verified.MIR.destructureProducts_refines
-    Moist.Verified.MIR.optimizeCheckedBranches_refines e
+    Moist.Verified.MIR.optimizeCheckedBranches_refines
+    Moist.Verified.MIR.unpackRecords_refines e
 
 theorem stageCertificates : StageCertificates where
   staticArguments := Moist.Verified.MIR.staticArguments_refines
