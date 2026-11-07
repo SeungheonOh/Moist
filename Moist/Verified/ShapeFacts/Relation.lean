@@ -267,7 +267,7 @@ theorem factRefines_case {d : Nat} {F : CekEnv → Prop} {s s' : Term} {alts alt
 
 /-! ## Shifting under an unused binder -/
 
-private theorem shiftBisimEnv_shift {d : Nat} {ρ : CekEnv} (w : CekValue) :
+theorem shiftBisimEnv_shift {d : Nat} {ρ : CekEnv} (w : CekValue) :
     EnvWellFormed d ρ → ShiftBisimEnv (shiftRename 1) d ρ (ρ.extend w)
   | .zero => .zero
   | .succ (k := k) (v := v) hrest _ hl hv => by

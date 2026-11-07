@@ -1,4 +1,5 @@
 import Moist.Verified.ShapesSoundness.Integers
+import Moist.Verified.ShapesSoundness.BooleanCases
 
 /-! # The fact-driven simplifier
 
@@ -79,9 +80,9 @@ theorem stage2_fresh (useShapes : Bool) (base : Nat) (Γ : List (VarId × Expr))
     | some y => exact integerIdentity_fresh hG hx hc
   · exact hx
 
-theorem shapeRewrite_factRel (useShapes : Bool) (base : Nat) (Γ : List (VarId × Expr)) (x : Expr) :
-    FactRel (GenSafe base) PF Γ x (shapeRewrite useShapes base Γ x) := by
-  unfold shapeRewrite
+theorem checkedRewrite_factRel (useShapes : Bool) (base : Nat) (Γ : List (VarId × Expr)) (x : Expr) :
+    FactRel (GenSafe base) PF Γ x (checkedRewrite useShapes base Γ x) := by
+  unfold checkedRewrite
   simp only []
   generalize hr₁ : (if useShapes = true then (checkedRoundTrip Γ x).getD x else x) = r₁
   generalize hr₂ : (if useShapes = true then (integerIdentity base Γ r₁).getD r₁ else r₁) = r₂
@@ -122,10 +123,10 @@ theorem freshInList_map_delay {env : List VarId} :
   | [] => rfl
   | b :: bs => by simp only [List.map_cons, freshInList, freshIn, freshInList_map_delay bs]
 
-theorem shapeRewrite_fresh (useShapes : Bool) (base : Nat) (Γ : List (VarId × Expr)) {x : Expr}
+theorem checkedRewrite_fresh (useShapes : Bool) (base : Nat) (Γ : List (VarId × Expr)) {x : Expr}
     {env : List VarId} (hG : ∀ y ∈ env, GenSafe base y) (hx : freshIn env x = true) :
-    freshIn env (shapeRewrite useShapes base Γ x) = true := by
-  unfold shapeRewrite
+    freshIn env (checkedRewrite useShapes base Γ x) = true := by
+  unfold checkedRewrite
   simp only []
   generalize hr₁ : (if useShapes = true then (checkedRoundTrip Γ x).getD x else x) = r₁
   generalize hr₂ : (if useShapes = true then (integerIdentity base Γ r₁).getD r₁ else r₁) = r₂
@@ -158,6 +159,18 @@ theorem shapeRewrite_fresh (useShapes : Bool) (base : Nat) (Γ : List (VarId × 
         · exact freshIn_cons_of_big f₂.2.1 (by simp only [maxUidExpr, maxUidExprList]; omega)
     · exact f₂
   · exact f₂
+
+theorem shapeRewrite_factRel (useShapes : Bool) (base : Nat) (Γ : List (VarId × Expr)) (x : Expr) :
+    FactRel (GenSafe base) PF Γ x (shapeRewrite useShapes base Γ x) := by
+  unfold shapeRewrite
+  exact (checkedRewrite_factRel useShapes base Γ x).trans (booleanCaseRewrite_factRel _ _ _ _)
+    (fun _ hG hx => checkedRewrite_fresh useShapes base Γ hG hx)
+
+theorem shapeRewrite_fresh (useShapes : Bool) (base : Nat) (Γ : List (VarId × Expr)) {x : Expr}
+    {env : List VarId} (hG : ∀ y ∈ env, GenSafe base y) (hx : freshIn env x = true) :
+    freshIn env (shapeRewrite useShapes base Γ x) = true := by
+  unfold shapeRewrite
+  exact booleanCaseRewrite_fresh _ _ _ (checkedRewrite_fresh useShapes base Γ hG hx)
 
 /-! ## Freshness of the walk -/
 

@@ -344,7 +344,7 @@ def integerIdentity (base : Nat) (environment : List (VarId × Expr)) : Expr →
   | _ => none
 
 /-- Local rewrites applied after the children of a node are simplified. -/
-def shapeRewrite (useShapes : Bool) (base : Nat) (environment : List (VarId × Expr))
+def checkedRewrite (useShapes : Bool) (base : Nat) (environment : List (VarId × Expr))
     (result : Expr) : Expr :=
   let result := if useShapes then
     (checkedRoundTrip environment result).getD result else result
@@ -370,6 +370,75 @@ def shapeRewrite (useShapes : Bool) (base : Nat) (environment : List (VarId × E
         .Let [(unused, scrutinee, false)] first
     else result
   | _ => result
+
+/-! ## Boolean case rewrites -/
+
+/-- Alternatives cheap enough to copy into every branch of an inner case. -/
+def smallAlternative : Expr → Bool
+  | .Error | .Var _ | .Lit (.Unit, _) | .Lit (.Bool _, _) => true
+  | _ => false
+
+/-- Some branch of a Boolean case tree ends in a Boolean literal, through
+    `let` bodies and nested cases. Only a profitability heuristic. -/
+def booleanLiteralLeaf : Nat → Expr → Bool
+  | 0, _ => false
+  | _ + 1, .Lit (.Bool _, _) => true
+  | fuel + 1, .Let _ body => booleanLiteralLeaf fuel body
+  | fuel + 1, .Case _ alternatives => alternatives.any (booleanLiteralLeaf fuel)
+  | _ + 1, _ => false
+
+/-- A binder that the walk may enter while carrying facts: it is not one of
+    the names the walk generates. -/
+def walkBinder (base : Nat) (binder : VarId) : Bool :=
+  match binder.origin with
+  | .gen => decide (binder.uid < base)
+  | .source => true
+
+/-- Move a case with small alternatives `outer` into the branches of the
+    Boolean case tree `scrutinee`. A case on a known Boolean passes no fields
+    to its alternatives, so `case (case b [x, y]) outer` is
+    `case b [case x outer, case y outer]`; a `let` scrutinee moves outside the
+    case when its binder is not free in `outer`; cases on Boolean literals
+    select their branch and a case on `error` fails. -/
+def pushBooleanCase (base : Nat) : Nat → List (VarId × Expr) → Expr → List Expr → Expr
+  | 0, _, scrutinee, outer => .Case scrutinee outer
+  | fuel + 1, environment, scrutinee, outer =>
+    match scrutinee, outer with
+    | .Lit (.Bool false, .AtomicType .TypeBool), [whenFalse, _] => whenFalse
+    | .Lit (.Bool true, .AtomicType .TypeBool), [_, whenTrue] => whenTrue
+    | .Error, _ => .Error
+    | .Let [] body, _ => pushBooleanCase base fuel environment body outer
+    | .Let ((binder, rhs, erased) :: rest) body, _ =>
+      if walkBinder base binder && outer.all (fun alternative => !(freeVars alternative).contains binder) then
+        .Let [(binder, rhs, erased)]
+          (pushBooleanCase base fuel ((binder, rhs) :: environment) (.Let rest body) outer)
+      else .Case scrutinee outer
+    | .Case inner alternatives, _ =>
+      if knownBoolean 64 environment inner then
+        .Case inner (alternatives.map fun alternative => pushBooleanCase base fuel environment alternative outer)
+      else .Case scrutinee outer
+    | _, _ => .Case scrutinee outer
+
+/-- Rewrites of cases on Boolean scrutinees: an outer case with small
+    alternatives moves into a Boolean case tree some branch of which ends in
+    a literal, and a case on a known Boolean with alternatives
+    `[False, True]` is the scrutinee itself. -/
+def booleanCaseRewrite (useShapes : Bool) (base : Nat) (environment : List (VarId × Expr))
+    (result : Expr) : Expr :=
+  if !useShapes then result else
+  match result with
+  | .Case (.Case inner innerAlternatives) outer =>
+    if outer.length == 2 && outer.all smallAlternative &&
+        innerAlternatives.any (booleanLiteralLeaf 16) && knownBoolean 64 environment inner then
+      pushBooleanCase base 32 environment (.Case inner innerAlternatives) outer
+    else result
+  | .Case scrutinee [.Lit (.Bool false, .AtomicType .TypeBool), .Lit (.Bool true, .AtomicType .TypeBool)] =>
+    if knownBoolean 64 environment scrutinee then scrutinee else result
+  | _ => result
+
+def shapeRewrite (useShapes : Bool) (base : Nat) (environment : List (VarId × Expr))
+    (result : Expr) : Expr :=
+  booleanCaseRewrite useShapes base environment (checkedRewrite useShapes base environment result)
 
 /-- Drop the bindings whose evaluation is known total and whose binder is unused
     by the remaining bindings and the body. -/
