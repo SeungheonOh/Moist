@@ -102,21 +102,6 @@ mutual
         SingleOccList pos (t :: ts)
 end
 
-mutual
-theorem StrictSingleOcc.toSingleOcc : StrictSingleOcc pos t → SingleOcc pos t
-  | .var => .var
-  | .apply_l hf hfree => .apply_l hf.toSingleOcc hfree
-  | .apply_r hfree hx => .apply_r hfree hx.toSingleOcc
-  | .force he => .force he.toSingleOcc
-  | .constr ha => .constr ha.toSingleOccList
-  | .case_scrut hs hfree => .case_scrut hs.toSingleOcc hfree
-  | .let_body hb hfree => .let_body hb.toSingleOcc hfree
-
-theorem StrictSingleOccList.toSingleOccList : StrictSingleOccList pos ts → SingleOccList pos ts
-  | .head ht hfree => .head ht.toSingleOcc hfree
-  | .tail hfree hts => .tail hfree hts.toSingleOccList
-end
-
 /-! ## UnshiftRename: the renaming that substTerm applies to FreeOf terms
 
 For a FreeOf term, `substTerm pos r t` doesn't insert `r` anywhere —
@@ -439,20 +424,6 @@ open Moist.CEK (State CekEnv CekValue Stack Frame step)
 open Moist.Verified.Equivalence (Reaches steps)
 open Moist.Verified.BetaValueRefines (steps_trans steps_error_fixed steps_halt_fixed)
 
-private theorem term_sizeOf_pos (t : Term) : sizeOf t ≥ 1 := by
-  cases t <;> simp [Term._sizeOf_inst, instSizeOfNat] <;> omega
-
-private theorem freeOfList_elem {pos : Nat} {ts : List Term}
-    (h : freeOfList pos ts = true) {idx : Nat} (hidx : idx < ts.length) :
-    freeOf pos (ts[idx]'hidx) = true := by
-  induction ts generalizing idx with
-  | nil => exact absurd hidx (Nat.not_lt_zero _)
-  | cons a rest ih =>
-    simp [freeOfList] at h
-    cases idx with
-    | zero => simp; exact h.1
-    | succ k => exact ih h.2 (by simp at hidx; omega)
-
 private theorem closedAtList_elem' {d : Nat} {ts : List Term}
     (h : Moist.Verified.closedAtList d ts = true) {idx : Nat} (hidx : idx < ts.length) :
     Moist.Verified.closedAt d (ts[idx]'hidx) = true := by
@@ -463,26 +434,6 @@ private theorem closedAtList_elem' {d : Nat} {ts : List Term}
     cases idx with
     | zero => simp; exact h.1
     | succ k => exact ih h.2 (by simp at hidx; omega)
-
-theorem SingleOccList.elem_singleOcc_or_freeOf
-    {pos : Nat} {ts : List Term}
-    (h : SingleOccList pos ts) (i : Nat) (hi : i < ts.length) :
-    SingleOcc pos (ts[i]'hi) ∨ freeOf pos (ts[i]'hi) = true := by
-  match ts, h with
-  | _ :: _, .head ht hfree =>
-    match i with
-    | 0 => exact Or.inl ht
-    | i' + 1 => exact Or.inr (freeOfList_elem hfree (by simp [List.length] at hi; omega))
-  | _ :: _, .tail hfree hts =>
-    match i with
-    | 0 => exact Or.inr hfree
-    | i' + 1 => exact hts.elem_singleOcc_or_freeOf i' (by simp [List.length] at hi; omega)
-
-/-! ## Multi-shift rename: supports multi-level halt preservation
-
-`multiShift K` shifts every positive index by `K`: `0 ↦ 0`, `n ↦ n + K` for
-`n ≥ 1`. Equivalent to `(shiftRename 1)^K` as a function on `Nat`. Used to
-lift halt hypotheses across multiple `extend`s from a WF base env. -/
 
 def multiShift (K : Nat) : Nat → Nat :=
   fun n => if n = 0 then 0 else n + K
