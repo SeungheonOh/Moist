@@ -2,12 +2,15 @@
 import Test.MIR.Opt.Axioms.BetaReduce
 import Test.MIR.Opt.Axioms.CSE
 import Test.MIR.Opt.Axioms.CaseMerge
+import Test.MIR.Opt.Axioms.CheckedBranches
+import Test.MIR.Opt.Axioms.Compiler
 import Test.MIR.Opt.Axioms.DelaySharing
 import Test.MIR.Opt.Axioms.EtaReduce
 import Test.MIR.Opt.Axioms.FloatOut
 import Test.MIR.Opt.Axioms.ForceDelay
 import Test.MIR.Opt.Axioms.Pipeline
 import Test.MIR.Opt.Axioms.PreLower
+import Test.MIR.Opt.Axioms.Products
 import Test.MIR.Opt.Axioms.Shapes
 import Test.MIR.Opt.Axioms.Sharing
 import Test.MIR.Opt.Axioms.StaticArguments
