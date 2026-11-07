@@ -16,6 +16,10 @@ register_option moist.optimize.packApplications : Bool := {
   defValue := true
   descr := "Pack safe final application spines to reduce CPU and memory" }
 
+register_option moist.optimize.shareLow : Bool := {
+  defValue := true
+  descr := "Share repeated closed values, large constants and forced builtins at their lowest dominating node when no successful run gets slower" }
+
 register_option moist.optimize.shareBuiltinStates : Bool := {
   defValue := false
   descr := "Share closed builtin states; profile-dependent CPU/memory trade-off" }
@@ -36,6 +40,7 @@ private def optimizationOptions : CoreM Moist.MIR.Advanced.Options := do
   let options ← getOptions
   return {
     packApplications := moist.optimize.packApplications.get options
+    shareLow := moist.optimize.shareLow.get options
     shareBuiltinStates := moist.optimize.shareBuiltinStates.get options
     poolConstants := moist.optimize.poolConstants.get options }
 

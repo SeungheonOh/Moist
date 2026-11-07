@@ -2,6 +2,7 @@ import Moist.MIR.Optimize.Advanced.Constants
 import Moist.MIR.Optimize.Advanced.Shapes
 import Moist.MIR.Optimize.Advanced.Allocations
 import Moist.MIR.Optimize.Advanced.Sharing
+import Moist.MIR.Optimize.Advanced.Placement
 import Moist.MIR.Optimize.Advanced.Products
 import Moist.MIR.Optimize.Advanced.Recursion
 import Moist.MIR.Optimize.Advanced.CheckedBranches
@@ -24,6 +25,11 @@ its original builtin provenance is still available and before final allocation.
 
 structure Options where
   packApplications : Bool := true
+  /-- Share repeated closed values, large constants and forced builtins at
+      their lowest dominating node, keeping only bindings that make no
+      successful run slower (`shareLow`). -/
+  shareLow : Bool := true
+  lowSharing : LowOptions := {}
   shareBuiltinStates : Bool := false
   poolConstants : Bool := false
   minimumBuiltinUses : Nat := 2
@@ -50,8 +56,9 @@ where
 
 def finish (expression : Expr) (options : Options := {}) : Expr :=
   let packed := if options.packApplications then packApplications 3 expression else expression
+  let low := if options.shareLow then shareLow options.lowSharing packed else packed
   let shared := if options.shareBuiltinStates then
-    hoistBuiltinStates (max 1 options.minimumBuiltinUses) packed else packed
+    hoistBuiltinStates (max 1 options.minimumBuiltinUses) low else low
   if options.poolConstants then poolConstants options.minimumConstantBytes shared else shared
 
 end Moist.MIR.Advanced

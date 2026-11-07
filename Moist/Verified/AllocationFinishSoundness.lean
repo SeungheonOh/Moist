@@ -1,5 +1,6 @@
 import Moist.Verified.ApplicationPackingSoundness
 import Moist.Verified.SharingSoundness
+import Moist.Verified.PlacementSoundness
 import Moist.MIR.Optimize.Advanced
 
 namespace Moist.Verified.MIR
@@ -16,13 +17,19 @@ theorem finish_refines (expression : Expr) (options : Options) :
     split
     · exact packApplications_refines 3 expression
     · exact mirCtxRefines_refl expression
-  have shared : ∀ packed, MIRCtxRefines packed
-      (if options.shareBuiltinStates then
-        hoistBuiltinStates (max 1 options.minimumBuiltinUses) packed else packed) := by
+  have low : ∀ packed, MIRCtxRefines packed
+      (if options.shareLow then shareLow options.lowSharing packed else packed) := by
     intro packed
     split
-    · exact Sharing.hoistBuiltinStates_refines _ packed
+    · exact Placement.shareLow_refines _ packed
     · exact mirCtxRefines_refl packed
+  have shared : ∀ low, MIRCtxRefines low
+      (if options.shareBuiltinStates then
+        hoistBuiltinStates (max 1 options.minimumBuiltinUses) low else low) := by
+    intro low
+    split
+    · exact Sharing.hoistBuiltinStates_refines _ low
+    · exact mirCtxRefines_refl low
   have pooled : ∀ shared, MIRCtxRefines shared
       (if options.poolConstants then poolConstants options.minimumConstantBytes shared
         else shared) := by
@@ -30,7 +37,8 @@ theorem finish_refines (expression : Expr) (options : Options) :
     split
     · exact Sharing.poolConstants_refines _ shared
     · exact mirCtxRefines_refl shared
-  exact mirCtxRefines_trans (mirCtxRefines_trans packed (shared _)) (pooled _)
+  exact mirCtxRefines_trans (mirCtxRefines_trans (mirCtxRefines_trans packed (low _)) (shared _))
+    (pooled _)
 
 theorem finish_without_sharing_refines (expression : Expr) (options : Options)
     (_builtinSharing : options.shareBuiltinStates = false)
