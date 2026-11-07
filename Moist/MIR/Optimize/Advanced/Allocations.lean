@@ -1,4 +1,5 @@
 import Moist.MIR.Optimize.Advanced.Traversal
+import Moist.MIR.Optimize.Advanced.DelaySharing
 import Moist.Plutus.Encode
 
 namespace Moist.MIR.Advanced
@@ -35,33 +36,6 @@ private def children : Expr → List Expr
   | .Case scrutinee alternatives => scrutinee :: alternatives
   | .Let bindings body => bindings.map (·.2.1) ++ [body]
   | _ => []
-
-private partial def onlyForced (binder : VarId) (expression : Expr) : Bool :=
-  match expression with
-  | .Force (.Var _) => true
-  | .Var other => binder != other
-  | _ => (children expression).all (onlyForced binder)
-
-private partial def removeForces (binder : VarId) (expression : Expr) : Expr :=
-  match expression with
-  | .Force (.Var other) => if binder == other then .Var other else expression
-  | _ => mapChildren (removeForces binder) expression
-
-private partial def shareDelaysCore (expression : Expr) : Expr :=
-  let result := mapChildren shareDelaysCore expression
-  match result with
-  | .Let bindings body =>
-    bindings.foldr (fun (binder, rhs, erased) suffix =>
-      match rhs with
-      | .Delay delayed =>
-        if isPure delayed && onlyForced binder suffix then
-          .Let [(binder, delayed, erased)] (removeForces binder suffix)
-        else .Let [(binder, rhs, erased)] suffix
-      | _ => .Let [(binder, rhs, erased)] suffix) body
-  | _ => result
-
-def shareDelayedValues (expression : Expr) : Expr :=
-  shareDelaysCore (uniqueOptimizationBinders expression)
 
 def eliminateDeadFixRoot (expression : Expr) : Expr :=
   match expression with
