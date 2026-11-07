@@ -12,15 +12,23 @@ open Moist.Cardano.V3
 /-! Port of `Settings.Contracts.SettingsPlinth`: the settings UTxO spending validator
 (settings-admin and treasury-admin updates) and the one-shot settings NFT minting policy. -/
 
+/-- The admin scripts are user-supplied and decoded as Plinth's `asData` matching does:
+an unknown constructor index is rejected (`unknown`), and the single fields of `before`,
+`after` and `scriptWit` are only read once the check needs them (see `soleField`). -/
 @[plutus_data]
 inductive MultisigScript where
   | signature : PubKeyHash → MultisigScript
   | allOf : List MultisigScript → MultisigScript
   | anyOf : List MultisigScript → MultisigScript
   | atLeast : Int → List MultisigScript → MultisigScript
-  | before : Int → MultisigScript
-  | after : Int → MultisigScript
-  | scriptWit : PubKeyHash → MultisigScript
+  | before : MultisigScript
+  | after : MultisigScript
+  | scriptWit : MultisigScript
+  | unknown : MultisigScript
+
+/-- The first field of a constructor whose field is read lazily. -/
+@[onchain] def soleField (script : MultisigScript) : Data :=
+  headList (sndPair (unConstrData (PlutusData.toData script)))
 
 /-- Every field is compared or decoded on demand, so all of them stay as raw `Data`. -/
 @[plutus_data]
@@ -38,36 +46,47 @@ structure SettingsDatum where
   poolCreationFee : Data
   extensions : Data
 
+/-- `unknown` stands for any other constructor index, which Plinth rejects. -/
 @[plutus_data]
 inductive SettingsRedeemer where
   | settingsAdminUpdate : SettingsRedeemer
   | treasuryAdminUpdate : SettingsRedeemer
+  | unknown : SettingsRedeemer
 
 /-- The transaction facts a multisig script is checked against. -/
 @[plutus_sop]
 structure Witnesses where
   signatories : List PubKeyHash
   range : POSIXTimeRange
-  withdrawals : AssocMap Credential Lovelace
+  withdrawals : List (Data × Data)
 
 @[onchain] def signedBy (signer : PubKeyHash) : List PubKeyHash → Bool
   | [] => false
   | candidate :: rest => if equalsByteString candidate signer then true else signedBy signer rest
 
-@[onchain] def withdraws (credential : Credential) (withdrawals : AssocMap Credential Lovelace) : Bool :=
-  Moist.Onchain.AssocMap.foldrLazy
-    (fun key _ _ next => if dataBeq key credential then true else next ()) false withdrawals
+@[onchain] def hasKey (key : Data) : List (Data × Data) → Bool
+  | [] => false
+  | entry :: rest => if equalsData key entry.1 then true else hasKey key rest
 
-@[onchain] def endsBy (range : POSIXTimeRange) (time : Int) : Bool :=
+/-- `scriptWit`: a withdrawal from the script credential of the witness hash. -/
+@[onchain] def withdraws (script : MultisigScript) (withdrawals : List (Data × Data)) : Bool :=
+  match withdrawals with
+  | [] => false
+  | _ :: _ =>
+    hasKey (PlutusData.toData (Credential.scriptCredential (unBData (soleField script)))) withdrawals
+
+/-- `before`: the validity range ends by the script's time. -/
+@[onchain] def endsBy (range : POSIXTimeRange) (script : MultisigScript) : Bool :=
   match range.upperBound with
-  | ⟨.finite high, .inclusive⟩ => lessThanEqInteger high time
-  | ⟨.finite high, .exclusive⟩ => lessThanInteger high time
+  | ⟨.finite high, .inclusive⟩ => lessThanEqInteger high (unIData (soleField script))
+  | ⟨.finite high, .exclusive⟩ => lessThanInteger high (unIData (soleField script))
   | _ => false
 
-@[onchain] def startsAfter (range : POSIXTimeRange) (time : Int) : Bool :=
+/-- `after`: the validity range starts after the script's time. -/
+@[onchain] def startsAfter (range : POSIXTimeRange) (script : MultisigScript) : Bool :=
   match range.lowerBound with
-  | ⟨.finite low, .inclusive⟩ => lessThanEqInteger time low
-  | ⟨.finite low, .exclusive⟩ => lessThanInteger time low
+  | ⟨.finite low, .inclusive⟩ => lessThanEqInteger (unIData (soleField script)) low
+  | ⟨.finite low, .exclusive⟩ => lessThanInteger (unIData (soleField script)) low
   | _ => false
 
 /-- Folds one member's verdict into a combination of `scripts` (see `combine`). -/
@@ -82,7 +101,7 @@ structure Witnesses where
 
 /-- How `scripts` combines its members: `0` all (short-circuits), `1` any (short-circuits),
 `2` the number satisfied (checks every member). All and any answer `1` or `0`. -/
-@[onchain] def combine (witnesses : Witnesses) (mode : Int) : List MultisigScript → Int
+@[onchain] noncomputable def combine (witnesses : Witnesses) (mode : Int) : List MultisigScript → Int
   | [] => if equalsInteger mode 0 then 1 else 0
   | script :: scripts =>
     step mode
@@ -91,13 +110,14 @@ structure Witnesses where
         | .allOf members => equalsInteger (combine witnesses 0 members) 1
         | .anyOf members => equalsInteger (combine witnesses 1 members) 1
         | .atLeast required members => lessThanEqInteger required (combine witnesses 2 members)
-        | .before time => endsBy witnesses.range time
-        | .after time => startsAfter witnesses.range time
-        | .scriptWit hash => withdraws (.scriptCredential hash) witnesses.withdrawals)
+        | .before => endsBy witnesses.range script
+        | .after => startsAfter witnesses.range script
+        | .scriptWit => withdraws script witnesses.withdrawals
+        | .unknown => pError)
       (fun _ => combine witnesses mode scripts)
 termination_by scripts => sizeOf scripts
 
-@[onchain] def multisigSatisfied (witnesses : Witnesses) (script : MultisigScript) : Bool :=
+@[onchain] noncomputable def multisigSatisfied (witnesses : Witnesses) (script : MultisigScript) : Bool :=
   equalsInteger (combine witnesses 0 [script]) 1
 
 /-! ## Value equality
@@ -171,34 +191,11 @@ answers the other entries (zero entries passed over are dropped). -/
   | .outputDatum datum => PlutusData.unsafeFromData datum
   | _ => pError
 
+
 @[onchain] def entries (value : Value) : List (Data × Data) := unMapData (PlutusData.toData value)
 
-/-- A settings-admin update keeps the treasury address, allowance and staking keys. -/
-@[onchain] def settingsAdminKeeps (input output : SettingsDatum) : Bool :=
-  if equalsData input.authorizedStakingKeys output.authorizedStakingKeys then
-    if equalsData input.treasuryAddress output.treasuryAddress then
-      equalsData input.treasuryAllowance output.treasuryAllowance
-    else false
-  else false
-
-/-- A treasury-admin update keeps everything but the treasury address, allowance and
-staking keys. -/
-@[onchain] def treasuryAdminKeeps (input output : SettingsDatum) : Bool :=
-  match input, output with
-  | ⟨settingsAdmin, metadataAdmin, treasuryAdmin, _, _, scoopers, _, baseFee, simpleFee,
-      strategyFee, poolCreationFee, extensions⟩,
-    ⟨settingsAdmin', metadataAdmin', treasuryAdmin', _, _, scoopers', _, baseFee', simpleFee',
-      strategyFee', poolCreationFee', extensions'⟩ =>
-    if equalsData settingsAdmin settingsAdmin' then
-    if equalsData metadataAdmin metadataAdmin' then
-    if equalsData treasuryAdmin treasuryAdmin' then
-    if equalsData scoopers scoopers' then
-    if equalsData baseFee baseFee' then
-    if equalsData simpleFee simpleFee' then
-    if equalsData strategyFee strategyFee' then
-    if equalsData poolCreationFee poolCreationFee' then
-      equalsData extensions extensions'
-    else false else false else false else false else false else false else false else false
+@[onchain] def withdrawalEntries (withdrawals : AssocMap Credential Lovelace) : List (Data × Data) :=
+  unMapData (PlutusData.toData withdrawals)
 
 @[onchain] noncomputable def settingsValidator (input : SettingsDatum) (redeemer : SettingsRedeemer)
     (ownRef : TxOutRef) (info : TxInfo) : Bool :=
@@ -208,23 +205,46 @@ staking keys. -/
     match outputs with
     | [] => pError
     | output :: _ =>
-      let outputDatum := inlineDatum output
-      if dataBeq output.address spent.address then
-        if valueEqual (withoutAda (entries output.value)) (withoutAda (entries spent.value)) then
-          match entries mint with
-          | [] =>
-            let admin := match redeemer with
-              | .settingsAdminUpdate => input.settingsAdmin
-              | .treasuryAdminUpdate => input.treasuryAdmin
-            let witnesses : Witnesses := ⟨signatories, range, withdrawals⟩
-            if multisigSatisfied witnesses (PlutusData.unsafeFromData admin) then
-              match redeemer with
-              | .settingsAdminUpdate => settingsAdminKeeps input outputDatum
-              | .treasuryAdminUpdate => treasuryAdminKeeps input outputDatum
-            else false
-          | _ => false
+      -- Plinth matches all twelve fields of both datums, whichever update is checked.
+      match input, inlineDatum output with
+      | ⟨settingsAdmin, metadataAdmin, treasuryAdmin, treasuryAddress, treasuryAllowance,
+          scoopers, stakingKeys, baseFee, simpleFee, strategyFee, poolCreationFee, extensions⟩,
+        ⟨settingsAdmin', metadataAdmin', treasuryAdmin', treasuryAddress', treasuryAllowance',
+          scoopers', stakingKeys', baseFee', simpleFee', strategyFee', poolCreationFee', extensions'⟩ =>
+        if dataBeq output.address spent.address then
+          if valueEqual (withoutAda (entries output.value)) (withoutAda (entries spent.value)) then
+            match entries mint with
+            | [] =>
+              let admin := match redeemer with
+                | .settingsAdminUpdate => settingsAdmin
+                | .treasuryAdminUpdate => treasuryAdmin
+                | .unknown => pError
+              let witnesses : Witnesses := ⟨signatories, range, withdrawalEntries withdrawals⟩
+              if multisigSatisfied witnesses (PlutusData.unsafeFromData admin) then
+                match redeemer with
+                | .settingsAdminUpdate =>
+                  if equalsData stakingKeys stakingKeys' then
+                    if equalsData treasuryAddress treasuryAddress' then
+                      equalsData treasuryAllowance treasuryAllowance'
+                    else false
+                  else false
+                | .treasuryAdminUpdate =>
+                  if equalsData settingsAdmin settingsAdmin' then
+                  if equalsData metadataAdmin metadataAdmin' then
+                  if equalsData treasuryAdmin treasuryAdmin' then
+                  if equalsData scoopers scoopers' then
+                  if equalsData baseFee baseFee' then
+                  if equalsData simpleFee simpleFee' then
+                  if equalsData strategyFee strategyFee' then
+                  if equalsData poolCreationFee poolCreationFee' then
+                    equalsData extensions extensions'
+                  else false else false else false else false else false else false else false
+                  else false
+                | .unknown => pError
+              else false
+            | _ => false
+          else false
         else false
-      else false
 
 /-! ## Minting -/
 
@@ -242,6 +262,8 @@ staking keys. -/
     else false
   | _ => false
 
+/-- Plinth's data-backed `TxOutRef` is a newtype over `Data`, so its derived `Eq` compares
+the encodings. -/
 @[onchain] def spendsReference (reference : TxOutRef) : List TxInInfo → Bool
   | [] => false
   | input :: rest => if dataBeq input.outRef reference then true else spendsReference reference rest

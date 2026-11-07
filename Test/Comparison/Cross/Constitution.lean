@@ -12,29 +12,35 @@ open Moist.Cardano.V3
 parameter-change proposals, as a sorted merge-join between the configuration and the
 changed parameters. -/
 
+/-! The configuration is user-supplied, so it is decoded exactly as Plinth decodes it:
+`unknown` stands for any constructor index the Plinth type does not have, and is rejected
+instead of being read as the last constructor. Tuples are `makeIsDataIndexed` products,
+which require index 0 and decode both components. -/
+
 @[plutus_data]
 inductive PredKey where
   | minValue : PredKey
   | maxValue : PredKey
   | notEqual : PredKey
+  | unknown : PredKey
 
 /-- `(PredKey, [Integer])`. -/
 @[plutus_data]
-structure IntegerPredicate where
-  key : PredKey
-  expected : List Data
+inductive IntegerPredicate where
+  | mk : PredKey → List Data → IntegerPredicate
+  | unknown : IntegerPredicate
 
 /-- `(Integer, Integer)`. -/
 @[plutus_data]
-structure Fraction where
-  numerator : Int
-  denominator : Int
+inductive Fraction where
+  | mk : Int → Int → Fraction
+  | unknown : Fraction
 
 /-- `(PredKey, [(Integer, Integer)])`. -/
 @[plutus_data]
-structure RationalPredicate where
-  key : PredKey
-  expected : List Fraction
+inductive RationalPredicate where
+  | mk : PredKey → List Fraction → RationalPredicate
+  | unknown : RationalPredicate
 
 @[plutus_data]
 inductive ParamValue where
@@ -42,12 +48,13 @@ inductive ParamValue where
   | paramRational : List RationalPredicate → ParamValue
   | paramList : List ParamValue → ParamValue
   | paramAny : ParamValue
+  | unknown : ParamValue
 
 /-- `(Integer, ParamValue)`; the value stays undecoded until a changed parameter needs it. -/
 @[plutus_data]
-structure ConfigEntry where
-  paramId : Int
-  value : Data
+inductive ConfigEntry where
+  | mk : Int → Data → ConfigEntry
+  | unknown : ConfigEntry
 
 @[onchain] def allAtLeast (actual : Int) : List Data → Bool
   | [] => true
@@ -61,54 +68,62 @@ structure ConfigEntry where
   | [] => true
   | bound :: rest => if equalsInteger (unIData bound) actual then false else allDifferent actual rest
 
-@[onchain] def integerPredicates (actual : Int) : List IntegerPredicate → Bool
+@[onchain] noncomputable def integerPredicates (actual : Int) : List IntegerPredicate → Bool
   | [] => true
-  | predicate :: rest =>
-    let holds := match predicate.key with
-      | .minValue => allAtLeast actual predicate.expected
-      | .maxValue => allAtMost actual predicate.expected
-      | .notEqual => allDifferent actual predicate.expected
+  | .unknown :: _ => pError
+  | .mk key expected :: rest =>
+    let holds := match key with
+      | .minValue => allAtLeast actual expected
+      | .maxValue => allAtMost actual expected
+      | .notEqual => allDifferent actual expected
+      | .unknown => pError
     if holds then integerPredicates actual rest else false
 
-@[onchain] def fractionsAtLeast (numerator denominator : Int) : List Fraction → Bool
+@[onchain] noncomputable def fractionsAtLeast (numerator denominator : Int) : List Fraction → Bool
   | [] => true
-  | bound :: rest =>
-    if lessThanEqInteger (multiplyInteger bound.numerator denominator)
-        (multiplyInteger numerator bound.denominator)
+  | .unknown :: _ => pError
+  | .mk boundNumerator boundDenominator :: rest =>
+    if lessThanEqInteger (multiplyInteger boundNumerator denominator)
+        (multiplyInteger numerator boundDenominator)
     then fractionsAtLeast numerator denominator rest else false
 
-@[onchain] def fractionsAtMost (numerator denominator : Int) : List Fraction → Bool
+@[onchain] noncomputable def fractionsAtMost (numerator denominator : Int) : List Fraction → Bool
   | [] => true
-  | bound :: rest =>
-    if lessThanEqInteger (multiplyInteger numerator bound.denominator)
-        (multiplyInteger bound.numerator denominator)
+  | .unknown :: _ => pError
+  | .mk boundNumerator boundDenominator :: rest =>
+    if lessThanEqInteger (multiplyInteger numerator boundDenominator)
+        (multiplyInteger boundNumerator denominator)
     then fractionsAtMost numerator denominator rest else false
 
-@[onchain] def fractionsDifferent (numerator denominator : Int) : List Fraction → Bool
+@[onchain] noncomputable def fractionsDifferent (numerator denominator : Int) : List Fraction → Bool
   | [] => true
-  | bound :: rest =>
-    if equalsInteger (multiplyInteger bound.numerator denominator)
-        (multiplyInteger numerator bound.denominator)
+  | .unknown :: _ => pError
+  | .mk boundNumerator boundDenominator :: rest =>
+    if equalsInteger (multiplyInteger boundNumerator denominator)
+        (multiplyInteger numerator boundDenominator)
     then false else fractionsDifferent numerator denominator rest
 
-@[onchain] def rationalPredicates (numerator denominator : Int) : List RationalPredicate → Bool
+@[onchain] noncomputable def rationalPredicates (numerator denominator : Int) :
+    List RationalPredicate → Bool
   | [] => true
-  | predicate :: rest =>
-    let holds := match predicate.key with
-      | .minValue => fractionsAtLeast numerator denominator predicate.expected
-      | .maxValue => fractionsAtMost numerator denominator predicate.expected
-      | .notEqual => fractionsDifferent numerator denominator predicate.expected
+  | .unknown :: _ => pError
+  | .mk key expected :: rest =>
+    let holds := match key with
+      | .minValue => fractionsAtLeast numerator denominator expected
+      | .maxValue => fractionsAtMost numerator denominator expected
+      | .notEqual => fractionsDifferent numerator denominator expected
+      | .unknown => pError
     if holds then rationalPredicates numerator denominator rest else false
 
 /-- The changed value of a rational parameter is the list `[numerator, denominator]`. -/
-@[onchain] def rationalValue (predicates : List RationalPredicate) (actual : Data) : Bool :=
+@[onchain] noncomputable def rationalValue (predicates : List RationalPredicate) (actual : Data) : Bool :=
   let components := unListData actual
   let numerator := unIData (headList components)
   let denominator := unIData (headList (tailList components))
   rationalPredicates numerator denominator predicates
 
 /-- A list parameter must supply exactly one value per configured sub-parameter. -/
-@[onchain] def validateValues : List ParamValue → List Data → Bool
+@[onchain] noncomputable def validateValues : List ParamValue → List Data → Bool
   | [], actuals => nullList actuals
   | _ :: _, [] => false
   | value :: values, actual :: actuals =>
@@ -120,27 +135,29 @@ structure ConfigEntry where
     | .paramList inner =>
       if validateValues inner (unListData actual) then validateValues values actuals else false
     | .paramAny => validateValues values actuals
+    | .unknown => pError
 termination_by values => sizeOf values
 
-@[onchain] def validateParamValue (value : ParamValue) (actual : Data) : Bool :=
+@[onchain] noncomputable def validateParamValue (value : ParamValue) (actual : Data) : Bool :=
   validateValues [value] [actual]
 
 /-- Sorted merge-join: `paramId`/`actual` is the current changed parameter and `rest` the
 changed parameters after it. Configuration entries below `paramId` are skipped. -/
-@[onchain] def mergeRules (paramId : Int) (actual : Data) (rest : List (Data × Data)) :
+@[onchain] noncomputable def mergeRules (paramId : Int) (actual : Data) (rest : List (Data × Data)) :
     List ConfigEntry → Bool
   | [] => false
-  | entry :: config =>
-    if equalsInteger paramId entry.paramId then
-      if validateParamValue (Moist.Onchain.PlutusData.unsafeFromData entry.value) actual then
+  | .unknown :: _ => pError
+  | .mk entryId value :: config =>
+    if equalsInteger paramId entryId then
+      if validateParamValue (Moist.Onchain.PlutusData.unsafeFromData value) actual then
         match rest with
         | [] => true
         | changed :: rest => mergeRules (unIData changed.1) changed.2 rest config
       else false
-    else if lessThanInteger entry.paramId paramId then mergeRules paramId actual rest config
+    else if lessThanInteger entryId paramId then mergeRules paramId actual rest config
     else false
 
-@[onchain] def runRules (config : List ConfigEntry) : List (Data × Data) → Bool
+@[onchain] noncomputable def runRules (config : List ConfigEntry) : List (Data × Data) → Bool
   | [] => true
   | changed :: rest => mergeRules (unIData changed.1) changed.2 rest config
 
