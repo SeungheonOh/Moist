@@ -422,6 +422,18 @@ def AltsRel (W : Guard) (k : Nat) (ρ₁ ρ₂ : CekEnv) (as₁ as₂ : List Ter
   ∀ n : Nat, (as₁[n]? = none ∧ as₂[n]? = none) ∨
     ∃ a₁ a₂, as₁[n]? = some a₁ ∧ as₂[n]? = some a₂ ∧ Eval W k ρ₁ ρ₂ a₁ a₂
 
+
+theorem altsRel_of_listRel {k : Nat} {ρ₁ ρ₂ : CekEnv} :
+    ∀ {as₁ as₂ : List Term}, ListRel (Eval W k ρ₁ ρ₂) as₁ as₂ → AltsRel W k ρ₁ ρ₂ as₁ as₂
+  | [], [], _ => ⟨rfl, fun _ => .inl ⟨rfl, rfl⟩⟩
+  | [], _ :: _, h | _ :: _, [], h => absurd h id
+  | a₁ :: as₁, a₂ :: as₂, h => by
+    have ih := altsRel_of_listRel h.2
+    refine ⟨by simp [ih.1], fun n => ?_⟩
+    cases n with
+    | zero => exact .inr ⟨a₁, a₂, rfl, rfl, h.1⟩
+    | succ n => simpa using ih.2 n
+
 /-- The `caseScrutinee` frame: dispatch to related alternatives. -/
 theorem case_stackRel {k : Nat} {as₁ as₂ : List Term} {ρ₁ ρ₂ : CekEnv} {π₁ π₂ : Stack}
     (halts : AltsRel W k ρ₁ ρ₂ as₁ as₂)
