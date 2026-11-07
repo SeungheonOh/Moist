@@ -184,11 +184,14 @@ theorem fusedNonempty_steps {ρ : CekEnv} {π : Stack} {n : Nat} {vl : CekValue}
     (hvl : ρ.lookup n = some vl) :
     ∀ hv tv, (∃ c cs, vl = .VCon (.ConstList (c :: cs)) ∧ hv = .VCon c ∧ tv = .VCon (.ConstList cs)) ∨
       (∃ d ds, vl = .VCon (.ConstDataList (d :: ds)) ∧ hv = .VCon (.Data d) ∧
-        tv = .VCon (.ConstDataList ds)) →
+        tv = .VCon (.ConstDataList ds)) ∨
+      (∃ p ps, vl = .VCon (.ConstPairDataList (p :: ps)) ∧ hv = .VCon (.PairData p) ∧
+        tv = .VCon (.ConstPairDataList ps)) →
     Reaches (.compute π ρ (.Case (.Var n) [.Lam 0 (.Lam 0 b)]))
       (.compute π ((ρ.extend hv).extend tv) b) := by
   intro hv tv h
-  rcases h with ⟨c, cs, rfl, rfl, rfl⟩ | ⟨d, ds, rfl, rfl, rfl⟩
+  rcases h with ⟨c, cs, rfl, rfl, rfl⟩ | ⟨d, ds, rfl, rfl, rfl⟩ | ⟨p, ps, rfl, rfl, rfl⟩
+  · exact ⟨7, by simp [steps, step, hvl, constToTagAndFields, CekEnv.extend]⟩
   · exact ⟨7, by simp [steps, step, hvl, constToTagAndFields, CekEnv.extend]⟩
   · exact ⟨7, by simp [steps, step, hvl, constToTagAndFields, CekEnv.extend]⟩
 
@@ -243,14 +246,16 @@ theorem CheckedRel.fusion {Γ : List (VarId × Expr)} {N : List VarId} {h t : Va
   have nonempty : ∀ hv tv : CekValue,
       ((∃ c cs, vl = .VCon (.ConstList (c :: cs)) ∧ hv = .VCon c ∧ tv = .VCon (.ConstList cs)) ∨
         (∃ d ds, vl = .VCon (.ConstDataList (d :: ds)) ∧ hv = .VCon (.Data d) ∧
-          tv = .VCon (.ConstDataList ds))) →
+          tv = .VCon (.ConstDataList ds)) ∨
+        (∃ p ps, vl = .VCon (.ConstPairDataList (p :: ps)) ∧ hv = .VCon (.PairData p) ∧
+          tv = .VCon (.ConstPairDataList ps))) →
       ObsRefines (.compute π ρ (.Apply (.Lam 0 (.Apply (.Lam 0 tB) ttr)) thr))
         (.compute π ρ (.Case (.Var (il + 1)) [.Lam 0 (.Lam 0 tB')])) := by
     intro hv tv hshape
     have hhead_eval : evalBuiltin .HeadList [vl] = some hv := by
-      rcases hshape with ⟨c, cs, rfl, rfl, rfl⟩ | ⟨d, ds, rfl, rfl, rfl⟩ <;> rfl
+      rcases hshape with ⟨c, cs, rfl, rfl, rfl⟩ | ⟨d, ds, rfl, rfl, rfl⟩ | ⟨p, ps, rfl, rfl, rfl⟩ <;> rfl
     have htail_eval : evalBuiltin .TailList [vl] = some tv := by
-      rcases hshape with ⟨c, cs, rfl, rfl, rfl⟩ | ⟨d, ds, rfl, rfl, rfl⟩ <;> rfl
+      rcases hshape with ⟨c, cs, rfl, rfl, rfl⟩ | ⟨d, ds, rfl, rfl, rfl⟩ | ⟨p, ps, rfl, rfl, rfl⟩ <;> rfl
     have hthr_halts : Halts ρ thr hv := (hiffH hv).mpr hhead_eval
     have hvwf := halts_wellFormed henv hlen (MIR.lowerTotalExpr_closedAt hthr) hthr_halts
     have hF₁ : FactsHold Produces Γ (h :: env) (ρ.extend hv) := FactsHold.extend hv hF.1 hnh
@@ -278,7 +283,11 @@ theorem CheckedRel.fusion {Γ : List (VarId × Expr)} {N : List VarId} {h t : Va
     | ConstDataList xs =>
       cases xs with
       | nil => exact absurd hvne id
-      | cons d ds => exact nonempty _ _ (.inr ⟨d, ds, rfl, rfl, rfl⟩)
+      | cons d ds => exact nonempty _ _ (.inr (.inl ⟨d, ds, rfl, rfl, rfl⟩))
+    | ConstPairDataList xs =>
+      cases xs with
+      | nil => exact absurd hvne id
+      | cons p ps => exact nonempty _ _ (.inr (.inr ⟨p, ps, rfl, rfl, rfl⟩))
     | _ => exact absurd hvne id
   | _ => exact absurd hvne id
 

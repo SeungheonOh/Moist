@@ -34,23 +34,26 @@ theorem fused_case_steps {ρ : CekEnv} {π : Stack} {n : Nat} {vl : CekValue} {b
     (hvl : ρ.lookup n = some vl) :
     ∀ hv tv, (∃ c cs, vl = .VCon (.ConstList (c :: cs)) ∧ hv = .VCon c ∧ tv = .VCon (.ConstList cs)) ∨
       (∃ d ds, vl = .VCon (.ConstDataList (d :: ds)) ∧ hv = .VCon (.Data d) ∧
-        tv = .VCon (.ConstDataList ds)) →
+        tv = .VCon (.ConstDataList ds)) ∨
+      (∃ p ps, vl = .VCon (.ConstPairDataList (p :: ps)) ∧ hv = .VCon (.PairData p) ∧
+        tv = .VCon (.ConstPairDataList ps)) →
     Reaches (.compute π ρ (.Case (.Var n) [.Lam 0 (.Lam 0 b), .Error]))
       (.compute π ((ρ.extend hv).extend tv) b) := by
   intro hv tv h
-  rcases h with ⟨c, cs, rfl, rfl, rfl⟩ | ⟨d, ds, rfl, rfl, rfl⟩
+  rcases h with ⟨c, cs, rfl, rfl, rfl⟩ | ⟨d, ds, rfl, rfl, rfl⟩ | ⟨p, ps, rfl, rfl, rfl⟩
+  · exact ⟨7, by simp [steps, step, hvl, constToTagAndFields, CekEnv.extend]⟩
   · exact ⟨7, by simp [steps, step, hvl, constToTagAndFields, CekEnv.extend]⟩
   · exact ⟨7, by simp [steps, step, hvl, constToTagAndFields, CekEnv.extend]⟩
 
 theorem fused_case_errors {ρ : CekEnv} {π : Stack} {n : Nat} {vl : CekValue} {b : Term}
     (hvl : ρ.lookup n = some vl)
     (hempty : vl = .VCon (.ConstList []) ∨ vl = .VCon (.ConstDataList []) ∨
-      ∃ ps, vl = .VCon (.ConstPairDataList ps)) :
+      vl = .VCon (.ConstPairDataList [])) :
     Reaches (.compute π ρ (.Case (.Var n) [.Lam 0 (.Lam 0 b), .Error])) .error := by
-  rcases hempty with rfl | rfl | ⟨ps, rfl⟩
+  rcases hempty with rfl | rfl | rfl
   · exact ⟨5, by simp [steps, step, hvl, constToTagAndFields]⟩
   · exact ⟨5, by simp [steps, step, hvl, constToTagAndFields]⟩
-  · exact ⟨4, by simp [steps, step, hvl, constToTagAndFields]⟩
+  · exact ⟨5, by simp [steps, step, hvl, constToTagAndFields]⟩
 
 theorem produces_hP : ∀ (env : List VarId) (ρ : CekEnv) (rhs : Expr) (v : CekValue),
     Produces env ρ rhs v → Produces env ρ rhs v := fun _ _ _ _ h => h
@@ -120,14 +123,16 @@ theorem fusion_factRel {G : VarId → Prop} {Γ : List (VarId × Expr)} {h t : V
   have nonempty : ∀ hv tv : CekValue,
       ((∃ c cs, vl = .VCon (.ConstList (c :: cs)) ∧ hv = .VCon c ∧ tv = .VCon (.ConstList cs)) ∨
         (∃ d ds, vl = .VCon (.ConstDataList (d :: ds)) ∧ hv = .VCon (.Data d) ∧
-          tv = .VCon (.ConstDataList ds))) →
+          tv = .VCon (.ConstDataList ds)) ∨
+        (∃ p ps, vl = .VCon (.ConstPairDataList (p :: ps)) ∧ hv = .VCon (.PairData p) ∧
+          tv = .VCon (.ConstPairDataList ps))) →
       ObsRefines (.compute π ρ (.Apply (.Lam 0 (.Apply (.Lam 0 tB) ttr)) thr))
         (.compute π ρ (.Case (.Var (il + 1)) [.Lam 0 (.Lam 0 tB'), .Error])) := by
     intro hv tv hshape
     have hhead_eval : evalBuiltin .HeadList [vl] = some hv := by
-      rcases hshape with ⟨c, cs, rfl, rfl, rfl⟩ | ⟨d, ds, rfl, rfl, rfl⟩ <;> rfl
+      rcases hshape with ⟨c, cs, rfl, rfl, rfl⟩ | ⟨d, ds, rfl, rfl, rfl⟩ | ⟨p, ps, rfl, rfl, rfl⟩ <;> rfl
     have htail_eval : evalBuiltin .TailList [vl] = some tv := by
-      rcases hshape with ⟨c, cs, rfl, rfl, rfl⟩ | ⟨d, ds, rfl, rfl, rfl⟩ <;> rfl
+      rcases hshape with ⟨c, cs, rfl, rfl, rfl⟩ | ⟨d, ds, rfl, rfl, rfl⟩ | ⟨p, ps, rfl, rfl, rfl⟩ <;> rfl
     have hthr_halts : Halts ρ thr hv := (hiffH hv).mpr hhead_eval
     have hvwf := halts_wellFormed henv hlen (MIR.lowerTotalExpr_closedAt hthr) hthr_halts
     have hF₁ : FactsHold Produces Γ (h :: env) (ρ.extend hv) := FactsHold.extend hv hF hnh
@@ -144,12 +149,12 @@ theorem fusion_factRel {G : VarId → Prop} {Γ : List (VarId × Expr)} {h t : V
     exact hrB _ π (envWellFormed_extend (env.length + 1) henv₁ hlen₁ htvwf)
       (by simp [CekEnv.extend, CekEnv.length]; omega) hπ hF₂
   have empty : (vl = .VCon (.ConstList []) ∨ vl = .VCon (.ConstDataList []) ∨
-      ∃ ps, vl = .VCon (.ConstPairDataList ps)) →
+      vl = .VCon (.ConstPairDataList [])) →
       ObsRefines (.compute π ρ (.Apply (.Lam 0 (.Apply (.Lam 0 tB) ttr)) thr))
         (.compute π ρ (.Case (.Var (il + 1)) [.Lam 0 (.Lam 0 tB'), .Error])) := by
     intro hshape
     have hnone : evalBuiltin .HeadList [vl] = none := by
-      rcases hshape with rfl | rfl | ⟨ps, rfl⟩ <;> rfl
+      rcases hshape with rfl | rfl | rfl <;> rfl
     exact obsRefines_of_errors (let_errors (herrH hnone)) (fused_case_errors hvl hshape)
   cases vl with
   | VCon c =>
@@ -161,8 +166,11 @@ theorem fusion_factRel {G : VarId → Prop} {Γ : List (VarId × Expr)} {h t : V
     | ConstDataList xs =>
       cases xs with
       | nil => exact empty (.inr (.inl rfl))
-      | cons d ds => exact nonempty _ _ (.inr ⟨d, ds, rfl, rfl, rfl⟩)
-    | ConstPairDataList ps => exact empty (.inr (.inr ⟨ps, rfl⟩))
+      | cons d ds => exact nonempty _ _ (.inr (.inl ⟨d, ds, rfl, rfl, rfl⟩))
+    | ConstPairDataList ps =>
+      cases ps with
+      | nil => exact empty (.inr (.inr rfl))
+      | cons p ps => exact nonempty _ _ (.inr (.inr ⟨p, ps, rfl, rfl, rfl⟩))
     | _ => exact absurd hlist id
   | _ => exact absurd hlist id
 

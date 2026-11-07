@@ -411,6 +411,11 @@ def constListToData : List Const → Option (List Data)
   | .Data datum :: rest => return datum :: (← constListToData rest)
   | _ => none
 
+def constListToPairData : List Const → Option (List (Data × Data))
+  | [] => some []
+  | .PairData pair :: rest => return pair :: (← constListToPairData rest)
+  | _ => none
+
 /-! ## Two-Stage Builtin Evaluation
 
 Stage 1: `evalBuiltinConst` — pure computation on `List Const`, returns `Option Const`.
@@ -483,6 +488,7 @@ def evalBuiltinConst (b : BuiltinFun) (args : List Const) : Option Const :=
   | .ListData, [.ConstDataList ds] => some (.Data (.List ds))
   | .ListData, [.ConstList fields] => return .Data (.List (← constListToData fields))
   | .MapData, [.ConstPairDataList ps] => some (.Data (.Map ps))
+  | .MapData, [.ConstList ps] => return .Data (.Map (← constListToPairData ps))
 
   -- Data destructors
   | .UnConstrData, [.Data (.Constr tag fields)] =>
@@ -516,6 +522,15 @@ def evalBuiltinConst (b : BuiltinFun) (args : List Const) : Option Const :=
     some (.ConstDataList (h :: tail))
   | .MkCons, [.ConstList tail, c] =>
     some (.ConstList (c :: tail))
+
+  -- List operations (ConstPairDataList, the lists `unMapData` returns)
+  | .HeadList, [.ConstPairDataList (h :: _)] => some (.PairData h)
+  | .HeadList, [.ConstPairDataList []] => none
+  | .TailList, [.ConstPairDataList (_ :: t)] => some (.ConstPairDataList t)
+  | .TailList, [.ConstPairDataList []] => none
+  | .NullList, [.ConstPairDataList l] => some (.Bool l.isEmpty)
+  | .MkCons, [.ConstPairDataList tail, .PairData h] =>
+    some (.ConstPairDataList (h :: tail))
 
   -- List operations (ConstList)
   | .HeadList, [.ConstList (h :: _)] => some h
@@ -590,6 +605,9 @@ def evalBuiltinConst (b : BuiltinFun) (args : List Const) : Option Const :=
   | .DropList, [.ConstDataList l, .Integer n] =>
     if n < 0 then some (.ConstDataList l)
     else some (.ConstDataList (l.drop n.toNat))
+  | .DropList, [.ConstPairDataList l, .Integer n] =>
+    if n < 0 then some (.ConstPairDataList l)
+    else some (.ConstPairDataList (l.drop n.toNat))
 
   -- Fallthrough
   | _, _ => none
@@ -623,6 +641,9 @@ def evalBuiltinPassThrough (b : BuiltinFun) (args : List CekValue) : Option CekV
     some (if l.isEmpty then nilCase else consCase)
   -- ChooseList [consCase, nilCase, VCon (ConstList l)]
   | .ChooseList, [consCase, nilCase, .VCon (.ConstList l)] =>
+    some (if l.isEmpty then nilCase else consCase)
+  -- ChooseList [consCase, nilCase, VCon (ConstPairDataList l)]
+  | .ChooseList, [consCase, nilCase, .VCon (.ConstPairDataList l)] =>
     some (if l.isEmpty then nilCase else consCase)
 
   -- MkCons ConstList: the element can be any CekValue (pass-through of sorts)

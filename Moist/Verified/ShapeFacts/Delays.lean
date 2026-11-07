@@ -203,6 +203,9 @@ theorem evalBuiltin_select {b : BuiltinFun} {d₁ d₂ : Term} {ρ₁ ρ₂ : Ce
         | ConstList l =>
           simp only [evalBuiltinPassThrough, Option.some.injEq] at hp
           subst hp; cases l.isEmpty <;> simp
+        | ConstPairDataList l =>
+          simp only [evalBuiltinPassThrough, Option.some.injEq] at hp
+          subst hp; cases l.isEmpty <;> simp
         | _ => simp [evalBuiltinPassThrough] at hp
       | _ => simp [evalBuiltinPassThrough] at hp
 

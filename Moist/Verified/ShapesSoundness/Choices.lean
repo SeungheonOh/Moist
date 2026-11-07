@@ -278,26 +278,26 @@ theorem choice_case_cons {ρ : CekEnv} {π : Stack} {n : Nat} {vl : CekValue} {b
     (hvl : ρ.lookup n = some vl) :
     ∀ hv tv, (∃ c cs, vl = .VCon (.ConstList (c :: cs)) ∧ hv = .VCon c ∧ tv = .VCon (.ConstList cs)) ∨
       (∃ d ds, vl = .VCon (.ConstDataList (d :: ds)) ∧ hv = .VCon (.Data d) ∧
-        tv = .VCon (.ConstDataList ds)) →
+        tv = .VCon (.ConstDataList ds)) ∨
+      (∃ p ps, vl = .VCon (.ConstPairDataList (p :: ps)) ∧ hv = .VCon (.PairData p) ∧
+        tv = .VCon (.ConstPairDataList ps)) →
     Reaches (.compute π ρ (.Case (.Var n) [.Lam 0 (.Lam 0 b), e]))
       (.compute π ((ρ.extend hv).extend tv) b) := by
   intro hv tv h
-  rcases h with ⟨c, cs, rfl, rfl, rfl⟩ | ⟨d, ds, rfl, rfl, rfl⟩
+  rcases h with ⟨c, cs, rfl, rfl, rfl⟩ | ⟨d, ds, rfl, rfl, rfl⟩ | ⟨p, ps, rfl, rfl, rfl⟩
+  · exact ⟨7, by simp [steps, step, hvl, constToTagAndFields, CekEnv.extend]⟩
   · exact ⟨7, by simp [steps, step, hvl, constToTagAndFields, CekEnv.extend]⟩
   · exact ⟨7, by simp [steps, step, hvl, constToTagAndFields, CekEnv.extend]⟩
 
 theorem choice_case_nil {ρ : CekEnv} {π : Stack} {n : Nat} {vl : CekValue} {a e : Term}
     (hvl : ρ.lookup n = some vl)
-    (hnil : vl = .VCon (.ConstList []) ∨ vl = .VCon (.ConstDataList [])) :
+    (hnil : vl = .VCon (.ConstList []) ∨ vl = .VCon (.ConstDataList []) ∨
+      vl = .VCon (.ConstPairDataList [])) :
     Reaches (.compute π ρ (.Case (.Var n) [a, e])) (.compute π ρ e) := by
-  rcases hnil with rfl | rfl
+  rcases hnil with rfl | rfl | rfl
   · exact ⟨3, by simp [steps, step, hvl, constToTagAndFields]⟩
   · exact ⟨3, by simp [steps, step, hvl, constToTagAndFields]⟩
-
-theorem choice_case_pairs {ρ : CekEnv} {π : Stack} {n : Nat} {ps : List (Moist.Plutus.Data × Moist.Plutus.Data)}
-    {a e : Term} (hvl : ρ.lookup n = some (.VCon (.ConstPairDataList ps))) :
-    Reaches (.compute π ρ (.Case (.Var n) [a, e])) .error :=
-  ⟨3, by simp [steps, step, hvl, constToTagAndFields]⟩
+  · exact ⟨3, by simp [steps, step, hvl, constToTagAndFields]⟩
 
 theorem forced_builtin_halts (ρ : CekEnv) (b : BuiltinFun) {rest : ExpectedArgs}
     (hb : expectedArgs b = .more .argQ rest) :
@@ -402,18 +402,21 @@ theorem choice_factRel {G : VarId → Prop} {Γ : List (VarId × Expr)} {s f' ne
   have nonempty : ∀ hv tv : CekValue,
       ((∃ c cs, vl = .VCon (.ConstList (c :: cs)) ∧ hv = .VCon c ∧ tv = .VCon (.ConstList cs)) ∨
         (∃ d ds, vl = .VCon (.ConstDataList (d :: ds)) ∧ hv = .VCon (.Data d) ∧
-          tv = .VCon (.ConstDataList ds))) →
+          tv = .VCon (.ConstDataList ds)) ∨
+        (∃ p ps, vl = .VCon (.ConstPairDataList (p :: ps)) ∧ hv = .VCon (.PairData p) ∧
+          tv = .VCon (.ConstPairDataList ps))) →
       ObsRefines (.compute π ρ (.Case (.Apply tf' (.Var (il + 1))) [tne', tem']))
         (.compute π ρ (.Case (.Var (il + 1)) [.Lam 0 (.Lam 0 tX), tem'])) := by
     intro hv tv hshape
     have hnull_eval : evalBuiltin .NullList [vl] = some (.VCon (.Bool false)) := by
-      rcases hshape with ⟨c, cs, rfl, rfl, rfl⟩ | ⟨d, ds, rfl, rfl, rfl⟩ <;> rfl
+      rcases hshape with ⟨c, cs, rfl, rfl, rfl⟩ | ⟨d, ds, rfl, rfl, rfl⟩ | ⟨p, ps, rfl, rfl, rfl⟩ <;> rfl
     have hhead_eval : evalBuiltin .HeadList [vl] = some hv := by
-      rcases hshape with ⟨c, cs, rfl, rfl, rfl⟩ | ⟨d, ds, rfl, rfl, rfl⟩ <;> rfl
+      rcases hshape with ⟨c, cs, rfl, rfl, rfl⟩ | ⟨d, ds, rfl, rfl, rfl⟩ | ⟨p, ps, rfl, rfl, rfl⟩ <;> rfl
     have htail_eval : evalBuiltin .TailList [vl] = some tv := by
-      rcases hshape with ⟨c, cs, rfl, rfl, rfl⟩ | ⟨d, ds, rfl, rfl, rfl⟩ <;> rfl
+      rcases hshape with ⟨c, cs, rfl, rfl, rfl⟩ | ⟨d, ds, rfl, rfl, rfl⟩ | ⟨p, ps, rfl, rfl, rfl⟩ <;> rfl
     have hvcon : ValueWellFormed hv ∧ ValueWellFormed tv := by
-      rcases hshape with ⟨c, cs, rfl, rfl, rfl⟩ | ⟨d, ds, rfl, rfl, rfl⟩
+      rcases hshape with ⟨c, cs, rfl, rfl, rfl⟩ | ⟨d, ds, rfl, rfl, rfl⟩ | ⟨p, ps, rfl, rfl, rfl⟩
+      · exact ⟨.vcon _, .vcon _⟩
       · exact ⟨.vcon _, .vcon _⟩
       · exact ⟨.vcon _, .vcon _⟩
     have hscrut := builtin_app_halts hfnull hvl hnull_eval
@@ -452,12 +455,17 @@ theorem choice_factRel {G : VarId → Prop} {Γ : List (VarId × Expr)} {s f' ne
       | nil =>
         have hscrut := builtin_app_halts hfnull hvl (show evalBuiltin .NullList [.VCon (.ConstDataList [])] =
           some (.VCon (.Bool true)) from rfl)
-        exact obsRefines_of_reaches (case_bool_steps hscrut) (choice_case_nil hvl (.inr rfl))
+        exact obsRefines_of_reaches (case_bool_steps hscrut) (choice_case_nil hvl (.inr (.inl rfl)))
           (obsRefines_refl _)
-      | cons d ds => exact nonempty _ _ (.inr ⟨d, ds, rfl, rfl, rfl⟩)
+      | cons d ds => exact nonempty _ _ (.inr (.inl ⟨d, ds, rfl, rfl, rfl⟩))
     | ConstPairDataList ps =>
-      exact obsRefines_of_errors (case_errs_of_scrutinee (builtin_app_errs hfnull hvl rfl))
-        (choice_case_pairs hvl)
+      cases ps with
+      | nil =>
+        have hscrut := builtin_app_halts hfnull hvl (show evalBuiltin .NullList
+          [.VCon (.ConstPairDataList [])] = some (.VCon (.Bool true)) from rfl)
+        exact obsRefines_of_reaches (case_bool_steps hscrut) (choice_case_nil hvl (.inr (.inr rfl)))
+          (obsRefines_refl _)
+      | cons p ps => exact nonempty _ _ (.inr (.inr ⟨p, ps, rfl, rfl, rfl⟩))
     | _ => exact absurd hlist id
   | _ => exact absurd hlist id
 

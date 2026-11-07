@@ -85,6 +85,9 @@ def constToTagAndFields : Const → Option (Nat × Nat × List CekValue)
   | .ConstList (h :: t) => some (0, 2, [.VCon h, .VCon (.ConstList t)])
   | .ConstDataList [] => some (1, 2, [])
   | .ConstDataList (h :: t) => some (0, 2, [.VCon (.Data h), .VCon (.ConstDataList t)])
+  | .ConstPairDataList [] => some (1, 2, [])
+  | .ConstPairDataList (h :: t) =>
+    some (0, 2, [.VCon (.PairData h), .VCon (.ConstPairDataList t)])
   | .Pair (a, b) => some (0, 1, [.VCon a, .VCon b])
   | .PairData (a, b) => some (0, 1, [.VCon (.Data a), .VCon (.Data b)])
   | _ => none

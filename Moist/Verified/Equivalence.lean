@@ -210,6 +210,12 @@ theorem constToTagAndFields_fields_vcon (c : Const) :
     obtain ⟨a, b⟩ := p
     simp only [constToTagAndFields]
     intro v hv; simp at hv; rcases hv with rfl | rfl <;> exact ⟨_, rfl⟩
+  | ConstPairDataList l =>
+    cases l with
+    | nil => simp [constToTagAndFields]
+    | cons h t =>
+      simp only [constToTagAndFields]
+      intro v hv; simp at hv; rcases hv with rfl | rfl <;> exact ⟨_, rfl⟩
   | PairData p =>
     obtain ⟨a, b⟩ := p
     simp only [constToTagAndFields]

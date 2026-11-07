@@ -776,7 +776,20 @@ theorem vcon_fields_of_constToTagAndFields :
         cases h2 with
         | head => exact ⟨.ConstDataList t, rfl⟩
         | tail _ h3 => cases h3
-  | ConstPairDataList _ => simp [constToTagAndFields] at hc
+  | ConstPairDataList l =>
+    cases l with
+    | nil =>
+      simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
+      obtain ⟨_, _, hfs⟩ := hc; subst hfs; cases hmem
+    | cons h t =>
+      simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
+      obtain ⟨_, _, hfs⟩ := hc; subst hfs
+      cases hmem with
+      | head => exact ⟨.PairData h, rfl⟩
+      | tail _ h2 =>
+        cases h2 with
+        | head => exact ⟨.ConstPairDataList t, rfl⟩
+        | tail _ h3 => cases h3
   | ConstArray _ => simp [constToTagAndFields] at hc
   | Pair p =>
     obtain ⟨a, b⟩ := p
@@ -1618,7 +1631,19 @@ theorem shiftBisimValueList_constToTagAndFields_refl :
       subst hfs
       exact ShiftBisimValueList.cons (ShiftBisimValue.vcon _)
               (ShiftBisimValueList.cons (ShiftBisimValue.vcon _) ShiftBisimValueList.nil)
-  | ConstPairDataList _ => simp [constToTagAndFields] at hc
+  | ConstPairDataList l =>
+    cases l with
+    | nil =>
+      simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
+      obtain ⟨_, _, hfs⟩ := hc
+      subst hfs
+      exact ShiftBisimValueList.nil
+    | cons head tail =>
+      simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
+      obtain ⟨_, _, hfs⟩ := hc
+      subst hfs
+      exact ShiftBisimValueList.cons (ShiftBisimValue.vcon _)
+              (ShiftBisimValueList.cons (ShiftBisimValue.vcon _) ShiftBisimValueList.nil)
   | Pair p =>
     obtain ⟨a, b⟩ := p
     simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
