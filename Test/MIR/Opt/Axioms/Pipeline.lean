@@ -1,4 +1,5 @@
 import Moist.Verified.LoweringSoundness
+import Moist.Verified.PipelineSoundness
 import Lean.Util.CollectAxioms
 import Lean.Elab.Command
 
@@ -21,7 +22,22 @@ run_cmd do
     ``Moist.Verified.LoweringSoundness.canon_ctxEquiv,
     ``Moist.Verified.LoweringSoundness.liftUPLC_lowerTotal,
     ``Moist.Verified.LoweringSoundness.liftUPLC_refines,
-    ``Moist.Verified.LoweringSoundness.liftUPLC_lowerExpr]
+    ``Moist.Verified.LoweringSoundness.liftUPLC_lowerExpr,
+    ``Moist.Verified.Pipeline.simplifyOnce_refines,
+    ``Moist.Verified.Pipeline.simplifyLoop_refines,
+    ``Moist.Verified.Pipeline.optimize_refines,
+    ``Moist.Verified.Pipeline.optimizeExpr_refines,
+    ``Moist.Verified.Pipeline.preLower_refines,
+    ``Moist.Verified.Pipeline.prepareForLowering_refines,
+    ``Moist.Verified.Pipeline.compileOptimized_refines_of_certificates,
+    ``Moist.Verified.Pipeline.compileOptimized_refines_of,
+    ``Moist.Verified.Pipeline.compileOptimized_refines_of_without_sharing,
+    ``Moist.Verified.Pipeline.compileOptimized_error_of_certificates,
+    ``Moist.Verified.Pipeline.compileOptimized_error_of,
+    ``Moist.Verified.Pipeline.prepare_refines_of,
+    ``Moist.Verified.Pipeline.simplify_refines_of,
+    ``Moist.Verified.Pipeline.structural_refines_of,
+    ``Moist.Verified.Pipeline.finish_refines_of]
   let permitted := [``propext, ``Classical.choice, ``Quot.sound]
   for declaration in checked do
     for axiomName in ← Lean.collectAxioms declaration do
