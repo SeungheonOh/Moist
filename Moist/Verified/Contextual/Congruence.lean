@@ -4,7 +4,7 @@ import Moist.Verified.Contextual
 
 Every lemma in this file has the shape `R a b → R (F a) (F b)` (or the
 pointwise list version thereof) for a term constructor `F`. They are pure
-structural porters that plumb `ctxEq_extend` / `ctxRefines_extend` through
+structural porters that plumb `ctxEq_extend` / `ctxRefines_fill` through
 `Context.compose`, sometimes chaining via `ctxEq_trans` / `ctxRefines_trans`.
 
 Pulled out of `Moist.Verified.Contextual` to keep the core module
@@ -192,8 +192,9 @@ theorem ctxEq_case {scrut₁ scrut₂ : Term} {alts₁ alts₂ : List Term}
 -- CONGRUENCE THEOREMS FOR CtxRefines
 --------------------------------------------------------------------------------
 
-/-- Generic single-subterm extension for `CtxRefines`. Mirrors `ctxEq_extend`. -/
-private theorem ctxRefines_extend
+/-- Generic one-hole congruence: `CtxRefines` is preserved by filling any
+    context with both sides. -/
+theorem ctxRefines_fill
     {t₁ t₂ : Term} (h : CtxRefines t₁ t₂) (inner : Context) :
     CtxRefines (fill inner t₁) (fill inner t₂) := by
   intro C
@@ -204,19 +205,19 @@ private theorem ctxRefines_extend
 /-- Lambda congruence for `CtxRefines`. -/
 theorem ctxRefines_lam {body₁ body₂ : Term} (name : Nat) (h : CtxRefines body₁ body₂) :
     CtxRefines (.Lam name body₁) (.Lam name body₂) := by
-  have hwrap := ctxRefines_extend h (.Lam name .Hole)
+  have hwrap := ctxRefines_fill h (.Lam name .Hole)
   simpa [fill] using hwrap
 
 /-- Delay congruence for `CtxRefines`. -/
 theorem ctxRefines_delay {body₁ body₂ : Term} (h : CtxRefines body₁ body₂) :
     CtxRefines (.Delay body₁) (.Delay body₂) := by
-  have hwrap := ctxRefines_extend h (.Delay .Hole)
+  have hwrap := ctxRefines_fill h (.Delay .Hole)
   simpa [fill] using hwrap
 
 /-- Force congruence for `CtxRefines`. -/
 theorem ctxRefines_force {t₁ t₂ : Term} (h : CtxRefines t₁ t₂) :
     CtxRefines (.Force t₁) (.Force t₂) := by
-  have hwrap := ctxRefines_extend h (.Force .Hole)
+  have hwrap := ctxRefines_fill h (.Force .Hole)
   simpa [fill] using hwrap
 
 /-- Apply congruence for `CtxRefines`. -/
@@ -224,10 +225,10 @@ theorem ctxRefines_app {f₁ f₂ a₁ a₂ : Term}
     (hf : CtxRefines f₁ f₂) (ha : CtxRefines a₁ a₂) :
     CtxRefines (.Apply f₁ a₁) (.Apply f₂ a₂) := by
   have hA : CtxRefines (.Apply f₁ a₁) (.Apply f₂ a₁) := by
-    have := ctxRefines_extend hf (.AppLeft .Hole a₁)
+    have := ctxRefines_fill hf (.AppLeft .Hole a₁)
     simpa [fill] using this
   have hB : CtxRefines (.Apply f₂ a₁) (.Apply f₂ a₂) := by
-    have := ctxRefines_extend ha (.AppRight f₂ .Hole)
+    have := ctxRefines_fill ha (.AppRight f₂ .Hole)
     simpa [fill] using this
   exact ctxRefines_trans hA hB
 
@@ -235,7 +236,7 @@ theorem ctxRefines_app {f₁ f₂ a₁ a₂ : Term}
 theorem ctxRefines_constr_one {tag : Nat} {a b : Term} {pre post : List Term}
     (hab : CtxRefines a b) :
     CtxRefines (.Constr tag (pre ++ a :: post)) (.Constr tag (pre ++ b :: post)) := by
-  have hwrap := ctxRefines_extend hab (.Constr tag pre .Hole post)
+  have hwrap := ctxRefines_fill hab (.Constr tag pre .Hole post)
   simpa [fill] using hwrap
 
 /-- Inductive walker for the Constr congruence: swaps one field at a time. -/
@@ -272,14 +273,14 @@ theorem ctxRefines_constr {tag : Nat} {m₁ m₂ : Term} {ms₁ ms₂ : List Ter
 theorem ctxRefines_case_scrut {scrut₁ scrut₂ : Term} {alts : List Term}
     (hscrut : CtxRefines scrut₁ scrut₂) :
     CtxRefines (.Case scrut₁ alts) (.Case scrut₂ alts) := by
-  have hwrap := ctxRefines_extend hscrut (.Case .Hole alts)
+  have hwrap := ctxRefines_fill hscrut (.Case .Hole alts)
   simpa [fill] using hwrap
 
 /-- Case alt-swap (single position) congruence for `CtxRefines`. -/
 theorem ctxRefines_case_one_alt {scrut : Term} {a b : Term} {pre post : List Term}
     (hab : CtxRefines a b) :
     CtxRefines (.Case scrut (pre ++ a :: post)) (.Case scrut (pre ++ b :: post)) := by
-  have hwrap := ctxRefines_extend hab (.CaseAlt scrut pre .Hole post)
+  have hwrap := ctxRefines_fill hab (.CaseAlt scrut pre .Hole post)
   simpa [fill] using hwrap
 
 /-- Inductive walker for the Case alt-list pointwise congruence. -/

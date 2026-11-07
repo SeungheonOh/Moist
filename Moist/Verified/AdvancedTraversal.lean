@@ -124,6 +124,65 @@ theorem bindings_map_refines (transform : Expr → Expr)
     obtain ⟨binder, rhs, erased⟩ := binding
     exact ⟨⟨rfl, rfl, sound rhs⟩, inductionHypothesis⟩
 
+/-- Transforming every child of a node by a refining map refines the node.
+    Under `Fix`, the map must send a lambda to a lambda with a refining body. -/
+theorem mapChildren_refines (transform : Expr → Expr) (expression : Expr)
+    (sound : ∀ child, exprSize child < exprSize expression →
+      MIRCtxRefines child (transform child))
+    (lambda : ∀ binder body, exprSize (.Lam binder body) < exprSize expression →
+      ∃ body', transform (.Lam binder body) = .Lam binder body' ∧ MIRCtxRefines body body') :
+    MIRCtxRefines expression (mapChildren transform expression) := by
+  have listSound : ∀ {children : List Expr}, exprSizeList children < exprSize expression →
+      ListRel MIRCtxRefines children (children.map transform) := by
+    intro children bound
+    induction children with
+    | nil => trivial
+    | cons child rest ih =>
+      simp only [exprSizeList] at bound
+      exact ⟨sound child (by omega), ih (by omega)⟩
+  have bindsSound : ∀ {bindings : List (VarId × Expr × Bool)},
+      exprSizeBinds bindings < exprSize expression →
+      ListRel (fun before after => before.1 = after.1 ∧ before.2.2 = after.2.2 ∧
+        MIRCtxRefines before.2.1 after.2.1)
+        bindings (bindings.map fun (binder, rhs, erased) => (binder, transform rhs, erased)) := by
+    intro bindings bound
+    induction bindings with
+    | nil => trivial
+    | cons binding rest ih =>
+      obtain ⟨binder, rhs, erased⟩ := binding
+      simp only [exprSizeBinds] at bound
+      exact ⟨⟨rfl, rfl, sound rhs (by omega)⟩, ih (by omega)⟩
+  cases expression with
+  | Var _ | Lit _ | Builtin _ | Error => exact mirCtxRefines_refl _
+  | Lam binder body => exact mirCtxRefines_lam (sound body (by simp [exprSize]))
+  | Force body => exact mirCtxRefines_force (sound body (by simp [exprSize]))
+  | Delay body => exact mirCtxRefines_delay (sound body (by simp [exprSize]))
+  | App function argument =>
+    exact mirCtxRefines_app (sound function (by simp [exprSize]; omega))
+      (sound argument (by simp [exprSize]; omega))
+  | Constr tag fields =>
+    cases fields with
+    | nil => exact mirCtxRefines_refl _
+    | cons field rest =>
+      have h := listSound (children := field :: rest) (by simp only [exprSize]; omega)
+      exact mirCtxRefines_constr h.1 h.2
+  | Case scrutinee alternatives =>
+    exact mirCtxRefines_case (sound scrutinee (by simp [exprSize]; omega))
+      (listSound (by simp only [exprSize]; omega))
+  | Let bindings body =>
+    exact mirCtxRefines_trans
+      (mirCtxRefines_let_binds_congr bindings _ body (bindsSound (by simp only [exprSize]; omega)))
+      (mirCtxRefines_let_body (sound body (by simp [exprSize]; omega)))
+  | Fix binder body =>
+    cases body with
+    | Lam parameter inner =>
+      obtain ⟨inner', equal, refines⟩ := lambda parameter inner (by simp [exprSize])
+      simp only [mapChildren, equal]
+      exact mirCtxRefines_fix_lam refines
+    | Var _ | Lit _ | Builtin _ | Error | Fix _ _ | App _ _ | Force _ | Delay _
+    | Constr _ _ | Case _ _ | Let _ _ =>
+      exact mirCtxRefines_fix_nonlam_lhs (by intros; intro impossible; cases impossible)
+
 theorem rewriteBottomUp_refines (rewrite : Expr → Expr)
     (localSound : ∀ expression, MIRCtxRefines expression (rewrite expression))
     (preservesLambda : ∀ binder body, rewrite (.Lam binder body) = .Lam binder body)
@@ -134,39 +193,12 @@ theorem rewriteBottomUp_refines (rewrite : Expr → Expr)
     cases fuel with
     | zero => exact mirCtxRefines_refl expression
     | succ fuel =>
-      let transform := rewriteBottomUp rewrite fuel
-      have childrenSound : ∀ child, MIRCtxRefines child (transform child) :=
-        inductionHypothesis fuel (by omega)
-      apply mirCtxRefines_trans (m₂ := mapChildren transform expression)
-      · cases expression with
-        | Var _ | Lit _ | Builtin _ | Error => exact mirCtxRefines_refl _
-        | Lam binder body => exact mirCtxRefines_lam (childrenSound body)
-        | Force body => exact mirCtxRefines_force (childrenSound body)
-        | Delay body => exact mirCtxRefines_delay (childrenSound body)
-        | App function argument => exact mirCtxRefines_app (childrenSound function) (childrenSound argument)
-        | Constr tag fields =>
-          cases fields with
-          | nil => exact mirCtxRefines_refl _
-          | cons field rest =>
-            exact mirCtxRefines_constr (childrenSound field) (listRel_map_refines transform childrenSound rest)
-        | Case scrutinee alternatives =>
-          exact mirCtxRefines_case (childrenSound scrutinee)
-            (listRel_map_refines transform childrenSound alternatives)
-        | Let bindings body =>
-          exact mirCtxRefines_trans
-            (mirCtxRefines_let_binds_congr bindings _ body (bindings_map_refines transform childrenSound bindings))
-            (mirCtxRefines_let_body (childrenSound body))
-        | Fix binder body =>
-          cases body with
-          | Lam parameter body =>
-            cases fuel with
-            | zero => exact mirCtxRefines_refl _
-            | succ remaining =>
-              simp only [mapChildren, transform, rewriteBottomUp, preservesLambda]
-              exact mirCtxRefines_fix_lam (inductionHypothesis remaining (by omega) body)
-          | Var _ | Lit _ | Builtin _ | Error | Fix _ _ | App _ _ | Force _ | Delay _
-          | Constr _ _ | Case _ _ | Let _ _ =>
-            exact mirCtxRefines_fix_nonlam_lhs (by intros; intro impossible; cases impossible)
-      · exact localSound _
+      refine mirCtxRefines_trans (mapChildren_refines _ expression
+        (fun child _ => inductionHypothesis fuel (by omega) child) ?_) (localSound _)
+      intro binder body _
+      cases fuel with
+      | zero => exact ⟨body, rfl, mirCtxRefines_refl body⟩
+      | succ remaining =>
+        exact ⟨_, preservesLambda _ _, inductionHypothesis remaining (by omega) body⟩
 
 end Moist.Verified.MIR
