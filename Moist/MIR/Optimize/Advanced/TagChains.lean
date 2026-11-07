@@ -6,18 +6,23 @@ namespace Moist.MIR.Advanced
 
 A match on `@[plutus_data]` constructors tests the tag with a chain of
 `equalsInteger tag c` Boolean cases. When the tag is a known integer, the
-tests become one integer `case`:
+tests become one integer `case`. The tag is either a variable, reached through
+aliases of the test and of its partial application, or an expression written
+in the test itself; the latter becomes the case scrutinee at the same point
+of evaluation:
 
 * `case (tag = c) [error, A]` becomes `case tag [error, …, error, A]` (`A` at
   index `c`). An integer case selects alternative `n` for `0 ≤ n` below the
   number of alternatives and fails otherwise, exactly like the error default.
 * `case (tag = c) [case tag alts, A]` puts `A` at index `c` of `alts`,
   padding with `error`. The outer test runs first, so it wins over an inner
-  alternative for the same tag.
+  alternative for the same tag; an expression tag evaluates to the same
+  integer in both places.
 * A chain whose tests all fail (`case (tag = c) [next, error]`) for a
   contiguous range of at least three tags becomes the two comparisons
-  `case (case (lo ≤ tag) [False, tag ≤ hi]) [rest, error]`. An integer case is
-  not used there: it would also fail for tags outside the range.
+  `case (case (lo ≤ tag) [False, tag ≤ hi]) [rest, error]` for a variable tag.
+  An integer case is not used there: it would also fail for tags outside the
+  range.
 
 Chains are rewritten bottom-up, so the innermost test with the error default
 starts the integer case and every enclosing test of the same tag joins it.
@@ -34,13 +39,33 @@ open Moist.Plutus.Term
 
 /-- `equalsInteger tag c` (either argument order, through aliases) with `tag`
     a known integer variable. -/
-def tagTest (environment : List (VarId × Expr)) (scrutinee : Expr) : Option (VarId × Int) :=
+def resolvedTagTest (environment : List (VarId × Expr)) (scrutinee : Expr) :
+    Option (VarId × Int) :=
   match resolveHead 64 environment scrutinee with
   | .App (.App (.Builtin .EqualsInteger) (.Var subject)) (.Lit (.Integer value, _)) =>
     if knownInteger 64 environment (.Var subject) then some (subject, value) else none
   | .App (.App (.Builtin .EqualsInteger) (.Lit (.Integer value, _))) (.Var subject) =>
     if knownInteger 64 environment (.Var subject) then some (subject, value) else none
   | _ => none
+
+/-- `equalsInteger tag c` written out (either argument order) with `tag` a
+    known integer expression, evaluated by the test itself. -/
+def directTagTest (environment : List (VarId × Expr)) (scrutinee : Expr) :
+    Option (Expr × Int) :=
+  match scrutinee with
+  | .App (.App (.Builtin .EqualsInteger) subject) (.Lit (.Integer value, _)) =>
+    if knownInteger 64 environment subject then some (subject, value) else none
+  | .App (.App (.Builtin .EqualsInteger) (.Lit (.Integer value, _))) subject =>
+    if knownInteger 64 environment subject then some (subject, value) else none
+  | _ => none
+
+/-- The tag a test evaluates, and its literal. A resolved test uses the
+    current value of a variable; a direct test evaluates its tag where the
+    test runs, so the tag can become the scrutinee of a case there. -/
+def tagTest (environment : List (VarId × Expr)) (scrutinee : Expr) : Option (Expr × Int) :=
+  match resolvedTagTest environment scrutinee with
+  | some (subject, value) => some (.Var subject, value)
+  | none => directTagTest environment scrutinee
 
 /-- Largest number of error alternatives added in front of a tag. -/
 def tagCaseGap : Nat := 16
@@ -77,7 +102,7 @@ def errorSpine (environment : List (VarId × Expr)) (subject : VarId) (expressio
     List Int × Expr :=
   match expression with
   | .Case scrutinee [next, .Error] =>
-    match tagTest environment scrutinee with
+    match resolvedTagTest environment scrutinee with
     | some (tested, value) =>
       if tested == subject then
         let rest := errorSpine environment subject next
@@ -108,17 +133,17 @@ def rangeRule (environment : List (VarId × Expr)) (subject : VarId) (value : In
     else none
 
 /-- A test whose default fails, or which joins an integer case of its tag. -/
-def integerCaseRule (subject : VarId) (value : Int) (otherwise matched : Expr) : Option Expr :=
+def integerCaseRule (subject : Expr) (value : Int) (otherwise matched : Expr) : Option Expr :=
   if value < 0 then none
   else
     match otherwise with
     | .Error =>
       if value.toNat ≤ tagCaseGap then
-        some (.Case (.Var subject) (placeAlternative [] value.toNat matched))
+        some (.Case subject (placeAlternative [] value.toNat matched))
       else none
-    | .Case (.Var tested) alternatives =>
-      if tested == subject && value.toNat ≤ alternatives.length + tagCaseGap then
-        some (.Case (.Var subject) (placeAlternative alternatives value.toNat matched))
+    | .Case tested alternatives =>
+      if alphaEq tested subject && value.toNat ≤ alternatives.length + tagCaseGap then
+        some (.Case subject (placeAlternative alternatives value.toNat matched))
       else none
     | _ => none
 
@@ -131,9 +156,9 @@ def tagCaseRule (environment : List (VarId × Expr)) (scrutinee : Expr)
       match integerCaseRule subject value otherwise matched with
       | some result => some result
       | none =>
-        match matched with
-        | .Error => rangeRule environment subject value otherwise
-        | _ => none
+        match matched, resolvedTagTest environment scrutinee with
+        | .Error, some (tested, testedValue) => rangeRule environment tested testedValue otherwise
+        | _, _ => none
     | none => none
   | _ => none
 
@@ -157,22 +182,27 @@ def pushArgument (environment : List (VarId × Expr)) (argument : VarId) (expres
 termination_by exprSize expression
 decreasing_by have := exprSize_lt_of_mem (by assumption); simp only [exprSize]; omega
 
-def isTagCase : Expr → Bool
-  | .Case (.Var _) _ => true
-  | .Case (.Case (.App (.App (.Builtin .LessThanEqualsInteger) _) _) _) [_, .Error] => true
+/-- Pushing `argument` into `expression` turns its top case into a tag case. -/
+def pushFires (environment : List (VarId × Expr)) (argument : VarId) (expression : Expr) : Bool :=
+  match expression with
+  | .Case scrutinee alternatives =>
+    fieldlessScrutinee environment scrutinee &&
+      (tagCaseRule environment scrutinee
+        (alternatives.map (pushArgument environment argument))).isSome
   | _ => false
 
 def tagApplication (environment : List (VarId × Expr)) (function argument : Expr) : Expr :=
   match function, argument with
   | .Case _ _, .Var argumentBinder =>
-    let pushed := pushArgument environment argumentBinder function
-    if isTagCase pushed then pushed else .App function argument
+    if pushFires environment argumentBinder function then
+      pushArgument environment argumentBinder function
+    else .App function argument
   | _, _ => .App function argument
 
 /-- A partially applied two-argument integer builtin, or a tag test: both
     return without failing. -/
 def tagReturns (environment : List (VarId × Expr)) (expression : Expr) : Bool :=
-  (tagTest environment expression).isSome ||
+  (resolvedTagTest environment expression).isSome ||
     match expression with
     | .App function argument =>
       match resolveHead 64 environment function with
@@ -203,7 +233,7 @@ def tagBinding (environment : List (VarId × Expr)) (binder : VarId) (rhs : Expr
     if function == binder && !(argument == binder) then
       match rhs with
       | .Case _ _ =>
-        if isTagCase (pushArgument environment argument rhs) then pushArgument environment argument rhs
+        if pushFires environment argument rhs then pushArgument environment argument rhs
         else dropTagBinding environment binder rhs erased body
       | _ => dropTagBinding environment binder rhs erased body
     else dropTagBinding environment binder rhs erased body

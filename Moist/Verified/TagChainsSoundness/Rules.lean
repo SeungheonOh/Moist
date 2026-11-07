@@ -97,11 +97,11 @@ theorem resolveHead_app2_var_bound :
     | Lit _ | Error | Lam _ _ | Fix _ _ | Delay _ | Constr _ _ | Case _ _ | Let _ _ | Builtin _ =>
       simp only [resolveHead] at hres; cases hres
 
-theorem tagTest_bound {Γ : List (VarId × Expr)} {s : Expr} {t : VarId} {c : Int}
-    {env : List VarId} (h : tagTest Γ s = some (t, c)) (hs : FactsScoped Γ env)
+theorem resolvedTagTest_bound {Γ : List (VarId × Expr)} {s : Expr} {t : VarId} {c : Int}
+    {env : List VarId} (h : resolvedTagTest Γ s = some (t, c)) (hs : FactsScoped Γ env)
     (hd : EnvDistinct env) (hlow : (lowerTotalExpr env s).isSome = true) :
     (envLookupT env t).isSome = true := by
-  unfold tagTest at h
+  unfold resolvedTagTest at h
   split at h
   · rename_i subject value ty hres
     split at h
@@ -117,6 +117,54 @@ theorem tagTest_bound {Γ : List (VarId × Expr)} {s : Expr} {t : VarId} {c : In
     · cases h
   · cases h
 
+theorem knownInteger_values {Γ : List (VarId × Expr)} {e : Expr} {env : List VarId} {ρ : CekEnv}
+    {t : Term} (hint : knownInteger 64 Γ e = true) (hfacts : FactsHold Produces Γ env ρ)
+    (hd : EnvDistinct env) (hlow : lowerTotalExpr env e = some t) :
+    ∀ v, Halts ρ t v → ∃ n : Int, v = .VCon (.Integer n) := fun _ hv =>
+  knownInteger_sound (fun _ _ _ _ h => h) 64 Γ e hint hfacts hd hlow hv
+
+/-- Every tag test evaluates its tag and then selects by `tag = c`. -/
+theorem tagTest_sem {Γ : List (VarId × Expr)} {s subject : Expr} {c : Int} {env : List VarId}
+    {ts : Term} (h : tagTest Γ s = some (subject, c)) (hs : FactsScoped Γ env)
+    (hd : EnvDistinct env) (hlow : lowerTotalExpr env s = some ts) :
+    ∃ tX, lowerTotalExpr env subject = some tX ∧
+      ∀ ρ, FactsHold Produces Γ env ρ → EnvWellFormed env.length ρ → TestSem ρ ts tX c := by
+  unfold tagTest at h
+  split at h
+  · rename_i t value hres
+    simp only [Option.some.injEq, Prod.mk.injEq] at h
+    obtain ⟨rfl, rfl⟩ := h
+    obtain ⟨i, hi⟩ := Option.isSome_iff_exists.mp (resolvedTagTest_bound hres hs hd (by simp [hlow]))
+    refine ⟨.Var (i + 1), by rw [lowerTotalExpr_var, hi]; rfl, fun ρ hF henv => ?_⟩
+    obtain ⟨i', n, hi', hn, hv⟩ := resolvedTagTest_sound hres hF hd henv hlow
+    rw [hi] at hi'; cases hi'
+    exact testSem_var hn hv
+  · unfold directTagTest at h
+    split at h
+    · rename_i subject' value ty
+      split at h
+      · rename_i hint
+        simp only [Option.some.injEq, Prod.mk.injEq] at h
+        obtain ⟨rfl, rfl⟩ := h
+        obtain ⟨tf, tc, htf, htc, rfl⟩ := lowerTotalExpr_app_some hlow
+        obtain ⟨tb, tX, htb, htX, rfl⟩ := lowerTotalExpr_app_some htf
+        rw [lowerTotalExpr_builtin] at htb; cases htb
+        rw [lowerTotalExpr_lit] at htc; cases htc
+        exact ⟨tX, htX, fun ρ hF _ => testSem_direct_left (knownInteger_values hint hF hd htX)⟩
+      · cases h
+    · rename_i value ty subject'
+      split at h
+      · rename_i hint
+        simp only [Option.some.injEq, Prod.mk.injEq] at h
+        obtain ⟨rfl, rfl⟩ := h
+        obtain ⟨tf, tX, htf, htX, rfl⟩ := lowerTotalExpr_app_some hlow
+        obtain ⟨tb, tc, htb, htc, rfl⟩ := lowerTotalExpr_app_some htf
+        rw [lowerTotalExpr_builtin] at htb; cases htb
+        rw [lowerTotalExpr_lit] at htc; cases htc
+        exact ⟨tX, htX, fun ρ hF _ => testSem_direct_right (knownInteger_values hint hF hd htX)⟩
+      · cases h
+    · cases h
+
 /-! ## Integer cases -/
 
 def intSelect (alts : List Term) (n : Int) : Option Term :=
@@ -125,20 +173,6 @@ def intSelect (alts : List Term) (n : Int) : Option Term :=
 def selected (π : Stack) (ρ : CekEnv) : Option Term → State
   | some alt => .compute π ρ alt
   | none => .error
-
-theorem int_case_reaches {ρ : CekEnv} {π : Stack} {j : Nat} {n : Int} (talts : List Term)
-    (hl : ρ.lookup j = some (.VCon (.Integer n))) :
-    Reaches (.compute π ρ (.Case (.Var j) talts)) (selected π ρ (intSelect talts n)) := by
-  refine reaches_trans (reaches_of_steps (s' := .ret (.caseScrutinee talts ρ :: π)
-    (.VCon (.Integer n))) 2 (by simp [steps, step, hl])) ?_
-  unfold intSelect
-  by_cases hn : 0 ≤ n
-  · simp only [hn, if_true]
-    cases ha : talts[n.toNat]? with
-    | none => exact ⟨1, by simp [steps, step, constToTagAndFields, hn, ha, selected]⟩
-    | some alt => exact ⟨1, by simp [steps, step, constToTagAndFields, hn, ha, selected]⟩
-  · simp only [hn, if_false]
-    exact ⟨1, by simp [steps, step, constToTagAndFields, hn, selected]⟩
 
 theorem error_reaches (π : Stack) (ρ : CekEnv) : Reaches (.compute π ρ .Error) .error := ⟨1, rfl⟩
 
@@ -270,16 +304,48 @@ theorem obsRefines_error_compute (π : Stack) (ρ : CekEnv) :
     ObsRefines .error (.compute π ρ .Error) :=
   obsRefines_of_reaches (reaches_refl _) (error_reaches π ρ) (obsRefines_refl _)
 
+theorem int_case_reaches {ρ : CekEnv} {π : Stack} {tX : Term} {n : Int} (talts : List Term)
+    (h : Halts ρ tX (.VCon (.Integer n))) :
+    Reaches (.compute π ρ (.Case tX talts)) (selected π ρ (intSelect talts n)) := by
+  refine reaches_trans (reaches_of_steps 1 rfl) (reaches_trans (halts_on_stack h _) ?_)
+  unfold intSelect
+  by_cases hn : 0 ≤ n
+  · simp only [hn, if_true]
+    cases ha : talts[n.toNat]? with
+    | none => exact ⟨1, by simp [steps, step, constToTagAndFields, hn, ha, selected]⟩
+    | some alt => exact ⟨1, by simp [steps, step, constToTagAndFields, hn, ha, selected]⟩
+  · simp only [hn, if_false]
+    exact ⟨1, by simp [steps, step, constToTagAndFields, hn, selected]⟩
+
+/-- A test refines a computation that evaluates the tag first, when it does
+    for every integer the tag returns and fails when the tag fails. -/
+theorem test_obs {ρ : CekEnv} {π : Stack} {ts tX tE tA target : Term} {c : Int}
+    (hsem : TestSem ρ ts tX c)
+    (hval : ∀ n : Int, Halts ρ tX (.VCon (.Integer n)) →
+      ObsRefines (.compute π ρ (if n == c then tA else tE)) (.compute π ρ target))
+    (herr : Errs ρ tX → Reaches (.compute π ρ target) .error) :
+    ObsRefines (.compute π ρ (.Case ts [tE, tA])) (.compute π ρ target) := by
+  constructor
+  · rintro ⟨w, hw⟩
+    rcases hsem.2.2 π tE tA _ (.inr ⟨w, rfl⟩) hw with ⟨_, impossible⟩ | ⟨n, hn, hr⟩
+    · cases impossible
+    · exact (hval n hn).halt ⟨w, hr⟩
+  · intro he
+    rcases hsem.2.2 π tE tA _ (.inl rfl) he with ⟨herrs, _⟩ | ⟨n, hn, hr⟩
+    · exact herr herrs
+    · exact (hval n hn).error hr
+
 /-- A test of the tag against `c` followed by `tO` refines the integer case
     with the test's alternative placed at index `c`, whenever `tO` refines the
     selection of the remaining alternatives for every other tag. -/
-theorem tag_case_obs {ρ : CekEnv} {π : Stack} {ts tO tM : Term} {j : Nat} {n : Int} {c : Nat}
-    {talts : List Term} (hv : Halts ρ ts (.VCon (.Bool (n == (c : Int)))))
-    (hn : ρ.lookup j = some (.VCon (.Integer n)))
-    (hother : n ≠ c → ObsRefines (.compute π ρ tO) (selected π ρ (intSelect talts n))) :
+theorem tag_case_obs {ρ : CekEnv} {π : Stack} {ts tX tO tM : Term} {c : Nat}
+    {talts : List Term} (hsem : TestSem ρ ts tX (c : Int))
+    (hother : ∀ n : Int, Halts ρ tX (.VCon (.Integer n)) → n ≠ c →
+      ObsRefines (.compute π ρ tO) (selected π ρ (intSelect talts n))) :
     ObsRefines (.compute π ρ (.Case ts [tO, tM]))
-      (.compute π ρ (.Case (.Var j) (placeTerm talts c tM))) := by
-  refine obsRefines_of_reaches (case_bool_steps hv) (int_case_reaches _ hn) ?_
+      (.compute π ρ (.Case tX (placeTerm talts c tM))) := by
+  refine test_obs hsem (fun n hn => ?_) (fun he => case_errs_of_scrutinee he)
+  refine obsRefines_of_reaches (reaches_refl _) (int_case_reaches _ hn) ?_
   obtain ⟨hsame, hdiff⟩ := intSelect_place talts c tM n
   by_cases hnc : n = c
   · rw [hsame hnc]
@@ -289,49 +355,39 @@ theorem tag_case_obs {ρ : CekEnv} {π : Stack} {ts tO tM : Term} {j : Nat} {n :
     rw [this]
     simp only [Bool.false_eq_true, if_false]
     rcases hdiff hnc with heq | ⟨hnone, hpad⟩
-    · rw [heq]; exact hother hnc
+    · rw [heq]; exact hother n hn hnc
     · rw [hpad]
-      have h := hother hnc
+      have h := hother n hn hnc
       rw [hnone] at h
       exact obsRefines_trans h (obsRefines_error_compute π ρ)
 
-theorem lowerTotalExpr_intCase {env : List VarId} {t : VarId} {i : Nat} {alts : List Expr}
-    {talts : List Term} (hi : envLookupT env t = some i)
+theorem lowerTotalExpr_case_subject {env : List VarId} {subject : Expr} {tX : Term}
+    {alts : List Expr} {talts : List Term} (hX : lowerTotalExpr env subject = some tX)
     (halts : MIR.lowerTotalExprList env alts = some talts) :
-    lowerTotalExpr env (.Case (.Var t) alts) = some (.Case (.Var (i + 1)) talts) := by
-  rw [MIR.lowerTotalExpr_case_of_list, lowerTotalExpr_var, hi]
-  simp only [Option.map_some]
-  rw [halts]; rfl
+    lowerTotalExpr env (.Case subject alts) = some (.Case tX talts) := by
+  rw [MIR.lowerTotalExpr_case_of_list, hX, halts]; rfl
 
 theorem integerCaseRule_rewrites {Γ : List (VarId × Expr)} {scrutinee otherwise matched out : Expr}
-    {t : VarId} {c : Int} (htest : tagTest Γ scrutinee = some (t, c))
-    (hrule : integerCaseRule t c otherwise matched = some out) :
+    {subject : Expr} {c : Int} (htest : tagTest Γ scrutinee = some (subject, c))
+    (hrule : integerCaseRule subject c otherwise matched = some out) :
     TagRewrites Γ (.Case scrutinee [otherwise, matched]) out := by
   intro env te hd hs hlow
   obtain ⟨ts, tO, tM, hts, htO, htM, rfl⟩ := lowerTotalExpr_case2_some hlow
-  obtain ⟨i, hi⟩ := Option.isSome_iff_exists.mp (tagTest_bound htest hs hd (by simp [hts]))
+  obtain ⟨tX, htX, hsem⟩ := tagTest_sem htest hs hd hts
   unfold integerCaseRule at hrule
   split at hrule
   · cases hrule
   · rename_i hc
     have hcast : c = ((c.toNat : Nat) : Int) := by omega
-    have value : ∀ ρ, FactsHold Produces Γ env ρ → EnvWellFormed env.length ρ →
-        ∃ n : Int, ρ.lookup (i + 1) = some (.VCon (.Integer n)) ∧
-          Halts ρ ts (.VCon (.Bool (n == ((c.toNat : Nat) : Int)))) := by
-      intro ρ hF henv
-      obtain ⟨i', n, hi', hn, hv⟩ := tagTest_sound htest hF hd henv hts
-      rw [hi] at hi'; cases hi'
-      rw [hcast] at hv
-      exact ⟨n, hn, hv⟩
+    rw [hcast] at hsem
     split at hrule
     · split at hrule
       · cases hrule
         rw [lowerTotalExpr_error] at htO; cases htO
-        refine ⟨_, lowerTotalExpr_intCase hi
+        refine ⟨_, lowerTotalExpr_case_subject htX
           (lowerTotalExprList_place c.toNat (MIR.lowerTotalExprList_nil env) htM), ?_⟩
         intro ρ π henv _ _ hF
-        obtain ⟨n, hn, hv⟩ := value ρ hF henv
-        refine tag_case_obs hv hn fun _ => ?_
+        refine tag_case_obs (hsem ρ hF henv) fun n _ _ => ?_
         have : intSelect [] n = none := by unfold intSelect; split <;> simp
         rw [this]
         exact obsRefines_of_reaches (error_reaches π ρ) (reaches_refl _) (obsRefines_refl _)
@@ -343,12 +399,11 @@ theorem integerCaseRule_rewrites {Γ : List (VarId × Expr)} {scrutinee otherwis
         simp only [Bool.and_eq_true, decide_eq_true_eq] at hcond
         obtain ⟨htested, _⟩ := hcond
         obtain ⟨tsO, talts, htsO, htalts, rfl⟩ := lowerTotalExpr_case_some htO
-        rw [lowerTotalExpr_var, envLookupT_congr htested, hi] at htsO
+        rw [MIR.alphaEq_lowerTotalExpr_eq htested, htX] at htsO
         cases htsO
-        refine ⟨_, lowerTotalExpr_intCase hi (lowerTotalExprList_place c.toNat htalts htM), ?_⟩
+        refine ⟨_, lowerTotalExpr_case_subject htX (lowerTotalExprList_place c.toNat htalts htM), ?_⟩
         intro ρ π henv _ _ hF
-        obtain ⟨n, hn, hv⟩ := value ρ hF henv
-        exact tag_case_obs hv hn fun _ =>
+        exact tag_case_obs (hsem ρ hF henv) fun n hn _ =>
           obsRefines_of_reaches (int_case_reaches _ hn) (reaches_refl _) (obsRefines_refl _)
       · cases hrule
     · cases hrule
@@ -506,7 +561,7 @@ theorem errorSpine_sound (Γ : List (VarId × Expr)) (t : VarId) (e : Expr) {env
         rw [lowerTotalExpr_error] at htE; cases htE
         obtain ⟨tD, htD, hsem⟩ := errorSpine_sound Γ t next hd hs hi htN
         refine ⟨tD, htD, fun ρ π n hF henv hn => ?_⟩
-        obtain ⟨i', n', hi', hn', hv⟩ := tagTest_sound htest hF hd henv htS
+        obtain ⟨i', n', hi', hn', hv⟩ := resolvedTagTest_sound htest hF hd henv htS
         rw [envLookupT_congr htested, hi] at hi'; cases hi'
         rw [hn] at hn'; cases hn'
         have step := case_bool_steps (π := π) (a₀ := tN) (a₁ := .Error) hv
@@ -573,17 +628,17 @@ theorem int_max_cases (a b : Int) : a ≤ max a b ∧ b ≤ max a b ∧ (max a b
   rw [Int.max_def]; split <;> simp
 
 theorem rangeRule_rewrites {Γ : List (VarId × Expr)} {scrutinee otherwise out : Expr}
-    {t : VarId} {c : Int} (htest : tagTest Γ scrutinee = some (t, c))
+    {t : VarId} {c : Int} (htest : resolvedTagTest Γ scrutinee = some (t, c))
     (hrule : rangeRule Γ t c otherwise = some out) :
     TagRewrites Γ (.Case scrutinee [otherwise, .Error]) out := by
   intro env te hd hs hlow
   obtain ⟨ts, tO, tE, hts, htO, htE, rfl⟩ := lowerTotalExpr_case2_some hlow
   rw [lowerTotalExpr_error] at htE; cases htE
-  obtain ⟨i, hi⟩ := Option.isSome_iff_exists.mp (tagTest_bound htest hs hd (by simp [hts]))
+  obtain ⟨i, hi⟩ := Option.isSome_iff_exists.mp (resolvedTagTest_bound htest hs hd (by simp [hts]))
   have value : ∀ ρ, FactsHold Produces Γ env ρ → EnvWellFormed env.length ρ →
       ∃ n : Int, ρ.lookup (i + 1) = some (.VCon (.Integer n)) ∧ Halts ρ ts (.VCon (.Bool (n == c))) := by
     intro ρ hF henv
-    obtain ⟨i', n, hi', hn, hv⟩ := tagTest_sound htest hF hd henv hts
+    obtain ⟨i', n, hi', hn, hv⟩ := resolvedTagTest_sound htest hF hd henv hts
     rw [hi] at hi'; cases hi'
     exact ⟨n, hn, hv⟩
   unfold rangeRule at hrule
@@ -678,7 +733,7 @@ theorem tagCaseRule_rewrites {Γ : List (VarId × Expr)} {scrutinee out : Expr}
         cases h
         exact integerCaseRule_rewrites htest hint
       · split at h
-        · exact rangeRule_rewrites htest h
+        · exact rangeRule_rewrites (by assumption) h
         · cases h
     · cases h
   · cases h

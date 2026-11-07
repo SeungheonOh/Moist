@@ -4,12 +4,13 @@ import Moist.MIR.Optimize.Advanced.TagChains
 
 /-! # Tag tests under facts
 
-A tag test `tagTest Γ s = some (t, c)` resolves, through the recorded
+A resolved tag test `resolvedTagTest Γ s = some (t, c)` resolves, through the recorded
 bindings, to `equalsInteger` applied to the known integer variable `t` and
 the literal `c`. Under realized facts it returns `t = c` without failing
-(`tagTest_halts`): the recorded right-hand sides that build the partial
+(`resolvedTagTest_sound`): the recorded right-hand sides that build the partial
 application were evaluated in older suffixes of the environment, and an
-older suffix binds `t` to its current value (`halts_var_drop`).
+older suffix binds `t` to its current value (`halts_var_drop`). Every tag test
+evaluates its tag first and then selects by `tag = c` (`tagTest_sem`).
 -/
 
 namespace Moist.Verified.TagChains
@@ -187,14 +188,14 @@ theorem knownInteger_var {Γ : List (VarId × Expr)} {t : VarId} {env : List Var
     (by rw [lowerTotalExpr_var, hi]; rfl) (halts_var_of_lookup hv)
 
 /-- A tag test returns whether the current value of its tag is its literal. -/
-theorem tagTest_sound {Γ : List (VarId × Expr)} {s : Expr} {t : VarId} {c : Int}
+theorem resolvedTagTest_sound {Γ : List (VarId × Expr)} {s : Expr} {t : VarId} {c : Int}
     {env : List VarId} {ρ : CekEnv} {ts : Term}
-    (h : tagTest Γ s = some (t, c)) (hfacts : FactsHold Produces Γ env ρ) (hd : EnvDistinct env)
+    (h : resolvedTagTest Γ s = some (t, c)) (hfacts : FactsHold Produces Γ env ρ) (hd : EnvDistinct env)
     (henv : EnvWellFormed env.length ρ) (hlow : lowerTotalExpr env s = some ts) :
     ∃ i n, envLookupT env t = some i ∧ ρ.lookup (i + 1) = some (.VCon (.Integer n)) ∧
       Halts ρ ts (.VCon (.Bool (n == c))) := by
   have hb : Binary .EqualsInteger := rfl
-  unfold tagTest at h
+  unfold resolvedTagTest at h
   split at h
   · rename_i subject value ty hres
     split at h
@@ -241,7 +242,7 @@ theorem tagReturns_halts {Γ : List (VarId × Expr)} {e : Expr} {env : List VarI
   simp only [Bool.or_eq_true] at h
   rcases h with h | h
   · obtain ⟨⟨t, c⟩, htest⟩ := Option.isSome_iff_exists.mp h
-    obtain ⟨_, _, _, _, hv⟩ := tagTest_sound htest hfacts hd henv hlow
+    obtain ⟨_, _, _, _, hv⟩ := resolvedTagTest_sound htest hfacts hd henv hlow
     exact ⟨_, hv⟩
   · cases e with
     | App f a =>
@@ -264,5 +265,84 @@ theorem tagReturns_halts {Γ : List (VarId × Expr)} {e : Expr} {env : List VarI
         exact builtin_partial_reaches rfl rfl
       · cases h
     | _ => simp at h
+
+/-! ## Tests through their tag -/
+
+/-- A test of the tag `tX` against `c`: the tag is an integer whenever it
+    returns, and a Boolean case on the test continues with the alternative
+    selected by `tag = c` exactly when the tag returns, and fails when the
+    tag fails. -/
+def TestSem (ρ : CekEnv) (ts tX : Term) (c : Int) : Prop :=
+  (∀ v, Halts ρ tX v → ∃ n : Int, v = .VCon (.Integer n)) ∧
+  (∀ π a₀ a₁ (n : Int), Halts ρ tX (.VCon (.Integer n)) →
+    Reaches (.compute π ρ (.Case ts [a₀, a₁])) (.compute π ρ (if n == c then a₁ else a₀))) ∧
+  (∀ π a₀ a₁ T, Terminal T → Reaches (.compute π ρ (.Case ts [a₀, a₁])) T →
+    (Errs ρ tX ∧ T = .error) ∨
+    ∃ n : Int, Halts ρ tX (.VCon (.Integer n)) ∧
+      Reaches (.compute π ρ (if n == c then a₁ else a₀)) T)
+
+/-- A test whose value is already known from the tag's current value. -/
+theorem testSem_var {ρ : CekEnv} {ts : Term} {j : Nat} {n c : Int}
+    (hn : ρ.lookup j = some (.VCon (.Integer n))) (hv : Halts ρ ts (.VCon (.Bool (n == c)))) :
+    TestSem ρ ts (.Var j) c := by
+  have value : ∀ v, Halts ρ (.Var j) v → v = .VCon (.Integer n) := by
+    intro v h; have := halts_var h; rw [hn] at this; cases this; rfl
+  refine ⟨fun v h => ⟨n, value v h⟩, fun π a₀ a₁ n' h => ?_, fun π a₀ a₁ T hT h => ?_⟩
+  · have := value _ h; cases this
+    exact case_bool_steps hv
+  · exact .inr ⟨n, halts_var_of_lookup hn,
+      reaches_terminal_after hT (case_bool_steps hv) h⟩
+
+/-- `equalsInteger tX c` evaluates `tX` and then compares. -/
+theorem testSem_direct_left {ρ : CekEnv} {tX : Term} {c : Int} {ty : BuiltinType}
+    (hint : ∀ v, Halts ρ tX v → ∃ n : Int, v = .VCon (.Integer n)) :
+    TestSem ρ (.Apply (.Apply (.Builtin .EqualsInteger) tX) (.Constant (.Integer c, ty))) tX c := by
+  have enter : ∀ π a₀ a₁, Reaches
+      (.compute π ρ (.Case (.Apply (.Apply (.Builtin .EqualsInteger) tX)
+        (.Constant (.Integer c, ty))) [a₀, a₁]))
+      (.compute (.funV (.VBuiltin .EqualsInteger [] (.more .argV (.one .argV))) ::
+        .arg (.Constant (.Integer c, ty)) ρ :: .caseScrutinee [a₀, a₁] ρ :: π) ρ tX) :=
+    fun _ _ _ => ⟨5, rfl⟩
+  have finish : ∀ π a₀ a₁ (n : Int), Reaches
+      (.ret (.funV (.VBuiltin .EqualsInteger [] (.more .argV (.one .argV))) ::
+        .arg (.Constant (.Integer c, ty)) ρ :: .caseScrutinee [a₀, a₁] ρ :: π) (.VCon (.Integer n)))
+      (.compute π ρ (if n == c then a₁ else a₀)) := by
+    intro π a₀ a₁ n
+    cases h : (n == c) <;>
+      exact ⟨5, by simp [steps, step, ExpectedArgs.head, ExpectedArgs.tail,
+        evalBuiltin_equalsInteger, h, constToTagAndFields]⟩
+  refine ⟨hint, fun π a₀ a₁ n h => ?_, fun π a₀ a₁ T hT h => ?_⟩
+  · exact reaches_trans (enter π a₀ a₁) (reaches_trans (halts_on_stack h _) (finish π a₀ a₁ n))
+  · rcases sequence hT (reaches_terminal_after hT (enter π a₀ a₁) h) with ⟨he, rfl⟩ | ⟨v, hv, rest⟩
+    · exact .inl ⟨he, rfl⟩
+    · obtain ⟨n, rfl⟩ := hint v hv
+      exact .inr ⟨n, hv, reaches_terminal_after hT (finish π a₀ a₁ n) rest⟩
+
+/-- `equalsInteger c tX` evaluates `tX` after the literal and then compares. -/
+theorem testSem_direct_right {ρ : CekEnv} {tX : Term} {c : Int} {ty : BuiltinType}
+    (hint : ∀ v, Halts ρ tX v → ∃ n : Int, v = .VCon (.Integer n)) :
+    TestSem ρ (.Apply (.Apply (.Builtin .EqualsInteger) (.Constant (.Integer c, ty))) tX) tX c := by
+  have enter : ∀ π a₀ a₁, Reaches
+      (.compute π ρ (.Case (.Apply (.Apply (.Builtin .EqualsInteger)
+        (.Constant (.Integer c, ty))) tX) [a₀, a₁]))
+      (.compute (.funV (.VBuiltin .EqualsInteger [.VCon (.Integer c)] (.one .argV)) ::
+        .caseScrutinee [a₀, a₁] ρ :: π) ρ tX) :=
+    fun _ _ _ => ⟨8, rfl⟩
+  have finish : ∀ π a₀ a₁ (n : Int), Reaches
+      (.ret (.funV (.VBuiltin .EqualsInteger [.VCon (.Integer c)] (.one .argV)) ::
+        .caseScrutinee [a₀, a₁] ρ :: π) (.VCon (.Integer n)))
+      (.compute π ρ (if n == c then a₁ else a₀)) := by
+    intro π a₀ a₁ n
+    have heval := evalBuiltin_equalsInteger c n
+    rw [int_beq_comm c n] at heval
+    cases h : (n == c) <;>
+      exact ⟨2, by simp [steps, step, ExpectedArgs.head, ExpectedArgs.tail, heval, h,
+        constToTagAndFields]⟩
+  refine ⟨hint, fun π a₀ a₁ n h => ?_, fun π a₀ a₁ T hT h => ?_⟩
+  · exact reaches_trans (enter π a₀ a₁) (reaches_trans (halts_on_stack h _) (finish π a₀ a₁ n))
+  · rcases sequence hT (reaches_terminal_after hT (enter π a₀ a₁) h) with ⟨he, rfl⟩ | ⟨v, hv, rest⟩
+    · exact .inl ⟨he, rfl⟩
+    · obtain ⟨n, rfl⟩ := hint v hv
+      exact .inr ⟨n, hv, reaches_terminal_after hT (finish π a₀ a₁ n) rest⟩
 
 end Moist.Verified.TagChains

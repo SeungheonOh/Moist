@@ -125,7 +125,6 @@ theorem tagApplication_rewrites (Γ : List (VarId × Expr)) (f a : Expr) :
   unfold tagApplication
   split
   · rename_i s alts y
-    dsimp only
     split
     · exact pushArgument_rewrites Γ y _
     · exact TagRewrites.refl _ _
