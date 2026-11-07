@@ -11,6 +11,7 @@ import Moist.MIR.Optimize.Advanced.CheckedBranches
 import Moist.MIR.Optimize.Advanced.TagChains
 import Moist.MIR.Optimize.Advanced.KnownLists
 import Moist.MIR.Optimize.Advanced.FailFast
+import Moist.MIR.Optimize.Advanced.TagGuard
 import Moist.MIR.Optimize.CaseMerge
 import Moist.MIR.Optimize.PreLower
 

@@ -23,7 +23,8 @@ A binding is only moved when exactly one alternative keeps it, so no code is
 duplicated.
 
 `terminates` accepts values, `error`, constructors, cases whose alternatives
-are safe for any number of fields, strict bindings, saturated or partial
+are safe for any number of fields (inert results under lambdas, or cases of
+such alternatives), strict bindings, saturated or partial
 builtin applications that never over-apply, and the
 `force (ifThenElse c (delay a) (delay b))` idiom. `inert` additionally
 guarantees that a returned value is a constant or a constructor, so applying
@@ -132,6 +133,7 @@ mutual
   /-- An alternative terminates whatever number of fields it is applied to. -/
   def altSafe : Expr → Bool
     | .Lam _ body => altSafe body
+    | .Case scrutinee alternatives => terminates scrutinee && altsSafe alternatives
     | e => inert e
   termination_by e => (sizeOf e, 1)
 

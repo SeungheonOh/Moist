@@ -466,6 +466,28 @@ theorem altSafeAt_lam {d : Nat} {tb : Term} (h : AltSafeAt (d + 1) tb) : AltSafe
       obtain ⟨henv', hlen'⟩ := envWellFormed_extend' henv hlen hf
       exact termState_of_reaches (reaches_of_steps 2 rfl) (h _ henv' hlen' fs hfs)
 
+/-- A case of alternatives that are safe for any fields is itself safe for
+    any fields. -/
+theorem altSafeAt_case {d : Nat} {ts : Term} {talts : List Term} (hclosed : closedAt d ts = true)
+    (hs : TerminatesAt d ts) (halts : ∀ a ∈ talts, AltSafeAt d a) : AltSafeAt d (.Case ts talts) := by
+  intro ρ henv hlen fields hfs
+  refine termState_of_reaches (reaches_of_steps 1 rfl) (termState_compute (hs ρ henv hlen) fun w hw => ?_)
+  refine termState_of_reaches (s' := step (.ret (.caseScrutinee talts ρ :: fields.map Frame.applyArg) w))
+    (reaches_of_steps 1 rfl) ?_
+  rw [step_caseScrutinee]
+  cases hd : dispatch talts w with
+  | none => exact termState_error
+  | some r =>
+    obtain ⟨alt, gs⟩ := r
+    obtain ⟨hmem, hgs⟩ := dispatch_spec hd (halts_wellFormed henv hlen hclosed hw)
+    have happ : ValueListWellFormed (gs ++ fields) := by
+      clear hd hmem
+      induction gs with
+      | nil => simpa using hfs
+      | cons g gs ih => cases hgs with | cons hg hrest => exact .cons hg (ih hrest)
+    have := halts alt hmem ρ henv hlen (gs ++ fields) happ
+    simpa [List.map_append] using this
+
 theorem altSafeAt_of_inert {d : Nat} {t : Term} (h : InertAt d t) : AltSafeAt d t := by
   intro ρ henv hlen fields _
   rcases h ρ henv hlen with he | ⟨v, hv, hq⟩
@@ -568,6 +590,18 @@ theorem sound_lt : ∀ (N : Nat) (e : Expr), sizeOf e < N → Sound e := by
       obtain ⟨tb, htb, rfl⟩ := lowerTotalExpr_lam_some hlow
       have := (ihs b (by simp only [Expr.Lam.sizeOf_spec]; omega)).2.2.1 h (x :: env) tb htb
       exact altSafeAt_lam (by simpa using this)
+    | Case s alts =>
+      rw [altSafe, Bool.and_eq_true] at h
+      obtain ⟨ts, talts, hts, htalts, rfl⟩ := lowerTotalExpr_case_some hlow
+      have hss : sizeOf s < sizeOf (Expr.Case s alts) := by
+        simp only [Expr.Case.sizeOf_spec]; omega
+      refine altSafeAt_case (MIR.lowerTotalExpr_closedAt hts) ((ihs s hss).1 h.1 env ts hts) ?_
+      intro a ha
+      obtain ⟨alt, halt, hlowa⟩ := lowerTotalExprList_mem htalts a ha
+      have hsa : sizeOf alt < sizeOf (Expr.Case s alts) := by
+        have := List.sizeOf_lt_of_mem halt
+        simp only [Expr.Case.sizeOf_spec]; omega
+      exact (ihs alt hsa).2.2.1 (altsSafe_mem h.2 alt halt) env a hlowa
     | _ =>
       rw [altSafe] at h
       all_goals first
