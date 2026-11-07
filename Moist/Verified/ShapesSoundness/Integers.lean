@@ -384,4 +384,80 @@ theorem integerIdentity_factRel {G : VarId → Prop} {Γ : List (VarId × Expr)}
       · cases h
   · cases h
 
+/-! ## Freshness of the identity rewrite -/
+
+theorem retainEvaluation_fresh {base : Nat} {Γ : List (VarId × Expr)} {e : Expr} {c : Const}
+    {ty : BuiltinType} {env : List VarId} (hG : ∀ y ∈ env, GenSafe base y) (h : freshIn env e = true) :
+    freshIn env (retainEvaluation base Γ e (.Lit (c, ty))) = true := by
+  unfold retainEvaluation
+  split
+  · simp [freshIn]
+  · rw [freshIn_let_single]
+    simp only [Bool.and_eq_true]
+    refine ⟨⟨h, ?_⟩, by simp [freshIn]⟩
+    rw [lookup_none_of_not_G hG (not_genSafe (Nat.le_max_left _ _) rfl)]; rfl
+
+theorem integerIdentity_fresh {Γ : List (VarId × Expr)} {base : Nat} {x y : Expr} {env : List VarId}
+    (hG : ∀ y ∈ env, GenSafe base y) (hx : freshIn env x = true)
+    (h : integerIdentity base Γ x = some y) : freshIn env y = true := by
+  unfold integerIdentity at h
+  split at h
+  · rename_i b first second
+    simp only [freshIn, Bool.and_eq_true] at hx
+    obtain ⟨⟨_, hf₁⟩, hf₂⟩ := hx
+    have hlit : ∀ c, freshIn env (.Lit c) = true := fun _ => by simp [freshIn]
+    split at h
+    · cases h
+    · split at h
+      · split at h
+        · cases h; exact hf₂
+        · split at h
+          · cases h; exact hf₁
+          · cases h
+      · split at h
+        · cases h; exact hf₁
+        · split at h
+          · split at h
+            · cases h; exact hlit _
+            · cases h
+          · cases h
+      · split at h
+        · cases h; exact hf₂
+        · split at h
+          · cases h; exact hf₁
+          · split at h
+            · cases h; exact retainEvaluation_fresh hG hf₂
+            · split at h
+              · cases h; exact retainEvaluation_fresh hG hf₁
+              · cases h
+      · split at h
+        · cases h; exact hf₁
+        · cases h
+      · split at h
+        · cases h; exact hf₁
+        · cases h
+      · split at h
+        · cases h; exact retainEvaluation_fresh hG hf₁
+        · cases h
+      · split at h
+        · cases h; exact retainEvaluation_fresh hG hf₁
+        · cases h
+      · split at h
+        · split at h
+          · cases h; exact hlit _
+          · cases h
+        · cases h
+      · split at h
+        · split at h
+          · cases h; exact hlit _
+          · cases h
+        · cases h
+      · split at h
+        · split at h
+          · cases h; exact hlit _
+          · cases h
+        · cases h
+      · cases h
+  · cases h
+
 end Moist.Verified.ShapeFacts
