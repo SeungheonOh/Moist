@@ -111,32 +111,32 @@ theorem anfAtomList_spec (tag : Nat) :
 section
 variable (s : FreshState)
 
-theorem anfNormalizeCore_force_eq (e : Expr) : anfNormalizeCore (.Force e) s =
-    (wrapLet (anfAtom (anfNormalizeCore e s).1 (anfNormalizeCore e s).2).1.2
-      (.Force (anfAtom (anfNormalizeCore e s).1 (anfNormalizeCore e s).2).1.1),
-     (anfAtom (anfNormalizeCore e s).1 (anfNormalizeCore e s).2).2) := rfl
+private theorem anfNormalizeCore_force_eq (e : Expr) : anfNormalizeCore (.Force e) s =
+    let r := anfNormalizeCore e s
+    let a := anfAtom r.1 r.2
+    (wrapLet a.1.2 (.Force a.1.1), a.2) := rfl
 
-theorem anfNormalizeCore_app_eq (f x : Expr) : anfNormalizeCore (.App f x) s =
+private theorem anfNormalizeCore_app_eq (f x : Expr) : anfNormalizeCore (.App f x) s =
     let r₁ := anfNormalizeCore f s
     let r₂ := anfNormalizeCore x r₁.2
     let a₁ := anfAtom r₁.1 r₂.2
     let a₂ := anfAtom r₂.1 a₁.2
     (wrapLet (a₁.1.2 ++ a₂.1.2) (.App a₁.1.1 a₂.1.1), a₂.2) := rfl
 
-theorem anfNormalizeCore_case_eq (scrut : Expr) (alts : List Expr) :
+private theorem anfNormalizeCore_case_eq (scrut : Expr) (alts : List Expr) :
     anfNormalizeCore (.Case scrut alts) s =
     let r := anfNormalizeCore scrut s
     let a := anfAtom r.1 r.2
     let l := anfNormalizeListCore alts a.2
     (wrapLet a.1.2 (.Case a.1.1 l.1), l.2) := rfl
 
-theorem anfNormalizeCore_constr_eq (tag : Nat) (args : List Expr) :
+private theorem anfNormalizeCore_constr_eq (tag : Nat) (args : List Expr) :
     anfNormalizeCore (.Constr tag args) s =
     let l := anfNormalizeListCore args s
     let a := anfAtomList l.1 l.2
     (wrapLet a.1.2 (.Constr tag a.1.1), a.2) := rfl
 
-theorem anfNormalizeCore_let_eq (binds : List (VarId × Expr × Bool)) (body : Expr) :
+private theorem anfNormalizeCore_let_eq (binds : List (VarId × Expr × Bool)) (body : Expr) :
     anfNormalizeCore (.Let binds body) s =
     let r := anfNormalizeBindsCore binds s
     let b := anfNormalizeCore body r.2
@@ -279,7 +279,7 @@ theorem anfNormalizeCore_refines (e : Expr) (s : FreshState) (h : maxUidExpr e <
     · exact mirCtxRefines_fix_nonlam_lhs fun x inner heq => hb ⟨x, inner, heq⟩
   | .Force e =>
     simp only [maxUidExpr] at h
-    rw [anfNormalizeCore_force_eq]
+    rw [anfNormalizeCore_force_eq]; dsimp only
     have hr := anfNormalizeCore_refines e s h
     generalize anfNormalizeCore e s = r at hr ⊢
     exact mirCtxRefines_trans (mirCtxRefines_force hr) <|
