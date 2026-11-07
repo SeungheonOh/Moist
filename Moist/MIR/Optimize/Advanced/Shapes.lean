@@ -36,36 +36,6 @@ def knownBooleanLocal : Nat → List (VarId × Expr) → Expr → Bool
 def knownBoolean (fuel : Nat) (environment : List (VarId × Expr)) (expression : Expr) : Bool :=
   knownBooleanLocal fuel environment expression || knownBooleanResult fuel environment expression
 
-def constructorPair : Nat → List (VarId × Expr) → Expr → Bool
-  | 0, _, _ => false
-  | fuel + 1, environment, expression =>
-    match expression with
-    | .Var binder =>
-      (environment.find? (fun entry => entry.1 == binder)).any
-        (fun entry => constructorPair fuel environment entry.2)
-    | .App function _ =>
-      match resolveHead fuel environment function with
-      | .Builtin .UnConstrData => true
-      | _ => false
-    | _ => false
-
-def knownList : Nat → List (VarId × Expr) → Expr → Bool
-  | 0, _, _ => false
-  | fuel + 1, environment, expression =>
-    match expression with
-    | .Var binder =>
-      (environment.find? (fun entry => entry.1 == binder)).any
-        (fun entry => knownList fuel environment entry.2)
-    | .Lit (.ConstList _, .TypeOperator (.TypeList _))
-    | .Lit (.ConstDataList _, .TypeOperator (.TypeList _))
-    | .Lit (.ConstPairDataList _, .TypeOperator (.TypeList _)) => true
-    | .App function argument =>
-      match resolveHead fuel environment function with
-      | .Builtin .UnListData | .Force (.Builtin .TailList) => true
-      | .Force (.Force (.Builtin .SndPair)) => constructorPair fuel environment argument
-      | _ => false
-    | _ => false
-
 /-! ## Termination measures -/
 
 theorem exprSize_pos (expression : Expr) : 0 < exprSize expression := by

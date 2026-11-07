@@ -404,6 +404,24 @@ theorem closure_telescope_halts {n : Nat} {tr : Term} {ρ : CekEnv} {a : CekValu
   obtain ⟨M, hM, hh⟩ := telescope_halts n tr (ρ.extend a) as m v hlen hm
   exact ⟨M, by omega, hh⟩
 
+/-- Running a telescope of lambdas against at least as many application
+    frames evaluates its body against the remaining frames. -/
+theorem telescope_prefix_halts : ∀ (n : Nat) (tr : Term) (ρ : CekEnv) (first rest : List CekValue)
+    (N : Nat) (v : CekValue), first.length = n →
+    steps N (.compute ((first ++ rest).map Frame.applyArg) ρ (lamsT n tr)) = .halt v →
+    ∃ M, M ≤ N ∧ steps M (.compute (rest.map Frame.applyArg) (extendAll ρ first) tr) = .halt v
+  | 0, tr, ρ, [], rest, N, v, _, h => ⟨N, Nat.le_refl _, by simpa [extendAll] using h⟩
+  | n + 1, tr, ρ, a :: as, rest, N, v, hlen, h => by
+    obtain ⟨m₁, rfl, h₁⟩ := steps_succ_of h (by simp)
+    simp only [List.cons_append, List.map_cons, lamsT] at h₁
+    rw [step_lam] at h₁
+    obtain ⟨m₂, rfl, h₂⟩ := steps_succ_of h₁ (by simp)
+    rw [step_applyArg_lam] at h₂
+    obtain ⟨M, hM, hh⟩ := telescope_prefix_halts n tr (ρ.extend a) as rest m₂ v (by simpa using hlen) h₂
+    exact ⟨M, by omega, hh⟩
+  | 0, _, _, _ :: _, _, _, _, hlen, _ => by simp at hlen
+  | _ + 1, _, _, [], _, _, _, hlen, _ => by simp at hlen
+
 /-! ## Application spines -/
 
 theorem lowerTotalExprList_index {env : List VarId} :
@@ -507,6 +525,44 @@ theorem case_result_counted {ρ : CekEnv} {s : Term} {talts : List Term} {N : Na
           rw [hget] at r
           exact alternative_counted Q
             (fun M w hM hw => halt alt (List.mem_of_getElem? hget) M w (by omega) hw) r
+  | VLam _ _ | VDelay _ _ | VBuiltin _ _ _ =>
+    simp only [step] at r; rw [steps_error] at r; cases r
+
+/-- The constructor index and fields a `case` reads from a scrutinee value. -/
+def CaseView (w : CekValue) (tag : Nat) (fields : List CekValue) : Prop :=
+  w = .VConstr tag fields ∨ ∃ c numCtors, w = .VCon c ∧ constToTagAndFields c = some (tag, numCtors, fields)
+
+/-- A halting `case` ran one alternative against the fields of its scrutinee. -/
+theorem case_dispatch_counted {ρ : CekEnv} {s : Term} {talts : List Term} {N : Nat} {v : CekValue}
+    (h : HaltsIn ρ (.Case s talts) N v) :
+    ∃ Ns w tag alt fields m, HaltsIn ρ s Ns w ∧ CaseView w tag fields ∧ talts[tag]? = some alt ∧
+      m ≤ N ∧ steps m (.compute (fields.map Frame.applyArg) ρ alt) = .halt v := by
+  obtain ⟨Ns, w, Nr, hs, hr, hsum⟩ := haltsIn_case h
+  obtain ⟨m, rfl, r⟩ := steps_succ_of hr (by simp)
+  cases w with
+  | VConstr tag fields =>
+    simp only [step] at r
+    cases hget : talts[tag]? with
+    | none => rw [hget, steps_error] at r; cases r
+    | some alt =>
+      rw [hget] at r
+      exact ⟨Ns, _, tag, alt, fields, m, hs, .inl rfl, hget, by omega, by simpa using r⟩
+  | VCon c =>
+    simp only [step] at r
+    cases hc : constToTagAndFields c with
+    | none => rw [hc, steps_error] at r; cases r
+    | some triple =>
+      obtain ⟨tag, numCtors, fields⟩ := triple
+      rw [hc] at r
+      simp only at r
+      split at r
+      · rw [steps_error] at r; cases r
+      · cases hget : talts[tag]? with
+        | none => rw [hget, steps_error] at r; cases r
+        | some alt =>
+          rw [hget] at r
+          exact ⟨Ns, _, tag, alt, fields, m, hs, .inr ⟨c, numCtors, rfl, hc⟩, hget, by omega,
+            by simpa using r⟩
   | VLam _ _ | VDelay _ _ | VBuiltin _ _ _ =>
     simp only [step] at r; rw [steps_error] at r; cases r
 
@@ -728,6 +784,128 @@ theorem lam_case {fuel : Nat} (ih : ResultSound fuel) (Γ : List (VarId × Expr)
         (SummariesHold.append (p :: ps').reverse (hsum.sub filter_mem) hnames hdrop)
         (WithinBudget.append (p :: ps').reverse ((hbud.sub filter_mem).le (by omega)) hnames)
         hfr htr hres
+
+/-- A saturated call of a lambda telescope whose body is checked with its
+    parameters unknown: no fact is recorded for the arguments. -/
+theorem lam_case_opaque {fuel : Nat} (ih : ResultSound fuel) (Γ : List (VarId × Expr))
+    (S : List (VarId × Nat)) (β : Budget) {env : List VarId} {ρ : CekEnv} (binder : VarId) (body₀ : Expr)
+    (ps : List VarId) (res : Expr) (vals : List CekValue) {th : Term} {Nh Nc n : Nat} {wh v : CekValue}
+    (hps : resultParameters (.Lam binder body₀) = (ps, res)) (hlen : ps.length = vals.length)
+    (h : booleanResultCore fuel (Γ.filter (fun entry => !ps.contains entry.1))
+      (S.filter (fun entry => !ps.contains entry.1)) res = true)
+    (hd : EnvDistinct env) (hfacts : FactsHold (ProducesB S β) Γ env ρ) (hsum : SummariesHold S env ρ β)
+    (hbud : WithinBudget S env β n) (hfresh : freshIn env (.Lam binder body₀) = true)
+    (hlow : lowerTotalExpr env (.Lam binder body₀) = some th)
+    (hhead : HaltsIn ρ th Nh wh)
+    (hchain : steps Nc (.ret (vals.map Frame.applyArg) wh) = .halt v) (hNc : Nc ≤ n) : BoolValue v := by
+  have hlams : Expr.Lam binder body₀ = lams ps res := by
+    rw [← lams_resultParameters (.Lam binder body₀), hps]
+  cases ps with
+  | nil => simp [resultParameters] at hps
+  | cons p ps' =>
+    rw [hlams] at hlow hfresh
+    obtain ⟨tr, htr, rfl⟩ := lower_lams (p :: ps') res env th hlow
+    have hwh : wh = .VLam (lamsT ps'.length tr) ρ := halts_lam hhead.halts
+    subst hwh
+    cases vals with
+    | nil => simp at hlen
+    | cons a₀ as =>
+      obtain ⟨M, hM, hres⟩ := closure_telescope_halts (by simp at hlen; omega) hchain
+      obtain ⟨hfr, hd'⟩ := fresh_lams (p :: ps') res env hfresh hd
+      have hdrop : dropEnv (p :: ps').reverse.length (extendAll ρ (a₀ :: as)) = ρ := by
+        have := dropEnv_extendAll ρ (a₀ :: as)
+        rwa [show (a₀ :: as).length = (p :: ps').reverse.length by simp at hlen ⊢; omega] at this
+      have hnames : ∀ entry ∈ S.filter (fun entry => !(p :: ps').contains entry.1),
+          envLookupT (p :: ps').reverse entry.1 = none := by
+        intro entry hmem
+        exact envLookupT_reverse_none (by simpa using not_contains_of_filter hmem)
+      have hkeys : ∀ entry ∈ Γ.filter (fun entry => !(p :: ps').contains entry.1),
+          envLookupT (p :: ps').reverse entry.1 = none := by
+        intro entry hmem
+        exact envLookupT_reverse_none (by simpa using not_contains_of_filter hmem)
+      have hΓ₀ : FactsHold (ProducesB (S.filter (fun entry => !(p :: ps').contains entry.1)) β)
+          (Γ.filter (fun entry => !(p :: ps').contains entry.1)) env ρ :=
+        (hfacts.filter (fun x => !(p :: ps').contains x)
+          (fun x y hxy => by simp only [contains_congr hxy])).mono
+          (fun _ _ _ _ hp => hp.sub filter_mem)
+      exact ih _ _ res β h hd' (FactsHold.append_fresh _ hΓ₀ hkeys hdrop)
+        (SummariesHold.append (p :: ps').reverse (hsum.sub filter_mem) hnames hdrop)
+        (WithinBudget.append (p :: ps').reverse ((hbud.sub filter_mem).le (by omega)) hnames)
+        hfr htr hres
+
+/-- The field counts promised for a scrutinee bound the fields its value
+    passes to the selected alternative. -/
+theorem scrutineeFieldCounts_sound {P : List VarId → CekEnv → Expr → CekValue → Prop}
+    (hP : ∀ env ρ rhs v, P env ρ rhs v → Produces env ρ rhs v) (fuel : Nat)
+    (Γ : List (VarId × Expr)) (s : Expr) {env : List VarId} {ρ : CekEnv} {ts : Term} {w : CekValue}
+    {tag : Nat} {fields : List CekValue} (hfacts : FactsHold P Γ env ρ) (hd : EnvDistinct env)
+    (hlow : lowerTotalExpr env s = some ts) (hs : Halts ρ ts w) (hview : CaseView w tag fields) :
+    (scrutineeFieldCounts fuel Γ s).getD tag 0 ≤ fields.length := by
+  unfold scrutineeFieldCounts
+  split
+  · rename_i hl
+    have hlist := knownList_sound hP fuel Γ s hl hfacts hd hlow hs
+    rcases hview with rfl | ⟨c, k, rfl, hc⟩
+    · simp [ListValue] at hlist
+    · cases c <;> simp [ListValue] at hlist
+      all_goals
+        rename_i l
+        cases l <;> simp [constToTagAndFields] at hc <;> obtain ⟨rfl, rfl, rfl⟩ := hc <;> simp
+  · split
+    · rename_i _ hpair
+      obtain ⟨i, fs, rfl⟩ := constructorPair_sound hP fuel Γ s hpair hfacts hd hlow hs
+      rcases hview with h | ⟨c, k, h, hc⟩
+      · cases h
+      · cases h
+        simp [constToTagAndFields] at hc
+        obtain ⟨rfl, rfl, rfl⟩ := hc
+        simp
+    · simp
+
+/-- An alternative whose lambda telescope is no longer than the fields it
+    receives, and whose body is checked with its parameters unknown. -/
+theorem alternative_case {fuel : Nat} (ih : ResultSound fuel) (Γ : List (VarId × Expr))
+    (S : List (VarId × Nat)) (β : Budget) {env : List VarId} {ρ : CekEnv} (a : Expr) (ps : List VarId)
+    (res : Expr) (fields : List CekValue) {alt : Term} {m n : Nat} {v : CekValue}
+    (hps : resultParameters a = (ps, res)) (hk : ps.length ≤ fields.length)
+    (h : booleanResultCore fuel (Γ.filter (fun entry => !ps.contains entry.1))
+      (S.filter (fun entry => !ps.contains entry.1)) res = true)
+    (hd : EnvDistinct env) (hfacts : FactsHold (ProducesB S β) Γ env ρ) (hsum : SummariesHold S env ρ β)
+    (hbud : WithinBudget S env β n) (hfresh : freshIn env a = true)
+    (hlow : lowerTotalExpr env a = some alt)
+    (hrun : steps m (.compute (fields.map Frame.applyArg) ρ alt) = .halt v) (hm : m ≤ n) :
+    BoolValue v := by
+  have hlams : a = lams ps res := by rw [← lams_resultParameters a, hps]
+  subst hlams
+  obtain ⟨tr, htr, rfl⟩ := lower_lams ps res env alt hlow
+  obtain ⟨hfr, hd'⟩ := fresh_lams ps res env hfresh hd
+  have hsplit : fields = fields.take ps.length ++ fields.drop ps.length := (List.take_append_drop _ _).symm
+  rw [hsplit] at hrun
+  obtain ⟨M, hM, hrun'⟩ := telescope_prefix_halts ps.length tr ρ (fields.take ps.length)
+    (fields.drop ps.length) m v (by simp; omega) hrun
+  have hdrop : dropEnv ps.reverse.length (extendAll ρ (fields.take ps.length)) = ρ := by
+    have := dropEnv_extendAll ρ (fields.take ps.length)
+    rwa [show (fields.take ps.length).length = ps.reverse.length by simp; omega] at this
+  have hnames : ∀ entry ∈ S.filter (fun entry => !ps.contains entry.1),
+      envLookupT ps.reverse entry.1 = none := by
+    intro entry hmem
+    exact envLookupT_reverse_none (by simpa using not_contains_of_filter hmem)
+  have hkeys : ∀ entry ∈ Γ.filter (fun entry => !ps.contains entry.1),
+      envLookupT ps.reverse entry.1 = none := by
+    intro entry hmem
+    exact envLookupT_reverse_none (by simpa using not_contains_of_filter hmem)
+  have hΓ₀ : FactsHold (ProducesB (S.filter (fun entry => !ps.contains entry.1)) β)
+      (Γ.filter (fun entry => !ps.contains entry.1)) env ρ :=
+    (hfacts.filter (fun x => !ps.contains x)
+      (fun x y hxy => by simp only [contains_congr hxy])).mono
+      (fun _ _ _ _ hp => hp.sub filter_mem)
+  refine alternative_counted (ρ := extendAll ρ (fields.take ps.length)) (alt := tr)
+    (fields := fields.drop ps.length) BoolValue (m := M) ?_ (by rw [List.append_nil]; exact hrun')
+  intro M' w hM' hw
+  obtain ⟨c, rfl⟩ := ih _ _ res β h hd' (FactsHold.append_fresh _ hΓ₀ hkeys hdrop)
+    (SummariesHold.append ps.reverse (hsum.sub filter_mem) hnames hdrop)
+    (WithinBudget.append ps.reverse ((hbud.sub filter_mem).le (by omega)) hnames) hfr htr hw
+  exact ⟨_, rfl, c, rfl⟩
 
 /-! ## Recursive functions -/
 
@@ -962,14 +1140,27 @@ theorem booleanResultCore_sound : ∀ fuel, ResultSound fuel := by
     | Case scrut alts =>
       simp only [booleanResultCore, Bool.and_eq_true, List.all_eq_true] at h
       obtain ⟨_, hall⟩ := h
-      obtain ⟨ts, talts, _, htalts, rfl⟩ := lowerTotalExpr_case_some hlow
+      obtain ⟨ts, talts, hts, htalts, rfl⟩ := lowerTotalExpr_case_some hlow
       simp only [freshIn, Bool.and_eq_true] at hfresh
-      refine case_result_counted BoolValue hv ?_
-      intro alt hmem M w hM hw
-      obtain ⟨a', ha, hlowa⟩ := lowerTotalExprList_mem htalts alt hmem
-      obtain ⟨c, rfl⟩ := ih Γ S a' β (hall a' ha) hd hfacts hsum (hbud.le hM)
-        (freshInList_iff.mp hfresh.2 a' ha) hlowa hw
-      exact ⟨_, rfl, c, rfl⟩
+      obtain ⟨Ns, w, tag, alt, fields, m, hs, hview, hget, hm, hrun⟩ := case_dispatch_counted hv
+      obtain ⟨htlen, hidx⟩ := lowerTotalExprList_index htalts
+      obtain ⟨a', ha'⟩ : ∃ a', alts[tag]? = some a' := by
+        cases ha : alts[tag]? with
+        | some a' => exact ⟨a', rfl⟩
+        | none =>
+          rw [List.getElem?_eq_none_iff] at ha
+          have := (List.getElem?_eq_some_iff.mp hget).1
+          omega
+      have hlowa := hidx tag a' alt ha' hget
+      have hP := hall (a', tag) (List.mk_mem_zipIdx_iff_getElem?.mpr ha')
+      generalize hpr : resultParameters a' = pr at hP
+      obtain ⟨ps, res⟩ := pr
+      simp only [decide_eq_true_eq] at hP
+      obtain ⟨hk, hres⟩ := hP
+      have hbound := scrutineeFieldCounts_sound (fun _ _ _ _ hp => (producesB_hP _ _ _ _ hp).1) fuel Γ
+        scrut hfacts hd hts hs.halts hview
+      exact alternative_case ih Γ S β a' ps res fields hpr (by omega) hres hd hfacts hsum hbud
+        (freshInList_iff.mp hfresh.2 a' (List.mem_of_getElem? ha')) hlowa hrun hm
     | Force body =>
       simp only [booleanResultCore] at h
       obtain ⟨tb, htb, rfl⟩ := lowerTotalExpr_force_some hlow
@@ -1031,19 +1222,46 @@ theorem booleanResultCore_sound : ∀ fuel, ResultSound fuel := by
         obtain ⟨htlen, _⟩ := lowerTotalExprList_index htargs
         cases head with
         | Var binder =>
-          simp only at h
-          cases hf : S.find? (fun entry => entry.1 == binder) with
-          | none => rw [hf] at h; cases h
-          | some entry =>
-            rw [hf] at h
-            simp only [Option.any_some, beq_iff_eq] at h
-            obtain ⟨i, hi, rfl⟩ := lowerTotalExpr_var_some hth
-            have hlk := halts_var hhead.halts
-            have hmem := List.mem_of_find?_eq_some hf
-            have hbeq : (entry.1 == binder) = true := by simpa using List.find?_some hf
-            have hi' : envLookupT env entry.1 = some i := by rw [envLookupT_congr hbeq]; exact hi
-            exact hsum entry hmem i hi' wh hlk vals (by omega) Nc v
-              (Nat.le_trans (by omega) (hbud entry hmem (by rw [hi']; rfl))) hchain
+          simp only [Bool.or_eq_true] at h
+          rcases h with h | h
+          · cases hf : S.find? (fun entry => entry.1 == binder) with
+            | none => rw [hf] at h; cases h
+            | some entry =>
+              rw [hf] at h
+              simp only [Option.any_some, beq_iff_eq] at h
+              obtain ⟨i, hi, rfl⟩ := lowerTotalExpr_var_some hth
+              have hlk := halts_var hhead.halts
+              have hmem := List.mem_of_find?_eq_some hf
+              have hbeq : (entry.1 == binder) = true := by simpa using List.find?_some hf
+              have hi' : envLookupT env entry.1 = some i := by rw [envLookupT_congr hbeq]; exact hi
+              exact hsum entry hmem i hi' wh hlk vals (by omega) Nc v
+                (Nat.le_trans (by omega) (hbud entry hmem (by rw [hi']; rfl))) hchain
+          · cases hf : Γ.find? (fun entry => entry.1 == binder) with
+            | none => rw [hf] at h; cases h
+            | some entry =>
+              rw [hf] at h
+              obtain ⟨i, hi, rfl⟩ := lowerTotalExpr_var_some hth
+              obtain ⟨w, k, _, _, hw, hp⟩ := hfacts binder entry i hf hi
+              have hlk := halts_var hhead.halts
+              rw [hw] at hlk; cases hlk
+              obtain ⟨tr, m, htr, hm, _, hfr⟩ := hp
+              obtain ⟨y, rhs⟩ := entry
+              cases rhs with
+              | Lam p b =>
+                simp only [Bool.and_eq_true, beq_iff_eq] at h
+                obtain ⟨hlen, hres⟩ := h
+                exact lam_case_opaque ih Γ S β (env := env.drop k) p b _ _ vals rfl
+                  (by simp only [resultParameters, List.length_cons] at hlen ⊢; omega) hres
+                  (hd.drop k) (hfacts.drop hd k) (hsum.drop hd k) (hbud.drop hd k) hfr htr hm hchain
+                  (by omega)
+              | Fix recursive body =>
+                simp only [Bool.and_eq_true, Bool.not_eq_true', List.isEmpty_eq_false_iff,
+                  beq_iff_eq] at h
+                obtain ⟨⟨hne, hlen⟩, hres⟩ := h
+                exact fix_case ih Γ S β (env := env.drop k) recursive body _ _ args vals rfl hne hlen hres
+                  (hd.drop k) (hfacts.drop hd k) (hsum.drop hd k) (hbud.drop hd k) hfr htr hm
+                  (by omega) hchain (by omega)
+              | _ => simp at h
         | Fix recursive body =>
           simp only at h
           simp only [Bool.and_eq_true, Bool.not_eq_true', List.isEmpty_eq_false_iff, beq_iff_eq] at h
