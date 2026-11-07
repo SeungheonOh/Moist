@@ -47,16 +47,34 @@ mutual
       rw [productWalk]
       simp only [maxUidExpr, maxUidExprBinds] at hmax
       have ihr := productWalk_factRel Γ r next (by omega)
+      have generic : FactRel (GenSafe next) Produces Γ (.Let ((x, r, er) :: rest) body)
+            (.Let [(x, (productWalk Γ r next).1, er)]
+              (productWalk ((x, (productWalk Γ r next).1) :: Γ) (.Let rest body)
+                (productWalk Γ r next).2).1) ∧
+          next ≤ (productWalk ((x, (productWalk Γ r next).1) :: Γ) (.Let rest body)
+            (productWalk Γ r next).2).2 := by
+        have ihrest := productWalk_factRel ((x, (productWalk Γ r next).1) :: Γ) (.Let rest body)
+          (productWalk Γ r next).2 (by simp only [maxUidExpr]; omega)
+        exact ⟨(FactRel.let_single (er := er) (productWalk Γ r next).1 (.inl (by omega)) (.inr rfl)
+          ihr.1 (ihrest.1.weaken (genSafe_mono ihr.2)) (fun _ _ _ _ _ _ hp => hp)).congr_left
+          (fun env => lowerTotalExpr_let_cons env _ _ _) (fun avoid => freshIn_let_cons avoid _ _ _),
+          by omega⟩
       split
       · rename_i hcond
         simp only [Bool.and_eq_true] at hcond
         obtain ⟨⟨hknown, _⟩, hproj⟩ := hcond
-        have hS := maxUidExpr_replaceProjections x
+        have hS := maxUidExpr_replaceProjections
+          (({ uid := (productWalk Γ r next).2 + 1, origin := .gen, hint := "second" }, sndApp x) ::
+            ({ uid := (productWalk Γ r next).2, origin := .gen, hint := "first" }, fstApp x) ::
+            (x, (productWalk Γ r next).1) :: Γ) x
           { uid := (productWalk Γ r next).2, origin := .gen, hint := "first" }
           { uid := (productWalk Γ r next).2 + 1, origin := .gen, hint := "second" } (.Let rest body)
         simp only [maxUidExpr] at hS
         have ihS := productWalk_factRel Γ
-          (replaceProjections x
+          (replaceProjections
+            (({ uid := (productWalk Γ r next).2 + 1, origin := .gen, hint := "second" }, sndApp x) ::
+              ({ uid := (productWalk Γ r next).2, origin := .gen, hint := "first" }, fstApp x) ::
+              (x, (productWalk Γ r next).1) :: Γ) x
             { uid := (productWalk Γ r next).2, origin := .gen, hint := "first" }
             { uid := (productWalk Γ r next).2 + 1, origin := .gen, hint := "second" } (.Let rest body))
           ((productWalk Γ r next).2 + 2) (by omega)
@@ -67,12 +85,36 @@ mutual
             by simp only [maxUidExpr]; omega⟩ ihr.1 hknown hproj ihS.1).congr_left
           (fun env => lowerTotalExpr_let_cons env _ _ _) (fun avoid => freshIn_let_cons avoid _ _ _),
           by dsimp only; omega⟩
-      · have ihrest := productWalk_factRel ((x, (productWalk Γ r next).1) :: Γ) (.Let rest body)
-          (productWalk Γ r next).2 (by simp only [maxUidExpr]; omega)
-        refine ⟨(FactRel.let_single (er := er) (productWalk Γ r next).1 (.inl (by omega)) (.inr rfl)
-          ihr.1 (ihrest.1.weaken (genSafe_mono ihr.2)) (fun _ _ _ _ _ _ hp => hp)).congr_left
-          (fun env => lowerTotalExpr_let_cons env _ _ _) (fun avoid => freshIn_let_cons avoid _ _ _),
-          by dsimp only; omega⟩
+      · split
+        · rename_i argument isFirst hprojected
+          obtain ⟨fn, hr, hkind⟩ := projectedArgument_some hprojected
+          have hsz : exprSize argument + 2 ≤ exprSize r := by
+            subst hr; have := exprSize_pos fn; simp only [exprSize]; omega
+          have hmaxa : maxUidExpr argument ≤ maxUidExpr r := by
+            subst hr; simp only [maxUidExpr]; omega
+          have iha := productWalk_factRel Γ argument next (by omega)
+          by_cases hknown : knownProduct Γ (productWalk Γ argument next).1 = true
+          · rw [if_pos hknown]
+            have ihS := productWalk_factRel Γ
+              (.Let ((x, .Var (if isFirst then
+                  ({ uid := (productWalk Γ argument next).2, origin := .gen, hint := "first" } : VarId)
+                else { uid := (productWalk Γ argument next).2 + 1, origin := .gen, hint := "second" }),
+                er) :: rest) body)
+              ((productWalk Γ argument next).2 + 2)
+              (by simp only [maxUidExpr, maxUidExprBinds]; split <;> simp <;> omega)
+            subst hr
+            refine ⟨(unboxProjection_factRel (er := er) (k := isFirst) (genSafe_mono (by omega))
+              (.inl (by simp)) (.inl (by simp))
+              (not_genSafe (by simp; omega) rfl) (not_genSafe (by simp; omega) rfl)
+              (beq_false_of_uid_lt (by simp)) (beq_false_of_uid_lt (by simp; omega))
+              (beq_false_of_uid_lt (by simp; omega)) ⟨by simp only [maxUidExpr]; omega,
+                by simp only [maxUidExpr]; omega⟩ rfl hkind iha.1 hknown
+              (ihS.1.congr_left (fun env => (lowerTotalExpr_let_cons env _ _ _).symm)
+                (fun avoid => (freshIn_let_cons avoid _ _ _).symm))).congr_left
+              (fun env => lowerTotalExpr_let_cons env _ _ _) (fun avoid => freshIn_let_cons avoid _ _ _),
+              by dsimp only; omega⟩
+          · rw [if_neg hknown]; exact generic
+        · exact generic
     | .Lam x b =>
       rw [productWalk]
       simp only [maxUidExpr] at hmax
@@ -145,7 +187,7 @@ mutual
       | (simp only [exprSize, exprSizeBinds]; omega)
       | (subst_vars; simp only [exprSize]; omega)
       | (simp only [exprSize, exprSizeBinds]; have := exprSize_pos r; omega)
-      | (apply Nat.lt_of_le_of_lt (Nat.mul_le_mul_left 2 (exprSize_replaceProjections _ _ _ _))
+      | (apply Nat.lt_of_le_of_lt (Nat.mul_le_mul_left 2 (exprSize_replaceProjections _ _ _ _ _))
          simp only [exprSize, exprSizeBinds]; have := exprSize_pos r; omega)
 
   theorem productWalkList_factRel (Γ : List (VarId × Expr)) (es : List Expr) (next : Nat)
