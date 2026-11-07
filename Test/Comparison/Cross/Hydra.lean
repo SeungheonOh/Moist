@@ -51,17 +51,19 @@ serialised or iterated stay as `Data`. -/
   currentTreasuryAmount : Data
   treasuryDonation : Data
 
-/-! ## Head state and redeemers (`Hydra.Types.HeadState`) -/
+/-! ## Head state and redeemers (`Hydra.Types.HeadState`)
 
-@[plutus_data] structure OpenDatum where
-  headSeed : Data
+Decoded strictly (see `decodeState` and `decodeInput`). Fields that are only compared or
+serialised stay as already-checked `Data`. -/
+
+@[plutus_sop] structure OpenDatum where
   headId : Data
   parties : Data
   contestationPeriod : Int
   version : Int
   utxoHash : ByteString
 
-@[plutus_data] structure ClosedDatum where
+@[plutus_sop] structure ClosedDatum where
   headId : Data
   parties : Data
   contestationPeriod : Int
@@ -73,12 +75,12 @@ serialised or iterated stay as `Data`. -/
   contesters : Data
   contestationDeadline : Int
 
-@[plutus_data] inductive State where
+@[plutus_sop] inductive State where
   | openState : OpenDatum → State
   | closedState : ClosedDatum → State
   | finalState : State
 
-@[plutus_data] inductive CloseRedeemer where
+@[plutus_sop] inductive CloseRedeemer where
   | closeInitial : CloseRedeemer
   | closeAny : Data → CloseRedeemer
   | closeUnusedDec : Data → CloseRedeemer
@@ -86,24 +88,24 @@ serialised or iterated stay as `Data`. -/
   | closeUnusedInc : Data → ByteString → CloseRedeemer
   | closeUsedInc : Data → ByteString → CloseRedeemer
 
-@[plutus_data] inductive ContestRedeemer where
+@[plutus_sop] inductive ContestRedeemer where
   | contestCurrent : Data → ContestRedeemer
   | contestUsedDec : Data → ByteString → ContestRedeemer
   | contestUnusedDec : Data → ContestRedeemer
   | contestUnusedInc : Data → ByteString → ContestRedeemer
   | contestUsedInc : Data → ContestRedeemer
 
-@[plutus_data] structure IncrementRedeemer where
+@[plutus_sop] structure IncrementRedeemer where
   signatures : Data
   snapshotNumber : Int
   depositRef : Data
 
-@[plutus_data] structure DecrementRedeemer where
+@[plutus_sop] structure DecrementRedeemer where
   signatures : Data
   snapshotNumber : Int
   numberOfDecommitOutputs : Int
 
-@[plutus_data] inductive Input where
+@[plutus_sop] inductive Input where
   | collectCom : Input
   | increment : IncrementRedeemer → Input
   | decrement : DecrementRedeemer → Input
@@ -114,7 +116,7 @@ serialised or iterated stay as `Data`. -/
 
 @[plutus_data] inductive HeadScriptInfo where
   | mintingScript : Data → HeadScriptInfo
-  | spendingScript : Data → MaybeData State → HeadScriptInfo
+  | spendingScript : Data → MaybeData Data → HeadScriptInfo
   | rewardingScript : Data → HeadScriptInfo
   | certifyingScript : Data → Data → HeadScriptInfo
   | votingScript : Data → HeadScriptInfo
@@ -122,7 +124,7 @@ serialised or iterated stay as `Data`. -/
 
 @[plutus_data] structure HeadContext where
   txInfo : HeadTxInfo
-  redeemer : Input
+  redeemer : Data
   scriptInfo : HeadScriptInfo
 
 /-! ## Constants -/
@@ -259,41 +261,65 @@ on the other side. `mineOnLeft` says which side `tokens` is on. -/
 @[onchain] def isInteger (value : Data) : Bool := chooseData value false false false true false
 @[onchain] def isBytes (value : Data) : Bool := chooseData value false false false false true
 
-/-- Fields of a `Constr 0` value, or `none`. -/
-@[onchain] def constrZeroFields (value : Data) : Option (List Data) :=
-  if isConstr value then
-    let parts := unConstrData value
-    if equalsInteger (fstPair parts) 0 then some (sndPair parts) else none
-  else none
+/-- `fromBuiltinData @TxOutRef` succeeds on these fields of a `Constr 0`. -/
+@[onchain] def txOutRefFields (fields : List Data) : Bool :=
+  match fields with
+  | [] => false
+  | id :: rest =>
+    match rest with
+    | [] => false
+    | index :: _ => if isBytes id then isInteger index else false
 
 @[onchain] def isTxOutRef (value : Data) : Bool :=
-  match constrZeroFields value with
-  | some (id :: index :: _) => if isBytes id then isInteger index else false
-  | _ => false
+  if isConstr value then
+    let parts := unConstrData value
+    if equalsInteger (fstPair parts) 0 then txOutRefFields (sndPair parts) else false
+  else false
 
 @[onchain] def isCommit (value : Data) : Bool :=
-  match constrZeroFields value with
-  | some (input :: output :: _) => if isTxOutRef input then isBytes output else false
-  | _ => false
+  if isConstr value then
+    let parts := unConstrData value
+    if equalsInteger (fstPair parts) 0 then
+      match sndPair parts with
+      | [] => false
+      | input :: rest =>
+        match rest with
+        | [] => false
+        | output :: _ => if isTxOutRef input then isBytes output else false
+    else false
+  else false
 
 @[onchain] def allCommits : List Data → Bool
   | [] => true
   | commit :: rest => if isCommit commit then allCommits rest else false
 
+/-- Commits of a well-formed `(CurrencySymbol, POSIXTime, [Commit])`, or none. -/
+@[onchain] def depositTupleCommits (fields : List Data) : List Data :=
+  match fields with
+  | [] => []
+  | headId :: rest =>
+    match rest with
+    | [] => []
+    | deadline :: rest =>
+      match rest with
+      | [] => []
+      | commits :: _ =>
+        if isBytes headId then
+          if isInteger deadline then
+            if isList commits then
+              let entries := unListData commits
+              if allCommits entries then entries else []
+            else []
+          else []
+        else []
+
 @[onchain] def depositCommits (datum : TxOutDatum) : List Data :=
   match datum with
   | .outputDatum value =>
-    match constrZeroFields value with
-    | some (headId :: deadline :: commits :: _) =>
-      if isBytes headId then
-        if isInteger deadline then
-          if isList commits then
-            let entries := unListData commits
-            if allCommits entries then entries else []
-          else []
-        else []
-      else []
-    | _ => []
+    if isConstr value then
+      let parts := unConstrData value
+      if equalsInteger (fstPair parts) 0 then depositTupleCommits (sndPair parts) else []
+    else []
   | _ => []
 
 /-- `compareRef (commitInput a) (commitInput b) /= GT` for validated commits. -/
@@ -323,6 +349,137 @@ on the other side. `mineOnLeft` says which side `tokens` is on. -/
 
 @[onchain] def hashPreSerializedCommits (commits : List Data) : ByteString :=
   sha2_256 (concatPreSerialized (sortCommits commits))
+
+/-! ## Strict decoding
+
+The datum and redeemer are decoded like `unsafeFromBuiltinData` and the head output datum like
+`fromBuiltinData`: constructor indices are checked, every declared field must have its declared
+type (fields beyond them are ignored), and anything else is rejected. -/
+
+/-- Fields of a constructor with the given index. -/
+@[onchain] def fieldsOf (index : Int) (value : Data) : List Data :=
+  let parts := unConstrData value
+  if equalsInteger (fstPair parts) index then sndPair parts else pError
+
+@[onchain] def allBytes : List Data → Bool
+  | [] => true
+  | value :: rest => if isBytes value then allBytes rest else false
+
+@[onchain] def bytesField (value : Data) : Data := if isBytes value then value else pError
+
+@[onchain] def bytesListField (value : Data) : Data :=
+  if allBytes (unListData value) then value else pError
+
+/-- A `TxOutRef`, reduced to its declared fields so that it compares like a decoded one. -/
+@[onchain] def txOutRefField (value : Data) : Data :=
+  let fields := fieldsOf 0 value
+  let id := headList fields
+  let index := headList (tailList fields)
+  if isBytes id then
+    if isInteger index then constrData 0 [id, index] else pError
+  else pError
+
+@[onchain] def decodeOpen (value : Data) : OpenDatum :=
+  let seed := fieldsOf 0 value
+  let headId := tailList seed
+  let parties := tailList headId
+  let period := tailList parties
+  let version := tailList period
+  let seedFields := fieldsOf 0 (headList seed)
+  if txOutRefFields seedFields then
+    { headId := bytesField (headList headId)
+      parties := bytesListField (headList parties)
+      contestationPeriod := unIData (headList period)
+      version := unIData (headList version)
+      utxoHash := unBData (headList (tailList version)) }
+  else pError
+
+@[onchain] def decodeClosed (value : Data) : ClosedDatum :=
+  let headId := fieldsOf 0 value
+  let parties := tailList headId
+  let period := tailList parties
+  let version := tailList period
+  let snapshotNumber := tailList version
+  let utxoHash := tailList snapshotNumber
+  let alpha := tailList utxoHash
+  let omega := tailList alpha
+  let contesters := tailList omega
+  { headId := bytesField (headList headId)
+    parties := bytesListField (headList parties)
+    contestationPeriod := unIData (headList period)
+    version := unIData (headList version)
+    snapshotNumber := unIData (headList snapshotNumber)
+    utxoHash := unBData (headList utxoHash)
+    alphaUTxOHash := unBData (headList alpha)
+    omegaUTxOHash := unBData (headList omega)
+    contesters := bytesListField (headList contesters)
+    contestationDeadline := unIData (headList (tailList contesters)) }
+
+@[onchain] def decodeState (value : Data) : State :=
+  let parts := unConstrData value
+  let index := fstPair parts
+  if equalsInteger index 0 then .openState (decodeOpen (headList (sndPair parts)))
+  else if equalsInteger index 1 then .closedState (decodeClosed (headList (sndPair parts)))
+  else if equalsInteger index 2 then .finalState
+  else pError
+
+@[onchain] def decodeClose (value : Data) : CloseRedeemer :=
+  let parts := unConstrData value
+  let index := fstPair parts
+  let fields := sndPair parts
+  if equalsInteger index 0 then .closeInitial
+  else
+    let signatures := bytesListField (headList fields)
+    if equalsInteger index 1 then .closeAny signatures
+    else if equalsInteger index 2 then .closeUnusedDec signatures
+    else
+      let hash := unBData (headList (tailList fields))
+      if equalsInteger index 3 then .closeUsedDec signatures hash
+      else if equalsInteger index 4 then .closeUnusedInc signatures hash
+      else if equalsInteger index 5 then .closeUsedInc signatures hash
+      else pError
+
+@[onchain] def decodeContest (value : Data) : ContestRedeemer :=
+  let parts := unConstrData value
+  let index := fstPair parts
+  let fields := sndPair parts
+  let signatures := bytesListField (headList fields)
+  if equalsInteger index 0 then .contestCurrent signatures
+  else if equalsInteger index 2 then .contestUnusedDec signatures
+  else if equalsInteger index 4 then .contestUsedInc signatures
+  else
+    let hash := unBData (headList (tailList fields))
+    if equalsInteger index 1 then .contestUsedDec signatures hash
+    else if equalsInteger index 3 then .contestUnusedInc signatures hash
+    else pError
+
+@[onchain] def decodeInput (value : Data) : Input :=
+  let parts := unConstrData value
+  let index := fstPair parts
+  let fields := sndPair parts
+  if equalsInteger index 0 then .collectCom
+  else if equalsInteger index 5 then .abort
+  else if equalsInteger index 6 then
+    let commitCount := tailList fields
+    Input.fanout (unIData (headList fields)) (unIData (headList commitCount))
+      (unIData (headList (tailList commitCount)))
+  else
+    let redeemer := headList fields
+    if equalsInteger index 3 then .close (decodeClose redeemer)
+    else if equalsInteger index 4 then .contest (decodeContest redeemer)
+    else
+      let signatures := fieldsOf 0 redeemer
+      let snapshotNumber := tailList signatures
+      let last := headList (tailList snapshotNumber)
+      if equalsInteger index 1 then
+        .increment { signatures := bytesListField (headList signatures)
+                     snapshotNumber := unIData (headList snapshotNumber)
+                     depositRef := txOutRefField last }
+      else if equalsInteger index 2 then
+        .decrement { signatures := bytesListField (headList signatures)
+                     snapshotNumber := unIData (headList snapshotNumber)
+                     numberOfDecommitOutputs := unIData last }
+      else pError
 
 /-! ## Snapshot signatures -/
 
@@ -366,7 +523,7 @@ on the other side. `mineOnLeft` says which side `tokens` is on. -/
   | output :: _ =>
     if equalsData output.address headAddress then
       match output.datum with
-      | .outputDatum datum => PlutusData.unsafeFromData datum
+      | .outputDatum datum => decodeState datum
       | _ => pError
     else pError
 
@@ -457,9 +614,9 @@ transactions are accepted. -/
     else false
   else false
 
-@[onchain] def increment (info : HeadTxInfo) (head : HeadTxOut) (before : OpenDatum)
+@[onchain] def increment (info : HeadTxInfo) (head : HeadTxOut) (nextState : State) (before : OpenDatum)
     (redeemer : IncrementRedeemer) : Transition :=
-  let next : OpenDatum := match headOutputState head.address info.outputs with
+  let next : OpenDatum := match nextState with
     | .openState datum => datum
     | _ => pError
   -- Finding the deposit input also establishes that the claimed deposit is spent.
@@ -476,9 +633,9 @@ transactions are accepted. -/
     snapshot := .signed next.parties next.headId before.version redeemer.snapshotNumber next.utxoHash
       (hashPreSerializedCommits (depositCommits deposit.datum)) emptyHash redeemer.signatures }
 
-@[onchain] def decrement (info : HeadTxInfo) (head : HeadTxOut) (before : OpenDatum)
+@[onchain] def decrement (info : HeadTxInfo) (head : HeadTxOut) (nextState : State) (before : OpenDatum)
     (redeemer : DecrementRedeemer) : Transition :=
-  let next : OpenDatum := match headOutputState head.address info.outputs with
+  let next : OpenDatum := match nextState with
     | .openState datum => datum
     | _ => pError
   let decommitOutputs := match info.outputs with
@@ -546,9 +703,9 @@ transactions are accepted. -/
       else .invalid
     else .invalid
 
-@[onchain] def close (info : HeadTxInfo) (head : HeadTxOut) (before : OpenDatum)
+@[onchain] def close (info : HeadTxInfo) (head : HeadTxOut) (nextState : State) (before : OpenDatum)
     (redeemer : CloseRedeemer) : Transition :=
-  let closed : ClosedDatum := match headOutputState head.address info.outputs with
+  let closed : ClosedDatum := match nextState with
     | .closedState datum => datum
     | _ => pError
   let upper := upperTime info.validRange
@@ -607,9 +764,9 @@ transactions are accepted. -/
       snapshot before.version closed.snapshotNumber closed.utxoHash closed.alphaUTxOHash emptyHash signatures
     else .invalid
 
-@[onchain] def contest (info : HeadTxInfo) (head : HeadTxOut) (before : ClosedDatum)
+@[onchain] def contest (info : HeadTxInfo) (head : HeadTxOut) (nextState : State) (before : ClosedDatum)
     (redeemer : ContestRedeemer) : Transition :=
-  let closed : ClosedDatum := match headOutputState head.address info.outputs with
+  let closed : ClosedDatum := match nextState with
     | .closedState datum => datum
     | _ => pError
   let contester : Data := match info.signatories with
@@ -660,26 +817,45 @@ transactions are accepted. -/
 
 /-! ## Entry point -/
 
+/-- Open and closed transitions other than fanout. Each of them spends the head input and
+continues the head in the first output. -/
+@[onchain] def headUpdate (info : HeadTxInfo) (ownRef : Data) (state : State) (input : Input) : Bool :=
+  let head := ownInput ownRef info.inputs
+  let next := headOutputState head.address info.outputs
+  let transition : Transition := match state with
+    | .openState before =>
+      match input with
+      | .increment redeemer => increment info head next before redeemer
+      | .decrement redeemer => decrement info head next before redeemer
+      | .close redeemer => close info head next before redeemer
+      | _ => pError
+    | .closedState before =>
+      match input with
+      | .contest redeemer => contest info head next before redeemer
+      | _ => pError
+    | .finalState => pError
+  headTransition info transition
+
+@[onchain] def isFanout (input : Input) : Bool :=
+  match input with
+  | .fanout _ _ _ => true
+  | _ => false
+
+@[onchain] def hydraTransition (info : HeadTxInfo) (ownRef : Data) (state : State) (input : Input) : Bool :=
+  if isFanout input then
+    match input with
+    | .fanout fanoutCount commitCount decommitCount =>
+      match state with
+      | .closedState before => fanout info before fanoutCount commitCount decommitCount
+      | _ => pError
+    | _ => pError
+  else headUpdate info ownRef state input
+
 @[onchain] def hydraHead (context : HeadContext) : Unit :=
   match context.scriptInfo with
-  | .spendingScript ownRef (.justData state) =>
-    let info := context.txInfo
-    let head := fun (_ : Unit) => ownInput ownRef info.inputs
-    let valid := match state with
-      | .openState before =>
-        match context.redeemer with
-        | .increment redeemer => headTransition info (increment info (head ()) before redeemer)
-        | .decrement redeemer => headTransition info (decrement info (head ()) before redeemer)
-        | .close redeemer => headTransition info (close info (head ()) before redeemer)
-        | _ => pError
-      | .closedState before =>
-        match context.redeemer with
-        | .contest redeemer => headTransition info (contest info (head ()) before redeemer)
-        | .fanout fanoutCount commitCount decommitCount =>
-          fanout info before fanoutCount commitCount decommitCount
-        | _ => pError
-      | .finalState => pError
-    if valid then () else pError
+  | .spendingScript ownRef (.justData datum) =>
+    if hydraTransition context.txInfo ownRef (decodeState datum) (decodeInput context.redeemer) then ()
+    else pError
   | _ => pError
 
 set_option maxRecDepth 10000 in
