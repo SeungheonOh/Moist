@@ -179,7 +179,7 @@ theorem replaceListProjections_factRel (l h t : VarId) (headEntry tailEntry : Va
         (by rw [find?_cons_of_ne hxh]; exact hfh) (by rw [find?_cons_of_ne hxt]; exact hft)
       rw [replaceListProjections_let] at ihrest
       refine ((FactRel.let_single (er := binding.2.2) binding.2.1 trivial (.inl rfl) ihr ihrest
-        (fun _ _ _ _ _ hp => hp)).congr_left (fun env => lowerTotalExpr_let_cons env _ _ _)
+        (fun _ _ _ _ _ _ hp => hp)).congr_left (fun env => lowerTotalExpr_let_cons env _ _ _)
         (fun avoid => freshIn_let_cons avoid _ _ _)).congr_right ?_
       intro env
       simp only [List.map_cons]
@@ -687,7 +687,7 @@ theorem listChoiceWalk_factRel (base : Nat) (e : Expr) (Γ : List (VarId × Expr
     exact (FactRel.let_single (listChoiceWalk base Γ r) (.inl (by omega)) (.inr rfl)
       (listChoiceWalk_factRel base r Γ (by omega))
       (listChoiceWalk_factRel base (.Let rest body) _ (by simp only [maxUidExpr]; omega))
-      (fun _ _ _ _ _ hp => hp)).congr_left (fun env => lowerTotalExpr_let_cons env _ _ _)
+      (fun _ _ _ _ _ _ hp => hp)).congr_left (fun env => lowerTotalExpr_let_cons env _ _ _)
       (fun avoid => freshIn_let_cons avoid _ _ _)
   | .Lam x b =>
     rw [listChoiceWalk]

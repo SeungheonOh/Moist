@@ -385,7 +385,8 @@ theorem FactRel.let_single {G : VarId → Prop} {P : List VarId → CekEnv → E
     {Γ : List (VarId × Expr)} {x : VarId} {r r' b b' : Expr} {er : Bool} (rf : Expr) (hGx : G x)
     (hrf : rf = r ∨ rf = r')
     (hr : FactRel G P Γ r r') (hb : FactRel G P ((x, rf) :: Γ) b b')
-    (hpush : ∀ env ρ v, EnvDistinct env → freshIn env r = true → Produces env ρ rf v → P env ρ rf v) :
+    (hpush : ∀ env ρ v, (∀ y ∈ env, G y) → EnvDistinct env → freshIn env r = true →
+      Produces env ρ rf v → P env ρ rf v) :
     FactRel G P Γ (.Let [(x, r, er)] b) (.Let [(x, r', er)] b') := by
   intro env t hG hd hfresh hk hsc hlow
   rw [freshIn_let_single] at hfresh
@@ -417,7 +418,7 @@ theorem FactRel.let_single {G : VarId → Prop} {P : List VarId → CekEnv → E
     intro tr₀ htr₀ closed₀
     apply factRefines_let 0 0 closed₀ _ hrb
     intro ρ v hF hv
-    exact FactsHold.push hF (hpush env ρ v hd hfr ⟨tr₀, htr₀, hv⟩)
+    exact FactsHold.push hF (hpush env ρ v hG hd hfr ⟨tr₀, htr₀, hv⟩)
   have rhs : ∀ tb₀, closedAt (env.length + 1) tb₀ = true →
       FactRefines env.length (FactsHold P Γ env) (.Apply (.Lam 0 tb₀) tr) (.Apply (.Lam 0 tb₀) tr') :=
     fun tb₀ c₀ => factRefines_apply (FactRefines.refl _ _ _) hrr (by simp [closedAt, c₀]) closedTr

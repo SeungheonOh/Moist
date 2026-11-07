@@ -272,7 +272,7 @@ theorem fuseListWalk_factRel (e : Expr) (Γ : List (VarId × Expr)) :
           (.Let [(h, fuseListWalk Γ hr, he)]
             (fuseListWalk ((h, hr) :: Γ) (.Let ((t, tr, te) :: remaining) inner))) :=
         (FactRel.let_single hr trivial (.inl rfl) ihhr ihrest
-          (fun _ _ _ _ _ hp => hp)).congr_left
+          (fun _ _ _ _ _ _ hp => hp)).congr_left
           (fun env => lowerTotalExpr_let_cons env _ _ _) (fun avoid => freshIn_let_cons avoid _ _ _)
       split
       · rename_i l l' hhead htail
@@ -292,7 +292,7 @@ theorem fuseListWalk_factRel (e : Expr) (Γ : List (VarId × Expr)) :
     · rename_i x r er inner hflat
       apply FactRel.of_flatten hflat
       exact FactRel.let_single r trivial (.inl rfl) (fuseListWalk_factRel r Γ)
-        (fuseListWalk_factRel inner ((x, r) :: Γ)) (fun _ _ _ _ _ hp => hp)
+        (fuseListWalk_factRel inner ((x, r) :: Γ)) (fun _ _ _ _ _ _ hp => hp)
     · rename_i inner hflat
       apply FactRel.of_flatten hflat
       exact (fuseListWalk_factRel inner Γ).congr_left (fun env => lowerTotalExpr_let_nil env inner)
