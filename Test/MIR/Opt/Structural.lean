@@ -56,6 +56,14 @@ private def head (list : Expr) : Expr := .App (.Force (.Builtin .HeadList)) list
 private def tail (list : Expr) : Expr := .App (.Force (.Builtin .TailList)) list
 private def null (list : Expr) : Expr := .App (.Force (.Builtin .NullList)) list
 
+private partial def caseCount : Expr → Nat
+  | .Case scrutinee alternatives => 1 + caseCount scrutinee + (alternatives.map caseCount).sum
+  | .Lam _ body | .Fix _ body | .Force body | .Delay body => caseCount body
+  | .App function argument => caseCount function + caseCount argument
+  | .Constr _ fields => (fields.map caseCount).sum
+  | .Let bindings body => (bindings.map fun (_, rhs, _) => caseCount rhs).sum + caseCount body
+  | _ => 0
+
 def tests : TestTree := suite "structural" do
   test "pair_projection_runtime_types" do
     let input := sourceVar 200
@@ -111,6 +119,64 @@ def tests : TestTree := suite "structural" do
       checkEq "cached projection result" optimized.1 original.1
       check "cached projection CPU" (optimized.2.1 <= original.2.1)
       check "cached projection memory" (optimized.2.2 <= original.2.2)
+  test "shared_pair_projections_unbox_through_aliases" do
+    let input := sourceVar 260
+    let fstFn := sourceVar 261
+    let sndFn := sourceVar 262
+    let pair := sourceVar 263
+    let tag := sourceVar 264
+    let fields := sourceVar 265
+    let alias := sourceVar 266
+    let shared := [(fstFn, Expr.Force (.Force (.Builtin .FstPair)), false),
+      (sndFn, Expr.Force (.Force (.Builtin .SndPair)), false),
+      (alias, Expr.Var sndFn, false)]
+    let producer := Expr.App (.Builtin .UnConstrData) (trace "producer" (.Var input))
+    let scripts := [
+      -- both projections bound through shared projection functions
+      Expr.Lam input (.Let (shared ++ [(pair, producer, false),
+        (tag, .App (.Var fstFn) (.Var pair), false),
+        (fields, .App (.Var alias) (.Var pair), false)])
+        (.Constr 0 [.Var tag, trace "fields" (.Var fields)])),
+      -- a projection in a branch after the first use
+      .Lam input (.Let (shared ++ [(pair, producer, false),
+        (tag, .App (.Var fstFn) (.Var pair), false)])
+        (.Constr 0 [.Var tag, .Case (.App (.App (.Builtin .EqualsInteger) (.Var tag)) (intLit 0))
+          [intLit 7, .App (.Var sndFn) (.Var pair)]])),
+      -- a bound projection of a known pair
+      .Lam input (.Let (shared ++ [(fields, .App (.Var alias) producer, false)])
+        (.Constr 0 [trace "after" (.Var fields)])),
+      -- a bound projection of a let-bound pair that is also used whole
+      .Lam input (.Let (shared ++ [(pair, producer, false),
+        (tag, .App (.Var fstFn) (.Var pair), false)])
+        (.Constr 0 [.Var tag, .Var pair]))]
+    for (script, index) in scripts.zipIdx do
+      check s!"aliased projections unbox/{index}"
+        (caseCount (Advanced.destructureProducts script) > 0)
+      compareScript s!"aliased projections/{index}" script (inputs.map fun value => [value])
+      let before ← requireTerm (lowerExpr script)
+      let after ← requireTerm (lowerExpr (Advanced.destructureProducts script))
+      for value in inputs do
+        let argument ← requireTerm (lowerExpr value)
+        let original ← observe (.Apply before argument)
+        let optimized ← observe (.Apply after argument)
+        checkEq s!"aliased projections/{index}/result" optimized.1 original.1
+        if original.1 != "failure" then
+          check s!"aliased projections/{index}/CPU" (optimized.2.1 <= original.2.1)
+          check s!"aliased projections/{index}/memory" (optimized.2.2 <= original.2.2)
+  test "aliased_projections_require_a_known_pair" do
+    let input := sourceVar 270
+    let fstFn := sourceVar 271
+    let pair := sourceVar 272
+    let tag := sourceVar 273
+    let producers := [Expr.Var input, .App (.Builtin .UnIData) (.Var input),
+      .App (.Builtin .UnListData) (.Var input)]
+    for (producer, index) in producers.zipIdx do
+      let script := Expr.Lam input (.Let
+        [(fstFn, .Force (.Force (.Builtin .FstPair)), false), (pair, producer, false),
+         (tag, .App (.Var fstFn) (.Var pair), false)] (.Constr 0 [.Var tag]))
+      check s!"unknown pair is not unboxed/{index}"
+        (caseCount (Advanced.destructureProducts script) == 0)
+      compareScript s!"unknown aliased pair/{index}" script (inputs.map fun value => [value])
   test "list_branch_fusion_runtime_types" do
     let input := sourceVar 230
     let list := sourceVar 231
