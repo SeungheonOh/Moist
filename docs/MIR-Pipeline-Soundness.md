@@ -83,6 +83,9 @@ check under `Test/MIR/Opt/Axioms/` or in `Test/MIR/Opt/FormalAxioms.lean`.
 | Shape DCE, choice simplification | `shapeDCE_refines`, `simplifyChoices_refines` | `ShapesSoundness/Simplify.lean` |
 | Boolean results and Boolean case rewrites (inside shape DCE) | `booleanResultCore_sound`, `booleanCaseRewrite_factRel` | `ShapeFacts/Results.lean`, `ShapesSoundness/BooleanCases.lean` |
 | Constructor-tag chains to integer cases | `caseTagChains_refines` | `TagChainsSoundness.lean`, `TagChainsSoundness/` |
+| Data kind guards to unData checks | `specializeDataChecks_refines` | `DataShapesSoundness.lean` |
+| Bytes of compared `unBData` keys | `insertKeyBytes_refines` | `DataShapesSoundness.lean` |
+| `equalsData` against a key of known bytes (shape-DCE rewrite) | `dataComparison_factRel` | `ShapesSoundness/DataComparisons.lean` |
 | `Advanced.simplify` | `simplify_refines` | `ShapesSoundness/Pipeline.lean` |
 | Pre-lowering inline, `preLower` | `preLowerInlineExpr_refines`, `preLower_refines'` | `PreLowerSoundness.lean`, `CompilerSoundness.lean` |
 | Product destructuring (projections resolved through let aliases; whole-pair and bound-projection unboxing) | `destructureProducts_refines` (`unbox_factRel`, `unboxProjection_factRel`, `project_factRel`) | `ProductsSoundness.lean`, `ProductsSoundness/` |

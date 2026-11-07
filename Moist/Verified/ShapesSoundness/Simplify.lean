@@ -1,4 +1,5 @@
 import Moist.Verified.ShapesSoundness.Integers
+import Moist.Verified.ShapesSoundness.DataComparisons
 import Moist.Verified.ShapesSoundness.BooleanCases
 
 /-! # The fact-driven simplifier
@@ -80,20 +81,42 @@ theorem stage2_fresh (useShapes : Bool) (base : Nat) (Γ : List (VarId × Expr))
     | some y => exact integerIdentity_fresh hG hx hc
   · exact hx
 
+theorem stage3_factRel {G : VarId → Prop} (useShapes : Bool) (Γ : List (VarId × Expr)) (x : Expr) :
+    FactRel G PF Γ x (if useShapes then (dataComparison Γ x).getD x else x) := by
+  split
+  · cases hc : dataComparison Γ x with
+    | none => exact FactRel.refl _ _ _ _
+    | some y => exact dataComparison_factRel hc
+  · exact FactRel.refl _ _ _ _
+
+theorem stage3_fresh (useShapes : Bool) (Γ : List (VarId × Expr)) {x : Expr} {env : List VarId}
+    (hx : freshIn env x = true) :
+    freshIn env (if useShapes then (dataComparison Γ x).getD x else x) = true := by
+  split
+  · cases hc : dataComparison Γ x with
+    | none => exact hx
+    | some y => exact dataComparison_fresh hc
+  · exact hx
+
 theorem checkedRewrite_factRel (useShapes : Bool) (base : Nat) (Γ : List (VarId × Expr)) (x : Expr) :
     FactRel (GenSafe base) PF Γ x (checkedRewrite useShapes base Γ x) := by
   unfold checkedRewrite
   simp only []
   generalize hr₁ : (if useShapes = true then (checkedRoundTrip Γ x).getD x else x) = r₁
   generalize hr₂ : (if useShapes = true then (integerIdentity base Γ r₁).getD r₁ else r₁) = r₂
+  generalize hr₃ : (if useShapes = true then (dataComparison Γ r₂).getD r₂ else r₂) = r₃
   have s₁ : FactRel (GenSafe base) PF Γ x r₁ := hr₁ ▸ stage1_factRel useShapes Γ x
   have s₂ : FactRel (GenSafe base) PF Γ r₁ r₂ := hr₂ ▸ stage2_factRel useShapes base Γ r₁
+  have s₃ : FactRel (GenSafe base) PF Γ r₂ r₃ := hr₃ ▸ stage3_factRel useShapes Γ r₂
   have f₁ : ∀ env, (∀ y ∈ env, GenSafe base y) → freshIn env x = true → freshIn env r₁ = true :=
     fun env _ hx => hr₁ ▸ stage1_fresh useShapes Γ hx
   have f₂ : ∀ env, (∀ y ∈ env, GenSafe base y) → freshIn env r₁ = true → freshIn env r₂ = true :=
     fun env hG hx => hr₂ ▸ stage2_fresh useShapes base Γ hG hx
-  refine (s₁.trans s₂ f₁).trans ?_ (fun env hG hx => f₂ env hG (f₁ env hG hx))
-  clear s₁ s₂ f₁ f₂ hr₂
+  have f₃ : ∀ env, (∀ y ∈ env, GenSafe base y) → freshIn env r₂ = true → freshIn env r₃ = true :=
+    fun env _ hx => hr₃ ▸ stage3_fresh useShapes Γ hx
+  refine ((s₁.trans s₂ f₁).trans s₃ (fun env hG hx => f₂ env hG (f₁ env hG hx))).trans ?_
+    (fun env hG hx => f₃ env hG (f₂ env hG (f₁ env hG hx)))
+  clear s₁ s₂ s₃ f₁ f₂ f₃ hr₂ hr₃
   split
   · split
     · rename_i cond wt wf hcond
@@ -130,9 +153,11 @@ theorem checkedRewrite_fresh (useShapes : Bool) (base : Nat) (Γ : List (VarId �
   simp only []
   generalize hr₁ : (if useShapes = true then (checkedRoundTrip Γ x).getD x else x) = r₁
   generalize hr₂ : (if useShapes = true then (integerIdentity base Γ r₁).getD r₁ else r₁) = r₂
+  generalize hr₃ : (if useShapes = true then (dataComparison Γ r₂).getD r₂ else r₂) = r₃
   have f₁ : freshIn env r₁ = true := hr₁ ▸ stage1_fresh useShapes Γ hx
-  have f₂ : freshIn env r₂ = true := hr₂ ▸ stage2_fresh useShapes base Γ hG f₁
-  clear hr₂
+  have f₂' : freshIn env r₂ = true := hr₂ ▸ stage2_fresh useShapes base Γ hG f₁
+  have f₂ : freshIn env r₃ = true := hr₃ ▸ stage3_fresh useShapes Γ f₂'
+  clear hr₂ hr₃
   split
   · split
     · simp only [freshIn, freshInList, Bool.and_eq_true] at f₂ ⊢
