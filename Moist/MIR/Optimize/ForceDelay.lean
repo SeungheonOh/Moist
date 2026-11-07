@@ -73,36 +73,70 @@ in App (Var v) (Force (Var v))
 
 /-! ## Checking that all uses of a variable are under Force -/
 
+/-- `true` exactly when `e` is the variable `v`. -/
+def isVarOf (v : VarId) : Expr → Bool
+  | .Var w => w == v
+  | _ => false
+
 mutual
   /-- Return `true` when every free occurrence of `v` in `e` appears as the
   immediate argument of `Force`. A bare `Var v` outside `Force` makes the
   result `false`. Shadowed scopes are safe (the inner binder hides `v`). -/
-  partial def allUsesAreForce (v : VarId) : Expr → Bool
-    | .Force (.Var _) => true
-      -- Either w == v (a valid Force-use) or w != v (v does not occur here).
-      -- Both are fine; no deeper structure to check inside a Var.
-    | .Force inner => allUsesAreForce v inner
+  def allUsesAreForce (v : VarId) : Expr → Bool
+    | .Force inner => isVarOf v inner || allUsesAreForce v inner
     | .Var w => !(w == v)
-      -- A bare occurrence of v outside Force position.
     | .Lit _ | .Builtin _ | .Error => true
     | .Lam x body => if x == v then true else allUsesAreForce v body
     | .Fix f body => if f == v then true else allUsesAreForce v body
     | .App fn arg => allUsesAreForce v fn && allUsesAreForce v arg
     | .Delay inner => allUsesAreForce v inner
-    | .Constr _ args => args.all (allUsesAreForce v)
-    | .Case scrut alts =>
-      allUsesAreForce v scrut && alts.all (allUsesAreForce v)
+    | .Constr _ args => allUsesAreForceList v args
+    | .Case scrut alts => allUsesAreForce v scrut && allUsesAreForceList v alts
     | .Let binds body => allUsesAreForceLet v binds body
+  termination_by e => sizeOf e
+
+  def allUsesAreForceList (v : VarId) : List Expr → Bool
+    | [] => true
+    | e :: rest => allUsesAreForce v e && allUsesAreForceList v rest
+  termination_by es => sizeOf es
 
   /-- Thread `allUsesAreForce` through a let-binding list, respecting
   shadowing: once a binding rebinds `v`, subsequent bindings and the body
   are safe regardless. -/
-  partial def allUsesAreForceLet (v : VarId)
-      : List (VarId × Expr × Bool) → Expr → Bool
+  def allUsesAreForceLet (v : VarId) : List (VarId × Expr × Bool) → Expr → Bool
     | [], body => allUsesAreForce v body
     | (x, rhs, _) :: rest, body =>
-      allUsesAreForce v rhs &&
-        (if x == v then true else allUsesAreForceLet v rest body)
+      allUsesAreForce v rhs && (if x == v then true else allUsesAreForceLet v rest body)
+  termination_by binds body => sizeOf binds + sizeOf body
+end
+
+/-! ## Binder hygiene check -/
+
+mutual
+  /-- `true` when no binder (Lam, Fix or Let) anywhere in `e` belongs to
+  `avoid`. -/
+  def bindersAvoid (avoid : VarSet) : Expr → Bool
+    | .Var _ | .Lit _ | .Builtin _ | .Error => true
+    | .Lam x body => !avoid.contains x && bindersAvoid avoid body
+    | .Fix f body => !avoid.contains f && bindersAvoid avoid body
+    | .App fn arg => bindersAvoid avoid fn && bindersAvoid avoid arg
+    | .Force inner => bindersAvoid avoid inner
+    | .Delay inner => bindersAvoid avoid inner
+    | .Constr _ args => bindersAvoidList avoid args
+    | .Case scrut alts => bindersAvoid avoid scrut && bindersAvoidList avoid alts
+    | .Let binds body => bindersAvoidLet avoid binds body
+  termination_by e => sizeOf e
+
+  def bindersAvoidList (avoid : VarSet) : List Expr → Bool
+    | [] => true
+    | e :: rest => bindersAvoid avoid e && bindersAvoidList avoid rest
+  termination_by es => sizeOf es
+
+  def bindersAvoidLet (avoid : VarSet) : List (VarId × Expr × Bool) → Expr → Bool
+    | [], body => bindersAvoid avoid body
+    | (x, rhs, _) :: rest, body =>
+      !avoid.contains x && bindersAvoid avoid rhs && bindersAvoidLet avoid rest body
+  termination_by binds body => sizeOf binds + sizeOf body
 end
 
 /-! ## Replacing `Force (Var v)` with a substitute expression -/
@@ -110,43 +144,134 @@ end
 mutual
   /-- Replace every `Force (Var v)` with `repl` inside `e`. Does not descend
   past binders that shadow `v`. -/
-  partial def replaceForceVar (v : VarId) (repl : Expr) : Expr → Expr
-    | .Force (.Var w) =>
-      if w == v then repl else .Force (.Var w)
-    | .Force inner => .Force (replaceForceVar v repl inner)
+  def replaceForceVar (v : VarId) (repl : Expr) : Expr → Expr
+    | .Force inner =>
+      if isVarOf v inner then repl else .Force (replaceForceVar v repl inner)
     | .Var w => .Var w
     | .Lit c => .Lit c
     | .Builtin b => .Builtin b
     | .Error => .Error
     | .Lam x body =>
-      if x == v then .Lam x body
-      else .Lam x (replaceForceVar v repl body)
+      if x == v then .Lam x body else .Lam x (replaceForceVar v repl body)
     | .Fix f body =>
-      if f == v then .Fix f body
-      else .Fix f (replaceForceVar v repl body)
-    | .App fn arg =>
-      .App (replaceForceVar v repl fn) (replaceForceVar v repl arg)
+      if f == v then .Fix f body else .Fix f (replaceForceVar v repl body)
+    | .App fn arg => .App (replaceForceVar v repl fn) (replaceForceVar v repl arg)
     | .Delay inner => .Delay (replaceForceVar v repl inner)
-    | .Constr tag args => .Constr tag (args.map (replaceForceVar v repl))
+    | .Constr tag args => .Constr tag (replaceForceVarList v repl args)
     | .Case scrut alts =>
-      .Case (replaceForceVar v repl scrut) (alts.map (replaceForceVar v repl))
-    | .Let binds body => replaceForceVarLet v repl binds [] body
+      .Case (replaceForceVar v repl scrut) (replaceForceVarList v repl alts)
+    | .Let binds body =>
+      let result := replaceForceVarLet v repl binds body
+      .Let result.1 result.2
+  termination_by e => sizeOf e
+
+  def replaceForceVarList (v : VarId) (repl : Expr) : List Expr → List Expr
+    | [] => []
+    | e :: rest => replaceForceVar v repl e :: replaceForceVarList v repl rest
+  termination_by es => sizeOf es
 
   /-- Thread `replaceForceVar` through a let-binding list, stopping at
   binders that shadow `v`. -/
-  partial def replaceForceVarLet (v : VarId) (repl : Expr)
-      : List (VarId × Expr × Bool) → List (VarId × Expr × Bool) → Expr → Expr
-    | [], acc, body =>
-      .Let acc.reverse (replaceForceVar v repl body)
-    | (x, rhs, er) :: rest, acc, body =>
+  def replaceForceVarLet (v : VarId) (repl : Expr) :
+      List (VarId × Expr × Bool) → Expr → List (VarId × Expr × Bool) × Expr
+    | [], body => ([], replaceForceVar v repl body)
+    | (x, rhs, er) :: rest, body =>
       let rhs' := replaceForceVar v repl rhs
-      if x == v then
-        .Let (acc.reverse ++ [(x, rhs', er)] ++ rest) body
+      if x == v then ((x, rhs', er) :: rest, body)
       else
-        replaceForceVarLet v repl rest ((x, rhs', er) :: acc) body
+        let result := replaceForceVarLet v repl rest body
+        ((x, rhs', er) :: result.1, result.2)
+  termination_by binds body => sizeOf binds + sizeOf body
 end
 
 /-! ## Main pass -/
+
+/-- Walk bindings left-to-right. For each `v = Delay e` where all subsequent
+uses of `v` are under `Force`, replace `Force (Var v)` with `e` in the
+remaining bindings and body. The now-dead `v = Delay e` binding is kept (DCE
+handles removal). The replacement moves `e` under the binders of the
+remaining scope, so it is only done when none of them rebinds `v` or a free
+variable of `e`, and `e` does not mention `v` itself. -/
+def processDelayBindings.go :
+    List (VarId × Expr × Bool) → List (VarId × Expr × Bool) → Expr → Bool →
+      List (VarId × Expr × Bool) × Expr × Bool
+  | [], acc, body, ch => (acc.reverse, body, ch)
+  | (v, rhs, er) :: rest, acc, body, ch =>
+    match rhs with
+    | .Delay inner =>
+      let restExpr := if rest.isEmpty then body else .Let rest body
+      if countOccurrences v restExpr > 0 && allUsesAreForce v restExpr &&
+          !(freeVars inner).contains v &&
+          bindersAvoid ((freeVars inner).insert v) restExpr then
+        let rest' := rest.map fun (w, r, er2) => (w, replaceForceVar v inner r, er2)
+        let body' := replaceForceVar v inner body
+        processDelayBindings.go rest' ((v, rhs, er) :: acc) body' true
+      else
+        processDelayBindings.go rest ((v, rhs, er) :: acc) body ch
+    | _ => processDelayBindings.go rest ((v, rhs, er) :: acc) body ch
+  termination_by binds => binds.length
+
+def processDelayBindings (binds : List (VarId × Expr × Bool)) (body : Expr) :
+    List (VarId × Expr × Bool) × Expr × Bool :=
+  processDelayBindings.go binds [] body false
+
+mutual
+  /-- Force/delay cancellation on an expression whose binders are already
+  unique. -/
+  def forceDelayCore : Expr → Expr × Bool
+    | .Var x => (.Var x, false)
+    | .Lit c => (.Lit c, false)
+    | .Builtin b => (.Builtin b, false)
+    | .Error => (.Error, false)
+    | .Lam x body =>
+      let result := forceDelayCore body
+      (.Lam x result.1, result.2)
+    | .Fix f body =>
+      let result := forceDelayCore body
+      (.Fix f result.1, result.2)
+    | .App fn arg =>
+      let fnResult := forceDelayCore fn
+      let argResult := forceDelayCore arg
+      (.App fnResult.1 argResult.1, fnResult.2 || argResult.2)
+    | .Delay inner =>
+      let result := forceDelayCore inner
+      (.Delay result.1, result.2)
+    | .Constr tag args =>
+      let result := forceDelayList args
+      (.Constr tag result.1, result.2)
+    | .Case scrut alts =>
+      let scrutResult := forceDelayCore scrut
+      let altsResult := forceDelayList alts
+      (.Case scrutResult.1 altsResult.1, scrutResult.2 || altsResult.2)
+    | .Force inner =>
+      let result := forceDelayCore inner
+      -- Covers `Force (Delay e)` directly and a `Delay` exposed by recursion.
+      match result.1 with
+      | .Delay e => (e, true)
+      | inner' => (.Force inner', result.2)
+    | .Let binds body =>
+      let bindsResult := forceDelayBinds binds
+      let bodyResult := forceDelayCore body
+      let processed := processDelayBindings bindsResult.1 bodyResult.1
+      (.Let processed.1 processed.2.1, bindsResult.2 || bodyResult.2 || processed.2.2)
+  termination_by e => sizeOf e
+
+  def forceDelayList : List Expr → List Expr × Bool
+    | [] => ([], false)
+    | e :: rest =>
+      let head := forceDelayCore e
+      let tail := forceDelayList rest
+      (head.1 :: tail.1, head.2 || tail.2)
+  termination_by es => sizeOf es
+
+  def forceDelayBinds : List (VarId × Expr × Bool) → List (VarId × Expr × Bool) × Bool
+    | [] => ([], false)
+    | (v, rhs, er) :: rest =>
+      let head := forceDelayCore rhs
+      let tail := forceDelayBinds rest
+      ((v, head.1, er) :: tail.1, head.2 || tail.2)
+  termination_by binds => sizeOf binds
+end
 
 /-- Eliminate `Force`/`Delay` pairs from `e`.
 
@@ -155,88 +280,7 @@ cancellation was performed. Handles both direct `Force (Delay e)` and
 the through-let pattern where a `Delay` binding is only used under
 `Force`. See the module documentation for the full algorithm and
 examples. -/
-partial def forceDelay (e : Expr) : Expr × Bool :=
-  match uniqueOptimizationBinders e with
-  | .Var _ | .Lit _ | .Builtin _ | .Error => (e, false)
-
-  | .Lam x body =>
-    let (body', ch) := forceDelay body
-    (.Lam x body', ch)
-
-  | .Fix f body =>
-    let (body', ch) := forceDelay body
-    (.Fix f body', ch)
-
-  | .App fn arg =>
-    let (fn', ch1) := forceDelay fn
-    let (arg', ch2) := forceDelay arg
-    (.App fn' arg', ch1 || ch2)
-
-  | .Delay inner =>
-    let (inner', ch) := forceDelay inner
-    (.Delay inner', ch)
-
-  | .Constr tag args =>
-    let results := args.map forceDelay
-    let args' := results.map Prod.fst
-    let ch := results.any Prod.snd
-    (.Constr tag args', ch)
-
-  | .Case scrut alts =>
-    let (scrut', ch1) := forceDelay scrut
-    let results := alts.map forceDelay
-    let alts' := results.map Prod.fst
-    let ch2 := results.any Prod.snd
-    (.Case scrut' alts', ch1 || ch2)
-
-  -- Pattern 1: direct Force (Delay e) cancellation
-  | .Force (.Delay inner) =>
-    let (inner', _) := forceDelay inner
-    (inner', true)
-
-  | .Force inner =>
-    let (inner', ch) := forceDelay inner
-    -- After recursion the inner expression may now be a Delay
-    match inner' with
-    | .Delay e => (e, true)
-    | _ => (.Force inner', ch)
-
-  | .Let binds body =>
-    -- Step 1: recursively simplify all RHSs and the body
-    let (binds', rhsChanged) := binds.foldl (init := ([], false))
-      fun (acc, ch) (v, rhs, er) =>
-        let (rhs', ch') := forceDelay rhs
-        (acc ++ [(v, rhs', er)], ch || ch')
-    let (body', bodyChanged) := forceDelay body
-    -- Step 2: for each binding of the form v = Delay e, check whether all
-    -- uses of v in subsequent bindings and the body are under Force.
-    let (finalBinds, finalBody, patternChanged) :=
-      processDelayBindings binds' body'
-    let anyChanged := rhsChanged || bodyChanged || patternChanged
-    (.Let finalBinds finalBody, anyChanged)
-where
-  /-- Walk bindings left-to-right. For each `v = Delay e` where all
-  subsequent uses of `v` are under `Force`, replace `Force (Var v)` with
-  `e` in the remaining bindings and body. The now-dead `v = Delay e`
-  binding is kept (DCE handles removal). -/
-  processDelayBindings (binds : List (VarId × Expr × Bool)) (body : Expr)
-      : List (VarId × Expr × Bool) × Expr × Bool :=
-    go binds [] body false
-  go : List (VarId × Expr × Bool) → List (VarId × Expr × Bool) → Expr → Bool
-      → List (VarId × Expr × Bool) × Expr × Bool
-    | [], acc, body, ch => (acc.reverse, body, ch)
-    | (v, rhs, er) :: rest, acc, body, ch =>
-      match rhs with
-      | .Delay inner =>
-        -- Check all uses of v in subsequent bindings and body
-        let restExpr := if rest.isEmpty then body else .Let rest body
-        if countOccurrences v restExpr > 0 && allUsesAreForce v restExpr then
-          -- Replace Force (Var v) -> inner in subsequent bindings and body
-          let rest' := rest.map fun (w, r, er2) => (w, replaceForceVar v inner r, er2)
-          let body' := replaceForceVar v inner body
-          go rest' ((v, rhs, er) :: acc) body' true
-        else
-          go rest ((v, rhs, er) :: acc) body ch
-      | _ => go rest ((v, rhs, er) :: acc) body ch
+def forceDelay (e : Expr) : Expr × Bool :=
+  forceDelayCore (uniqueOptimizationBinders e)
 
 end Moist.MIR
