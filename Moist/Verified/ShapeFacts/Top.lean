@@ -423,6 +423,20 @@ theorem canonEnv_found (keep : VarId → Bool) (D : Nat)
         simp at this; omega
       · exact rest (by simpa using h)
 
+/-- A name of a canonical environment with a large identifier is a fresh name. -/
+theorem canonEnv_source (keep : VarId → Bool) (D : Nat) :
+    ∀ (seen env : List VarId) (i : Nat) (y : VarId), y ∈ canonEnv keep D seen env i →
+      (∀ z, keep z = true → z.uid < D) → ∀ (G : VarId → Prop),
+      (∀ z : VarId, z.origin = .source → G z) → G y ∨ keep y = true
+  | _, [], _, y, hy, _, _, _ => by cases hy
+  | seen, z :: zs, i, y, hy, hD, G, hG => by
+    simp only [canonEnv] at hy
+    rcases List.mem_cons.mp hy with rfl | hy
+    · split
+      · rename_i hk; simp only [Bool.and_eq_true] at hk; exact .inr hk.1
+      · exact .inl (hG _ rfl)
+    · exact canonEnv_source keep D (z :: seen) zs (i + 1) y hy hD G hG
+
 theorem canonEnv_distinct (keep : VarId → Bool) (D : Nat)
     (hkeep : ∀ x y, (x == y) = true → keep x = keep y) (hD : ∀ y, keep y = true → y.uid < D) :
     ∀ (seen env : List VarId) (i : Nat), EnvDistinct (canonEnv keep D seen env i)
@@ -645,8 +659,10 @@ theorem freeVars_uid_lt {e : Expr} {y : VarId} (h : (freeVars e).contains y = tr
 
 /-- Refinement under no facts in canonical environments gives lowerings that
     refine in every environment. -/
-theorem lower_of_factRel {P : List VarId → CekEnv → Expr → CekValue → Prop} {E E' : Expr}
-    (hws : wellScoped E = true) (h : FactRel P [] E E') :
+theorem lower_of_factRel {G : VarId → Prop} {P : List VarId → CekEnv → Expr → CekValue → Prop}
+    {E E' : Expr} (hws : wellScoped E = true)
+    (hGfv : ∀ y, (freeVars E).contains y = true → G y)
+    (hGsrc : ∀ y : VarId, y.origin = .source → G y) (h : FactRel G P [] E E') :
     ∀ env t, lowerTotalExpr env E = some t →
       ∃ t', lowerTotalExpr env E' = some t' ∧ FactRefines env.length (fun _ => True) t t' := by
   intro env t hlow
@@ -671,7 +687,12 @@ theorem lower_of_factRel {P : List VarId → CekEnv → Expr → CekValue → Pr
     rcases canonEnv_found keep D hkeep [] env 0 y hy with ⟨hk, _⟩ | hu
     · exact .inl hk
     · right; simp only [D] at hu; omega
-  obtain ⟨t', ht', hr⟩ := h env' t (canonEnv_distinct keep D hkeep hD [] env 0) hfresh
+  have hG : ∀ y ∈ env', G y := by
+    intro y hy
+    rcases canonEnv_source keep D [] env 0 y hy hD G hGsrc with h | h
+    · exact h
+    · exact hGfv y h
+  obtain ⟨t', ht', hr⟩ := h env' t hG (canonEnv_distinct keep D hkeep hD [] env 0) hfresh
     (by intro _ hm; cases hm) (by intro x entry i hf; simp at hf) hlowE
   refine ⟨t', ?_, ?_⟩
   · rw [← ht']
@@ -686,10 +707,14 @@ theorem lower_of_factRel {P : List VarId → CekEnv → Expr → CekValue → Pr
   · rw [← hlen]
     exact hr.mono fun ρ _ => FactsHold.nil P env' ρ
 
-theorem mirCtxRefines_of_factRel {P : List VarId → CekEnv → Expr → CekValue → Prop} {E E' : Expr}
-    (hws : wellScoped E = true) (h : FactRel P [] E E') : MIRCtxRefines E E' := by
+theorem mirCtxRefines_of_factRel {G : VarId → Prop}
+    {P : List VarId → CekEnv → Expr → CekValue → Prop} {E E' : Expr}
+    (hws : wellScoped E = true)
+    (hGfv : ∀ y, (freeVars E).contains y = true → G y)
+    (hGsrc : ∀ y : VarId, y.origin = .source → G y) (h : FactRel G P [] E E') :
+    MIRCtxRefines E E' := by
   intro env
-  have hmain := lower_of_factRel hws h
+  have hmain := lower_of_factRel hws hGfv hGsrc h
   refine ⟨fun hs => ?_, ?_⟩
   · cases hl : lowerTotalExpr env E with
     | none => rw [hl] at hs; cases hs

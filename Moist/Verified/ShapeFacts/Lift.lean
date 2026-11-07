@@ -3,8 +3,9 @@ import Moist.Verified.ShapeFacts.Decompose
 
 /-! # Refinement of MIR expressions under facts
 
-`FactRel P Γ e e'` lifts `FactRefines` to MIR: in every distinct lowering
-environment that avoids the binders of `e` and binds the recorded names, if
+`FactRel G P Γ e e'` lifts `FactRefines` to MIR: in every distinct lowering
+environment of names satisfying `G` that avoids the binders of `e` and binds
+the recorded names, if
 `e` lowers then so does `e'`, and the lowerings refine each other in every
 runtime environment realizing `Γ`. The congruences below let a walk carry
 its facts through every node it does not rewrite.
@@ -26,26 +27,27 @@ def FactsScoped (Γ : List (VarId × Expr)) (env : List VarId) : Prop :=
 def KeysBound (Γ : List (VarId × Expr)) (env : List VarId) : Prop :=
   ∀ entry ∈ Γ, (envLookupT env entry.1).isSome = true
 
-def FactRel (P : List VarId → CekEnv → Expr → CekValue → Prop) (Γ : List (VarId × Expr))
-    (e e' : Expr) : Prop :=
-  ∀ env t, EnvDistinct env → freshIn env e = true → KeysBound Γ env → FactsScoped Γ env →
+def FactRel (G : VarId → Prop) (P : List VarId → CekEnv → Expr → CekValue → Prop)
+    (Γ : List (VarId × Expr)) (e e' : Expr) : Prop :=
+  ∀ env t, (∀ y ∈ env, G y) → EnvDistinct env → freshIn env e = true → KeysBound Γ env →
+    FactsScoped Γ env →
     lowerTotalExpr env e = some t →
     ∃ t', lowerTotalExpr env e' = some t' ∧ FactRefines env.length (FactsHold P Γ env) t t'
 
-theorem FactRel.refl (P : List VarId → CekEnv → Expr → CekValue → Prop) (Γ : List (VarId × Expr))
-    (e : Expr) : FactRel P Γ e e :=
-  fun _ t _ _ _ _ h => ⟨t, h, FactRefines.refl _ _ _⟩
+theorem FactRel.refl (G : VarId → Prop) (P : List VarId → CekEnv → Expr → CekValue → Prop)
+    (Γ : List (VarId × Expr)) (e : Expr) : FactRel G P Γ e e :=
+  fun _ t _ _ _ _ _ h => ⟨t, h, FactRefines.refl _ _ _⟩
 
-theorem FactRel.of_lowerEq {P : List VarId → CekEnv → Expr → CekValue → Prop}
+theorem FactRel.of_lowerEq {G : VarId → Prop} {P : List VarId → CekEnv → Expr → CekValue → Prop}
     {Γ : List (VarId × Expr)} {e e' : Expr}
-    (h : ∀ env, lowerTotalExpr env e' = lowerTotalExpr env e) : FactRel P Γ e e' :=
-  fun env t _ _ _ _ he => ⟨t, by rw [h, he], FactRefines.refl _ _ _⟩
+    (h : ∀ env, lowerTotalExpr env e' = lowerTotalExpr env e) : FactRel G P Γ e e' :=
+  fun env t _ _ _ _ _ he => ⟨t, by rw [h, he], FactRefines.refl _ _ _⟩
 
-theorem FactRel.of_mirCtxRefines_lower {P : List VarId → CekEnv → Expr → CekValue → Prop}
+theorem FactRel.of_mirCtxRefines_lower {G : VarId → Prop} {P : List VarId → CekEnv → Expr → CekValue → Prop}
     {Γ : List (VarId × Expr)} {e e' : Expr}
     (h : ∀ env t, lowerTotalExpr env e = some t → ∃ t', lowerTotalExpr env e' = some t' ∧
-      FactRefines env.length (fun _ => True) t t') : FactRel P Γ e e' := by
-  intro env t _ _ _ _ he
+      FactRefines env.length (fun _ => True) t t') : FactRel G P Γ e e' := by
+  intro env t _ _ _ _ _ he
   obtain ⟨t', ht', hr⟩ := h env t he
   exact ⟨t', ht', hr.mono fun _ _ => trivial⟩
 
@@ -120,48 +122,55 @@ theorem enter_binder {Γ : List (VarId × Expr)} {env : List VarId} {x : VarId}
       Γ.find? (fun e => e.1 == x) = none :=
   ⟨hd.cons hx, hk.cons x, hs.extend (find?_none_of_unbound hk hx), find?_none_of_unbound hk hx⟩
 
+theorem allG_cons {G : VarId → Prop} {x : VarId} {env : List VarId} (hx : G x)
+    (h : ∀ y ∈ env, G y) : ∀ y ∈ x :: env, G y := by
+  intro y hy
+  rcases List.mem_cons.mp hy with rfl | hy
+  · exact hx
+  · exact h y hy
+
 /-! ## Congruences -/
 
-theorem FactRel.lam {P : List VarId → CekEnv → Expr → CekValue → Prop}
-    {Γ : List (VarId × Expr)} {x : VarId} {b b' : Expr} (h : FactRel P Γ b b') :
-    FactRel P Γ (.Lam x b) (.Lam x b') := by
-  intro env t hd hfresh hk hs hlow
+theorem FactRel.lam {G : VarId → Prop} {P : List VarId → CekEnv → Expr → CekValue → Prop}
+    {Γ : List (VarId × Expr)} {x : VarId} {b b' : Expr} (hGx : G x) (h : FactRel G P Γ b b') :
+    FactRel G P Γ (.Lam x b) (.Lam x b') := by
+  intro env t hG hd hfresh hk hs hlow
   simp only [freshIn, Bool.and_eq_true] at hfresh
   obtain ⟨hd', hk', hs', hnone⟩ := enter_binder hd hk hs hfresh.1
   obtain ⟨tb, htb, rfl⟩ := lowerTotalExpr_lam_some hlow
-  obtain ⟨tb', htb', hr⟩ := h (x :: env) tb hd' hfresh.2 hk' hs' htb
+  obtain ⟨tb', htb', hr⟩ := h (x :: env) tb (allG_cons hGx hG) hd' hfresh.2 hk' hs' htb
   refine ⟨.Lam 0 tb', by rw [MIR.lowerTotalExpr_lam, htb']; rfl, ?_⟩
   exact factRefines_lam 0 0 (by simpa using MIR.lowerTotalExpr_closedAt htb)
     (by simpa using MIR.lowerTotalExpr_closedAt htb')
     (fun ρ v hF => FactsHold.extend v hF hnone) (by simpa using hr)
 
-theorem FactRel.delay {P : List VarId → CekEnv → Expr → CekValue → Prop}
-    {Γ : List (VarId × Expr)} {b b' : Expr} (h : FactRel P Γ b b') :
-    FactRel P Γ (.Delay b) (.Delay b') := by
-  intro env t hd hfresh hk hs hlow
+theorem FactRel.delay {G : VarId → Prop} {P : List VarId → CekEnv → Expr → CekValue → Prop}
+    {Γ : List (VarId × Expr)} {b b' : Expr} (h : FactRel G P Γ b b') :
+    FactRel G P Γ (.Delay b) (.Delay b') := by
+  intro env t hG hd hfresh hk hs hlow
   simp only [freshIn] at hfresh
   obtain ⟨tb, htb, rfl⟩ := lowerTotalExpr_delay_some hlow
-  obtain ⟨tb', htb', hr⟩ := h env tb hd hfresh hk hs htb
+  obtain ⟨tb', htb', hr⟩ := h env tb hG hd hfresh hk hs htb
   refine ⟨.Delay tb', by rw [MIR.lowerTotalExpr_delay, htb']; rfl, ?_⟩
   exact factRefines_delay (MIR.lowerTotalExpr_closedAt htb) (MIR.lowerTotalExpr_closedAt htb') hr
 
-theorem FactRel.force {P : List VarId → CekEnv → Expr → CekValue → Prop}
-    {Γ : List (VarId × Expr)} {b b' : Expr} (h : FactRel P Γ b b') :
-    FactRel P Γ (.Force b) (.Force b') := by
-  intro env t hd hfresh hk hs hlow
+theorem FactRel.force {G : VarId → Prop} {P : List VarId → CekEnv → Expr → CekValue → Prop}
+    {Γ : List (VarId × Expr)} {b b' : Expr} (h : FactRel G P Γ b b') :
+    FactRel G P Γ (.Force b) (.Force b') := by
+  intro env t hG hd hfresh hk hs hlow
   simp only [freshIn] at hfresh
   obtain ⟨tb, htb, rfl⟩ := lowerTotalExpr_force_some hlow
-  obtain ⟨tb', htb', hr⟩ := h env tb hd hfresh hk hs htb
+  obtain ⟨tb', htb', hr⟩ := h env tb hG hd hfresh hk hs htb
   exact ⟨.Force tb', by rw [MIR.lowerTotalExpr_force, htb']; rfl, factRefines_force hr⟩
 
-theorem FactRel.app {P : List VarId → CekEnv → Expr → CekValue → Prop}
-    {Γ : List (VarId × Expr)} {f f' a a' : Expr} (hf : FactRel P Γ f f') (ha : FactRel P Γ a a') :
-    FactRel P Γ (.App f a) (.App f' a') := by
-  intro env t hd hfresh hk hs hlow
+theorem FactRel.app {G : VarId → Prop} {P : List VarId → CekEnv → Expr → CekValue → Prop}
+    {Γ : List (VarId × Expr)} {f f' a a' : Expr} (hf : FactRel G P Γ f f') (ha : FactRel G P Γ a a') :
+    FactRel G P Γ (.App f a) (.App f' a') := by
+  intro env t hG hd hfresh hk hs hlow
   simp only [freshIn, Bool.and_eq_true] at hfresh
   obtain ⟨tf, ta, htf, hta, rfl⟩ := lowerTotalExpr_app_some hlow
-  obtain ⟨tf', htf', hrf⟩ := hf env tf hd hfresh.1 hk hs htf
-  obtain ⟨ta', hta', hra⟩ := ha env ta hd hfresh.2 hk hs hta
+  obtain ⟨tf', htf', hrf⟩ := hf env tf hG hd hfresh.1 hk hs htf
+  obtain ⟨ta', hta', hra⟩ := ha env ta hG hd hfresh.2 hk hs hta
   refine ⟨.Apply tf' ta', by rw [MIR.lowerTotalExpr_app, htf', hta']; rfl, ?_⟩
   exact factRefines_apply hrf hra (MIR.lowerTotalExpr_closedAt htf') (MIR.lowerTotalExpr_closedAt hta)
 
@@ -169,19 +178,19 @@ theorem lowerTotalExprList_closedAtList {env : List VarId} {es : List Expr} {ts 
     (h : MIR.lowerTotalExprList env es = some ts) : closedAtList env.length ts = true :=
   MIR.lowerTotalList_closedAtList env _ ts h
 
-theorem FactRel.list {P : List VarId → CekEnv → Expr → CekValue → Prop}
+theorem FactRel.list {G : VarId → Prop} {P : List VarId → CekEnv → Expr → CekValue → Prop}
     {Γ : List (VarId × Expr)} :
-    ∀ {es es' : List Expr}, ListRel (FactRel P Γ) es es' →
-      ∀ env ts, EnvDistinct env → freshInList env es = true → KeysBound Γ env →
+    ∀ {es es' : List Expr}, ListRel (FactRel G P Γ) es es' →
+      ∀ env ts, (∀ y ∈ env, G y) → EnvDistinct env → freshInList env es = true → KeysBound Γ env →
         FactsScoped Γ env → MIR.lowerTotalExprList env es = some ts →
         ∃ ts', MIR.lowerTotalExprList env es' = some ts' ∧
           ListRel (FactRefines env.length (FactsHold P Γ env)) ts ts'
-  | [], [], _, env, ts, _, _, _, _, h => by
+  | [], [], _, env, ts, _, _, _, _, _, h => by
     rw [MIR.lowerTotalExprList_nil] at h; cases h
     exact ⟨[], MIR.lowerTotalExprList_nil env, trivial⟩
-  | [], _ :: _, h, _, _, _, _, _, _, _ => absurd h id
-  | _ :: _, [], h, _, _, _, _, _, _, _ => absurd h id
-  | e :: es, e' :: es', h, env, ts, hd, hfresh, hk, hs, hlow => by
+  | [], _ :: _, h, _, _, _, _, _, _, _, _ => absurd h id
+  | _ :: _, [], h, _, _, _, _, _, _, _, _ => absurd h id
+  | e :: es, e' :: es', h, env, ts, hG, hd, hfresh, hk, hs, hlow => by
     simp only [freshInList, Bool.and_eq_true] at hfresh
     rw [MIR.lowerTotalExprList_cons] at hlow
     cases he : lowerTotalExpr env e with
@@ -191,34 +200,34 @@ theorem FactRel.list {P : List VarId → CekEnv → Expr → CekValue → Prop}
       | none => rw [he, hes] at hlow; cases hlow
       | some tes =>
         rw [he, hes] at hlow; cases hlow
-        obtain ⟨te', hte', hr⟩ := h.1 env te hd hfresh.1 hk hs he
-        obtain ⟨tes', htes', hrs⟩ := FactRel.list h.2 env tes hd hfresh.2 hk hs hes
+        obtain ⟨te', hte', hr⟩ := h.1 env te hG hd hfresh.1 hk hs he
+        obtain ⟨tes', htes', hrs⟩ := FactRel.list h.2 env tes hG hd hfresh.2 hk hs hes
         refine ⟨te' :: tes', by rw [MIR.lowerTotalExprList_cons, hte', htes']; rfl, hr, hrs⟩
 
-theorem FactRel.constr {P : List VarId → CekEnv → Expr → CekValue → Prop}
-    {Γ : List (VarId × Expr)} {tag : Nat} {es es' : List Expr} (h : ListRel (FactRel P Γ) es es') :
-    FactRel P Γ (.Constr tag es) (.Constr tag es') := by
-  intro env t hd hfresh hk hs hlow
+theorem FactRel.constr {G : VarId → Prop} {P : List VarId → CekEnv → Expr → CekValue → Prop}
+    {Γ : List (VarId × Expr)} {tag : Nat} {es es' : List Expr} (h : ListRel (FactRel G P Γ) es es') :
+    FactRel G P Γ (.Constr tag es) (.Constr tag es') := by
+  intro env t hG hd hfresh hk hs hlow
   simp only [freshIn] at hfresh
   rw [MIR.lowerTotalExpr_constr_of_list] at hlow
   cases hes : MIR.lowerTotalExprList env es with
   | none => rw [hes] at hlow; cases hlow
   | some ts =>
     rw [hes] at hlow; cases hlow
-    obtain ⟨ts', hts', hr⟩ := FactRel.list h env ts hd hfresh hk hs hes
+    obtain ⟨ts', hts', hr⟩ := FactRel.list h env ts hG hd hfresh hk hs hes
     refine ⟨.Constr tag ts', by rw [MIR.lowerTotalExpr_constr_of_list, hts']; rfl, ?_⟩
     exact factRefines_constr hr (lowerTotalExprList_closedAtList hes)
       (lowerTotalExprList_closedAtList hts')
 
-theorem FactRel.case {P : List VarId → CekEnv → Expr → CekValue → Prop}
+theorem FactRel.case {G : VarId → Prop} {P : List VarId → CekEnv → Expr → CekValue → Prop}
     {Γ : List (VarId × Expr)} {s s' : Expr} {alts alts' : List Expr}
-    (hs : FactRel P Γ s s') (halts : ListRel (FactRel P Γ) alts alts') :
-    FactRel P Γ (.Case s alts) (.Case s' alts') := by
-  intro env t hd hfresh hk hsc hlow
+    (hs : FactRel G P Γ s s') (halts : ListRel (FactRel G P Γ) alts alts') :
+    FactRel G P Γ (.Case s alts) (.Case s' alts') := by
+  intro env t hG hd hfresh hk hsc hlow
   simp only [freshIn, Bool.and_eq_true] at hfresh
   obtain ⟨ts, talts, hts, htalts, rfl⟩ := lowerTotalExpr_case_some hlow
-  obtain ⟨ts', hts', hr⟩ := hs env ts hd hfresh.1 hk hsc hts
-  obtain ⟨talts', htalts', hra⟩ := FactRel.list halts env talts hd hfresh.2 hk hsc htalts
+  obtain ⟨ts', hts', hr⟩ := hs env ts hG hd hfresh.1 hk hsc hts
+  obtain ⟨talts', htalts', hra⟩ := FactRel.list halts env talts hG hd hfresh.2 hk hsc htalts
   refine ⟨.Case ts' talts', by rw [MIR.lowerTotalExpr_case_of_list, hts', htalts']; rfl, ?_⟩
   exact factRefines_case hr hra (MIR.lowerTotalExpr_closedAt hts')
     (lowerTotalExprList_closedAtList htalts)
@@ -266,14 +275,15 @@ theorem fixLamWrapUplc_factRefines {d : Nat} {F : CekEnv → Prop} {b b' : Term}
     (G := fun ρ => ∃ ρ₀ v₁ v₂ v₃, F ρ₀ ∧ ρ = ((ρ₀.extend v₁).extend v₂).extend v₃)
     (fun ρ v ⟨ρ₀, v₁, v₂, hF, hρ⟩ => ⟨ρ₀, v₁, v₂, v, hF, by rw [hρ]⟩) h
 
-theorem FactRel.fix_lam {P : List VarId → CekEnv → Expr → CekValue → Prop}
-    {Γ : List (VarId × Expr)} {f x : VarId} {b b' : Expr} (h : FactRel P Γ b b') :
-    FactRel P Γ (.Fix f (.Lam x b)) (.Fix f (.Lam x b')) := by
-  intro env t hd hfresh hk hsc hlow
+theorem FactRel.fix_lam {G : VarId → Prop} {P : List VarId → CekEnv → Expr → CekValue → Prop}
+    {Γ : List (VarId × Expr)} {f x : VarId} {b b' : Expr} (hGf : G f) (hGx : G x)
+    (hGs : ∀ y : VarId, y.origin = .source → G y) (h : FactRel G P Γ b b') :
+    FactRel G P Γ (.Fix f (.Lam x b)) (.Fix f (.Lam x b')) := by
+  intro env t hG hd hfresh hk hsc hlow
   simp only [freshIn, Bool.and_eq_true] at hfresh
   obtain ⟨hf, hx, hb⟩ := hfresh
   let s : VarId := ⟨envMax env + maxUidExpr b + maxUidExpr (expandFix b) +
-    maxUidExpr (expandFix b') + f.uid + x.uid + 1, .gen, "s"⟩
+    maxUidExpr (expandFix b') + f.uid + x.uid + 1, .source, "s"⟩
   have hs_env : envLookupT env s = none := envLookupT_none_of_gt env s (by simp [s]; omega)
   have hs_b : (freeVars (expandFix b)).contains s = false := maxUidExpr_fresh _ _ (by simp [s]; omega)
   have hs_b' : (freeVars (expandFix b')).contains s = false := maxUidExpr_fresh _ _ (by simp [s]; omega)
@@ -327,7 +337,8 @@ theorem FactRel.fix_lam {P : List VarId → CekEnv → Expr → CekValue → Pro
             have := (VarId.beq_true_iff s y).mp hsy
             simp [s] at this; omega
           · left; simpa using hy
-    obtain ⟨tb', htb', hr⟩ := h (x :: f :: s :: env) tb hd₃ hfresh₃ hk₃ hs₃ htb
+    obtain ⟨tb', htb', hr⟩ := h (x :: f :: s :: env) tb
+      (allG_cons hGx (allG_cons hGf (allG_cons (hGs s rfl) hG))) hd₃ hfresh₃ hk₃ hs₃ htb
     refine ⟨fixLamWrapUplc tb', ?_, ?_⟩
     · rw [lowerTotalExpr_fix_lam_with_fresh env f x b' s hs_b']
       change (lowerTotalExpr (x :: f :: s :: env) b').map fixLamWrapUplc = _
@@ -370,18 +381,18 @@ theorem freshIn_let_single {avoid : List VarId} {x : VarId} {r b : Expr} {er : B
 
 /-- A single binding. The body may use a fact recording either the original
     or the refined right-hand side for the bound value. -/
-theorem FactRel.let_single {P : List VarId → CekEnv → Expr → CekValue → Prop}
-    {Γ : List (VarId × Expr)} {x : VarId} {r r' b b' : Expr} {er : Bool} (rf : Expr)
+theorem FactRel.let_single {G : VarId → Prop} {P : List VarId → CekEnv → Expr → CekValue → Prop}
+    {Γ : List (VarId × Expr)} {x : VarId} {r r' b b' : Expr} {er : Bool} (rf : Expr) (hGx : G x)
     (hrf : rf = r ∨ rf = r')
-    (hr : FactRel P Γ r r') (hb : FactRel P ((x, rf) :: Γ) b b')
+    (hr : FactRel G P Γ r r') (hb : FactRel G P ((x, rf) :: Γ) b b')
     (hpush : ∀ env ρ v, EnvDistinct env → freshIn env r = true → Produces env ρ rf v → P env ρ rf v) :
-    FactRel P Γ (.Let [(x, r, er)] b) (.Let [(x, r', er)] b') := by
-  intro env t hd hfresh hk hsc hlow
+    FactRel G P Γ (.Let [(x, r, er)] b) (.Let [(x, r', er)] b') := by
+  intro env t hG hd hfresh hk hsc hlow
   rw [freshIn_let_single] at hfresh
   simp only [Bool.and_eq_true] at hfresh
   obtain ⟨⟨hfr, hx⟩, hfb⟩ := hfresh
   obtain ⟨tr, tb, htr, htb, rfl⟩ := lowerTotalExpr_let_single_some hlow
-  obtain ⟨tr', htr', hrr⟩ := hr env tr hd hfr hk hsc htr
+  obtain ⟨tr', htr', hrr⟩ := hr env tr hG hd hfr hk hsc htr
   have hnone := find?_none_of_unbound hk hx
   have hrf_low : ∃ trf, lowerTotalExpr env rf = some trf ∧ (trf = tr ∨ trf = tr') := by
     rcases hrf with rfl | rfl
@@ -394,7 +405,7 @@ theorem FactRel.let_single {P : List VarId → CekEnv → Expr → CekValue → 
     · simp [envLookupT_cons, varId_beq_self]
     · exact hk.cons x entry hmem
   have hs' : FactsScoped ((x, rf) :: Γ) (x :: env) := hsc.push (by simp [htrf])
-  obtain ⟨tb', htb', hrb⟩ := hb (x :: env) tb (hd.cons hx) hfb hk' hs' htb
+  obtain ⟨tb', htb', hrb⟩ := hb (x :: env) tb (allG_cons hGx hG) (hd.cons hx) hfb hk' hs' htb
   refine ⟨.Apply (.Lam 0 tb') tr', by rw [lowerTotalExpr_let_single, htr', htb']; rfl, ?_⟩
   have closedTr := MIR.lowerTotalExpr_closedAt htr
   have closedTr' := MIR.lowerTotalExpr_closedAt htr'
@@ -436,19 +447,19 @@ theorem freshIn_let_nil (avoid : List VarId) (body : Expr) :
   simp only [freshIn, freshInLet]
 
 /-- Replace the source by one with the same lowerings and freshness. -/
-theorem FactRel.congr_left {P : List VarId → CekEnv → Expr → CekValue → Prop}
-    {Γ : List (VarId × Expr)} {e₀ e e' : Expr} (h : FactRel P Γ e₀ e')
+theorem FactRel.congr_left {G : VarId → Prop} {P : List VarId → CekEnv → Expr → CekValue → Prop}
+    {Γ : List (VarId × Expr)} {e₀ e e' : Expr} (h : FactRel G P Γ e₀ e')
     (hlow : ∀ env, lowerTotalExpr env e = lowerTotalExpr env e₀)
-    (hfresh : ∀ avoid, freshIn avoid e = freshIn avoid e₀) : FactRel P Γ e e' := by
-  intro env t hd hf hk hs ht
+    (hfresh : ∀ avoid, freshIn avoid e = freshIn avoid e₀) : FactRel G P Γ e e' := by
+  intro env t hG hd hf hk hs ht
   rw [hfresh] at hf; rw [hlow] at ht
-  exact h env t hd hf hk hs ht
+  exact h env t hG hd hf hk hs ht
 
-theorem FactRel.congr_right {P : List VarId → CekEnv → Expr → CekValue → Prop}
-    {Γ : List (VarId × Expr)} {e e₀ e' : Expr} (h : FactRel P Γ e e₀)
-    (hlow : ∀ env, lowerTotalExpr env e' = lowerTotalExpr env e₀) : FactRel P Γ e e' := by
-  intro env t hd hf hk hs ht
-  obtain ⟨t', ht', hr⟩ := h env t hd hf hk hs ht
+theorem FactRel.congr_right {G : VarId → Prop} {P : List VarId → CekEnv → Expr → CekValue → Prop}
+    {Γ : List (VarId × Expr)} {e e₀ e' : Expr} (h : FactRel G P Γ e e₀)
+    (hlow : ∀ env, lowerTotalExpr env e' = lowerTotalExpr env e₀) : FactRel G P Γ e e' := by
+  intro env t hG hd hf hk hs ht
+  obtain ⟨t', ht', hr⟩ := h env t hG hd hf hk hs ht
   exact ⟨t', by rw [hlow]; exact ht', hr⟩
 
 end Moist.Verified.ShapeFacts

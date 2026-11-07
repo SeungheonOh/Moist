@@ -66,15 +66,15 @@ theorem lowerTotalExpr_fused {env : List VarId} {l h t : VarId} {B' : Expr} {il 
   rw [MIR.lowerTotalExprList_cons, lowerTotalExpr_error, MIR.lowerTotalExprList_nil]
   rfl
 
-theorem fusion_factRel {Γ : List (VarId × Expr)} {h t : VarId} {hr tr B B' : Expr} {he te : Bool}
-    {l l' : VarId}
+theorem fusion_factRel {G : VarId → Prop} {Γ : List (VarId × Expr)} {h t : VarId}
+    {hr tr B B' : Expr} {he te : Bool} {l l' : VarId} (hGh : G h) (hGt : G t)
     (hhead : resolveHead 64 Γ hr = .App (.Force (.Builtin .HeadList)) (.Var l))
     (htail : resolveHead 64 Γ tr = .App (.Force (.Builtin .TailList)) (.Var l'))
     (hl : (l == l') = true) (hknown : knownList 64 Γ (.Var l) = true)
-    (hB : FactRel Produces ((t, tr) :: (h, hr) :: Γ) B B') :
-    FactRel Produces Γ (.Let [(h, hr, he)] (.Let [(t, tr, te)] B))
+    (hB : FactRel G Produces ((t, tr) :: (h, hr) :: Γ) B B') :
+    FactRel G Produces Γ (.Let [(h, hr, he)] (.Let [(t, tr, te)] B))
       (.Case (.Var l) [.Lam h (.Lam t B'), .Error]) := by
-  intro env t₀ hd hfresh hk hs hlow
+  intro env t₀ hG hd hfresh hk hs hlow
   rw [freshIn_let_single] at hfresh
   simp only [Bool.and_eq_true] at hfresh
   obtain ⟨⟨hfhr, hh⟩, hfrest⟩ := hfresh
@@ -101,7 +101,7 @@ theorem fusion_factRel {Γ : List (VarId × Expr)} {h t : VarId} {hr tr B B' : E
     · exact hk₁.cons t entry hmem
   have hs₂ : FactsScoped ((t, tr) :: (h, hr) :: Γ) (t :: h :: env) :=
     (hs.push (x := h) (by simp [hthr])).push (by simp [httr])
-  obtain ⟨tB', htB', hrB⟩ := hB (t :: h :: env) tB hd₂ hfB hk₂ hs₂ htB
+  obtain ⟨tB', htB', hrB⟩ := hB (t :: h :: env) tB (allG_cons hGt (allG_cons hGh hG)) hd₂ hfB hk₂ hs₂ htB
   refine ⟨_, lowerTotalExpr_fused hil htB', ?_⟩
   intro ρ π henv hlen hπ hF
   have hil_lt := envLookupT_bound env l il hil
@@ -208,10 +208,10 @@ theorem flattenBindings_fresh (bs : List (VarId × Expr × Bool)) (body : Expr) 
 termination_by exprSize body
 decreasing_by simp [exprSize]; omega
 
-theorem FactRel.of_flatten {P : List VarId → CekEnv → Expr → CekValue → Prop}
+theorem FactRel.of_flatten {G : VarId → Prop} {P : List VarId → CekEnv → Expr → CekValue → Prop}
     {Γ : List (VarId × Expr)} {bs flat : List (VarId × Expr × Bool)} {body inner e' : Expr}
-    (hflat : flattenBindings bs body = (flat, inner)) (h : FactRel P Γ (.Let flat inner) e') :
-    FactRel P Γ (.Let bs body) e' := by
+    (hflat : flattenBindings bs body = (flat, inner)) (h : FactRel G P Γ (.Let flat inner) e') :
+    FactRel G P Γ (.Let bs body) e' := by
   apply h.congr_left
   · intro env; rw [← flattenBindings_lower bs body env, hflat]
   · intro avoid; rw [← flattenBindings_fresh bs body avoid, hflat]
@@ -246,10 +246,10 @@ theorem flatten_nil_lt {bs : List (VarId × Expr × Bool)} {body inner : Expr}
   simp only [exprSize, exprSizeBinds] at bound ⊢
   omega
 
-theorem listRel_attach_map {P : List VarId → CekEnv → Expr → CekValue → Prop}
+theorem listRel_attach_map {G : VarId → Prop} {P : List VarId → CekEnv → Expr → CekValue → Prop}
     {Γ : List (VarId × Expr)} (children : List Expr) (f : Expr → Expr)
-    (h : ∀ c ∈ children, FactRel P Γ c (f c)) :
-    ListRel (FactRel P Γ) children (children.attach.map fun ⟨c, _⟩ => f c) := by
+    (h : ∀ c ∈ children, FactRel G P Γ c (f c)) :
+    ListRel (FactRel G P Γ) children (children.attach.map fun ⟨c, _⟩ => f c) := by
   induction children with
   | nil => trivial
   | cons c cs ih =>
@@ -259,7 +259,7 @@ theorem listRel_attach_map {P : List VarId → CekEnv → Expr → CekValue → 
     simpa [Function.comp_def] using this
 
 theorem fuseListWalk_factRel (e : Expr) (Γ : List (VarId × Expr)) :
-    FactRel Produces Γ e (fuseListWalk Γ e) := by
+    FactRel (fun _ => True) Produces Γ e (fuseListWalk Γ e) := by
   match e with
   | .Let bs body =>
     rw [fuseListWalk]
@@ -268,10 +268,10 @@ theorem fuseListWalk_factRel (e : Expr) (Γ : List (VarId × Expr)) :
       apply FactRel.of_flatten hflat
       have ihhr := fuseListWalk_factRel hr Γ
       have ihrest := fuseListWalk_factRel (.Let ((t, tr, te) :: remaining) inner) ((h, hr) :: Γ)
-      have fallback : FactRel Produces Γ (.Let ((h, hr, he) :: (t, tr, te) :: remaining) inner)
+      have fallback : FactRel (fun _ => True) Produces Γ (.Let ((h, hr, he) :: (t, tr, te) :: remaining) inner)
           (.Let [(h, fuseListWalk Γ hr, he)]
             (fuseListWalk ((h, hr) :: Γ) (.Let ((t, tr, te) :: remaining) inner))) :=
-        (FactRel.let_single hr (.inl rfl) ihhr ihrest
+        (FactRel.let_single hr trivial (.inl rfl) ihhr ihrest
           (fun _ _ _ _ _ hp => hp)).congr_left
           (fun env => lowerTotalExpr_let_cons env _ _ _) (fun avoid => freshIn_let_cons avoid _ _ _)
       split
@@ -280,7 +280,7 @@ theorem fuseListWalk_factRel (e : Expr) (Γ : List (VarId × Expr)) :
         · rename_i hcond
           simp only [Bool.and_eq_true] at hcond
           have ihsuffix := fuseListWalk_factRel (.Let remaining inner) ((t, tr) :: (h, hr) :: Γ)
-          refine (fusion_factRel (he := he) (te := te) hhead htail hcond.1 hcond.2 ihsuffix).congr_left ?_ ?_
+          refine (fusion_factRel (he := he) (te := te) trivial trivial hhead htail hcond.1 hcond.2 ihsuffix).congr_left ?_ ?_
           · intro env
             rw [lowerTotalExpr_let_cons env (h, hr, he), lowerTotalExpr_let_single,
               lowerTotalExpr_let_single, lowerTotalExpr_let_cons (h :: env) (t, tr, te)]
@@ -291,22 +291,22 @@ theorem fuseListWalk_factRel (e : Expr) (Γ : List (VarId × Expr)) :
       · exact fallback
     · rename_i x r er inner hflat
       apply FactRel.of_flatten hflat
-      exact FactRel.let_single r (.inl rfl) (fuseListWalk_factRel r Γ)
+      exact FactRel.let_single r trivial (.inl rfl) (fuseListWalk_factRel r Γ)
         (fuseListWalk_factRel inner ((x, r) :: Γ)) (fun _ _ _ _ _ hp => hp)
     · rename_i inner hflat
       apply FactRel.of_flatten hflat
       exact (fuseListWalk_factRel inner Γ).congr_left (fun env => lowerTotalExpr_let_nil env inner)
         (fun avoid => freshIn_let_nil avoid inner)
-  | .Lam x b => rw [fuseListWalk]; exact (fuseListWalk_factRel b Γ).lam
+  | .Lam x b => rw [fuseListWalk]; exact (fuseListWalk_factRel b Γ).lam trivial
   | .Fix f b =>
     rw [fuseListWalk]
     cases b with
     | Lam x inner =>
       have ih := fuseListWalk_factRel (.Lam x inner) Γ
       rw [fuseListWalk] at ih ⊢
-      exact (fuseListWalk_factRel inner Γ).fix_lam
+      exact (fuseListWalk_factRel inner Γ).fix_lam trivial trivial (fun _ _ => trivial)
     | _ =>
-      intro env t _ _ _ _ hlow
+      intro env t _ _ _ _ _ hlow
       rw [MIR.lowerTotalExpr_fix_nonlam_none env f _ (by intros; simp)] at hlow
       cases hlow
   | .App f a => rw [fuseListWalk]; exact (fuseListWalk_factRel f Γ).app (fuseListWalk_factRel a Γ)
@@ -319,7 +319,7 @@ theorem fuseListWalk_factRel (e : Expr) (Γ : List (VarId × Expr)) :
     rw [fuseListWalk]
     exact FactRel.case (fuseListWalk_factRel scrutinee Γ)
       (listRel_attach_map alternatives _ fun c _ => fuseListWalk_factRel c Γ)
-  | .Var _ | .Lit _ | .Builtin _ | .Error => rw [fuseListWalk]; exact FactRel.refl _ _ _
+  | .Var _ | .Lit _ | .Builtin _ | .Error => rw [fuseListWalk]; exact FactRel.refl _ _ _ _
 termination_by exprSize e
 decreasing_by
   all_goals first
@@ -344,7 +344,8 @@ theorem fuseListDestructors_refines (e : Expr) : MIRCtxRefines e (fuseListDestru
   simp only
   split
   · exact mirCtxRefines_trans (Hygiene.uniqueOptimizationBinders_refines e)
-      (mirCtxRefines_of_factRel (by assumption) (fuseListWalk_factRel _ []))
+      (mirCtxRefines_of_factRel (by assumption) (fun _ _ => trivial) (fun _ _ => trivial)
+        (fuseListWalk_factRel _ []))
   · exact Hygiene.uniqueOptimizationBinders_refines e
 
 end Moist.Verified.MIR

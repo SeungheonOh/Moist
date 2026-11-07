@@ -4,7 +4,8 @@ import Lean.Elab.Command
 
 run_cmd do
   let checked := [
-    ``Moist.Verified.MIR.fuseListDestructors_refines]
+    ``Moist.Verified.MIR.fuseListDestructors_refines,
+    ``Moist.Verified.MIR.fuseListChoices_refines]
   let permitted := [``propext, ``Classical.choice, ``Quot.sound]
   for declaration in checked do
     for axiomName in ← Lean.collectAxioms declaration do

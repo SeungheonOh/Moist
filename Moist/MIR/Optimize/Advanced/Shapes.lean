@@ -209,39 +209,41 @@ decreasing_by
     | (have := exprSizeBinds_mem_lt (by assumption)
        simp only [exprSize] at *; omega)
 
-def listChoiceRewrite (environment : List (VarId × Expr)) (result : Expr) : Expr :=
+def listChoiceRewrite (base : Nat) (environment : List (VarId × Expr)) (result : Expr) : Expr :=
   match result with
   | .Case (.App function (.Var listBinder)) [nonempty, empty] =>
     if resolveHead 64 environment function == .Force (.Builtin .NullList) &&
         knownList 64 environment (.Var listBinder) then
-      let headBinder : VarId := { uid := maxUidExpr result + 1, origin := .gen, hint := "head" }
-      let tailBinder : VarId := { uid := maxUidExpr result + 2, origin := .gen, hint := "tail" }
+      let headBinder : VarId :=
+        { uid := max base (maxUidExpr result + 1), origin := .gen, hint := "head" }
+      let tailBinder : VarId :=
+        { uid := max base (maxUidExpr result + 1) + 1, origin := .gen, hint := "tail" }
       .Case (.Var listBinder)
         [.Lam headBinder (.Lam tailBinder (replaceListProjections listBinder headBinder tailBinder nonempty)), empty]
     else result
   | _ => result
 
-def listChoiceWalk (environment : List (VarId × Expr)) (expression : Expr) : Expr :=
+def listChoiceWalk (base : Nat) (environment : List (VarId × Expr)) (expression : Expr) : Expr :=
   match expression with
-  | .Let [] body => listChoiceWalk environment body
+  | .Let [] body => listChoiceWalk base environment body
   | .Let ((binder, rhs, erased) :: rest) body =>
-    let rhs' := listChoiceWalk environment rhs
-    .Let [(binder, rhs', erased)] (listChoiceWalk ((binder, rhs') :: environment) (.Let rest body))
-  | .Lam binder body => listChoiceRewrite environment (.Lam binder (listChoiceWalk environment body))
-  | .Fix binder body => listChoiceRewrite environment (.Fix binder (listChoiceWalk environment body))
+    let rhs' := listChoiceWalk base environment rhs
+    .Let [(binder, rhs', erased)] (listChoiceWalk base ((binder, rhs') :: environment) (.Let rest body))
+  | .Lam binder body => listChoiceRewrite base environment (.Lam binder (listChoiceWalk base environment body))
+  | .Fix binder body => listChoiceRewrite base environment (.Fix binder (listChoiceWalk base environment body))
   | .App function argument =>
-    listChoiceRewrite environment
-      (.App (listChoiceWalk environment function) (listChoiceWalk environment argument))
-  | .Force body => listChoiceRewrite environment (.Force (listChoiceWalk environment body))
-  | .Delay body => listChoiceRewrite environment (.Delay (listChoiceWalk environment body))
+    listChoiceRewrite base environment
+      (.App (listChoiceWalk base environment function) (listChoiceWalk base environment argument))
+  | .Force body => listChoiceRewrite base environment (.Force (listChoiceWalk base environment body))
+  | .Delay body => listChoiceRewrite base environment (.Delay (listChoiceWalk base environment body))
   | .Constr tag fields =>
-    listChoiceRewrite environment
-      (.Constr tag (fields.attach.map fun ⟨field, _⟩ => listChoiceWalk environment field))
+    listChoiceRewrite base environment
+      (.Constr tag (fields.attach.map fun ⟨field, _⟩ => listChoiceWalk base environment field))
   | .Case scrutinee alternatives =>
-    listChoiceRewrite environment
-      (.Case (listChoiceWalk environment scrutinee)
-        (alternatives.attach.map fun ⟨alternative, _⟩ => listChoiceWalk environment alternative))
-  | .Var _ | .Lit _ | .Builtin _ | .Error => listChoiceRewrite environment expression
+    listChoiceRewrite base environment
+      (.Case (listChoiceWalk base environment scrutinee)
+        (alternatives.attach.map fun ⟨alternative, _⟩ => listChoiceWalk base environment alternative))
+  | .Var _ | .Lit _ | .Builtin _ | .Error => listChoiceRewrite base environment expression
 termination_by exprSize expression
 decreasing_by
   all_goals first
@@ -251,7 +253,9 @@ decreasing_by
 
 def fuseListChoices (expression : Expr) : Expr :=
   let unique := uniqueOptimizationBinders expression
-  if wellScoped unique then uniqueOptimizationBinders (listChoiceWalk [] unique) else unique
+  if wellScoped unique then
+    uniqueOptimizationBinders (listChoiceWalk (maxUidExpr unique + 1) [] unique)
+  else unique
 
 /-! ## Checked shape simplification -/
 
