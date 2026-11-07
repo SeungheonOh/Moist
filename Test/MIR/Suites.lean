@@ -21,6 +21,7 @@ import Test.MIR.Opt.Soundness
 import Test.MIR.Opt.Differential
 import Test.MIR.Opt.Production
 import Test.MIR.Opt.Structural
+import Test.MIR.Opt.LowSharing
 import Test.MIR.Lower.Golden
 import Test.MIR.Eval.Golden
 import Test.MIR.Eval.Compile
@@ -68,6 +69,7 @@ def testTree : TestTree := suite "mir" do
       Test.MIR.Opt.Differential.tests
       Test.MIR.Opt.Production.tests
       Test.MIR.Opt.Structural.tests
+      Test.MIR.Opt.LowSharing.tests
       Test.MIR.Opt.Recursion.tests
       Test.MIR.Opt.CheckedBranches.tests
       Test.MIR.Opt.SoundnessAudit.tests

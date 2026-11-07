@@ -9,10 +9,11 @@ open Moist.Plutus.Term
 open Test.Framework
 
 private def profiles : List Advanced.Options :=
-  (List.range 8).map fun mask => {
+  (List.range 16).map fun mask => {
     packApplications := mask % 2 == 1
     shareBuiltinStates := (mask / 2) % 2 == 1
-    poolConstants := mask / 4 == 1 }
+    poolConstants := (mask / 4) % 2 == 1
+    shareLow := mask / 8 == 1 }
 
 @[onchain]
 private def sharedTextProgram (flag : Bool) (suffix : String) : String :=
