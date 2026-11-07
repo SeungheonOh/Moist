@@ -119,7 +119,6 @@ structure Setup (R : List (Expr × VarId)) (ts : List Term) : Prop where
   length : ts.length = R.length
   lower : ∀ j (h : j < R.length), lowerTotalExpr [] R[j].1 = some (ts[j]'(by omega))
   closed : ∀ entry ∈ R, Closed entry.1
-  notLam : ∀ entry ∈ R, ∀ x body, entry.1 ≠ .Lam x body
   distinct : ∀ a b (ha : a < R.length) (hb : b < R.length), (R[a].2 == R[b].2) = true → a = b
 
 /-- The new binders as they appear in the lowering environment, innermost
@@ -307,14 +306,9 @@ mutual
       | .Fix f body, hfind, hfresh, h =>
         match body, hfind, hfresh, h with
         | .Lam x inner, hfind, hfresh, h =>
-          have hlam : R.find? (fun entry => alphaEq entry.1 (.Lam x inner)) = none :=
-            List.find?_eq_none.mpr fun entry he => by
-              rw [alphaEq_lam_false (S.notLam entry he)]; simp
           have hrep : replaceMatches R (.Fix f (.Lam x inner)) =
               .Fix f (.Lam x (replaceMatches R inner)) := by
             rw [replaceMatches.eq_def, hfind]
-            show Expr.Fix f (replaceMatches R (.Lam x inner)) = _
-            rw [replaceMatches.eq_def, hlam]
           rw [hrep]
           let s : VarId := ⟨maxUidExpr (expandFix inner) +
             maxUidExpr (expandFix (replaceMatches R inner)) + uidBound R + 1, .gen, "s"⟩
@@ -520,7 +514,6 @@ theorem lowerTotalExpr_shared_lets (R : List (Expr × VarId)) (body : Expr)
     occurrences by fresh variables is a refinement. -/
 theorem share_refines (R : List (Expr × VarId)) (e : Expr)
     (hclosed : ∀ entry ∈ R, Closed entry.1)
-    (hnotLam : ∀ entry ∈ R, ∀ x body, entry.1 ≠ .Lam x body)
     (hdistinct : ∀ a b (ha : a < R.length) (hb : b < R.length),
       (R[a].2 == R[b].2) = true → a = b)
     (hfresh : ∀ entry ∈ R, maxUidExpr e < entry.2.uid)
@@ -545,7 +538,6 @@ theorem share_refines (R : List (Expr × VarId)) (e : Expr)
         simp only [ts, List.getElem_map]
         exact hget _ (List.getElem_mem hj)
       closed := hclosed
-      notLam := hnotLam
       distinct := hdistinct }
     obtain ⟨u, hu, hrel⟩ := replace_lower S env e [] t (by simp) hfresh h
     have hts : ∀ c ∈ ts, Moist.Verified.closedAt 0 c = true ∧ Halts c := by
@@ -769,7 +761,6 @@ theorem mem_dedup : ∀ (l acc : List Expr) (x : Expr),
 /-- Candidates the sharing pass may bind. -/
 structure Shareable (c : Expr) : Prop where
   closed : Closed c
-  notLam : ∀ x body, c ≠ .Lam x body
   halts : ∀ t, lowerTotalExpr [] c = some t → Halts t
 
 theorem share_selected_refines (predicate : Expr → Bool) (e : Expr)
@@ -803,7 +794,6 @@ theorem share_selected_refines (predicate : Expr → Bool) (e : Expr)
     hpred _ (collectMatches_pred predicate e _ (hsel _ (hmem entry he).1))
   apply share_refines
   · exact fun entry he => (hshare entry he).closed
-  · exact fun entry he => (hshare entry he).notLam
   · intro a b ha hb hab
     rw [hget a ha, hget b hb, VarId.beq_true_iff] at hab
     simp only at hab
@@ -815,12 +805,12 @@ theorem share_selected_refines (predicate : Expr → Bool) (e : Expr)
     rw [lowerTotalExpr_closed (hshare entry he).closed] at h'
     rw [h']; rfl
 
-/-- `shareClosed` is a refinement for any predicate accepting only closed,
-    non-lambda candidates whose lowering halts. -/
+/-- `shareClosed` is a refinement for any predicate accepting only closed
+    candidates whose lowering halts. -/
 theorem shareClosed_refines (predicate : Expr → Bool) (minimumUses : Nat) (e : Expr)
     (hpred : ∀ c, predicate c = true → Shareable c) :
     Moist.Verified.MIR.MIRCtxRefines e (shareClosed predicate minimumUses e) := by
-  unfold shareClosed
+  unfold shareClosed shareReplacements
   dsimp only
   split
   · exact Moist.Verified.MIR.mirCtxRefines_refl e
@@ -838,9 +828,7 @@ theorem hoistBuiltinStates_refines (minimumUses : Nat) (e : Expr) :
   simp only [Bool.and_eq_true] at hc
   obtain ⟨⟨_, hfv⟩, hrem⟩ := hc
   obtain ⟨remaining, hr⟩ := Option.isSome_iff_exists.mp hrem
-  refine ⟨closed_of_isEmpty hfv, ?_, ?_⟩
-  · rintro x b rfl
-    simp [builtinRemainder] at hr
+  refine ⟨closed_of_isEmpty hfv, ?_⟩
   · intro t ht ρ
     exact Moist.Verified.BuiltinState.builtinRemainder_halts (expandFix c) [] t remaining
       (Moist.Verified.BuiltinState.builtinRemainder_expandFix c remaining hr) ht ρ
@@ -853,7 +841,7 @@ theorem poolConstants_refines (minimumBytes : Nat) (e : Expr) :
   cases c with
   | Lit literal =>
     obtain ⟨constant, type⟩ := literal
-    refine ⟨fun x => by simp [freeVars, VarSet.contains, VarSet.empty], fun _ _ hne => Expr.noConfusion hne, ?_⟩
+    refine ⟨fun x => by simp [freeVars, VarSet.contains, VarSet.empty], ?_⟩
     intro t ht ρ
     simp only [lowerTotalExpr, expandFix, lowerTotal, Option.some.injEq] at ht
     subst ht
