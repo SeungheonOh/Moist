@@ -12,6 +12,7 @@ import Test.MIR.Opt.Axioms.ForceDelay
 import Test.MIR.Opt.Axioms.Pipeline
 import Test.MIR.Opt.Axioms.PreLower
 import Test.MIR.Opt.Axioms.Products
+import Test.MIR.Opt.Axioms.ProductAliases
 import Test.MIR.Opt.Axioms.Shapes
 import Test.MIR.Opt.Axioms.Sharing
 import Test.MIR.Opt.Axioms.StaticArguments
