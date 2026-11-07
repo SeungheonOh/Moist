@@ -13,14 +13,7 @@ theorem advance_eq_steps (fuel : Nat) (state : State) :
   | zero => rfl
   | succ fuel inductionHypothesis => exact inductionHypothesis (step state)
 
-private theorem steps_add (prefixFuel suffix : Nat) (state : State) :
-    steps (prefixFuel + suffix) state = steps suffix (steps prefixFuel state) := by
-  induction prefixFuel generalizing state with
-  | zero => simp [steps]
-  | succ prefixFuel inductionHypothesis =>
-    simpa only [Nat.succ_add, steps] using inductionHypothesis (step state)
-
-private theorem steps_fixed (fuel : Nat) {state : State} (fixed : step state = state) :
+private theorem steps_of_fixed (fuel : Nat) {state : State} (fixed : step state = state) :
     steps fuel state = state := by
   induction fuel with
   | zero => rfl
@@ -35,13 +28,13 @@ theorem reaches_after_prefix (prefixFuel : Nat) {source target : State}
     · refine ⟨0, ?_⟩
       have split : prefixFuel = fuel + (prefixFuel - fuel) := by omega
       change steps prefixFuel source = target
-      rw [split, steps_add, reaches]
-      exact steps_fixed _ fixed
+      rw [split, Equivalence.steps_trans, reaches]
+      exact steps_of_fixed _ fixed
     · refine ⟨fuel - prefixFuel, ?_⟩
-      rw [← steps_add, Nat.add_sub_of_le (by omega)]
+      rw [← Equivalence.steps_trans, Nat.add_sub_of_le (by omega)]
       exact reaches
   · rintro ⟨fuel, reaches⟩
-    exact ⟨prefixFuel + fuel, by rw [steps_add]; exact reaches⟩
+    exact ⟨prefixFuel + fuel, by rw [Equivalence.steps_trans]; exact reaches⟩
 
 theorem finite_join_refines {left right : State} {leftFuel rightFuel : Nat}
     (join : AdvancedRedexes.advance leftFuel left =

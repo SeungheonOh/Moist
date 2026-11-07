@@ -6,13 +6,12 @@ import Moist.Verified.ClosedAt
 
 /-! # Contextual-tower definitions
 
-* `ObsEq` / `ObsRefines` — observational equivalence / refinement of
-  closed CEK states. (`ObsEq` is retained in the legacy
-  `Moist.Verified.Equivalence` namespace for historical compatibility;
-  `ObsRefines` lives in the `Contextual` namespace.)
+* `ObsRefines` — observational refinement of closed CEK states. (`ObsEq`,
+  its legacy two-sided version, lives in `Moist.Verified.Equivalence`.)
 * `Context` / `fill` / `Context.binders` / `Context.closedAt` /
   `Context.compose` — program contexts and their operations.
-* `CtxEq` / `CtxRefines` — contextual equivalence / refinement.
+* `CtxRefines` — contextual refinement (`CtxEq` is the legacy two-sided
+  version).
 -/
 
 namespace Moist.Verified.Equivalence
@@ -117,17 +116,10 @@ def Context.compose : Context → Context → Context
   | .CaseAlt scrut lefts C rights, inner =>
       .CaseAlt scrut lefts (Context.compose C inner) rights
 
-/-! ## Contextual equivalence -/
+/-! ## Contextual equivalence (legacy) -/
 
-/-- **Guarded** contextual equivalence: `t₁ ≈ t₂` iff for every context `C`
-    that fully closes both `fill C t₁` and `fill C t₂` at depth 0, the empty-
-    state CEK runs are observationally equivalent. The closedness premises
-    ensure that during CEK evaluation we never reach the hole with missing
-    bindings — the context supplies exactly the right number of binders,
-    which lets us bake `ρ.length = d` into `EnvEqK`. Without this guard, we'd
-    have to accept ghost `(none, none)` lookups and the soundness bridge
-    would have no way to discharge the purity obligations that strict-error
-    refinement demands. -/
+/-- Guarded two-sided contextual equivalence: for every context closing both
+    sides, the empty-state CEK runs are observationally equivalent. -/
 def CtxEq (t₁ t₂ : Term) : Prop :=
   ∀ (C : Context),
     closedAt 0 (fill C t₁) = true →

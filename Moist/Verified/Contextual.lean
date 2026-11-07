@@ -43,12 +43,6 @@ theorem ctxEq_refl (t : Term) : CtxEq t t := by
   intro C _ _
   exact ObsEq.mk Iff.rfl Iff.rfl
 
-/-- Symmetry of `CtxEq`. -/
-theorem ctxEq_symm {t₁ t₂ : Term} (h : CtxEq t₁ t₂) : CtxEq t₂ t₁ := by
-  intro C hC2 hC1
-  have obs := h C hC1 hC2
-  exact ObsEq.mk obs.halt.symm obs.error.symm
-
 --------------------------------------------------------------------------------
 -- 4. CONTEXT COMPOSITION (plumbing for congruence theorems)
 --
@@ -229,22 +223,7 @@ theorem fill_closedAt_iff (C : Context) (t : Term) :
       exact (closedAtList_append d (lefts ++ [fill C t]) rights).mpr ⟨h1, hR⟩
 
 --------------------------------------------------------------------------------
--- 5. CONGRUENCE THEOREMS FOR CtxEq
---
--- Moved to `Moist.Verified.Contextual.Congruence`. That module reopens
--- the `Moist.Verified.Contextual` namespace, so the names are accessed
--- as `Contextual.ctxEq_lam` etc. just like before.
---------------------------------------------------------------------------------
-
---------------------------------------------------------------------------------
--- 6. CONTEXTUAL REFINEMENT
---
--- One-directional sibling of `CtxEq`: `t₁ ⊑Ctx t₂` says that whenever `t₁`
--- converges in a closed context, so does `t₂`. The two relations are linked
--- by `ctxRefines_antisymm` (CtxRefines both ways ↔ CtxEq).
---
--- `ObsRefines` and `CtxRefines` themselves are defined in
--- `Moist.Verified.Definitions.Contextual`; theorems stay here.
+-- CONTEXTUAL REFINEMENT
 --------------------------------------------------------------------------------
 
 /-- Reflexivity: refinement is the identity implication on both halt and error. -/
@@ -263,39 +242,5 @@ theorem ctxRefines_trans {t₁ t₂ t₃ : Term}
   exact ObsRefines.mk
     (fun h_t1 => ref23.halt (ref12.halt h_t1))
     (fun h_t1 => ref23.error (ref12.error h_t1))
-
-/-- Equivalence subsumes refinement (forward direction). Requires an
-    external proof that `CtxEq` preserves closedness in the forward
-    direction, since `CtxEq` itself is closedness-agnostic. -/
-theorem CtxEq.toCtxRefines {t₁ t₂ : Term} (h : CtxEq t₁ t₂)
-    (h_close : ∀ C, closedAt 0 (fill C t₁) = true → closedAt 0 (fill C t₂) = true) :
-    CtxRefines t₁ t₂ := by
-  intro C hC1
-  have hC2 := h_close C hC1
-  have obs := h C hC1 hC2
-  exact ⟨hC2, ObsRefines.mk obs.halt.mp obs.error.mp⟩
-
---------------------------------------------------------------------------------
--- CONGRUENCE THEOREMS FOR CtxRefines
---
--- Moved to `Moist.Verified.Contextual.Congruence` (same file as the
--- `CtxEq` congruences).
---------------------------------------------------------------------------------
-
-/-!
-### Soundness
-
-The open-context soundness theorem
-
-```
-theorem soundness {t₁ t₂ : Term} (h_open : OpenEq 0 t₁ t₂) :
-    ∀ (C : Context),
-      ObsEq (.compute [] .nil (fill C t₁)) (.compute [] .nil (fill C t₂))
-```
-
-lives in `Moist.Verified.Contextual.Soundness` and bridges directly
-from the semantic `OpenEq` into the new open-context `CtxEq` above. Import
-that module to use it.
--/
 
 end Moist.Verified.Contextual

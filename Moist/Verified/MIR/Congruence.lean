@@ -13,15 +13,10 @@ open Moist.CEK
 open Moist.MIR (Expr VarId lowerTotalExpr)
 open Moist.Verified (closedAt)
 open Moist.Verified.Contextual
-  (Context fill closedAt_mono fill_closedAt_iff ObsRefines
-   CtxEq CtxRefines
-   ctxEq_refl ctxEq_symm ctxEq_trans ctxRefines_refl ctxRefines_trans
-   ctxEq_lam ctxEq_delay ctxEq_force ctxEq_app
-   ctxEq_constr_one ctxEq_constr ctxEq_case_scrut ctxEq_case_one_alt ctxEq_case
-   ctxRefines_lam ctxRefines_delay ctxRefines_force ctxRefines_app
-   ctxRefines_constr_one ctxRefines_constr ctxRefines_case_scrut
-   ctxRefines_case_one_alt ctxRefines_case ctxRefines_fill)
-open Moist.Verified.Equivalence (ObsEq ListRel)
+  (Context fill closedAt_mono fill_closedAt_iff ObsRefines CtxRefines
+   ctxRefines_refl ctxRefines_trans ctxRefines_lam ctxRefines_app
+   ctxRefines_constr ctxRefines_case ctxRefines_fill)
+open Moist.Verified.Equivalence (ListRel)
 
 /-! ## One-hole congruence -/
 

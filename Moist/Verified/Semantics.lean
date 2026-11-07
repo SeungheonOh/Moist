@@ -8,30 +8,16 @@ namespace Moist.Verified.Semantics
 
 open Moist.CEK
 open Moist.Plutus.Term (Term Const)
-open Moist.MIR (Expr lowerTotal lowerTotalExpr lowerTotalExpr_eq_lowerTotal fixCount)
 
-/-! # Behavioral Equivalence via CEK Machine
+/-! # CEK execution facts
 
-This module defines the semantic foundation for proving MIR-level optimizations
-correct. Everything is built on top of the total `step : State → State` function
-from `CEK.Machine`, which makes every definition admissible in Lean's logic
-(no `partial`, no `sorry`).
-
-The key ideas:
-- `steps n s` iterates `step` exactly `n` times.
-- `Reaches s s'` witnesses that some number of steps connects `s` to `s'`.
-- `ValueEq k v w` is a step-indexed logical relation that says two CEK values
-  "look the same" up to observation depth `k`.
-- `BehEqClosed m1 m2` ties it all together: two closed MIR expressions are
-  behaviorally equivalent when their lowered UPLC terms agree on error
-  reachability and produce `ValueEq`-related results at every depth.
+Determinism of halting, well-sized environments, and the executable
+observation used by conformance tests. `steps` / `Reaches` come from
+`Moist.Verified.Definitions`.
 -/
 
 -- `steps` and `Reaches` are the shared definitions from `Definitions.lean`.
 export Moist.Verified.Equivalence (steps Reaches steps_error)
-
-/-- A state halts when it reaches some `halt v`. -/
-def Halts (s : State) : Prop := ∃ v : CekValue, Reaches s (.halt v)
 
 /-! ## Determinism
 
@@ -97,72 +83,6 @@ theorem reaches_halt_not_error {s : State} {v : CekValue}
   have h2 : steps (n + m) s = .error := by rw [steps_trans, hn, steps_error]
   rw [show m + n = n + m from Nat.add_comm m n] at h1; rw [h1] at h2; exact absurd h2 (by simp)
 
-/-! ## Step-Indexed Value Equivalence
-
-`ValueEq k v w` is a step-indexed logical relation on CEK values. The index
-`k` bounds how deeply we are allowed to observe the values:
-
-- At `k = 0`, all values are considered equal (no observation budget left).
-- At `k + 1`, constants must be literally equal, constructors must match on
-  tag and fields (recursively at depth `k`), and closures (lambdas/delays)
-  must produce `ValueEq k`-related results when applied to (or forced with)
-  any argument — provided both sides halt.
-
-This is the standard technique from step-indexed logical relations
-(Appel & McAllester, 2001): the successor index "pays" for one level of
-observation, ensuring the definition is well-founded without needing
-a metric on values.
-
-`ListValueEq` extends this pointwise to lists of values. -/
-
-mutual
-  /-- Step-indexed equivalence of CEK values. At depth 0 everything is
-      equivalent. At depth `k+1`, values must match structurally: constants
-      must be equal, closures must produce equivalent results when run, and
-      constructors must agree on tag with pointwise-equivalent fields. -/
-  def ValueEq : Nat → CekValue → CekValue → Prop
-    | 0, _, _ => True
-    | _ + 1, .VCon c1, .VCon c2 => c1 = c2
-    | k + 1, .VLam body1 env1, .VLam body2 env2 =>
-      ∀ (arg : CekValue),
-        (Reaches (.compute [] (env1.extend arg) body1) .error ↔
-         Reaches (.compute [] (env2.extend arg) body2) .error) ∧
-        (Halts (.compute [] (env1.extend arg) body1) ↔
-         Halts (.compute [] (env2.extend arg) body2)) ∧
-        ∀ (v1 v2 : CekValue),
-          Reaches (.compute [] (env1.extend arg) body1) (.halt v1) →
-          Reaches (.compute [] (env2.extend arg) body2) (.halt v2) →
-          ValueEq k v1 v2
-    | k + 1, .VConstr tag1 fields1, .VConstr tag2 fields2 =>
-      tag1 = tag2 ∧ ListValueEq k fields1 fields2
-    | k + 1, .VDelay body1 env1, .VDelay body2 env2 =>
-      (Reaches (.compute [] env1 body1) .error ↔
-       Reaches (.compute [] env2 body2) .error) ∧
-      (Halts (.compute [] env1 body1) ↔ Halts (.compute [] env2 body2)) ∧
-      ∀ (v1 v2 : CekValue),
-        Reaches (.compute [] env1 body1) (.halt v1) →
-        Reaches (.compute [] env2 body2) (.halt v2) →
-        ValueEq k v1 v2
-    | k + 1, .VBuiltin b1 args1 ea1, .VBuiltin b2 args2 ea2 =>
-      b1 = b2 ∧ ListValueEq k args1 args2 ∧ ea1 = ea2 ∧
-      (Moist.CEK.evalBuiltin b1 args1 = none ↔
-       Moist.CEK.evalBuiltin b2 args2 = none) ∧
-      (∀ (r1 r2 : CekValue),
-        Moist.CEK.evalBuiltin b1 args1 = some r1 →
-        Moist.CEK.evalBuiltin b2 args2 = some r2 →
-        ValueEq k r1 r2)
-    | _, _, _ => False
-
-  /-- Pointwise `ValueEq` lifted to lists. Both lists must have the same
-      length, with corresponding elements equivalent at depth `k`. -/
-  def ListValueEq : Nat → List CekValue → List CekValue → Prop
-    | _, [], [] => True
-    | k, a :: as, b :: bs => ValueEq k a b ∧ ListValueEq k as bs
-    | _, _, _ => False
-end
-
-/-! ## Behavioral Equivalence -/
-
 /-! ## Well-Sized Environments -/
 
 /-- A CEK environment is well-sized at depth `d` when every variable index
@@ -181,47 +101,6 @@ theorem wellSizedEnv_extend {d : Nat} {ρ : CekEnv} (h : WellSizedEnv d ρ) (v :
   | n + 2 =>
     have ⟨w, hw⟩ := h (n + 1) (by omega) (by omega)
     exact ⟨w, by simp [CekEnv.extend, CekEnv.lookup, hw]⟩
-
-/-- **Behavioral equivalence of MIR expressions under all environments.**
-
-    Two MIR expressions `m1` and `m2` are behaviorally equivalent when,
-    for every MIR lowering environment `env` and every well-sized CEK
-    runtime environment `ρ`, the lowered terms agree on error reachability
-    and produce `ValueEq k`-related results for every step index `k`.
-
-    The `WellSizedEnv` guard restricts `ρ` to environments where every
-    in-scope variable resolves — matching the invariant maintained by
-    actual CEK execution. This enables proving correctness of
-    optimizations that eliminate value-form bindings (including `Var`).
-
-    Quantifying over all `env` makes `BehEq` composable: an optimization
-    proved correct at any nesting depth can be applied inside lambdas,
-    let-bindings, or case branches. -/
-def BehEq (m1 m2 : Expr) : Prop :=
-  ∀ (env : List MIR.VarId),
-  match lowerTotalExpr env m1, lowerTotalExpr env m2 with
-  | some t1, some t2 =>
-    ∀ ρ : CekEnv, WellSizedEnv env.length ρ →
-      (Reaches (.compute [] ρ t1) .error ↔ Reaches (.compute [] ρ t2) .error) ∧
-      (Halts (.compute [] ρ t1) ↔ Halts (.compute [] ρ t2)) ∧
-      ∀ (k : Nat) (v1 v2 : CekValue),
-        Reaches (.compute [] ρ t1) (.halt v1) →
-        Reaches (.compute [] ρ t2) (.halt v2) →
-        ValueEq k v1 v2
-  | _, _ => True
-
-/-- **Refinement**: `m2` refines `m1` when `m2` compiles wherever `m1` does,
-    and they are behaviorally equivalent. This is the appropriate notion for
-    optimizations that may remove free variables (like dead-let elimination). -/
-def Refines (m1 m2 : Expr) : Prop :=
-  (∀ env, (lowerTotalExpr env m1).isSome → (lowerTotalExpr env m2).isSome) ∧
-  BehEq m1 m2
-
-scoped infix:50 " ⊑ " => Refines
-
-/-! ## ValueEq properties -/
-
-/-! ## Transitivity of behavioral equivalence -/
 
 /-! ## Executable observation (for conformance testing only)
 

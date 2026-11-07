@@ -48,16 +48,10 @@ theorem compute_of_returns (sourceStack targetStack : Stack)
   intro terminal final reaches
   rcases InlineSoundness.Frontier.outcome_of_terminal final reaches with halts | errors
   · obtain ⟨value, fuel, halts⟩ := halts
-    have semanticSteps : ∀ fuel state, steps fuel state = Semantics.steps fuel state := by
-      intro fuel state
-      induction fuel generalizing state with
-      | zero => rfl
-      | succ fuel inductionHypothesis => exact inductionHypothesis (step state)
     obtain ⟨sourceFuel, sourceReturns⟩ := Purity.compute_to_ret_from_halt environment term value
-      sourceStack ⟨fuel, by rw [← semanticSteps]; exact halts⟩
+      sourceStack ⟨fuel, halts⟩
     obtain ⟨targetFuel, targetReturns⟩ := Purity.compute_to_ret_from_halt environment term value
-      targetStack ⟨fuel, by rw [← semanticSteps]; exact halts⟩
-    rw [← semanticSteps] at sourceReturns targetReturns
+      targetStack ⟨fuel, halts⟩
     apply (AdvancedRefinement.reaches_after_prefix targetFuel final.fixed).mpr
     rw [targetReturns]
     apply continuations value terminal final
@@ -68,12 +62,7 @@ theorem compute_of_returns (sourceStack targetStack : Stack)
     have afterError := (AdvancedRefinement.reaches_after_prefix fuel final.fixed).mp reaches
     rw [errors] at afterError
     obtain ⟨remaining, terminalEqual⟩ := afterError
-    have errorFixed : steps remaining (.error : State) = .error := by
-      clear terminalEqual
-      induction remaining with
-      | zero => rfl
-      | succ remaining inductionHypothesis => exact inductionHypothesis
-    rw [errorFixed] at terminalEqual
+    rw [steps_error] at terminalEqual
     subst terminal
     exact InlineSoundness.StrictOcc.error_on_all_stacks sourceErrors targetStack
 

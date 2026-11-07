@@ -6,19 +6,10 @@ import Moist.Verified.ClosedAt
 
 /-! # Step-indexed logical-relation definitions
 
-The two parallel towers:
-
-* **Eq tower** (`Moist.Verified.Equivalence` namespace):
-  `ObsRefinesK`, `ObsEqK`, `StackRelK`, `BehEqK`, `ValueEqK`, `EnvEqK`,
-  `OpenEqK`, `OpenEq`.
-
-* **Refines tower** (`Moist.Verified.Contextual.SoundnessRefines`
-  namespace): `ValueRefinesK`, `StackRefK`, `BehRefinesK`, `EnvRefinesK`,
-  `OpenRefinesK`, `OpenRefines`.
-
-Note that `ObsRefinesK` is shared between the towers (it's a
-one-directional halt/error statement on a pair of CEK states) and lives in
-the Eq tower's namespace since the Eq tower was defined first.
+`ObsRefinesK` (one-directional bounded observation, in the
+`Moist.Verified.Equivalence` namespace) and the refinement relations
+`ValueRefinesK`, `StackRefK`, `BehRefinesK`, `EnvRefinesK`, `OpenRefinesK`,
+`OpenRefines` (in `Moist.Verified.Contextual.SoundnessRefines`).
 -/
 
 namespace Moist.Verified.Equivalence
@@ -29,28 +20,10 @@ open Moist.Plutus.Term
 /-! ## Step-indexed observations -/
 
 /-- One-way step-indexed observation: halt preservation within k steps and
-    error preservation within k steps (including n = 0, i.e. `s₁ = .error`).
-    Building block for `ObsEqK` (two-way) and
-    `Contextual.SoundnessRefines.ObsRefinesK`. -/
+    error preservation within k steps (including n = 0, i.e. `s₁ = .error`). -/
 def ObsRefinesK (k : Nat) (s₁ s₂ : State) : Prop :=
   (∀ v, (∃ n ≤ k, steps n s₁ = .halt v) → ∃ v', Reaches s₂ (.halt v')) ∧
   (∀ n ≤ k, steps n s₁ = .error → Reaches s₂ .error)
-
-/-- Bounded observation: both halt (within k steps) and error (within k
-    positive steps) behavior preserved in both directions. -/
-def ObsEqK (k : Nat) (s₁ s₂ : State) : Prop :=
-  ObsRefinesK k s₁ s₂ ∧ ObsRefinesK k s₂ s₁
-
-/-! ## Kripke-monotone lifting operators (Eq tower) -/
-
-/-! ## ValueEqK — the step-indexed value relation
-
-At level 0 we enforce shape matching and VCon content equality —
-otherwise `evalBuiltin_compat` at `k = 0` would not hold, because
-level-0 args carrying no information would fail to force matching
-`extractConsts`/`evalBuiltinConst` outputs on both sides. -/
-
-/-! ## Open-term Eq tower -/
 
 end Moist.Verified.Equivalence
 
@@ -60,12 +33,11 @@ open Moist.CEK
 open Moist.Plutus.Term
 open Moist.Verified.Equivalence
 
-/-! ## ValueRefinesK — `ValueEqK` recast with `ObsRefinesK` outputs
+/-! ## ValueRefinesK
 
-Unidirectional value relation. Mirrors `ValueEqK`'s structure but all
-observation goals use `ObsRefinesK` instead of `ObsEqK`. Level 0 enforces
-shape matching (and VCon content equality) so that error-preservation is
-provable for `evalBuiltin_compat_refines` at k=0. -/
+Unidirectional step-indexed value relation. Level 0 enforces shape matching
+(and VCon content equality) so that error preservation is provable for
+`evalBuiltin_compat_refines` at k=0. -/
 def ValueRefinesK : Nat → CekValue → CekValue → Prop
   | 0, .VCon c₁, .VCon c₂ => c₁ = c₂
   | 0, .VLam _ _, .VLam _ _ => True
@@ -92,7 +64,7 @@ def ValueRefinesK : Nat → CekValue → CekValue → Prop
       b₁ = b₂ ∧ exp₁ = exp₂ ∧ ListRel (ValueRefinesK k) args₁ args₂
   | _, _, _ => False
 
-/-! ## Kripke-monotone lifting operators (Refines tower) -/
+/-! ## Kripke-monotone lifting operators -/
 
 /-- Unidirectional stack relation. -/
 def StackRefK (V : Nat → CekValue → CekValue → Prop) (k : Nat) (π₁ π₂ : Stack) : Prop :=
@@ -104,10 +76,10 @@ def BehRefinesK (V : Nat → CekValue → CekValue → Prop) (k : Nat)
   ∀ j ≤ k, ∀ π₁ π₂, StackRefK V j π₁ π₂ →
     ObsRefinesK j (.compute π₁ ρ₁ t₁) (.compute π₂ ρ₂ t₂)
 
-/-! ## Open-term Refines tower -/
+/-! ## Open-term relations -/
 
-/-- Unidirectional env relation: mirrors the relaxed `EnvEqK` — strict
-    some/some match within `1..d` but no length equality. -/
+/-- Unidirectional env relation: strict some/some match within `1..d`,
+    no length equality. -/
 def EnvRefinesK (k d : Nat) (ρ₁ ρ₂ : CekEnv) : Prop :=
   ∀ n, 0 < n → n ≤ d →
     ∃ v₁ v₂, ρ₁.lookup n = some v₁ ∧

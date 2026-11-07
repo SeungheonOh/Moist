@@ -10,8 +10,8 @@ import Moist.Verified.Definitions.StepIndexed
   refinement. Built on the UPLC refinement tower: for every env of the
   right length, the lowered terms are in `BehRefinesK ValueRefinesK`.
 * `MIRRefines` — compile preservation + `MIROpenRef` at every depth.
-* `MIRCtxEq` / `MIRCtxRefines` — MIR contextual equivalence / refinement,
-  built on the UPLC contextual tower via `lowerTotalExpr`.
+* `MIRCtxRefines` — MIR contextual refinement, built on `CtxRefines` via
+  `lowerTotalExpr`.
 -/
 
 namespace Moist.Verified.MIR
@@ -19,7 +19,7 @@ namespace Moist.Verified.MIR
 open Moist.CEK
 open Moist.Plutus.Term (Term)
 open Moist.MIR (Expr VarId lowerTotalExpr)
-open Moist.Verified.Contextual (CtxEq CtxRefines)
+open Moist.Verified.Contextual (CtxRefines)
 open Moist.Verified.Contextual.SoundnessRefines
   (BehRefinesK ValueRefinesK EnvRefinesK)
 
@@ -48,7 +48,7 @@ def MIRRefines (m₁ m₂ : Expr) : Prop :=
 @[inherit_doc]
 scoped infix:50 " ⊑ᴹ " => MIRRefines
 
-/-! ## MIR contextual equivalence / refinement -/
+/-! ## MIR contextual refinement -/
 
 /-- Contextual refinement of MIR expressions: for every variable
     environment `env`, compile status is preserved (left compiles → right

@@ -15,11 +15,8 @@ open Moist.Verified (closedAt closedAtList)
 --------------------------------------------------------------------------------
 -- Theorems.
 --
--- All core definitions (`steps`, `Reaches`, `ListRel`, `ObsEq`, `ObsEqK`,
--- `ObsRefinesK`, `ValueEqK`, `EnvEqK`, `OpenEqK`, `OpenEq`, `BehEqK`,
--- `StackRelK`) now live in `Moist.Verified.Definitions` and
--- `Moist.Verified.Definitions.{Contextual,StepIndexed}`. This file
--- only hosts the theorems about them.
+-- The definitions (`steps`, `Reaches`, `ListRel`, `ObsRefinesK`, ...) live in
+-- `Moist.Verified.Definitions` and `Moist.Verified.Definitions.StepIndexed`.
 --------------------------------------------------------------------------------
 
 /-- `ObsRefinesK` is monotone in the step index. -/
@@ -123,55 +120,6 @@ protected theorem obsRefinesK_of_steps_right {k n : Nat} {s₁ s₂ s₂' : Stat
   · obtain ⟨m', hm'⟩ := h.2 m hm hs
     exact ⟨n + m', by rw [Equivalence.steps_trans]; exact hm'⟩
 
-/-- Stepping consumes one fuel unit (two-way). -/
-theorem obsEqK_of_step {s₁ s₂ : State}
-    (h₁ : ∀ v, s₁ ≠ .halt v) (h₂ : ∀ v, s₂ ≠ .halt v)
-    (he₁ : s₁ ≠ .error) (he₂ : s₂ ≠ .error)
-    (h : ObsEqK k (step s₁) (step s₂)) : ObsEqK (k+1) s₁ s₂ :=
-  ⟨obsRefinesK_of_step h₁ h₂ he₁ h.1,
-   obsRefinesK_of_step h₂ h₁ he₂ h.2⟩
-
-/-- ObsEqK 0 is vacuously true for states that are neither halt nor error
-    (i.e. compute or ret). -/
-theorem obsEqK_zero_nonhalt {s₁ s₂ : State}
-    (h₁ : ∀ v, s₁ ≠ .halt v) (h₂ : ∀ v, s₂ ≠ .halt v)
-    (he₁ : s₁ ≠ .error) (he₂ : s₂ ≠ .error) : ObsEqK 0 s₁ s₂ :=
-  ⟨obsRefinesK_zero_nonhalt h₁ he₁, obsRefinesK_zero_nonhalt h₂ he₂⟩
-
--- ── Concretized wrappers to avoid state-metavariable elaboration issues ──
-
-/-- ObsEqK 0 at compute-compute states. -/
-theorem obsEqK_zero_compute {π₁ : Stack} {ρ₁ : CekEnv} {t₁ : Term}
-    {π₂ : Stack} {ρ₂ : CekEnv} {t₂ : Term} :
-    ObsEqK 0 (.compute π₁ ρ₁ t₁) (.compute π₂ ρ₂ t₂) :=
-  obsEqK_zero_nonhalt (fun _ h => by cases h) (fun _ h => by cases h)
-                      (fun h => by cases h) (fun h => by cases h)
-
-/-- ObsEqK 0 at ret-ret states. -/
-theorem obsEqK_zero_ret {π₁ : Stack} {v₁ : CekValue}
-    {π₂ : Stack} {v₂ : CekValue} :
-    ObsEqK 0 (.ret π₁ v₁) (.ret π₂ v₂) :=
-  obsEqK_zero_nonhalt (fun _ h => by cases h) (fun _ h => by cases h)
-                      (fun h => by cases h) (fun h => by cases h)
-
-/-- Peel a step at compute-compute states. -/
-theorem obsEqK_of_step_compute {k : Nat}
-    {π₁ : Stack} {ρ₁ : CekEnv} {t₁ : Term}
-    {π₂ : Stack} {ρ₂ : CekEnv} {t₂ : Term}
-    (h : ObsEqK k (step (.compute π₁ ρ₁ t₁)) (step (.compute π₂ ρ₂ t₂))) :
-    ObsEqK (k+1) (.compute π₁ ρ₁ t₁) (.compute π₂ ρ₂ t₂) :=
-  obsEqK_of_step (fun _ h => by cases h) (fun _ h => by cases h)
-                 (fun h => by cases h) (fun h => by cases h) h
-
-/-- Peel a step at ret-ret states. -/
-theorem obsEqK_of_step_ret {k : Nat}
-    {π₁ : Stack} {v₁ : CekValue}
-    {π₂ : Stack} {v₂ : CekValue}
-    (h : ObsEqK k (step (.ret π₁ v₁)) (step (.ret π₂ v₂))) :
-    ObsEqK (k+1) (.ret π₁ v₁) (.ret π₂ v₂) :=
-  obsEqK_of_step (fun _ h => by cases h) (fun _ h => by cases h)
-                 (fun h => by cases h) (fun h => by cases h) h
-
 /-- ObsRefinesK 0 at compute-compute states. -/
 theorem obsRefinesK_zero_compute {π₁ : Stack} {ρ₁ : CekEnv} {t₁ : Term}
     {π₂ : Stack} {ρ₂ : CekEnv} {t₂ : Term} :
@@ -204,13 +152,6 @@ theorem obsRefinesK_of_step_ret {k : Nat}
 
 /-- Dispatch wrapper: use in compat_* lemmas where the state could be compute
     or ret. Relies on `first` to select the appropriate specialized lemma. -/
-macro "obsEqK_zero_nonhalt_auto" : tactic =>
-  `(tactic| first | exact obsEqK_zero_compute | exact obsEqK_zero_ret)
-
-macro "obsEqK_of_step_auto" : tactic =>
-  `(tactic| first | refine obsEqK_of_step_compute ?_
-                  | refine obsEqK_of_step_ret ?_)
-
 macro "obsRefinesK_zero_nonhalt_auto" : tactic =>
   `(tactic| first | exact obsRefinesK_zero_compute | exact obsRefinesK_zero_ret)
 
@@ -227,8 +168,6 @@ theorem listRel_mono {R S : α → α → Prop} (hRS : ∀ a b, R a b → S a b)
     | nil => simp [ListRel] at h
     | cons b bs => simp only [ListRel] at h ⊢; exact ⟨hRS _ _ h.1, ih h.2⟩
 
--- ── ListRel / ValueEqK inversion helpers ──
-
 private theorem listRel_cons_inv {R : α → α → Prop} {a : α} {as : List α} {l₂ : List α}
     (h : ListRel R (a :: as) l₂) : ∃ b bs, l₂ = b :: bs ∧ R a b ∧ ListRel R as bs := by
   cases l₂ with
@@ -238,14 +177,6 @@ private theorem listRel_cons_inv {R : α → α → Prop} {a : α} {as : List α
 private theorem listRel_nil_inv {R : α → α → Prop} {l₂ : List α}
     (h : ListRel R ([] : List α) l₂) : l₂ = [] := by
   cases l₂ with | nil => rfl | cons => exact absurd h id
-
-set_option maxHeartbeats 6400000 in
-
---------------------------------------------------------------------------------
--- 6. CONGRUENCE: compat_app_k (FULLY PROVED modulo evalBuiltin_compat)
---------------------------------------------------------------------------------
-
--- ── ListRel helpers for reverse and append ──
 
 theorem listRel_append {R : α → α → Prop} {l₁ l₂ m₁ m₂ : List α}
     (hl : ListRel R l₁ l₂) (hm : ListRel R m₁ m₂) : ListRel R (l₁ ++ m₁) (l₂ ++ m₂) := by
@@ -266,8 +197,6 @@ theorem listRel_reverse {R : α → α → Prop} {l₁ l₂ : List α}
     | cons b bs =>
       simp only [List.reverse_cons, ListRel] at h ⊢
       exact listRel_append (ih h.2) ⟨h.1, trivial⟩
-
--- ── constrField StackRelK by induction on the remaining field list ──
 
 private theorem listRel_length {R : α → α → Prop} :
     {l₁ l₂ : List α} → ListRel R l₁ l₂ → l₁.length = l₂.length
@@ -320,33 +249,5 @@ theorem constToTagAndFields_fields_vcon (c : Const) :
     simp only [constToTagAndFields]
     intro v hv; simp at hv; rcases hv with rfl | rfl <;> exact ⟨_, rfl⟩
   | _ => trivial
-
---------------------------------------------------------------------------------
--- 6b. UNBOUNDED CONGRUENCE COROLLARIES (OpenEq versions of compat_*_k)
---
--- Each compat_*_k step lemma drops the step index by one. Quantifying over
--- all k turns them into proper OpenEq congruences, giving the building blocks
--- for the contextual closure proof in `Contextual.lean`.
---------------------------------------------------------------------------------
-
---------------------------------------------------------------------------------
--- 7. MAIN THEOREMS
---------------------------------------------------------------------------------
-
--- ── Symmetry helpers ──
-
--- ── Reflexivity ──
-
--- ── Symmetry ──
-
--- Transitivity is not true on openEq
--- /-- Transitivity requires chaining through an intermediate computation `compute π₂ ρ₂ t₂`.
---     The biorthogonal BehEqK locks ρ₁↔π₁ (left) and ρ₂↔π₂ (right), so the right side of h₁₂
---     is `(π₃, ρ₃, t₂)` while the left side of h₂₃ is `(π₁, ρ₁, t₂)` — they don't match.
---     Fixing this requires StackRelK/EnvEqK reflexivity, which in turn needs ValueEqK reflexivity
---     for arbitrary runtime values (closures with unknown bodies). This is provable from
---     `openEq_refl` if we add `closedAt` hypotheses on t₂. -/
--- theorem openEq_trans (d : Nat) (t₁ t₂ t₃ : Term) :
---     OpenEq d t₁ t₂ → OpenEq d t₂ t₃ → OpenEq d t₁ t₃ := sorry
 
 end Moist.Verified.Equivalence

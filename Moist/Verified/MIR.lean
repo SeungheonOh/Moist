@@ -26,15 +26,10 @@ open Moist.CEK
 open Moist.MIR (Expr VarId lowerTotalExpr)
 open Moist.Verified (closedAt)
 open Moist.Verified.Contextual
-  (Context fill closedAt_mono fill_closedAt_iff ObsRefines
-   CtxEq CtxRefines
-   ctxEq_refl ctxEq_symm ctxEq_trans ctxRefines_refl ctxRefines_trans
-   ctxEq_lam ctxEq_delay ctxEq_force ctxEq_app
-   ctxEq_constr_one ctxEq_constr ctxEq_case_scrut ctxEq_case_one_alt ctxEq_case
-   ctxRefines_lam ctxRefines_delay ctxRefines_force ctxRefines_app
-   ctxRefines_constr_one ctxRefines_constr ctxRefines_case_scrut
-   ctxRefines_case_one_alt ctxRefines_case)
-open Moist.Verified.Equivalence (ObsEq ListRel)
+  (Context fill closedAt_mono fill_closedAt_iff ObsRefines CtxRefines
+   ctxRefines_refl ctxRefines_trans ctxRefines_lam ctxRefines_app
+   ctxRefines_constr ctxRefines_case ctxRefines_fill)
+open Moist.Verified.Equivalence (ListRel)
 
 open Moist.Verified.Contextual.SoundnessRefines
   (EnvRefinesK BehRefinesK ValueRefinesK StackRefK OpenRefinesK OpenRefines
@@ -138,14 +133,7 @@ theorem lowerTotalExpr_closedAt {env : List VarId} {e : Expr} {t : Moist.Plutus.
 --------------------------------------------------------------------------------
 
 --------------------------------------------------------------------------------
--- 2. CONTEXTUAL EQUIVALENCE & REFINEMENT
---
--- `MIRCtxEq` and `MIRCtxRefines` are defined in
--- `Moist.Verified.Definitions.MIR`. Their theorems stay here.
---------------------------------------------------------------------------------
-
---------------------------------------------------------------------------------
--- 3. BASIC PROPERTIES OF MIRCtxEq / MIRCtxRefines
+-- 3. BASIC PROPERTIES OF MIRCtxRefines
 --------------------------------------------------------------------------------
 
 /-- Reflexivity of `MIRCtxRefines`. -/
@@ -180,10 +168,6 @@ theorem mirCtxRefines_trans {m₁ m₂ m₃ : Expr} :
         -- hctx12 : CtxRefines t₁ t₂, hctx23 : CtxRefines t₂ t₃
         show CtxRefines t₁ t₃
         exact ctxRefines_trans hctx12 hctx23
-
---------------------------------------------------------------------------------
--- 4. MIRCtxEq ↔ bidirectional MIRCtxRefines
---------------------------------------------------------------------------------
 
 --------------------------------------------------------------------------------
 -- 5. BRIDGE: `MIRRefines` → `MIRCtxRefines`.
@@ -242,14 +226,8 @@ theorem mirRefines_to_mirCtxRefines {m₁ m₂ : Expr} (h : MIRRefines m₁ m₂
       exact obsRefines_of_openRefines h_open C hC1 hC2
 
 --------------------------------------------------------------------------------
--- 6. Helpers for MIR-level congruences
---
--- The congruence theorems themselves (`mirCtxEq_*`, `mirCtxRefines_*`) now
--- live in `Moist.Verified.MIR.Congruence`. What stays here are the
--- `lowerTotalExpr` compositional decomposition lemmas, the `toCtxEq` /
--- `toCtxRefines` projections, and the list-level helpers (all shared
--- scaffolding used by the congruence file and by other downstream
--- clients).
+-- 6. Helpers for MIR-level congruences (the congruences themselves are in
+-- `Moist.Verified.MIR.Congruence`)
 --------------------------------------------------------------------------------
 
 /-! ### 6a. `lowerTotalExpr` compositional decomposition -/
@@ -296,11 +274,6 @@ theorem lowerTotalExpr_case (env : List VarId) (scrut : Expr) (alts : List Expr)
           some (.Case s a)) := by
   simp only [lowerTotalExpr, Moist.MIR.expandFix, Moist.MIR.lowerTotal]
 
-/-! ### 6b. Projections from `MIRCtxEq` -/
-
-/-! ### 6c. Unary / binary constructor congruences for `MIRCtxEq`
-    → moved to `Moist.Verified.MIR.Congruence`. -/
-
 /-! ### 6d. List-level helpers for Constr/Case congruences -/
 
 /-- Unwrapped `lowerTotalList ∘ expandFixList` — the list counterpart of
@@ -338,16 +311,8 @@ theorem lowerTotalExpr_case_of_list (env : List VarId) (scrut : Expr)
           some (.Case s a)) := by
   rw [lowerTotalExpr_case]; rfl
 
-/-! Constr / Case congruences for `MIRCtxEq` have been moved to
-    `Moist.Verified.MIR.Congruence`. -/
-
 --------------------------------------------------------------------------------
--- 7. MIR-level congruences for `MIRCtxRefines`
---
--- Direct ports of the `MIRCtxEq` congruences with `CtxEq` → `CtxRefines`.
--- The new `CtxRefines` bundles closedness preservation in its conclusion,
--- so each congruence proof just relies on the corresponding UPLC-level
--- `ctxRefines_*` congruence from `Contextual.lean`.
+-- 7. Projections and list helpers for `MIRCtxRefines`
 --------------------------------------------------------------------------------
 
 /-! ### 7a. Projections from `MIRCtxRefines` -/
