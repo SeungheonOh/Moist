@@ -4,6 +4,7 @@ import Test.Comparison.Cross.Constitution
 import Test.Comparison.Cross.Crowdfund
 import Test.Comparison.Cross.Settings
 import Test.Comparison.Cross.Hydra
+import Test.Comparison.Cross.ProgrammableLogicGlobal
 import Moist.Plutus.Encode
 
 /-! Writes every cross-language comparison script as flat hex:
@@ -26,7 +27,8 @@ def registry : List (String × Term × Term) := [
   ("Constitution", Cross.Constitution.script, Cross.Constitution.scriptSize),
   ("Crowdfund", Cross.Crowdfund.script, Cross.Crowdfund.scriptSize),
   ("Settings", Cross.Settings.script, Cross.Settings.scriptSize),
-  ("Hydra", Cross.Hydra.script, Cross.Hydra.scriptSize)]
+  ("Hydra", Cross.Hydra.script, Cross.Hydra.scriptSize),
+  ("ProgrammableLogicGlobal", Cross.ProgrammableLogicGlobal.script, Cross.ProgrammableLogicGlobal.scriptSize)]
 
 def main (arguments : List String) : IO Unit := do
   let directory := arguments.headD "/Users/sho/fun/cross-bench-data"
