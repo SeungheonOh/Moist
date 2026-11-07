@@ -135,6 +135,9 @@ structure LowOptions where
   guardPaths : Bool := true
   /-- Steps a successful run may lose to the bindings. -/
   slackSteps : Int := 0
+  /-- Steps a successful run may lose to bindings of lambdas, delays and
+      constants, which save no steps. -/
+  valueSlackSteps : Int := 0
   deriving Repr
 
 def literalBytes (literal : Const × BuiltinType) : Nat :=
@@ -647,22 +650,27 @@ def chooseBindings (options : LowOptions) (expression : Expr) : List Expr :=
       (stepsSavedPerUse first.binding.term == stepsSavedPerUse second.binding.term &&
         first.savedBits >= second.savedBits))
   if !options.guardPaths then ordered.map (·.binding.term) else
-  let accepts := fun (chosen : List Binding) (binding : Binding) =>
-    planNet (chosen ++ [binding]) expression >= -options.slackSteps
-  let step := fun (chosen : List Binding) (proposal : Proposal) =>
-    if chosen.any (fun binding => alphaEq binding.term proposal.binding.term ||
-        fixFunctional proposal.binding.term == some binding.term) then chosen
-    else if accepts chosen proposal.binding then chosen ++ [proposal.binding] else
-    match fixFunctional proposal.binding.term with
-    | some functional =>
-      if isFixValue proposal.binding.term &&
-          savedBitsOf functional proposal.uses >= options.minimumSavingBits then
-        let fallback : Binding := { proposal.binding with term := functional }
-        if accepts chosen fallback then chosen ++ [fallback] else chosen
-      else chosen
-    | none => chosen
+  -- The state is the chosen bindings and their `planNet`.
+  let accepts := fun (state : List Binding × Int) (binding : Binding) =>
+    let slack := if stepsSavedPerUse binding.term == 0 then options.valueSlackSteps
+      else options.slackSteps
+    let next := planNet (state.1 ++ [binding]) expression
+    if next >= min state.2 (-slack) then some (state.1 ++ [binding], next) else none
+  let step := fun (state : List Binding × Int) (proposal : Proposal) =>
+    if state.1.any (fun binding => alphaEq binding.term proposal.binding.term ||
+        fixFunctional proposal.binding.term == some binding.term) then state
+    else match accepts state proposal.binding with
+    | some next => next
+    | none =>
+      match fixFunctional proposal.binding.term with
+      | some functional =>
+        if isFixValue proposal.binding.term &&
+            savedBitsOf functional proposal.uses >= options.minimumSavingBits then
+          (accepts state { proposal.binding with term := functional }).getD state
+        else state
+      | none => state
   -- A second pass retries proposals that later bindings now pay for.
-  let chosen := ordered.foldl step (ordered.foldl step [])
+  let (chosen, _) := ordered.foldl step (ordered.foldl step ([], 0))
   chosen.map (·.term)
 
 /-- Plan one round for the chosen terms at their current lowest placement. -/
