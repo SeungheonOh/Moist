@@ -207,3 +207,279 @@ export fn lean_plutuz_eval_flat(
     // 6. Return success
     return mkResult(.success, cpu_used, mem_used, mkLeanByteArray(result_bytes));
 }
+
+// ---------------------------------------------------------------------------
+// Cryptographic primitives behind the Lean model's opaque builtins
+// (Moist/CEK/OpaqueBuiltins.lean). The Lean kernel never sees these: the
+// model's semantics for hashes, signatures and BLS12-381 are `opaque`, and
+// these functions are only their runtime implementations.
+//
+// Every function returns a ByteArray whose first byte is a status:
+//   0 = the builtin fails, 1 = success followed by the result bytes.
+// ---------------------------------------------------------------------------
+
+const blst = plutuz.crypto.blst;
+
+fn leanBytes(o: b_lean_obj_arg) []const u8 {
+    return lean_sarray_cptr(o)[0..lean_sarray_size(o)];
+}
+
+fn statusFail() lean_obj_res {
+    return mkLeanByteArray(&[_]u8{0});
+}
+
+fn statusOk(data: []const u8) lean_obj_res {
+    const ba = lean_alloc_sarray(1, data.len + 1, data.len + 1);
+    const dst = lean_sarray_cptr(ba);
+    dst[0] = 1;
+    @memcpy(dst[1 .. data.len + 1], data);
+    return ba;
+}
+
+fn statusBool(b: bool) lean_obj_res {
+    return statusOk(&[_]u8{if (b) 1 else 0});
+}
+
+/// Hashes: 0 sha2_256, 1 sha3_256, 2 blake2b_224, 3 blake2b_256, 4 keccak_256, 5 ripemd_160.
+export fn moist_crypto_hash(code: u8, input: b_lean_obj_arg) lean_obj_res {
+    const bytes = leanBytes(input);
+    switch (code) {
+        0 => {
+            var out: [32]u8 = undefined;
+            std.crypto.hash.sha2.Sha256.hash(bytes, &out, .{});
+            return statusOk(&out);
+        },
+        1 => {
+            var out: [32]u8 = undefined;
+            std.crypto.hash.sha3.Sha3_256.hash(bytes, &out, .{});
+            return statusOk(&out);
+        },
+        2 => {
+            var out: [28]u8 = undefined;
+            std.crypto.hash.blake2.Blake2b(224).hash(bytes, &out, .{});
+            return statusOk(&out);
+        },
+        3 => {
+            var out: [32]u8 = undefined;
+            std.crypto.hash.blake2.Blake2b256.hash(bytes, &out, .{});
+            return statusOk(&out);
+        },
+        4 => {
+            var out: [32]u8 = undefined;
+            std.crypto.hash.sha3.Keccak256.hash(bytes, &out, .{});
+            return statusOk(&out);
+        },
+        5 => {
+            var out: [20]u8 = undefined;
+            plutuz.crypto.ripemd160.Ripemd160.hash(bytes, &out, .{});
+            return statusOk(&out);
+        },
+        else => return statusFail(),
+    }
+}
+
+fn verifyEd25519(public_key: []const u8, message: []const u8, signature: []const u8) lean_obj_res {
+    if (public_key.len != 32) return statusFail();
+    if (signature.len != 64) return statusFail();
+    const pk = std.crypto.sign.Ed25519.PublicKey.fromBytes(public_key[0..32].*) catch {
+        return statusBool(false);
+    };
+    const sig = std.crypto.sign.Ed25519.Signature.fromBytes(signature[0..64].*);
+    sig.verify(message, pk) catch return statusBool(false);
+    return statusBool(true);
+}
+
+fn verifyEcdsa(public_key: []const u8, message: []const u8, signature: []const u8) lean_obj_res {
+    if (public_key.len != 33) return statusFail();
+    if (message.len != 32) return statusFail();
+    if (signature.len != 64) return statusFail();
+    const Ecdsa = std.crypto.sign.ecdsa.EcdsaSecp256k1Sha256;
+    const pk = Ecdsa.PublicKey.fromSec1(public_key) catch return statusFail();
+    const group_order = [32]u8{
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE,
+        0xBA, 0xAE, 0xDC, 0xE6, 0xAF, 0x48, 0xA0, 0x3B,
+        0xBF, 0xD2, 0x5E, 0x8C, 0xD0, 0x36, 0x41, 0x41,
+    };
+    const zero = [_]u8{0} ** 32;
+    const r_bytes = signature[0..32];
+    const s_bytes = signature[32..64];
+    if (std.mem.eql(u8, r_bytes, &zero) or std.mem.order(u8, r_bytes, &group_order) != .lt) return statusFail();
+    if (std.mem.eql(u8, s_bytes, &zero) or std.mem.order(u8, s_bytes, &group_order) != .lt) return statusFail();
+    const half_order = [32]u8{
+        0x7F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0x5D, 0x57, 0x6E, 0x73, 0x57, 0xA4, 0x50, 0x1D,
+        0xDF, 0xE9, 0x2F, 0x46, 0x68, 0x1B, 0x20, 0xA0,
+    };
+    if (std.mem.order(u8, s_bytes, &half_order) == .gt) return statusBool(false);
+    const sig = Ecdsa.Signature.fromBytes(signature[0..64].*);
+    sig.verifyPrehashed(message[0..32].*, pk) catch return statusBool(false);
+    return statusBool(true);
+}
+
+fn verifySchnorr(public_key: []const u8, message: []const u8, signature: []const u8) lean_obj_res {
+    if (public_key.len != 32) return statusFail();
+    if (signature.len != 64) return statusFail();
+    const Secp256k1 = std.crypto.ecc.Secp256k1;
+    const Fe = Secp256k1.Fe;
+    const Sha256 = std.crypto.hash.sha2.Sha256;
+    const pk_x = Fe.fromBytes(public_key[0..32].*, .big) catch return statusFail();
+    const pk_y = Secp256k1.recoverY(pk_x, false) catch return statusFail();
+    const P = Secp256k1{ .x = pk_x, .y = pk_y };
+    const r_bytes = signature[0..32];
+    const s_bytes = signature[32..64];
+    const tag_hash = [32]u8{
+        0x7b, 0xb5, 0x2d, 0x7a, 0x9f, 0xef, 0x58, 0x32,
+        0x3e, 0xb1, 0xbf, 0x7a, 0x40, 0x7d, 0xb3, 0x82,
+        0xd2, 0xf3, 0xf2, 0xd8, 0x1b, 0xb1, 0x22, 0x4f,
+        0x49, 0xfe, 0x51, 0x8f, 0x6d, 0x48, 0xd3, 0x7c,
+    };
+    var challenge_hash: [32]u8 = undefined;
+    var hasher = Sha256.init(.{});
+    hasher.update(&tag_hash);
+    hasher.update(&tag_hash);
+    hasher.update(r_bytes);
+    hasher.update(public_key);
+    hasher.update(message);
+    hasher.final(&challenge_hash);
+    const e = Secp256k1.scalar.Scalar.fromBytes(challenge_hash, .big) catch return statusBool(false);
+    const s = Secp256k1.scalar.Scalar.fromBytes(s_bytes.*, .big) catch return statusBool(false);
+    const sG = Secp256k1.basePoint.mul(s.toBytes(.little), .little) catch return statusBool(false);
+    const eP = P.mul(e.toBytes(.little), .little) catch return statusBool(false);
+    const R = sG.sub(eP);
+    const R_affine = R.affineCoordinates();
+    if (R_affine.y.isOdd()) return statusBool(false);
+    const R_x_bytes = R_affine.x.toBytes(.big);
+    if (!std.mem.eql(u8, &R_x_bytes, r_bytes)) return statusBool(false);
+    return statusBool(true);
+}
+
+/// Signatures: 0 Ed25519, 1 ECDSA secp256k1, 2 Schnorr secp256k1.
+export fn moist_crypto_verify(code: u8, pk: b_lean_obj_arg, msg: b_lean_obj_arg, sig: b_lean_obj_arg) lean_obj_res {
+    const p = leanBytes(pk);
+    const m = leanBytes(msg);
+    const s = leanBytes(sig);
+    return switch (code) {
+        0 => verifyEd25519(p, m, s),
+        1 => verifyEcdsa(p, m, s),
+        2 => verifySchnorr(p, m, s),
+        else => statusFail(),
+    };
+}
+
+fn g1Of(bytes: []const u8) ?blst.P1 {
+    if (bytes.len != blst.BLST_P1_COMPRESSED_SIZE) return null;
+    return blst.uncompressG1(bytes[0..blst.BLST_P1_COMPRESSED_SIZE]) catch null;
+}
+
+fn g2Of(bytes: []const u8) ?blst.P2 {
+    if (bytes.len != blst.BLST_P2_COMPRESSED_SIZE) return null;
+    return blst.uncompressG2(bytes[0..blst.BLST_P2_COMPRESSED_SIZE]) catch null;
+}
+
+fn okG1(p: blst.P1) lean_obj_res {
+    const c = blst.compressG1(&p);
+    return statusOk(&c);
+}
+
+fn okG2(p: blst.P2) lean_obj_res {
+    const c = blst.compressG2(&p);
+    return statusOk(&c);
+}
+
+fn fp12Of(bytes: []const u8) ?blst.Fp12 {
+    var out: blst.Fp12 = undefined;
+    const dst = std.mem.asBytes(&out);
+    if (bytes.len != dst.len) return null;
+    @memcpy(dst, bytes);
+    return out;
+}
+
+fn okFp12(x: blst.Fp12) lean_obj_res {
+    return statusOk(std.mem.asBytes(&x));
+}
+
+/// BLS12-381 operations on canonical compressed points (G1: 48 bytes, G2: 96 bytes)
+/// and raw Miller-loop results. Scalars are passed as 32-byte little-endian
+/// integers already reduced modulo the group order.
+///   0 g1 add(a, b)          1 g1 neg(a)            2 g1 scalarMul(scalar a, point b)
+///   3 g1 equal(a, b)        4 g1 hashToGroup(msg a, dst b)   5 g1 uncompress(a)
+///   10..15: the same for G2
+///   20 millerLoop(g1 a, g2 b)   21 mulMlResult(a, b)   22 finalVerify(a, b)
+export fn moist_crypto_bls(op: u8, a_obj: b_lean_obj_arg, b_obj: b_lean_obj_arg) lean_obj_res {
+    const a = leanBytes(a_obj);
+    const b = leanBytes(b_obj);
+    switch (op) {
+        0 => {
+            const p = g1Of(a) orelse return statusFail();
+            const q = g1Of(b) orelse return statusFail();
+            return okG1(blst.addG1(&p, &q));
+        },
+        1 => {
+            const p = g1Of(a) orelse return statusFail();
+            return okG1(blst.negG1(&p));
+        },
+        2 => {
+            if (a.len != 32) return statusFail();
+            const p = g1Of(b) orelse return statusFail();
+            return okG1(blst.scalarMulG1(&p, a, 256));
+        },
+        3 => {
+            const p = g1Of(a) orelse return statusFail();
+            const q = g1Of(b) orelse return statusFail();
+            return statusBool(blst.equalG1(&p, &q));
+        },
+        4 => {
+            if (b.len > 255) return statusFail();
+            return okG1(blst.hashToG1(a, b));
+        },
+        5 => {
+            const p = g1Of(a) orelse return statusFail();
+            return okG1(p);
+        },
+        10 => {
+            const p = g2Of(a) orelse return statusFail();
+            const q = g2Of(b) orelse return statusFail();
+            return okG2(blst.addG2(&p, &q));
+        },
+        11 => {
+            const p = g2Of(a) orelse return statusFail();
+            return okG2(blst.negG2(&p));
+        },
+        12 => {
+            if (a.len != 32) return statusFail();
+            const p = g2Of(b) orelse return statusFail();
+            return okG2(blst.scalarMulG2(&p, a, 256));
+        },
+        13 => {
+            const p = g2Of(a) orelse return statusFail();
+            const q = g2Of(b) orelse return statusFail();
+            return statusBool(blst.equalG2(&p, &q));
+        },
+        14 => {
+            if (b.len > 255) return statusFail();
+            return okG2(blst.hashToG2(a, b));
+        },
+        15 => {
+            const p = g2Of(a) orelse return statusFail();
+            return okG2(p);
+        },
+        20 => {
+            const p = g1Of(a) orelse return statusFail();
+            const q = g2Of(b) orelse return statusFail();
+            return okFp12(blst.millerLoop(&p, &q));
+        },
+        21 => {
+            const x = fp12Of(a) orelse return statusFail();
+            const y = fp12Of(b) orelse return statusFail();
+            return okFp12(blst.mulFp12(&x, &y));
+        },
+        22 => {
+            const x = fp12Of(a) orelse return statusFail();
+            const y = fp12Of(b) orelse return statusFail();
+            return statusBool(blst.finalVerify(&x, &y));
+        },
+        else => return statusFail(),
+    }
+}

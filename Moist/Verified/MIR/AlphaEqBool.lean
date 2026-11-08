@@ -128,9 +128,10 @@ mutual
         rw [data_eq_of_dataEq h.1, data_eq_of_dataEq h.2]
       · rw [data_eq_of_dataEq h]
       · rw [constList_eq_of_constEqList h]
-      · rfl
-      · rfl
-      · rfl
+      · rw [byteString_eq_of_beq h]
+      · rw [byteString_eq_of_beq h]
+      · rw [byteString_eq_of_beq h]
+      · rw [of_decide_eq_true h]
 
   theorem constList_eq_of_constEqList : ∀ {a b : List Const}, constEqList a b = true → a = b
     | [], [], _ => rfl

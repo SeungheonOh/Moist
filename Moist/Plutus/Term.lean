@@ -15,6 +15,7 @@ inductive AtomicType
   | TypeBls12_381_G1_element
   | TypeBls12_381_G2_element
   | TypeBls12_381_MlResult
+  | TypeValue
 deriving BEq
 
 instance : Repr AtomicType where
@@ -29,6 +30,7 @@ instance : Repr AtomicType where
     | AtomicType.TypeBls12_381_G1_element => "Bls12_381_G1_element"
     | AtomicType.TypeBls12_381_G2_element => "Bls12_381_G2_element"
     | AtomicType.TypeBls12_381_MlResult => "Bls12_381_MlResult"
+    | AtomicType.TypeValue => "Value"
 
 mutual
   inductive BuiltinType
@@ -76,12 +78,20 @@ inductive Const
     -- NOTE: Added to properly implement builtins evaluation and to avoid using List.map
   | Data                  : Data → Const
   | ConstArray            : List Const → Const
-  | Bls12_381_G1_element  : Const
-    -- NOTE: missing value here (need to check in spec)
-  | Bls12_381_G2_element  : Const
-    -- NOTE: missing value here (need to check in spec)
-  | Bls12_381_MlResult    : Const
-    -- NOTE: missing value here (need to check in spec)
+  /-- A G1 point, carried as its canonical 48-byte compressed encoding. Distinct
+  points have distinct encodings, so distinct points are distinct model values. -/
+  | Bls12_381_G1_element  : ByteString → Const
+  /-- A G2 point, carried as its canonical 96-byte compressed encoding. -/
+  | Bls12_381_G2_element  : ByteString → Const
+  /-- A Miller-loop result (an element of the target field). The payload is an
+  implementation-defined serialisation; programs can only consume it through
+  `bls12_381_mulMlResult` and `bls12_381_finalVerify`. -/
+  | Bls12_381_MlResult    : ByteString → Const
+  /-- A multi-asset value: currency symbol ↦ (token name ↦ quantity). Well-formed
+  values (the only ones the parser, decoder and builtins produce) have strictly
+  ascending keys of at most 32 bytes, no empty inner map, and nonzero quantities
+  in the signed 128-bit range, so equal values have equal payloads. -/
+  | Value                 : List (ByteString × List (ByteString × Integer)) → Const
 deriving Repr
 
 private def beqConst : Const → Const → Bool
@@ -97,9 +107,10 @@ private def beqConst : Const → Const → Bool
   | .PairData a, .PairData b => a == b
   | .Data a, .Data b => a == b
   | .ConstArray as, .ConstArray bs => beqConstList as bs
-  | .Bls12_381_G1_element, .Bls12_381_G1_element => true
-  | .Bls12_381_G2_element, .Bls12_381_G2_element => true
-  | .Bls12_381_MlResult, .Bls12_381_MlResult => true
+  | .Bls12_381_G1_element a, .Bls12_381_G1_element b => a == b
+  | .Bls12_381_G2_element a, .Bls12_381_G2_element b => a == b
+  | .Bls12_381_MlResult a, .Bls12_381_MlResult b => a == b
+  | .Value a, .Value b => a == b
   | _, _ => false
 where
   beqConstList : List Const → List Const → Bool
@@ -300,8 +311,9 @@ def constType : Const → BuiltinType
   | Const.PairData _           => BuiltinType.TypeOperator (TypeOperator.TypePair (BuiltinType.AtomicType AtomicType.TypeData) (BuiltinType.AtomicType AtomicType.TypeData)) -- This is wrong : ( fix .
   | Const.Data _               => BuiltinType.AtomicType AtomicType.TypeData
   | Const.ConstArray _         => BuiltinType.TypeOperator (TypeOperator.TypeArray (BuiltinType.AtomicType AtomicType.TypeData))
-  | Const.Bls12_381_G1_element => BuiltinType.AtomicType AtomicType.TypeBls12_381_G1_element
-  | Const.Bls12_381_G2_element => BuiltinType.AtomicType AtomicType.TypeBls12_381_G2_element
-  | Const.Bls12_381_MlResult   => BuiltinType.AtomicType AtomicType.TypeBls12_381_MlResult
+  | Const.Bls12_381_G1_element _ => BuiltinType.AtomicType AtomicType.TypeBls12_381_G1_element
+  | Const.Bls12_381_G2_element _ => BuiltinType.AtomicType AtomicType.TypeBls12_381_G2_element
+  | Const.Bls12_381_MlResult _   => BuiltinType.AtomicType AtomicType.TypeBls12_381_MlResult
+  | Const.Value _              => BuiltinType.AtomicType AtomicType.TypeValue
 
 end Moist.Plutus.Term

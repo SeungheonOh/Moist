@@ -60,6 +60,7 @@ instance : ToExpr AtomicType where
     | .TypeBls12_381_G1_element => .const ``AtomicType.TypeBls12_381_G1_element []
     | .TypeBls12_381_G2_element => .const ``AtomicType.TypeBls12_381_G2_element []
     | .TypeBls12_381_MlResult   => .const ``AtomicType.TypeBls12_381_MlResult []
+    | .TypeValue                => .const ``AtomicType.TypeValue []
   toTypeExpr := .const ``AtomicType []
 
 mutual
@@ -94,9 +95,10 @@ private partial def constToExpr : Const → Lean.Expr
   | .PairData p           => mkApp (.const ``Const.PairData []) (toExpr p)
   | .Data d               => mkApp (.const ``Const.Data []) (toExpr d)
   | .ConstArray cs        => mkApp (.const ``Const.ConstArray []) (listConstToExpr cs)
-  | .Bls12_381_G1_element => .const ``Const.Bls12_381_G1_element []
-  | .Bls12_381_G2_element => .const ``Const.Bls12_381_G2_element []
-  | .Bls12_381_MlResult   => .const ``Const.Bls12_381_MlResult []
+  | .Bls12_381_G1_element bs => mkApp (.const ``Const.Bls12_381_G1_element []) (toExpr bs)
+  | .Bls12_381_G2_element bs => mkApp (.const ``Const.Bls12_381_G2_element []) (toExpr bs)
+  | .Bls12_381_MlResult bs   => mkApp (.const ``Const.Bls12_381_MlResult []) (toExpr bs)
+  | .Value entries           => mkApp (.const ``Const.Value []) (toExpr entries)
 where
   listConstToExpr : List Const → Lean.Expr
     | [] => mkApp (.const ``List.nil [.zero]) (.const ``Const [])

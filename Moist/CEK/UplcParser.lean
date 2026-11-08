@@ -1,5 +1,7 @@
 import Moist.Plutus.Term
 import Moist.Plutus.Types
+import Moist.Plutus.Value
+import Moist.CEK.OpaqueBuiltins
 
 namespace Moist.CEK.UplcParser
 
@@ -446,7 +448,7 @@ private partial def parseType : Parser BuiltinType := do
     | "bls12_381_G1_element" => pure (.AtomicType .TypeBls12_381_G1_element)
     | "bls12_381_G2_element" => pure (.AtomicType .TypeBls12_381_G2_element)
     | "bls12_381_MlResult" => pure (.AtomicType .TypeBls12_381_MlResult)
-    | "value" => pure (.AtomicType .TypeData)
+    | "value" => pure (.AtomicType .TypeValue)
     | _ => throw s!"unknown type: {name}"
 
 /-! ## Data Literal Parsing -/
@@ -522,11 +524,11 @@ where
 
 /-! ## Constant Value Parsing -/
 
-/-- Parse a Cardano value literal: `[(#policy, [(#token, qty), ...]), ...]`
-Represented as `Data.Map [(B policy, List [Map [(B token, I qty)]]), ...]` -/
-private partial def parseValueLiteral : Parser (List (Data × Data)) := do
+/-- Parse a Cardano value literal `[(#policy, [(#token, qty), ...]), ...]` into its
+entries; well-formedness is checked by `Moist.Plutus.Value.build?`. -/
+private partial def parseValueLiteral : Parser (List (ByteArray × List (ByteArray × Int))) := do
   ws; expect '['
-  let mut pairs : List (Data × Data) := []
+  let mut entries : List (ByteArray × List (ByteArray × Int)) := []
   let mut done := false
   while !done do
     ws
@@ -535,14 +537,12 @@ private partial def parseValueLiteral : Parser (List (Data × Data)) := do
     | some ']' => discard next; done := true
     | _ =>
       if c? == some ',' then discard next; ws
-      -- Each entry: (#policyId, [(#tokenName, qty), ...])
       expect '('
       let policyId ← parseByteString
       ws; expect ','
       ws
-      -- Parse token map: [(#token, qty), ...]
       expect '['
-      let mut tokenPairs : List (Data × Data) := []
+      let mut tokens : List (ByteArray × Int) := []
       let mut tokenDone := false
       while !tokenDone do
         ws
@@ -557,10 +557,10 @@ private partial def parseValueLiteral : Parser (List (Data × Data)) := do
           ws
           let qty ← parseInt
           ws; expect ')'
-          tokenPairs := tokenPairs ++ [(.B tokenName, .I qty)]
+          tokens := tokens ++ [(tokenName, qty)]
       ws; expect ')'
-      pairs := pairs ++ [(.B policyId, .Map tokenPairs)]
-  pure pairs
+      entries := entries ++ [(policyId, tokens)]
+  pure entries
 
 private partial def parseConstValue (ty : BuiltinType) : Parser Const := do
   match ty with
@@ -599,11 +599,6 @@ private partial def parseConstValue (ty : BuiltinType) : Parser Const := do
         set saved
         let d ← parseDataLit
         pure (.Data d)
-    | some '[' =>
-      -- Value literal: [{#policy: {#token: qty, ...}}, ...]
-      -- Parse as Data (Map of Maps)
-      let pairs ← parseValueLiteral
-      pure (.Data (.Map pairs))
     | _ =>
       let d ← parseDataLit
       pure (.Data d)
@@ -658,50 +653,32 @@ private partial def parseConstValue (ty : BuiltinType) : Parser Const := do
         items := items ++ [item]
     pure (.ConstArray items)
   | .AtomicType .TypeBls12_381_G1_element => do
-    ws
-    let c? ← peek?
-    if c? == some '0' then
-      let saved ← get
-      discard next
-      let c2? ← peek?
-      if c2? == some 'x' || c2? == some 'X' then
-        discard next
-        let _bs ← parseHexBytes
-        pure .Bls12_381_G1_element
-      else
-        set saved
-        pure .Bls12_381_G1_element
-    else pure .Bls12_381_G1_element
+    let bs ← parseBlsHex
+    match Moist.CEK.Opaque.blsUncompress (sv := .E) .g1 bs with
+    | some p => pure (.Bls12_381_G1_element p)
+    | none => throw "invalid bls12_381_G1_element literal"
   | .AtomicType .TypeBls12_381_G2_element => do
+    let bs ← parseBlsHex
+    match Moist.CEK.Opaque.blsUncompress (sv := .E) .g2 bs with
+    | some p => pure (.Bls12_381_G2_element p)
+    | none => throw "invalid bls12_381_G2_element literal"
+  | .AtomicType .TypeBls12_381_MlResult =>
+    throw "bls12_381_MlResult constants have no literal syntax"
+  | .AtomicType .TypeValue => do
+    let entries ← parseValueLiteral
+    match Moist.Plutus.Value.build? entries with
+    | some v => pure (.Value v)
+    | none => throw "ill-formed value literal"
+where
+  /-- A BLS12-381 point literal: `0x` followed by the compressed encoding. -/
+  parseBlsHex : Parser ByteArray := do
     ws
+    expect '0'
     let c? ← peek?
-    if c? == some '0' then
-      let saved ← get
+    if c? == some 'x' || c? == some 'X' then
       discard next
-      let c2? ← peek?
-      if c2? == some 'x' || c2? == some 'X' then
-        discard next
-        let _bs ← parseHexBytes
-        pure .Bls12_381_G2_element
-      else
-        set saved
-        pure .Bls12_381_G2_element
-    else pure .Bls12_381_G2_element
-  | .AtomicType .TypeBls12_381_MlResult => do
-    ws
-    let c? ← peek?
-    if c? == some '0' then
-      let saved ← get
-      discard next
-      let c2? ← peek?
-      if c2? == some 'x' || c2? == some 'X' then
-        discard next
-        let _bs ← parseHexBytes
-        pure .Bls12_381_MlResult
-      else
-        set saved
-        pure .Bls12_381_MlResult
-    else pure .Bls12_381_MlResult
+      parseHexBytes
+    else throw "expected 0x"
 
 /-! ## Term Parsing -/
 
