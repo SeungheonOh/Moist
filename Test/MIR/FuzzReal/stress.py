@@ -18,13 +18,13 @@ def main():
         value, path = pair.split()
         try:
             result = subprocess.run([EXE, '--stress', value, path], capture_output=True,
-                                    text=True, timeout=600)
+                                    text=True, timeout=int(os.environ.get('STRESS_TIMEOUT', '120')))
             out = (result.stdout + result.stderr).strip().replace('\n', ' | ')
             status = 'ok' if result.returncode == 0 and out.startswith('ok') else 'PROBLEM'
             if result.returncode != 0:
                 out = 'exit %d: %s' % (result.returncode, out[-200:])
         except subprocess.TimeoutExpired:
-            status, out = 'PROBLEM', 'timeout after 600 s'
+            status, out = 'PROBLEM', 'timeout'
         bad += status != 'ok'
         print('%-8s %-24s %-15s %s' % (status, value, path, out[:160]), flush=True)
     print('%d problem(s)' % bad)

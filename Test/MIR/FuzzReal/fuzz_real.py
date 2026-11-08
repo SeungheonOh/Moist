@@ -84,6 +84,9 @@ def load_results(path):
             if len(fields) < 6:
                 fields += [''] * (6 - len(fields))
             job, outcome, cpu, mem, result, traces = fields[:6]
+            if outcome == 'FAIL' and 'overspending the budget' in result:
+                # older cross-bench builds reported this budget exhaustion as a failure
+                outcome, result = 'BUDGET', 'budget'
             results[job] = (outcome, int(cpu or 0), int(mem or 0), result, traces)
     return results
 

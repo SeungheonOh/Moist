@@ -126,6 +126,14 @@ def run (k : Nat) (valueName path : String) : IO Unit := do
     match compileOptimized program with
     | .ok t => IO.println s!"ok {(flatHex t).length}"
     | .error e => IO.println s!"compile-error {e}"
+  | "b2i" =>
+    -- the E unlifting bound against the builtin's cost: budget 1e10 and unbounded
+    let program := Term.Apply (.Apply (.Builtin .ByteStringToInteger)
+      (.Constant (.Bool false, .AtomicType .TypeBool))) term
+    for (vname, variant) in [("C", Moist.CEK.SemVariant.C), ("E", .E)] do
+      for budget in [10000000000, 1000000000000000] do
+        let run := modelEval (sv := variant) program budget 10000000000
+        IO.println s!"ok b2i/{vname}/budget {budget}: {match run.outcome with | .halted _ => "halted" | .failed => "failed" | .budget => "budget"} cpu {run.consumed.cpu}"
   | "model-bytes-builtins" =>
     -- shift/rotate/integerToByteString/byteStringToInteger on the value, under C and E
     match c with
