@@ -247,6 +247,16 @@ def tests : TestTree := suite "acceptance" do
     let bytes := program.encode.toByteList.length
     -- 600001-bit zig-zag value: 85715 seven-bit groups of 8 flat bits each, plus framing
     check s!"a 600000-bit constant encodes ({bytes} bytes)" (bytes > 85715 && bytes < 85730)
+  test "large_constants_pack_into_bytes" do
+    let bytes : ByteArray := ⟨Array.replicate 1000000 (0xa5 : UInt8)⟩
+    let program : Program := .Program (.Version 1 1 0) (.Constant (.ByteString bytes, .AtomicType .TypeByteString))
+    let packed := program.encode.toByteList
+    -- one-byte length prefix per 255-byte chunk, a terminator, version and framing
+    check s!"a 1 MB bytestring constant encodes ({packed.length} bytes)"
+      (packed.length > 1000000 + 3921 && packed.length < 1000000 + 3940)
+    checkEq "bits pack big-endian" (Moist.Plutus.BitBuffer.packToBytes
+      [true, false, true, false, false, true, false, true, false, false, false, false, false, false, false, true])
+      [0xa5, 0x01]
   test "constant_annotation_does_not_change_flat" do
     let program (annotation : BuiltinType) : Program :=
       .Program (.Version 1 1 0) (.Constant (.Integer 7, annotation))
