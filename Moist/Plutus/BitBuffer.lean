@@ -109,21 +109,30 @@ def toBitString (buf : BitBuffer) : String :=
   let chars := buf.bits.toList.map fun b => if b then '1' else '0'
   String.mk chars
 
-/- Pack a list of bits (big-endian within each byte) into bytes. The input
-   list is assumed to have length multiple of 8; callers should `pad` first if
-   necessary. -/
-partial def packToBytes : List Bool → List UInt8
-  | [] => []
-  | bits =>
-    let (chunk, rest) := bits.splitAt 8
-    let n := chunk.foldl (fun acc b => acc * 2 + (if b then 1 else 0)) 0
-    n.toUInt8 :: packToBytes rest
+/-- Pack bits (big-endian within each byte) into bytes, 8 at a time. A trailing partial group (callers
+`pad` first, so there is none in practice) becomes the value of its bits. Runs in constant stack. -/
+def packBits (bits : Array Bool) : Array UInt8 := Id.run do
+  let mut out : Array UInt8 := Array.mkEmpty ((bits.size + 7) / 8)
+  let mut current : Nat := 0
+  let mut count : Nat := 0
+  for bit in bits do
+    current := current * 2 + (if bit then 1 else 0)
+    count := count + 1
+    if count == 8 then
+      out := out.push current.toUInt8
+      current := 0
+      count := 0
+  if count != 0 then
+    out := out.push current.toUInt8
+  return out
 
-/-- Convert a `BitBuffer` into a `List UInt8` by padding to a byte boundary and
-    packing each consecutive 8 bits into a `UInt8`. -/
+/-- Pack a list of bits (big-endian within each byte) into bytes. -/
+def packToBytes (bits : List Bool) : List UInt8 :=
+  (packBits bits.toArray).toList
+
+/-- Convert a `BitBuffer` into a `List UInt8` by packing each consecutive 8 bits into a `UInt8`. -/
 def toByteList (buf : BitBuffer) : List UInt8 :=
-  --let padded := BitBuffer.pad buf
-  packToBytes buf.bits.toList
+  (packBits buf.bits).toList
 
 /-- Convert a nibble (0..15) to its lowercase hexadecimal `Char`. -/
 def nibbleToHexChar : Nat → Char
