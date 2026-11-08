@@ -1,5 +1,6 @@
 import Test.MIR.FuzzReal.Run
 import Test.MIR.FuzzReal.Probes
+import Test.MIR.FuzzReal.Shrink
 
 /-! `fuzz_real DIR [--from N] [--count N] [--inputs N] [--depth N] [--model-all]`
 
@@ -14,7 +15,37 @@ private def option (arguments : List String) (name : String) (default : Nat) : N
   | _ :: value :: _ => value.toNat?.getD default
   | _ => default
 
+/-- The program and argument lists of a generated label (`s<seed>`,
+    `u<seed>` or `probe/<name>`), as the generator emitted them. -/
+def programOf (label : String) (inputs depth : Nat) : Option (Moist.MIR.Expr × List (List Moist.MIR.Expr)) :=
+  if label.startsWith "probe/" then
+    (Probes.all.find? (·.1 == label.drop 6)).map fun (_, program) => (program, [[]])
+  else if label.startsWith "u" then
+    (label.drop 1).toNat?.map fun seed =>
+      let input : Moist.MIR.VarId := { uid := 12000, origin := .source, hint := "input" }
+      let body := (Test.MIR.Opt.Differential.generate (3 + seed % 3) [input] |>.run (seed + 29573)).1
+      let pool := Test.MIR.Opt.Acceptance.inputs ++ Test.MIR.Opt.Acceptance.protocolInputs
+      (.Lam input body, (List.range inputs).map fun k => [pool[(seed * 13 + k * 5) % pool.length]!])
+  else if label.startsWith "s" then
+    (label.drop 1).toNat?.map fun seed =>
+      let (program, argumentLists) := generate seed (3 + seed % (depth - 2)) inputs
+      (program.expr, argumentLists)
+  else none
+
 def main (arguments : List String) : IO UInt32 := do
+  if let "--shrink" :: label :: input :: variant :: rest := arguments then
+    -- shrink one disagreement: fuzz_real --shrink LABEL INPUT VARIANT [--semantics S]
+    let semantics := match rest.dropWhile (· != "--semantics") with
+      | _ :: value :: _ => value
+      | _ => "E"
+    let some (program, argumentLists) := programOf label (option rest "--inputs" 8) (option rest "--depth" 4)
+      | IO.eprintln s!"unknown label {label}"; return 2
+    let some chosen := argumentLists[input.toNat?.getD 0]? | IO.eprintln "no such input"; return 2
+    let args ← match chosen.mapM argumentOfExpr with
+      | .ok args => pure args
+      | .error message => IO.eprintln message; return 2
+    Shrink.report semantics program args variant
+    return 0
   let some directory := arguments.head? | do
     IO.eprintln "usage: fuzz_real DIR [--from N] [--count N] [--inputs N] [--depth N] [--model-all]"
     return 2
