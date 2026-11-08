@@ -1,6 +1,7 @@
 import Test.MIR.FuzzReal.Run
 import Test.MIR.FuzzReal.Probes
 import Test.MIR.FuzzReal.Shrink
+import Test.MIR.FuzzReal.Stress
 
 /-! `fuzz_real DIR [--from N] [--count N] [--inputs N] [--depth N] [--model-all]`
 
@@ -14,6 +15,18 @@ private def option (arguments : List String) (name : String) (default : Nat) : N
   match arguments.dropWhile (· != name) with
   | _ :: value :: _ => value.toNat?.getD default
   | _ => default
+
+partial def largeLiterals : Moist.MIR.Expr → List (Moist.Plutus.Term.Const × Moist.Plutus.Term.BuiltinType)
+  | .Lit (c, t) => match c with
+    | .Integer n => if n.natAbs ≥ 2 ^ 64 then [(c, t)] else []
+    | .ByteString b => if b.size > 1000 then [(c, t)] else []
+    | _ => []
+  | .Lam _ b | .Fix _ b | .Force b | .Delay b => largeLiterals b
+  | .App f x => largeLiterals f ++ largeLiterals x
+  | .Constr _ fs => fs.flatMap largeLiterals
+  | .Case s alts => largeLiterals s ++ alts.flatMap largeLiterals
+  | .Let bs body => bs.flatMap (fun (_, e, _) => largeLiterals e) ++ largeLiterals body
+  | _ => []
 
 /-- The program and argument lists of a generated label (`s<seed>`,
     `u<seed>` or `probe/<name>`), as the generator emitted them. -/
@@ -36,6 +49,13 @@ def programOf (label : String) (inputs depth : Nat) : Option (Moist.MIR.Expr × 
   else none
 
 def main (arguments : List String) : IO UInt32 := do
+  if let ["--stress", value, path] := arguments then
+    Stress.run (arguments.length - 2) value path
+    return 0
+  if arguments == ["--stress-list"] then
+    for value in Stress.valueNames do
+      for path in Stress.paths do IO.println s!"{value} {path}"
+    return 0
   if let "--shrink" :: label :: input :: variant :: rest := arguments then
     -- shrink one disagreement: fuzz_real --shrink LABEL INPUT VARIANT [--semantics S]
     let semantics := match rest.dropWhile (· != "--semantics") with
@@ -62,7 +82,12 @@ def main (arguments : List String) : IO UInt32 := do
     -- time every variant of each program, without writing jobs
     for seed in List.range' start count do
       let (program, _) := generate seed (3 + seed % (depth - 2)) inputs
-      IO.println s!"seed {seed}: MIR size {(Moist.MIR.pretty program.expr).length} chars"
+      IO.println s!"seed {seed}: MIR size {(Moist.MIR.pretty program.expr).length} chars, {Mutate.countNodes program.expr} nodes"
+      for (c, _) in largeLiterals program.expr do
+        match c with
+        | .Integer n => IO.println s!"  literal integer of {n.natAbs.log2 + 1} bits"
+        | .ByteString b => IO.println s!"  literal bytestring of {b.size} bytes"
+        | _ => IO.println "  large literal"
       (← IO.getStdout).flush
       for (name, thunk) in variantThunks program.expr do
         IO.print s!"  {name}: "
