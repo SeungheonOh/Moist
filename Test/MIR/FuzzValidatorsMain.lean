@@ -87,7 +87,7 @@ def main (arguments : List String) : IO UInt32 := do
     if mutants == 0 then
       let count ← emitProgram sink name expression argumentLists.toList modelAll {}
         [("cases", .arr (cases.map .str))] extraVariants modelEvery
-      for handle in [sink.jobs, sink.model, sink.modelValues, sink.manifest] do handle.flush
+      for handle in sink.handles do handle.flush
       IO.eprintln s!"fuzz_validators: {name}: {cases.size} cases, {count} jobs ({(← IO.monoMsNow) - started} ms)"
       total := total + count
     else
@@ -104,7 +104,7 @@ def main (arguments : List String) : IO UInt32 := do
           [("cases", .arr (chosen.toArray.map (.str cases[·]!))), ("mutant-of", .str name),
            ("mutant", .num index)] [] modelEvery
         total := total + count
-      for handle in [sink.jobs, sink.model, sink.modelValues, sink.manifest] do handle.flush
+      for handle in sink.handles do handle.flush
       IO.eprintln s!"fuzz_validators: {name}: {mutants} mutants ({(← IO.monoMsNow) - started} ms)"
   IO.eprintln s!"fuzz_validators: {total} jobs written to {outDirectory}"
   return 0

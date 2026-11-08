@@ -80,7 +80,6 @@ def alonePasses : List (String × (Expr → Expr)) :=
    ("fail-fast", Advanced.failFast),
    ("checks-first", Advanced.checksFirst),
    ("data-checks", Advanced.specializeDataChecks),
-   ("key-bytes", Advanced.insertKeyBytes),
    ("tag-chains", Advanced.caseTagChains),
    ("simplify", Advanced.simplify),
    ("prepare", Advanced.prepare),
@@ -186,7 +185,7 @@ structure ModelRun where
   deriving Inhabited
 
 /-- `Moist.CEK.eval`, also collecting the trace messages. -/
-partial def modelEval (term : Term) (cpu mem : Int) : ModelRun :=
+partial def modelEval [sv : Moist.CEK.SemVariant] (term : Term) (cpu mem : Int) : ModelRun :=
   let initial : Moist.CEK.ExBudget := ⟨cpu, mem⟩
   let afterStartup := initial - Moist.CEK.startupCost
   if afterStartup.isExhausted then ⟨.budget, Moist.CEK.startupCost, #[]⟩
@@ -218,16 +217,35 @@ partial def renderable : Term → Term
   | .Case s alts => .Case (renderable s) (alts.map renderable)
   | t => t
 
+def hexDigit (n : Nat) : Char := "0123456789abcdef".toList[n % 16]!
+
+/-- Linear-time hex of a bytestring. -/
+def bytesHex (bytes : ByteArray) : String :=
+  String.mk (bytes.toList.flatMap fun b => [hexDigit (b.toNat / 16), hexDigit (b.toNat % 16)])
+
+/-- The program and argument fields of a job that evaluates to a readback value. -/
+def valueJob (value : Term) : String := s!"{flatHex (renderable value)}\t"
+
 def utf8Hex (message : String) : String :=
   (Moist.Plutus.ByteString.toHex message.toUTF8)
 
 /-! ## Job files -/
 
+/-- One Lean model run per builtin semantics variant: its name, the variant,
+    the outcome file and the value file. -/
+structure ModelSink where
+  name : String
+  variant : Moist.CEK.SemVariant
+  runs : IO.FS.Handle
+  values : IO.FS.Handle
+
 structure Sink where
   jobs : IO.FS.Handle
-  model : IO.FS.Handle
-  modelValues : IO.FS.Handle
+  models : List ModelSink
   manifest : IO.FS.Handle
+
+def Sink.handles (sink : Sink) : List IO.FS.Handle :=
+  [sink.jobs, sink.manifest] ++ sink.models.flatMap fun m => [m.runs, m.values]
 
 /-- Budget of every run, on the model and on the real machine (`fuzz_real.py`
     passes the same numbers to `cross-bench batch`): running out is divergence. -/
@@ -245,9 +263,19 @@ structure Argument where
   term : Term
   shown : String
 
+def shorten (text : String) : String :=
+  if text.length > 200 then text.take 200 ++ s!"… ({text.length} chars)" else text
+
+/-- A closing argument from an MIR expression. Bound-sized literals are shown
+    by their size (printing them in decimal is slow). -/
 def argumentOfExpr (argument : Expr) : Except String Argument :=
   match lowerTotalExpr [] argument with
-  | some term => .ok { field := s!"t:{flatHex term}", term, shown := pretty argument }
+  | some term =>
+    let shown := match argument with
+      | .Lit (.Integer n, _) => if n.natAbs ≥ 2 ^ 64 then s!"<integer of {n.natAbs.log2 + 1} bits, sign {n.sign}>" else toString n
+      | .Lit (.ByteString bytes, _) => if bytes.size > 256 then s!"<{bytes.size} bytes>" else shorten (pretty argument)
+      | _ => shorten (pretty argument)
+    .ok { field := s!"t:{flatHex term}", term, shown }
   | none => .error "argument does not lower"
 
 /-- Write the jobs of one program. Returns the number of jobs written. -/
@@ -285,13 +313,14 @@ def emitProgram (sink : Sink) (label : String) (expression : Expr)
       row := row.push (.str jobId)
       count := count + 1
       if (modelAll || termIndex == 0) && modelEvery > 0 && inputIndex % modelEvery == 0 then
-        let run := modelEval (applyArguments term argumentTerms) limits.cpu limits.mem
-        let traces := ",".intercalate (run.traces.toList.map utf8Hex)
-        let outcome := match run.outcome with
-          | .halted _ => "OK" | .failed => "FAIL" | .budget => "BUDGET"
-        sink.model.putStrLn s!"{jobId}\t{outcome}\t{run.consumed.cpu}\t{run.consumed.mem}\t{traces}"
-        if let .halted value := run.outcome then
-          sink.modelValues.putStrLn s!"{jobId}\t{flatHex (renderable value)}\t"
+        for model in sink.models do
+          let run := modelEval (sv := model.variant) (applyArguments term argumentTerms) limits.cpu limits.mem
+          let traces := ",".intercalate (run.traces.toList.map utf8Hex)
+          let outcome := match run.outcome with
+            | .halted _ => "OK" | .failed => "FAIL" | .budget => "BUDGET"
+          model.runs.putStrLn s!"{jobId}\t{outcome}\t{run.consumed.cpu}\t{run.consumed.mem}\t{traces}"
+          if let .halted value := run.outcome then
+            model.values.putStrLn s!"{jobId}\t{valueJob value}"
     jobRows := jobRows.push (.arr row)
   let manifest := Lean.Json.mkObj ([
     ("label", .str label),
@@ -309,8 +338,10 @@ def openSink (directory : System.FilePath) : IO Sink := do
   IO.FS.createDirAll directory
   return {
     jobs := ← IO.FS.Handle.mk (directory / "jobs.tsv") .write
-    model := ← IO.FS.Handle.mk (directory / "model.tsv") .write
-    modelValues := ← IO.FS.Handle.mk (directory / "model-values.tsv") .write
+    models := ← [("E", Moist.CEK.SemVariant.E), ("C", .C)].mapM fun (name, variant) => do
+      return { name, variant
+               runs := ← IO.FS.Handle.mk (directory / s!"model.{name}.tsv") .write
+               values := ← IO.FS.Handle.mk (directory / s!"model-values.{name}.tsv") .write }
     manifest := ← IO.FS.Handle.mk (directory / "manifest.jsonl") .write }
 
 end Test.MIR.FuzzReal

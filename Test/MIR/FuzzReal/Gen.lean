@@ -34,6 +34,9 @@ structure GenState where
   confused : Bool := false
   /-- Whether the program uses hashes, signatures, BLS12-381 and Value builtins. -/
   crypto : Bool := false
+  /-- Whether literals and arguments include integers near the variant-E bound
+      `±2^262143` and bytestrings longer than its 65536-byte bound. -/
+  huge : Bool := false
 
 abbrev Gen := StateM GenState
 
@@ -133,12 +136,23 @@ partial def genShape (depth : Nat) : Gen Shape := do
 
 def smallInts : List Int := [0, 1, 2, 3, -1, 5, 7, 10, 42, -7, 100, 1000000, 2 ^ 70, -(2 ^ 64)]
 
+/-- Integers at and around the variant-E unlifting bounds `[-2^262143, 2^262143 - 1]`. -/
+def hugeInts : List Int :=
+  let b : Int := ((2 ^ 262143 : Nat) : Int)
+  [b - 1, b, -b, -b - 1, ((2 ^ 131072 : Nat) : Int), -((2 ^ 131072 : Nat) : Int), b - 2]
+
 def genInt : Gen Int := do
   weighted [(5, do return Int.ofNat (← rand 6)), (3, pick smallInts),
-            (1, do return Int.ofNat (← rand 300) - 150)]
+            (1, do return Int.ofNat (← rand 300) - 150),
+            (if (← get).huge then 1 else 0, pick hugeInts)]
+
+/-- An integer argument: near the variant-E bounds in programs that test them. -/
+def genArgInt : Gen Int := do
+  if (← get).huge && (← chance 40) then pick hugeInts else genInt
 
 def genBytes : Gen ByteArray := do
-  let length ← pick [0, 1, 1, 2, 3, 4, 28, 32, 32, 48, 64, 96]
+  let length ← weighted [(40, pick [0, 1, 1, 2, 3, 4, 28, 32, 32, 48, 64, 96]),
+    (if (← get).huge then 1 else 0, pick [65535, 65536, 65537])]
   let palette ← pick [[0], [0, 1], [0xaa, 0xbb, 1, 2], [7]]
   let bytes ← (List.range length).mapM fun _ => do return (← pick palette).toUInt8
   return ⟨bytes.toArray⟩
@@ -224,7 +238,13 @@ def bytesE (value : ByteArray) : Expr := lit (.ByteString value) (.AtomicType .T
 def dataE (value : Data) : Expr := lit (.Data value) (.AtomicType .TypeData)
 def stringE (value : String) : Expr := lit (.String value) (.AtomicType .TypeString)
 def dataListType : BuiltinType := .TypeOperator (.TypeList (.AtomicType .TypeData))
-def dataListE (values : List Data) : Expr := lit (.ConstDataList values) dataListType
+def dataListE (values : List Data) : Expr :=
+  lit (.ConstList (.AtomicType .TypeData) (values.map .Data)) dataListType
+def pairDataType : BuiltinType := .TypeOperator (.TypePair (.AtomicType .TypeData) (.AtomicType .TypeData))
+def pairDataE (pair : Data × Data) : Expr := lit (.Pair (.Data pair.1, .Data pair.2)) pairDataType
+def pairListE (entries : List (Data × Data)) : Expr :=
+  lit (.ConstList pairDataType (entries.map fun (a, b) => .Pair (.Data a, .Data b)))
+    (.TypeOperator (.TypeList pairDataType))
 
 def app1 (b : BuiltinFun) (x : Expr) : Expr := .App (.Builtin b) x
 def app2 (b : BuiltinFun) (x y : Expr) : Expr := .App (.App (.Builtin b) x) y
@@ -335,11 +355,9 @@ partial def leaf (ty : Ty) (env : Env) : Gen Expr := do
   | .list shape => return dataListE (← (List.range (← rand 3)).mapM fun _ => genData shape)
   | .pairs key value =>
     let entries ← (List.range (← rand 3)).mapM fun _ => do return (← keyPool key, ← genData value)
-    return lit (.ConstPairDataList entries) (.TypeOperator (.TypeList
-      (.TypeOperator (.TypePair (.AtomicType .TypeData) (.AtomicType .TypeData)))))
+    return pairListE entries
   | .pair key value =>
-    return lit (.PairData (← keyPool key, ← genData value))
-      (.TypeOperator (.TypePair (.AtomicType .TypeData) (.AtomicType .TypeData)))
+    return pairDataE (← keyPool key, ← genData value)
   | .tuple a b => return .Constr 0 [← leaf a env, ← leaf b env]
   | .opt a => if ← chance 40 then return .Constr 0 [] else return .Constr 1 [← leaf a env]
   | .fn a r =>
@@ -946,15 +964,17 @@ def genProgram (depth : Nat) : Gen Program := do
   let traces ← chance 40
   let confused ← chance 25
   let crypto ← chance 40
-  modify fun s => { s with traces, confused, crypto }
+  let huge ← chance 6
+  modify fun s => { s with traces, confused, crypto, huge }
   let count ← weighted [(3, pure 1), (3, pure 2), (1, pure 3)]
   let params ← (List.range count).mapM fun index => do
     let shape ← genShape 2
-    let kind ← weighted [(8, pure 0), (1, pure 1), (1, pure 2)]
+    let kind ← weighted [(8, pure 0), (1, pure 1), (1, pure 2), (if (← get).huge then 2 else 0, pure 3)]
     let v ← fresh s!"p{index}"
     match kind with
     | 1 => return { var := v, ty := .int, shape := .int : Param }
     | 2 => return { var := v, ty := .list shape, shape := shape : Param }
+    | 3 => return { var := v, ty := .bytes, shape := .bytes : Param }
     | _ => return { var := v, ty := .data shape, shape := shape : Param }
   let env : Env := params.reverse.map fun p => (p.var, p.ty)
   let result ← weighted [(4, pure Ty.int), (3, pure .bool), (3, pure .unit),
@@ -971,7 +991,12 @@ def genProgram (depth : Nat) : Gen Program := do
     mutation of one, or arbitrary Data. -/
 def genArgument (p : Param) : Gen Expr := do
   match p.ty with
-  | .int => return intE (← genInt)
+  | .int => return intE (← genArgInt)
+  | .bytes =>
+    if (← get).huge && (← chance 50) then
+      let n ← pick [65535, 65536, 65537]
+      return bytesE ⟨(List.replicate n ((← pick [0, 7, 0xff]) : Nat).toUInt8).toArray⟩
+    return bytesE (← genBytes)
   | .list shape =>
     let items ← (List.range (← rand 4)).mapM fun _ => genData shape
     if ← chance 15 then
@@ -986,7 +1011,7 @@ def genArgument (p : Param) : Gen Expr := do
 def genArguments (program : Program) : Gen (List Expr) := do
   let base ← program.params.mapM genArgument
   match program.result with
-  | .fn _ _ => return base ++ [intE (← genInt)]
+  | .fn _ _ => return base ++ [intE (← genArgInt)]
   | _ => return base
 
 partial def exprSize : Expr → Nat

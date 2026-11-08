@@ -88,9 +88,11 @@ def load_results(path):
     return results
 
 
-def load_model(directory, values_name='model-values.real.tsv'):
+def load_model(directory, values_name='model-values.real.tsv', runs_name='model.tsv'):
     model = {}
-    with open(os.path.join(directory, 'model.tsv')) as f:
+    if not os.path.exists(os.path.join(directory, runs_name)):
+        return model, {}
+    with open(os.path.join(directory, runs_name)) as f:
         for line in f:
             fields = line.rstrip('\n').split('\t')
             fields += [''] * (5 - len(fields))
@@ -133,9 +135,9 @@ def coverage(directory):
 
 
 def compare(directory, show=12, results_name='results.tsv', quiet=False,
-            values_name='model-values.real.tsv', report_name='report.json'):
+            values_name='model-values.real.tsv', report_name='report.json', runs_name='model.tsv'):
     real = load_results(os.path.join(directory, results_name))
-    model, model_values = load_model(directory, values_name)
+    model, model_values = load_model(directory, values_name, runs_name)
     findings = collections.defaultdict(list)
     fidelity = collections.defaultdict(list)
     stats = collections.Counter()
@@ -283,12 +285,13 @@ def evaluate_and_compare(out, semantics, jobs, run=True):
         values = 'model-values.real.%s.tsv' % variant
         if run:
             run_batch(os.path.join(out, 'jobs.tsv'), os.path.join(out, results), jobs, variant)
-            run_batch(os.path.join(out, 'model-values.tsv'), os.path.join(out, values), jobs, variant)
+            run_batch(os.path.join(out, 'model-values.%s.tsv' % variant), os.path.join(out, values),
+                      jobs, variant)
         print('=== builtin semantics variant %s' % variant)
         if index == 0:
             negative_control(out, results)
         report = compare(out, results_name=results, values_name=values,
-                         report_name='report.%s.json' % variant)
+                         report_name='report.%s.json' % variant, runs_name='model.%s.tsv' % variant)
         clean = clean and not report['findings']
     return clean
 

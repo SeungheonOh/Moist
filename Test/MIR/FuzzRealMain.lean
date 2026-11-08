@@ -19,7 +19,10 @@ private def option (arguments : List String) (name : String) (default : Nat) : N
     `u<seed>` or `probe/<name>`), as the generator emitted them. -/
 def programOf (label : String) (inputs depth : Nat) : Option (Moist.MIR.Expr × List (List Moist.MIR.Expr)) :=
   if label.startsWith "probe/" then
-    (Probes.all.find? (·.1 == label.drop 6)).map fun (_, program) => (program, [[]])
+    match (Probes.all.find? (·.1 == label.drop 6)) with
+    | some (_, program) => some (program, [[]])
+    | none => (Probes.boundArguments.find? (·.1 == label.drop 6)).map fun (_, program, values) =>
+      (program, values.map ([·]))
   else if label.startsWith "u" then
     (label.drop 1).toNat?.map fun seed =>
       let input : Moist.MIR.VarId := { uid := 12000, origin := .source, hint := "input" }
@@ -75,7 +78,12 @@ def main (arguments : List String) : IO UInt32 := do
   if arguments.contains "--probes" then
     for (name, program) in Probes.all do
       jobs := jobs + (← emitProgram sink s!"probe/{name}" program [[]] true {} [("family", .str "probe")])
-    for handle in [sink.jobs, sink.model, sink.modelValues, sink.manifest] do handle.flush
+    for (name, program, values) in Probes.boundArguments do
+      let arguments ← match values.mapM (fun v => (argumentOfExpr v).map ([·])) with
+        | .ok arguments => pure arguments
+        | .error message => throw (IO.userError message)
+      jobs := jobs + (← emitProgram sink s!"probe/{name}" program arguments true {} [("family", .str "probe")])
+    for handle in sink.handles do handle.flush
     IO.eprintln s!"fuzz_real: {Probes.all.length} probes, {jobs} jobs written to {directory}"
     return 0
   for seed in List.range' start count do
@@ -100,7 +108,7 @@ def main (arguments : List String) : IO UInt32 := do
       | .error message => throw (IO.userError s!"seed {seed}: {message}")
     jobs := jobs + (← emitProgram sink s!"s{seed}" program.expr arguments modelAll {}
       [("seed", .num seed), ("result", .str (toString (repr program.result)))])
-    for handle in [sink.jobs, sink.model, sink.modelValues, sink.manifest] do handle.flush
+    for handle in sink.handles do handle.flush
     let elapsed := (← IO.monoMsNow) - started
     if elapsed > 3000 then IO.eprintln s!"fuzz_real: seed {seed} took {elapsed} ms"
   IO.eprintln s!"fuzz_real: {count} programs, {jobs} jobs written to {directory}"

@@ -24,7 +24,7 @@ def pairT : BuiltinType := .TypeOperator (.TypePair (.AtomicType .TypeData) (.At
 def pairIntBoolT : BuiltinType :=
   .TypeOperator (.TypePair (.AtomicType .TypeInteger) (.AtomicType .TypeBool))
 
-def intList (xs : List Int) : Expr := lit (.ConstList (xs.map .Integer)) intListT
+def intList (xs : List Int) : Expr := lit (.ConstList (.AtomicType .TypeInteger) (xs.map .Integer)) intListT
 def results (n : Nat) : List Expr := (List.range n).map fun k => intE (Int.ofNat (10 + k))
 
 /-- An alternative taking `arity` arguments and returning them in a constructor. -/
@@ -37,7 +37,7 @@ def scrutinees : List (String × Expr) :=
    ("false", boolE false), ("true", boolE true), ("unit", unitE),
    ("nil", intList []), ("list1", intList [7]), ("list2", intList [7, 8]),
    ("datalist-nil", dataListE []), ("datalist1", dataListE [.I 5]),
-   ("pairdata", lit (.PairData (.I 1, .B ⟨#[2]⟩)) pairT),
+   ("pairdata", pairDataE (.I 1, .B ⟨#[2]⟩)),
    ("pair-int-bool", lit (.Pair (.Integer 1, .Bool true)) pairIntBoolT),
    ("data", dataE (.Constr 0 [])), ("bytes", bytesE ⟨#[1]⟩),
    ("constr0-0", .Constr 0 []), ("constr1-0", .Constr 1 []), ("constr0-2", .Constr 0 [intE 1, intE 2]),
@@ -61,11 +61,10 @@ def builtinProbes : List (String × Expr) :=
    ("mkcons/data-on-intnil", consE (dataE (.I 1)) (intList [])),
    ("mkcons/int-on-datanil", consE (intE 1) (dataListE [])),
    ("mkcons/data-on-datanil", consE (dataE (.I 1)) (dataListE [])),
-   ("mkcons/pair-on-pairnil", consE (lit (.PairData (.I 1, .I 2)) pairT)
-      (lit (.ConstPairDataList []) (.TypeOperator (.TypeList pairT)))),
+   ("mkcons/pair-on-pairnil", consE (pairDataE (.I 1, .I 2)) (pairListE [])),
    ("mkcons/data-on-pairnil", consE (dataE (.I 1))
-      (lit (.ConstPairDataList []) (.TypeOperator (.TypeList pairT)))),
-   ("mkcons/int-on-boolnil", consE (intE 1) (lit (.ConstList []) boolListT)),
+      (pairListE [])),
+   ("mkcons/int-on-boolnil", consE (intE 1) (lit (.ConstList (.AtomicType .TypeBool) []) boolListT)),
    ("head/intnil", headE (intList [])), ("tail/intnil", tailE (intList [])),
    ("null/int", nullE (intE 0)), ("head/data", headE (dataE (.List [.I 1]))),
    ("fst/pair-int-bool", fstE (lit (.Pair (.Integer 1, .Bool true)) pairIntBoolT)),
@@ -82,7 +81,7 @@ def builtinProbes : List (String × Expr) :=
    ("add/partial-forced", .Force (.App (.Builtin .AddInteger) (intE 1))),
    ("trace/over", apps (.Force (.Builtin .Trace)) [stringE "m", .Lam (v 1) (.Var (v 1)), intE 5]),
    ("headList/twice-forced", .App (.Force (.Force (.Builtin .HeadList))) (intList [1])),
-   ("fstPair/once-forced", .App (.Force (.Builtin .FstPair)) (lit (.PairData (.I 1, .I 2)) pairT)),
+   ("fstPair/once-forced", .App (.Force (.Builtin .FstPair)) (pairDataE (.I 1, .I 2))),
    ("apply/constant", .App (intE 1) (intE 2)), ("force/constant", .Force (intE 1)),
    ("force/lam", .Force (.Lam (v 2) (intE 1))), ("apply/delay", .App (.Delay (intE 1)) (intE 2)),
    ("apply/constr", .App (.Constr 0 []) (intE 1)), ("force/constr", .Force (.Constr 0 [])),
@@ -169,6 +168,63 @@ def cryptoProbes : List (String × Expr) :=
    ("expmod/no-inverse", apps (.Builtin .ExpModInteger) [intE 2, intE (-1), intE 4]),
    ("expmod/mod0", apps (.Builtin .ExpModInteger) [intE 2, intE 3, intE 0])]
 
-def all : List (String × Expr) := caseProbes ++ builtinProbes ++ cryptoProbes
+/-- Programs over one argument whose results depend on the variant-E bounds,
+    in the shapes the optimizer rewrites (identities, comparisons of a value
+    with itself, round trips, constant folding), each applied to values inside
+    and outside the bounds. -/
+def boundPrograms : List (String × Expr) :=
+  let x := v 50
+  let fx (body : Expr) := Expr.Lam x body
+  let X := Expr.Var x
+  [("add0", fx (app2 .AddInteger X (intE 0))), ("add0-left", fx (app2 .AddInteger (intE 0) X)),
+   ("sub0", fx (app2 .SubtractInteger X (intE 0))), ("mul1", fx (app2 .MultiplyInteger X (intE 1))),
+   ("mul0", fx (app2 .MultiplyInteger X (intE 0))), ("div1", fx (app2 .DivideInteger X (intE 1))),
+   ("quot1", fx (app2 .QuotientInteger X (intE 1))), ("mod1", fx (app2 .ModInteger X (intE 1))),
+   ("eq-self", fx (app2 .EqualsInteger X X)), ("le-self", fx (app2 .LessThanEqualsInteger X X)),
+   ("lt-self", fx (app2 .LessThanInteger X X)),
+   ("idata-roundtrip", fx (app1 .UnIData (app1 .IData X))),
+   ("idata-eq", fx (app2 .EqualsData (app1 .IData X) (app1 .IData X))),
+   ("add-then-sub", fx (app2 .SubtractInteger (app2 .AddInteger X (intE 1)) (intE 1))),
+   ("tag-chain", fx (iteCase (app2 .EqualsInteger X (intE 0)) (intE 10)
+      (iteCase (app2 .EqualsInteger X (intE 1)) (intE 11) (iteCase (app2 .EqualsInteger X (intE 2)) (intE 12) .Error)))),
+   ("range-chain", fx (iteCase (app2 .EqualsInteger X (intE 0)) .Error
+      (iteCase (app2 .EqualsInteger X (intE 1)) .Error (iteCase (app2 .EqualsInteger X (intE 2)) .Error (intE 7))))),
+   ("let-unused-add", fx (.Let [(v 51, app2 .AddInteger X (intE 1), false)] (intE 3))),
+   ("let-unused-eq", fx (.Let [(v 52, app2 .EqualsInteger X (intE 1), false)] (intE 3))),
+   ("i2b", fx (apps (.Builtin .IntegerToByteString) [boolE true, intE 0, X]))]
+
+def boundBytesPrograms : List (String × Expr) :=
+  let x := v 60
+  let fx (body : Expr) := Expr.Lam x body
+  let X := Expr.Var x
+  [("eqbs-self", fx (app2 .EqualsByteString X X)), ("append-empty", fx (app2 .AppendByteString X (bs []))),
+   ("append-empty-left", fx (app2 .AppendByteString (bs []) X)),
+   ("length", fx (app1 .LengthOfByteString X)), ("length-append", fx (app1 .LengthOfByteString (app2 .AppendByteString X X))),
+   ("bdata-roundtrip", fx (app1 .UnBData (app1 .BData X))),
+   ("bdata-eq", fx (app2 .EqualsData (app1 .BData X) (app1 .BData X))),
+   ("ltbs-self", fx (app2 .LessThanByteString X X)), ("lebs-self", fx (app2 .LessThanEqualsByteString X X)),
+   ("let-unused-length", fx (.Let [(v 61, app1 .LengthOfByteString X, false)] (intE 3))),
+   ("slice-all", fx (apps (.Builtin .SliceByteString) [intE 0, intE 100000, X])),
+   ("sha2", fx (app1 .Sha2_256 X)), ("index0", fx (app2 .IndexByteString X (intE 0)))]
+
+def boundIntArguments : List Int := [0, 1, 2] ++ hugeInts
+def boundBytesArguments : List Nat := [0, 1, 65535, 65536, 65537]
+
+def boundArguments : List (String × Expr × List Expr) :=
+  (boundPrograms.map fun (name, p) => (s!"bound/int/{name}", p, boundIntArguments.map intE)) ++
+  (boundBytesPrograms.map fun (name, p) => (s!"bound/bytes/{name}", p,
+    boundBytesArguments.map fun n => rep n 7))
+
+def all : List (String × Expr) := caseProbes ++ builtinProbes ++ cryptoProbes ++
+  [("bound/literal/add-max", app2 .AddInteger (intE (hugeInts[0]!)) (intE 1)),
+   ("bound/literal/add-max-plus1", app2 .AddInteger (intE (hugeInts[1]!)) (intE 0)),
+   ("bound/literal/mul-square", app2 .MultiplyInteger (intE (hugeInts[4]!)) (intE (hugeInts[4]!))),
+   ("bound/literal/mul-square-then-add", app2 .AddInteger (app2 .MultiplyInteger (intE (hugeInts[4]!)) (intE (hugeInts[4]!))) (intE 0)),
+   ("bound/literal/eq-max-plus1-self", app2 .EqualsInteger (intE (hugeInts[1]!)) (intE (hugeInts[1]!))),
+   ("bound/literal/append-long", app1 .LengthOfByteString (app2 .AppendByteString (rep 40000 1) (rep 40000 2))),
+   ("bound/literal/append-long-eq", app2 .EqualsByteString (app2 .AppendByteString (rep 40000 1) (rep 40000 2)) (bs [])),
+   ("bound/literal/eq-long", app2 .EqualsByteString (rep 65537 1) (rep 65537 1)),
+   ("bound/literal/length-long", app1 .LengthOfByteString (rep 65537 1)),
+   ("bound/literal/replicate", apps (.Builtin .ReplicateByte) [intE 8193, intE 0])]
 
 end Test.MIR.FuzzReal.Probes
