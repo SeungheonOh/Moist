@@ -51,10 +51,10 @@ def zigZag : Int → Nat
 `BitBuffer` stores the bits that have been emitted so far while constructing a
 `flat` encoding.  Bits are kept in the order they were emitted (most recent bits
 are appended to the end of `bits`), matching the `s ⋅ …` presentation in the
-specification.
+specification.  An array keeps appending linear in the size of the output.
 -/
 structure BitBuffer where
-  bits : List Bool := []
+  bits : Array Bool := #[]
 deriving Repr, Inhabited, BEq
 
 namespace BitBuffer
@@ -64,15 +64,15 @@ def empty : BitBuffer :=
 
 /-- The number of bits in the buffer. -/
 @[simp] def length (buf : BitBuffer) : Nat :=
-  buf.bits.length
+  buf.bits.size
 
 /-- Append a single bit to the buffer. -/
 @[inline] def pushBit (buf : BitBuffer) (bit : Bool) : BitBuffer :=
-  { bits := buf.bits ++ [bit] }
+  { bits := buf.bits.push bit }
 
 /-- Append a sequence of bits to the buffer. -/
 def appendBits (buf : BitBuffer) (more : List Bool) : BitBuffer :=
-  { bits := buf.bits ++ more }
+  { bits := more.foldl Array.push buf.bits }
 
 /-- Append the big-endian representation of `value` using `width` bits. -/
 def appendNatBE (buf : BitBuffer) (width value : Nat) : BitBuffer :=
@@ -101,7 +101,7 @@ Remove a trailing padding fragment if present.  Returns `none` if the input does
 not end with one of the valid padding fragments `pp{k}` from the specification.
 -/
 def unpad? (buf : BitBuffer) : Option BitBuffer :=
-  match buf.bits.reverse with
+  match buf.bits.toList.reverse with
   | [] => none
   | true :: tail =>
       let rec dropZeros (count : Nat) (rest : List Bool) : Option (List Bool) :=
@@ -115,12 +115,12 @@ def unpad? (buf : BitBuffer) : Option BitBuffer :=
         | remaining =>
             some remaining
       dropZeros 0 tail |>.map fun remaining =>
-        ⟨remaining.reverse⟩
+        ⟨remaining.reverse.toArray⟩
   | _ => none
 
 /-- Convert a `BitBuffer` to a human-readable bit string like "010110". -/
 def toBitString (buf : BitBuffer) : String :=
-  let chars := buf.bits.map fun b => if b then '1' else '0'
+  let chars := buf.bits.toList.map fun b => if b then '1' else '0'
   String.mk chars
 
 /- Pack a list of bits (big-endian within each byte) into bytes. The input
@@ -137,7 +137,7 @@ partial def packToBytes : List Bool → List UInt8
     packing each consecutive 8 bits into a `UInt8`. -/
 def toByteList (buf : BitBuffer) : List UInt8 :=
   --let padded := BitBuffer.pad buf
-  packToBytes buf.bits
+  packToBytes buf.bits.toList
 
 /-- Convert a nibble (0..15) to its lowercase hexadecimal `Char`. -/
 def nibbleToHexChar : Nat → Char
