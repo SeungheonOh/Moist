@@ -52,6 +52,7 @@ def main (arguments : List String) : IO UInt32 := do
     | _ :: value :: _ => value.toNat?.getD default
     | _ => default
   let mutants := option "--mutants" 0
+  let mutantFrom := option "--mutant-from" 0
   let sample := option "--sample" 40
   let seed := option "--seed" 1
   let modelEvery := option "--model-every" 1
@@ -93,7 +94,7 @@ def main (arguments : List String) : IO UInt32 := do
     else
       -- mutants of the validator, each on the exported cases and a sample of the others
       let exportedCases := (List.range cases.size).filter fun i => (cases[i]!.splitOn "|base||").length > 1
-      for index in List.range mutants do
+      for index in List.range' mutantFrom (mutants - min mutants mutantFrom) do
         let action : Gen (Expr × List Nat) := do
           let edits ← pick [1, 1, 2, 3]
           let program ← Mutate.mutant expression edits

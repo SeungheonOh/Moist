@@ -42,6 +42,16 @@ for v in $validators; do
   python3 -I "$here/fuzz_validators.py" "$out/validators/$v" --validator "$v" --model-every 10 \
     --jobs 2 > "$out/validators-$v.log" 2>&1 &
   pids="$pids $!"
+  if [ "$v" = Hydra ]; then
+    # Hydra's mutants take minutes each: five shards of 20
+    for k in 0 1 2 3 4; do
+      python3 -I "$here/fuzz_validators.py" "$out/mutants/Hydra-$k" --validator Hydra \
+        --mutants $((k * 20 + 20)) --mutant-from $((k * 20)) --sample 40 --seed 1 \
+        --model-every 5 --jobs 2 > "$out/mutants-Hydra-$k.log" 2>&1 &
+      pids="$pids $!"
+    done
+    continue
+  fi
   python3 -I "$here/fuzz_validators.py" "$out/mutants/$v" --validator "$v" --mutants 100 \
     --sample 40 --seed 1 --model-every 5 --jobs 2 > "$out/mutants-$v.log" 2>&1 &
   pids="$pids $!"

@@ -51,6 +51,8 @@ def main():
     parser.add_argument('--mutants', type=int, default=0,
                         help='per validator: random local mutants of its MIR instead of the MIR itself')
     parser.add_argument('--sample', type=int, default=40, help='cases per mutant')
+    parser.add_argument('--mutant-from', type=int, default=0,
+                        help='first mutant index (mutants --mutant-from .. --mutants-1), to shard')
     parser.add_argument('--seed', type=int, default=1)
     parser.add_argument('--model-every', type=int, default=1,
                         help='run the Lean model on every N-th input only')
@@ -66,7 +68,8 @@ def main():
             command += ['--validator', validator]
         if args.model_all:
             command.append('--model-all')
-        command += ['--mutants', str(args.mutants), '--sample', str(args.sample),
+        command += ['--mutants', str(args.mutants), '--mutant-from', str(args.mutant_from),
+                    '--sample', str(args.sample),
                     '--seed', str(args.seed), '--model-every', str(args.model_every)]
         subprocess.run(command, check=True, cwd=fuzz_real.ROOT)
     clean = fuzz_real.evaluate_and_compare(out, args.semantics, args.jobs, not args.compare_only)
