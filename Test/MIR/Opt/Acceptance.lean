@@ -231,6 +231,16 @@ def tests : TestTree := suite "acceptance" do
       checkEq s!"flat tag of {repr builtin}" (Moist.Plutus.Encode.builtinFunTag builtin) tag
     checkEq "decoder covers every builtin" table.length 101
     checkEq "decoder tags are distinct" (table.map (·.1)).eraseDups.length table.length
+  test "base128_digits_match_digit_by_digit_division" do
+    let rec slow (value : Nat) (fuel : Nat) : List Nat :=
+      match fuel with
+      | 0 => []
+      | fuel + 1 => if value < 128 then [value] else (value % 128) :: slow (value / 128) fuel
+    let samples : List Nat := [0, 1, 127, 128, 129, 16383, 16384, 2 ^ 64 - 1, 2 ^ 64, 2 ^ 448 - 1,
+      2 ^ 448, 2 ^ 449 + 12345, 3 ^ 500, 2 ^ 4096 - 7, 2 ^ 4096, 5 ^ 3000 + 1]
+    for value in samples do
+      checkEq s!"base-128 digits of a {Nat.log2 value + 1}-bit number"
+        (Moist.Plutus.base128Digits value) (slow value 2000)
   test "constant_annotation_does_not_change_flat" do
     let program (annotation : BuiltinType) : Program :=
       .Program (.Version 1 1 0) (.Constant (.Integer 7, annotation))
