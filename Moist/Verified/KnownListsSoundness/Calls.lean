@@ -15,7 +15,7 @@ evaluations are related (`calls_eval`). Every other slot of the two
 environments is related by the logical relation, and the slots of `Ls` hold
 the same list.
 
-`PR P m r k G₁ G₂` relates two functions still expecting the last `r` of the
+`PR Q P m r k G₁ G₂` relates two functions still expecting the last `r` of the
 `m` arguments: applied to related arguments, with a list at a position of
 `P`, they return to stacks related as `ContOf r`, i.e. the stacks of the
 remaining application (`r - 1` more arguments) or, after the last argument,
@@ -30,6 +30,24 @@ open Moist.Verified.Contextual.Guarded
 open Moist.Verified.TermObsRefinesWF
 open Moist.Verified.BetaValueRefines
 open Moist.Verified.ShapeFacts
+
+/-! ## Families of list values
+
+The relation is parametrized by a family of list values closed under taking
+tails: every builtin list (`anyList`), or a narrower family such as the lists
+of data pairs.
+-/
+
+structure ListFamily where
+  mem : CekValue → Prop
+  list : ∀ {v}, mem v → ListValue v
+  tail : ∀ {ty : BuiltinType} {c : Const} {cs : List Const},
+    mem (.VCon (.ConstList ty (c :: cs))) → mem (.VCon (.ConstList ty cs))
+
+/-- Every builtin list. -/
+def anyList : ListFamily := ⟨ListValue, id, fun _ => trivial⟩
+
+variable {Q : ListFamily}
 
 /-! ## The syntactic predicate -/
 
@@ -78,38 +96,38 @@ end
 
 /-! ## Functions agreeing on list arguments -/
 
-/-- `PR P m r k G₁ G₂`: `G₁` and `G₂` still expect the last `r` of `m`
+/-- `PR Q P m r k G₁ G₂`: `G₁` and `G₂` still expect the last `r` of `m`
     arguments and agree on calls passing lists at the positions `P`. -/
-def PR (P : List Nat) (m : Nat) : Nat → Nat → CekValue → CekValue → Prop
+def PR (Q : ListFamily) (P : List Nat) (m : Nat) : Nat → Nat → CekValue → CekValue → Prop
   | 0, _, _, _ => True
   | r + 1, k, G₁, G₂ =>
     ∀ j ≤ k, ∀ a₁ a₂, ValueRel wfGuard j a₁ a₂ → ValueWellFormed a₁ → ValueWellFormed a₂ →
-      (m - (r + 1) ∈ P → ListValue a₁) →
+      (m - (r + 1) ∈ P → Q.mem a₁) →
       ∀ π₁ π₂,
         (match r with
           | 0 => StackRel wfGuard j π₁ π₂
           | r' + 1 => StackWellFormed π₁ ∧ StackWellFormed π₂ ∧
-              ∀ j' ≤ j, ∀ H₁ H₂, PR P m (r' + 1) j' H₁ H₂ → ValueWellFormed H₁ →
+              ∀ j' ≤ j, ∀ H₁ H₂, PR Q P m (r' + 1) j' H₁ H₂ → ValueWellFormed H₁ →
                 ValueWellFormed H₂ → ObsRefinesK j' (.ret π₁ H₁) (.ret π₂ H₂)) →
         ObsRefinesK j (.ret (.funV G₁ :: π₁) a₁) (.ret (.funV G₂ :: π₂) a₂)
 
 /-- Stacks waiting for the result of a call still expecting `r` arguments. -/
-def ContOf (P : List Nat) (m : Nat) : Nat → Nat → Stack → Stack → Prop
+def ContOf (Q : ListFamily) (P : List Nat) (m : Nat) : Nat → Nat → Stack → Stack → Prop
   | 0, j, π₁, π₂ => StackRel wfGuard j π₁ π₂
   | r + 1, j, π₁, π₂ => StackWellFormed π₁ ∧ StackWellFormed π₂ ∧
-      ∀ j' ≤ j, ∀ H₁ H₂, PR P m (r + 1) j' H₁ H₂ → ValueWellFormed H₁ →
+      ∀ j' ≤ j, ∀ H₁ H₂, PR Q P m (r + 1) j' H₁ H₂ → ValueWellFormed H₁ →
         ValueWellFormed H₂ → ObsRefinesK j' (.ret π₁ H₁) (.ret π₂ H₂)
 
 theorem PR_succ {P : List Nat} {m r k : Nat} {G₁ G₂ : CekValue} :
-    PR P m (r + 1) k G₁ G₂ ↔
+    PR Q P m (r + 1) k G₁ G₂ ↔
       ∀ j ≤ k, ∀ a₁ a₂, ValueRel wfGuard j a₁ a₂ → ValueWellFormed a₁ → ValueWellFormed a₂ →
-        (m - (r + 1) ∈ P → ListValue a₁) →
-        ∀ π₁ π₂, ContOf P m r j π₁ π₂ →
+        (m - (r + 1) ∈ P → Q.mem a₁) →
+        ∀ π₁ π₂, ContOf Q P m r j π₁ π₂ →
           ObsRefinesK j (.ret (.funV G₁ :: π₁) a₁) (.ret (.funV G₂ :: π₂) a₂) := by
   cases r <;> rfl
 
 theorem PR_mono {P : List Nat} {m r j k : Nat} {G₁ G₂ : CekValue} (hjk : j ≤ k)
-    (h : PR P m r k G₁ G₂) : PR P m r j G₁ G₂ := by
+    (h : PR Q P m r k G₁ G₂) : PR Q P m r j G₁ G₂ := by
   cases r with
   | zero => trivial
   | succ r =>
@@ -117,12 +135,12 @@ theorem PR_mono {P : List Nat} {m r j k : Nat} {G₁ G₂ : CekValue} (hjk : j �
     exact fun i hi => h i (Nat.le_trans hi hjk)
 
 theorem ContOf_mono {P : List Nat} {m r j k : Nat} {π₁ π₂ : Stack} (hjk : j ≤ k)
-    (h : ContOf P m r k π₁ π₂) : ContOf P m r j π₁ π₂ := by
+    (h : ContOf Q P m r k π₁ π₂) : ContOf Q P m r j π₁ π₂ := by
   cases r with
   | zero => exact stackRel_mono hjk h
   | succ r => exact ⟨h.1, h.2.1, fun i hi => h.2.2 i (Nat.le_trans hi hjk)⟩
 
-theorem ContOf_wf {P : List Nat} {m r j : Nat} {π₁ π₂ : Stack} (h : ContOf P m r j π₁ π₂) :
+theorem ContOf_wf {P : List Nat} {m r j : Nat} {π₁ π₂ : Stack} (h : ContOf Q P m r j π₁ π₂) :
     StackWellFormed π₁ ∧ StackWellFormed π₂ := by
   cases r with
   | zero => exact ⟨h.1, h.2.1⟩
@@ -130,15 +148,15 @@ theorem ContOf_wf {P : List Nat} {m r j : Nat} {π₁ π₂ : Stack} (h : ContOf
 
 /-! ## Environments -/
 
-structure EnvOK (P : List Nat) (m : Nat) (k D F : Nat) (X Ls : List Nat) (ρ₁ ρ₂ : CekEnv) : Prop where
+structure EnvOK (Q : ListFamily) (P : List Nat) (m : Nat) (k D F : Nat) (X Ls : List Nat) (ρ₁ ρ₂ : CekEnv) : Prop where
   other : ∀ n, 0 < n → n ≤ D → n ≠ F → n ∉ X →
     ∃ v₁ v₂, ρ₁.lookup n = some v₁ ∧ ρ₂.lookup n = some v₂ ∧ ValueRel wfGuard k v₁ v₂
-  lists : ∀ i ∈ Ls, ∃ l, ρ₁.lookup i = some l ∧ ρ₂.lookup i = some l ∧ ListValue l
-  recursive : ∃ r₁ r₂, ρ₁.lookup F = some r₁ ∧ ρ₂.lookup F = some r₂ ∧ PR P m m k r₁ r₂ ∧
+  lists : ∀ i ∈ Ls, ∃ l, ρ₁.lookup i = some l ∧ ρ₂.lookup i = some l ∧ Q.mem l
+  recursive : ∃ r₁ r₂, ρ₁.lookup F = some r₁ ∧ ρ₂.lookup F = some r₂ ∧ PR Q P m m k r₁ r₂ ∧
     ValueWellFormed r₁ ∧ ValueWellFormed r₂
 
 theorem EnvOK.mono {P : List Nat} {m j k D F : Nat} {X Ls : List Nat} {ρ₁ ρ₂ : CekEnv}
-    (hjk : j ≤ k) (h : EnvOK P m k D F X Ls ρ₁ ρ₂) : EnvOK P m j D F X Ls ρ₁ ρ₂ := by
+    (hjk : j ≤ k) (h : EnvOK Q P m k D F X Ls ρ₁ ρ₂) : EnvOK Q P m j D F X Ls ρ₁ ρ₂ := by
   refine ⟨fun n hn hnd h₁ h₂ => ?_, h.lists, ?_⟩
   · obtain ⟨v₁, v₂, e₁, e₂, hv⟩ := h.other n hn hnd h₁ h₂
     exact ⟨v₁, v₂, e₁, e₂, valueRel_mono hjk hv⟩
@@ -167,7 +185,7 @@ theorem shiftLs_shiftLs (a b : Nat) (X : List Nat) : shiftLs a (shiftLs b X) = s
   congr 1; funext x; simp [Nat.add_assoc]
 
 theorem EnvOK.lists_pos {P : List Nat} {m k D F : Nat} {X Ls : List Nat} {ρ₁ ρ₂ : CekEnv}
-    (h : EnvOK P m k D F X Ls ρ₁ ρ₂) : ∀ i ∈ Ls, 0 < i := by
+    (h : EnvOK Q P m k D F X Ls ρ₁ ρ₂) : ∀ i ∈ Ls, 0 < i := by
   intro i hi
   obtain ⟨l, h₁, _, _⟩ := h.lists i hi
   cases i with
@@ -175,8 +193,8 @@ theorem EnvOK.lists_pos {P : List Nat} {m k D F : Nat} {X Ls : List Nat} {ρ₁ 
   | succ i => omega
 
 theorem EnvOK.extend {P : List Nat} {m k D F : Nat} {X Ls : List Nat} {ρ₁ ρ₂ : CekEnv}
-    {w₁ w₂ : CekValue} (h : EnvOK P m k D F X Ls ρ₁ ρ₂) (hw : ValueRel wfGuard k w₁ w₂) :
-    EnvOK P m k (D + 1) (F + 1) (shiftLs 1 X) (shiftLs 1 Ls) (ρ₁.extend w₁) (ρ₂.extend w₂) := by
+    {w₁ w₂ : CekValue} (h : EnvOK Q P m k D F X Ls ρ₁ ρ₂) (hw : ValueRel wfGuard k w₁ w₂) :
+    EnvOK Q P m k (D + 1) (F + 1) (shiftLs 1 X) (shiftLs 1 Ls) (ρ₁.extend w₁) (ρ₂.extend w₂) := by
   have hpos := h.lists_pos
   refine ⟨fun n hn hnd h₁ h₂ => ?_, fun i hi => ?_, ?_⟩
   · by_cases h1 : n = 1
@@ -196,17 +214,26 @@ theorem EnvOK.extend {P : List Nat} {m k D F : Nat} {X Ls : List Nat} {ρ₁ ρ�
     rw [lookup_extend_succ _ _ _ hF, lookup_extend_succ _ _ _ hF]
     exact ⟨r₁, r₂, e₁, e₂, hr, v₁, v₂⟩
 
+omit sv in
+theorem listValue_vcon {v : CekValue} (h : ListValue v) : ∃ c, v = .VCon c := by
+  cases v with
+  | VCon c => exact ⟨c, rfl⟩
+  | _ => exact absurd h id
+
+theorem valueRel_list {k : Nat} {v : CekValue} (h : ListValue v) : ValueRel wfGuard k v v := by
+  obtain ⟨c, rfl⟩ := listValue_vcon h
+  exact valueRel_vcon k c
+
 /-- Entering the alternative of a list `case` that binds the head and tail. -/
 theorem EnvOK.extendCons {P : List Nat} {m k D F : Nat} {X Ls : List Nat} {ρ₁ ρ₂ : CekEnv}
-    {h t : CekValue} (henv : EnvOK P m k D F X Ls ρ₁ ρ₂) (hh : ValueRel wfGuard k h h)
-    (ht : ListValue t) :
-    EnvOK P m k (D + 2) (F + 2) (shiftLs 2 X) (1 :: shiftLs 2 Ls) ((ρ₁.extend h).extend t)
+    {h t : CekValue} (henv : EnvOK Q P m k D F X Ls ρ₁ ρ₂) (hh : ValueRel wfGuard k h h)
+    (ht : Q.mem t) :
+    EnvOK Q P m k (D + 2) (F + 2) (shiftLs 2 X) (1 :: shiftLs 2 Ls) ((ρ₁.extend h).extend t)
       ((ρ₂.extend h).extend t) := by
   have h₁ := henv.extend hh
   have htt : ValueRel wfGuard k t t := by
-    cases t with
-    | VCon c => exact valueRel_vcon k c
-    | _ => exact absurd ht id
+    obtain ⟨c, rfl⟩ := listValue_vcon (Q.list ht)
+    exact valueRel_vcon k c
   have h₂ := h₁.extend htt
   rw [shiftLs_shiftLs] at h₂
   refine ⟨h₂.other, fun i hi => ?_, h₂.recursive⟩
@@ -218,20 +245,10 @@ theorem EnvOK.extendCons {P : List Nat} {m k D F : Nat} {X Ls : List Nat} {ρ₁
 
 /-! ## List values under a `case` -/
 
-omit sv in
-theorem listValue_vcon {v : CekValue} (h : ListValue v) : ∃ c, v = .VCon c := by
-  cases v with
-  | VCon c => exact ⟨c, rfl⟩
-  | _ => exact absurd h id
-
-theorem valueRel_list {k : Nat} {v : CekValue} (h : ListValue v) : ValueRel wfGuard k v v := by
-  obtain ⟨c, rfl⟩ := listValue_vcon h
-  exact valueRel_vcon k c
-
 /-- A `case` on a list either passes a head and a list tail to its first
     alternative or selects its second alternative. -/
-theorem listCase_dispatch {v : CekValue} (hv : ListValue v) :
-    (∃ c tl, ListValue tl ∧ ∀ (π : Stack) (ρ : CekEnv) (alts : List Term),
+theorem listCase_dispatch {v : CekValue} (hv : Q.mem v) :
+    (∃ c tl, Q.mem tl ∧ ∀ (π : Stack) (ρ : CekEnv) (alts : List Term),
       step (.ret (.caseScrutinee alts ρ :: π) v) =
         if alts.length > 2 then .error else
           match alts[0]? with
@@ -243,7 +260,7 @@ theorem listCase_dispatch {v : CekValue} (hv : ListValue v) :
           match alts[1]? with
           | some alt => .compute π ρ alt
           | none => .error) := by
-  obtain ⟨c, rfl⟩ := listValue_vcon hv
+  obtain ⟨c, rfl⟩ := listValue_vcon (Q.list hv)
   cases c with
   | ConstList ty l =>
     cases l with
@@ -251,20 +268,20 @@ theorem listCase_dispatch {v : CekValue} (hv : ListValue v) :
       refine .inr fun π ρ alts => ?_
       cases e : alts[1]? <;> simp [step, constToTagAndFields, e]
     | cons h t =>
-      refine .inl ⟨h, .VCon (.ConstList ty t), trivial, fun π ρ alts => ?_⟩
+      refine .inl ⟨h, .VCon (.ConstList ty t), Q.tail hv, fun π ρ alts => ?_⟩
       cases e : alts[0]? <;> simp [step, constToTagAndFields, e]
-  | _ => exact absurd hv id
+  | _ => exact absurd (Q.list hv) id
 
 /-! ## Evaluation -/
 
 /-- Applying a partial call to one more argument. -/
 theorem apply_spine {P : List Nat} {m F r k D : Nat} {X Ls : List Nat} {ρ₁ ρ₂ : CekEnv} {f a : Term}
-    (henv : EnvOK P m k D F X Ls ρ₁ ρ₂)
-    (hf : ∀ j ≤ k, ∀ π₁ π₂, ContOf P m (r + 1) j π₁ π₂ →
+    (henv : EnvOK Q P m k D F X Ls ρ₁ ρ₂)
+    (hf : ∀ j ≤ k, ∀ π₁ π₂, ContOf Q P m (r + 1) j π₁ π₂ →
       wfGuard.St (.compute π₁ ρ₁ f) → wfGuard.St (.compute π₂ ρ₂ f) →
       ObsRefinesK j (.compute π₁ ρ₁ f) (.compute π₂ ρ₂ f))
     (ha : Eval wfGuard k ρ₁ ρ₂ a a) (hok : ArgOK P Ls (m - (r + 1)) a) :
-    ∀ j ≤ k, ∀ π₁ π₂, ContOf P m r j π₁ π₂ →
+    ∀ j ≤ k, ∀ π₁ π₂, ContOf Q P m r j π₁ π₂ →
       wfGuard.St (.compute π₁ ρ₁ (.Apply f a)) → wfGuard.St (.compute π₂ ρ₂ (.Apply f a)) →
       ObsRefinesK j (.compute π₁ ρ₁ (.Apply f a)) (.compute π₂ ρ₂ (.Apply f a)) := by
   intro j hj π₁ π₂ hπ hst₁ hst₂
@@ -289,7 +306,7 @@ theorem apply_spine {P : List Nat} {m F r k D : Nat} {X Ls : List Nat} {ρ₁ ρ
   by_cases hp : m - (r + 1) ∈ P
   · obtain ⟨i, rfl, hi⟩ := hok hp
     obtain ⟨l, e₁, e₂, hl⟩ := henv.lists i hi
-    obtain ⟨c, rfl⟩ := listValue_vcon hl
+    obtain ⟨c, rfl⟩ := listValue_vcon (Q.list hl)
     refine obsRefinesK_of_steps_left (n := 1) (s₁' := .ret (.funV H₁ :: π₁) (.VCon c))
       (by simp [steps, step, e₁])
       (obsRefinesK_of_steps_right (n := 1) (s₂' := .ret (.funV H₂ :: π₂) (.VCon c))
@@ -303,7 +320,7 @@ theorem apply_spine {P : List Nat} {m F r k D : Nat} {X Ls : List Nat} {ρ₁ ρ
 mutual
   theorem calls_eval {P : List Nat} {m F : Nat} {X Ls : List Nat} {t : Term}
       (h : Calls P m F X Ls t) {k D : Nat} {ρ₁ ρ₂ : CekEnv} (ht : closedAt D t = true)
-      (henv : EnvOK P m k D F X Ls ρ₁ ρ₂) : Eval wfGuard k ρ₁ ρ₂ t t := by
+      (henv : EnvOK Q P m k D F X Ls ρ₁ ρ₂) : Eval wfGuard k ρ₁ ρ₂ t t := by
     match h with
     | .var (i := n) hF hS =>
       refine eval_of_step fun j hj π₁ π₂ hπ hst₁ hst₂ => ?_
@@ -424,8 +441,8 @@ mutual
 
   theorem spine_eval {P : List Nat} {m F r : Nat} {X Ls : List Nat} {t : Term}
       (h : Spine P m F X Ls r t) (hr : 0 < r) {k D : Nat} {ρ₁ ρ₂ : CekEnv}
-      (ht : closedAt D t = true) (henv : EnvOK P m k D F X Ls ρ₁ ρ₂) :
-      ∀ j ≤ k, ∀ π₁ π₂, ContOf P m r j π₁ π₂ →
+      (ht : closedAt D t = true) (henv : EnvOK Q P m k D F X Ls ρ₁ ρ₂) :
+      ∀ j ≤ k, ∀ π₁ π₂, ContOf Q P m r j π₁ π₂ →
         wfGuard.St (.compute π₁ ρ₁ t) → wfGuard.St (.compute π₂ ρ₂ t) →
         ObsRefinesK j (.compute π₁ ρ₁ t) (.compute π₂ ρ₂ t) := by
     match h with
@@ -447,7 +464,7 @@ mutual
 
   theorem callsList_eval {P : List Nat} {m F : Nat} {X Ls : List Nat} {ts : List Term}
       (h : CallsList P m F X Ls ts) {k D : Nat} {ρ₁ ρ₂ : CekEnv} (hts : closedAtList D ts = true)
-      (henv : EnvOK P m k D F X Ls ρ₁ ρ₂) : ListRel (Eval wfGuard k ρ₁ ρ₂) ts ts := by
+      (henv : EnvOK Q P m k D F X Ls ρ₁ ρ₂) : ListRel (Eval wfGuard k ρ₁ ρ₂) ts ts := by
     match h with
     | .nil => exact trivial
     | .cons ht hts' =>

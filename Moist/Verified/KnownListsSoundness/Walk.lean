@@ -17,6 +17,12 @@ open Moist.CEK Moist.Plutus.Term
 open Moist.MIR Moist.MIR.Advanced
 open Moist.Verified Moist.Verified.Equivalence Moist.Verified.ShapeFacts
 
+/-- `listKnown` accepts expressions returning builtin lists. -/
+def listKnowledge : ListKnowledge anyList where
+  known := listKnown
+  sound := fun h hF hd hlow hv => listKnown_sound h hF hd hlow hv
+  bound := fun h hk hn => listKnown_bound h hk hn
+
 /-! ## Recursive applications -/
 
 omit sv in
@@ -205,7 +211,7 @@ omit sv in
 theorem listedParameters_nil (params : List VarId) : listedParameters params [] = [] := rfl
 
 theorem knownListWalk_rel (e : Expr) (Γ : List (VarId × Expr)) (L : List VarId) :
-    KnownRel Γ L e (knownListWalk Γ L e) := by
+    KnownRel anyList Γ L e (knownListWalk Γ L e) := by
   match e with
   | .App function argument =>
     rw [knownListWalk.eq_1]
@@ -218,7 +224,7 @@ theorem knownListWalk_rel (e : Expr) (Γ : List (VarId × Expr)) (L : List VarId
         simp only [Advanced.applyAll] at this
         rw [this, Advanced.lambdaWrap, lambdaChain_wrap]
       rw [heq]
-      have hargs : ListRel (KnownRel Γ L) arguments
+      have hargs : ListRel (KnownRel anyList Γ L) arguments
           (arguments.attach.map fun ⟨a, _⟩ => knownListWalk Γ L a) :=
         listRel_known_attach_map arguments (knownListWalk Γ L) fun a _ => knownListWalk_rel a Γ L
       by_cases hP : listPositions Γ L recursive (parameter :: (lambdaChain body).1) arguments
@@ -228,7 +234,7 @@ theorem knownListWalk_rel (e : Expr) (Γ : List (VarId × Expr)) (L : List VarId
         simp only [Advanced.lambdaWrap]
         exact (KnownRel.lambdaWrap _ (knownListWalk_rel (lambdaChain body).2 Γ L)).fix_lam
       · obtain ⟨hlen, hpos, hcheck⟩ := listPositions_spec hP
-        exact KnownRel.fixApp (by simp) hlen hargs hpos hcheck
+        exact KnownRel.fixApp (K := listKnowledge) (by simp) hlen hargs hpos hcheck
           (knownListWalk_rel (lambdaChain body).2 Γ _)
     · exact (knownListWalk_rel function Γ L).app (knownListWalk_rel argument Γ L)
   | .Case scrutinee alternatives =>
@@ -314,7 +320,7 @@ theorem knownListWalk_rel (e : Expr) (Γ : List (VarId × Expr)) (L : List VarId
             (Advanced.lambdaWrap (parameter :: (lambdaChain fixBody).1) (lambdaChain fixBody).2) := by
           rw [Advanced.lambdaWrap, lambdaChain_wrap]
         rw [hwrap]
-        exact (KnownRel.letFix (by simp) hcheck (knownListWalk_rel (lambdaChain fixBody).2 Γ _)
+        exact (KnownRel.letFix (K := listKnowledge) (by simp) hcheck (knownListWalk_rel (lambdaChain fixBody).2 Γ _)
           hcheckBody (fun y hy => environmentLists_known hy)
           (knownListWalk_rel (.Let rest body) _ L)).congr_left
           (fun env => lowerTotalExpr_let_cons env _ _ _) (fun avoid => freshIn_let_cons avoid _ _ _)
@@ -363,6 +369,6 @@ decreasing_by
 
 /-- Fusing `nullList` discriminators of known lists refines its input. -/
 theorem fuseKnownListCases_factRel {e : Expr} :
-    KnownRel [] [] e (knownListWalk [] [] e) := knownListWalk_rel e [] []
+    KnownRel anyList [] [] e (knownListWalk [] [] e) := knownListWalk_rel e [] []
 
 end Moist.Verified.KnownLists

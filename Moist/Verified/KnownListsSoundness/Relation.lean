@@ -1,11 +1,12 @@
 import Moist.Verified.CheckedBranchesSoundness.Relation
 import Moist.MIR.Optimize.Advanced.KnownLists
+import Moist.Verified.KnownListsSoundness.Calls
 
 variable [sv : Moist.CEK.SemVariant]
 
 /-! # Refinement under list facts
 
-`KnownRel Γ L e e'` is `FactRel` with an additional set `L` of names known to
+`KnownRel Q Γ L e e'` is `FactRel` with an additional set `L` of names known to
 hold lists (plain, data or data-pair): in every distinct lowering environment
 that binds every name of `L`, the lowerings refine each other in every
 runtime environment realizing both the binding facts `Γ` and the list facts
@@ -19,30 +20,34 @@ namespace Moist.Verified.ShapeFacts
 open Moist.CEK Moist.Plutus.Term
 open Moist.MIR Moist.MIR.Advanced
 open Moist.Verified Moist.Verified.Equivalence Moist.Verified.BetaValueRefines
+open Moist.Verified.KnownLists (ListFamily anyList)
 
-/-- Every listed name bound in `env` holds a list in `ρ`. -/
-def ListsHold (L : List VarId) (env : List VarId) (ρ : CekEnv) : Prop :=
+variable {Q : ListFamily}
+
+/-- Every listed name bound in `env` holds a list of the family in `ρ`. -/
+def ListsHold (Q : ListFamily) (L : List VarId) (env : List VarId) (ρ : CekEnv) : Prop :=
   ∀ x, L.contains x = true → ∀ i, envLookupT env x = some i →
-    ∃ v, ρ.lookup (i + 1) = some v ∧ ListValue v
+    ∃ v, ρ.lookup (i + 1) = some v ∧ Q.mem v
 
-def KnownFacts (Γ : List (VarId × Expr)) (L : List VarId) (env : List VarId) (ρ : CekEnv) : Prop :=
-  FactsHold Produces Γ env ρ ∧ ListsHold L env ρ
+def KnownFacts (Q : ListFamily) (Γ : List (VarId × Expr)) (L : List VarId) (env : List VarId)
+    (ρ : CekEnv) : Prop :=
+  FactsHold Produces Γ env ρ ∧ ListsHold Q L env ρ
 
-def KnownRel (Γ : List (VarId × Expr)) (L : List VarId) (e e' : Expr) : Prop :=
+def KnownRel (Q : ListFamily) (Γ : List (VarId × Expr)) (L : List VarId) (e e' : Expr) : Prop :=
   ∀ env t, EnvDistinct env → freshIn env e = true → KeysBound Γ env → FactsScoped Γ env →
     NamesBound L env → lowerTotalExpr env e = some t →
-    ∃ t', lowerTotalExpr env e' = some t' ∧ FactRefines env.length (KnownFacts Γ L env) t t'
+    ∃ t', lowerTotalExpr env e' = some t' ∧ FactRefines env.length (KnownFacts Q Γ L env) t t'
 
 /-! ## List facts under binders -/
 
 omit sv in
-theorem ListsHold.nil (env : List VarId) (ρ : CekEnv) : ListsHold [] env ρ := by
+theorem ListsHold.nil (env : List VarId) (ρ : CekEnv) : ListsHold Q [] env ρ := by
   intro y hy; simp at hy
 
 omit sv in
 theorem ListsHold.extend {L env : List VarId} {ρ : CekEnv} {x : VarId} (w : CekValue)
-    (h : ListsHold L env ρ) (hb : NamesBound L env) (hx : (envLookupT env x).isNone = true) :
-    ListsHold L (x :: env) (ρ.extend w) := by
+    (h : ListsHold Q L env ρ) (hb : NamesBound L env) (hx : (envLookupT env x).isNone = true) :
+    ListsHold Q L (x :: env) (ρ.extend w) := by
   intro y hy i hl
   rw [envLookupT_cons_neq x y env (hb.fresh hx y hy)] at hl
   cases hl' : envLookupT env y with
@@ -53,9 +58,9 @@ theorem ListsHold.extend {L env : List VarId} {ρ : CekEnv} {x : VarId} (w : Cek
 
 omit sv in
 /-- A list fact for a name bound in the current environment. -/
-theorem ListsHold.add {L env : List VarId} {ρ : CekEnv} {l : VarId} (h : ListsHold L env ρ)
-    (hl : ∀ i, envLookupT env l = some i → ∃ v, ρ.lookup (i + 1) = some v ∧ ListValue v) :
-    ListsHold (l :: L) env ρ := by
+theorem ListsHold.add {L env : List VarId} {ρ : CekEnv} {l : VarId} (h : ListsHold Q L env ρ)
+    (hl : ∀ i, envLookupT env l = some i → ∃ v, ρ.lookup (i + 1) = some v ∧ Q.mem v) :
+    ListsHold Q (l :: L) env ρ := by
   intro y hy i hi
   simp only [List.contains_cons, Bool.or_eq_true] at hy
   rcases hy with hy | hy
@@ -65,8 +70,8 @@ theorem ListsHold.add {L env : List VarId} {ρ : CekEnv} {l : VarId} (h : ListsH
 omit sv in
 /-- A new binder holding a list. -/
 theorem ListsHold.push {L env : List VarId} {ρ : CekEnv} {x : VarId} {w : CekValue}
-    (h : ListsHold L env ρ) (hb : NamesBound L env) (hx : (envLookupT env x).isNone = true)
-    (hw : ListValue w) : ListsHold (x :: L) (x :: env) (ρ.extend w) := by
+    (h : ListsHold Q L env ρ) (hb : NamesBound L env) (hx : (envLookupT env x).isNone = true)
+    (hw : Q.mem w) : ListsHold Q (x :: L) (x :: env) (ρ.extend w) := by
   refine (h.extend w hb hx).add ?_
   intro i hi
   rw [MIR.envLookupT_cons_of_beq (varId_beq_self x) env] at hi
@@ -75,8 +80,8 @@ theorem ListsHold.push {L env : List VarId} {ρ : CekEnv} {x : VarId} {w : CekVa
 
 omit sv in
 /-- List facts survive moving to an older suffix of a distinct environment. -/
-theorem ListsHold.drop {L env : List VarId} {ρ : CekEnv} (h : ListsHold L env ρ)
-    (hd : EnvDistinct env) (j : Nat) : ListsHold L (env.drop j) (dropEnv j ρ) := by
+theorem ListsHold.drop {L env : List VarId} {ρ : CekEnv} (h : ListsHold Q L env ρ)
+    (hd : EnvDistinct env) (j : Nat) : ListsHold Q L (env.drop j) (dropEnv j ρ) := by
   intro y hy i hi
   have hi' := hd.drop_lookup j hi
   obtain ⟨v, hv, hlv⟩ := h y hy (i + j) hi'
@@ -84,8 +89,8 @@ theorem ListsHold.drop {L env : List VarId} {ρ : CekEnv} (h : ListsHold L env �
   rw [dropEnv_lookup j ρ _ (by omega), show i + 1 + j = i + j + 1 by omega]; exact hv
 
 omit sv in
-theorem ListsHold.append {L L' env : List VarId} {ρ : CekEnv} (h : ListsHold L env ρ)
-    (h' : ListsHold L' env ρ) : ListsHold (L' ++ L) env ρ := by
+theorem ListsHold.append {L L' env : List VarId} {ρ : CekEnv} (h : ListsHold Q L env ρ)
+    (h' : ListsHold Q L' env ρ) : ListsHold Q (L' ++ L) env ρ := by
   intro y hy i hi
   simp only [List.contains_append, Bool.or_eq_true] at hy
   rcases hy with hy | hy
@@ -93,38 +98,38 @@ theorem ListsHold.append {L L' env : List VarId} {ρ : CekEnv} (h : ListsHold L 
   · exact h y hy i hi
 
 theorem KnownFacts.extend {Γ : List (VarId × Expr)} {L env : List VarId} {ρ : CekEnv} {x : VarId}
-    (w : CekValue) (h : KnownFacts Γ L env ρ) (hb : NamesBound L env)
+    (w : CekValue) (h : KnownFacts Q Γ L env ρ) (hb : NamesBound L env)
     (hx : (envLookupT env x).isNone = true) (hnone : Γ.find? (fun e => e.1 == x) = none) :
-    KnownFacts Γ L (x :: env) (ρ.extend w) :=
+    KnownFacts Q Γ L (x :: env) (ρ.extend w) :=
   ⟨FactsHold.extend w h.1 hnone, h.2.extend w hb hx⟩
 
 /-! ## Basic properties -/
 
-theorem KnownRel.refl (Γ : List (VarId × Expr)) (L : List VarId) (e : Expr) : KnownRel Γ L e e :=
+theorem KnownRel.refl (Γ : List (VarId × Expr)) (L : List VarId) (e : Expr) : KnownRel Q Γ L e e :=
   fun _ t _ _ _ _ _ h => ⟨t, h, FactRefines.refl _ _ _⟩
 
 theorem KnownRel.of_factRel {Γ : List (VarId × Expr)} {L : List VarId} {e e' : Expr}
-    (h : FactRel (fun _ => True) Produces Γ e e') : KnownRel Γ L e e' := by
+    (h : FactRel (fun _ => True) Produces Γ e e') : KnownRel Q Γ L e e' := by
   intro env t hd hf hk hs _ hlow
   obtain ⟨t', ht', hr⟩ := h env t (fun _ _ => trivial) hd hf hk hs hlow
   exact ⟨t', ht', hr.mono fun _ hF => hF.1⟩
 
 theorem KnownRel.to_factRel {Γ : List (VarId × Expr)} {e e' : Expr}
-    (h : KnownRel Γ [] e e') : FactRel (fun _ => True) Produces Γ e e' := by
+    (h : KnownRel Q Γ [] e e') : FactRel (fun _ => True) Produces Γ e e' := by
   intro env t _ hd hf hk hs hlow
   obtain ⟨t', ht', hr⟩ := h env t hd hf hk hs (NamesBound.nil env) hlow
   exact ⟨t', ht', hr.mono fun ρ hF => ⟨hF, ListsHold.nil env ρ⟩⟩
 
 theorem KnownRel.congr_left {Γ : List (VarId × Expr)} {L : List VarId} {e₀ e e' : Expr}
-    (h : KnownRel Γ L e₀ e') (hlow : ∀ env, lowerTotalExpr env e = lowerTotalExpr env e₀)
-    (hfresh : ∀ avoid, freshIn avoid e = freshIn avoid e₀) : KnownRel Γ L e e' := by
+    (h : KnownRel Q Γ L e₀ e') (hlow : ∀ env, lowerTotalExpr env e = lowerTotalExpr env e₀)
+    (hfresh : ∀ avoid, freshIn avoid e = freshIn avoid e₀) : KnownRel Q Γ L e e' := by
   intro env t hd hf hk hs hn ht
   rw [hfresh] at hf; rw [hlow] at ht
   exact h env t hd hf hk hs hn ht
 
 theorem KnownRel.congr_right {Γ : List (VarId × Expr)} {L : List VarId} {e e₀ e' : Expr}
-    (h : KnownRel Γ L e e₀) (hlow : ∀ env, lowerTotalExpr env e' = lowerTotalExpr env e₀) :
-    KnownRel Γ L e e' := by
+    (h : KnownRel Q Γ L e e₀) (hlow : ∀ env, lowerTotalExpr env e' = lowerTotalExpr env e₀) :
+    KnownRel Q Γ L e e' := by
   intro env t hd hf hk hs hn ht
   obtain ⟨t', ht', hr⟩ := h env t hd hf hk hs hn ht
   exact ⟨t', by rw [hlow]; exact ht', hr⟩
@@ -132,7 +137,7 @@ theorem KnownRel.congr_right {Γ : List (VarId × Expr)} {L : List VarId} {e e�
 /-! ## Congruences -/
 
 theorem KnownRel.lam {Γ : List (VarId × Expr)} {L : List VarId} {x : VarId} {b b' : Expr}
-    (h : KnownRel Γ L b b') : KnownRel Γ L (.Lam x b) (.Lam x b') := by
+    (h : KnownRel Q Γ L b b') : KnownRel Q Γ L (.Lam x b) (.Lam x b') := by
   intro env t hd hfresh hk hs hn hlow
   simp only [freshIn, Bool.and_eq_true] at hfresh
   obtain ⟨hd', hk', hs', hnone⟩ := enter_binder hd hk hs hfresh.1
@@ -144,7 +149,7 @@ theorem KnownRel.lam {Γ : List (VarId × Expr)} {L : List VarId} {x : VarId} {b
     (fun ρ v hF => hF.extend v hn hfresh.1 hnone) (by simpa using hr)
 
 theorem KnownRel.delay {Γ : List (VarId × Expr)} {L : List VarId} {b b' : Expr}
-    (h : KnownRel Γ L b b') : KnownRel Γ L (.Delay b) (.Delay b') := by
+    (h : KnownRel Q Γ L b b') : KnownRel Q Γ L (.Delay b) (.Delay b') := by
   intro env t hd hfresh hk hs hn hlow
   simp only [freshIn] at hfresh
   obtain ⟨tb, htb, rfl⟩ := lowerTotalExpr_delay_some hlow
@@ -153,7 +158,7 @@ theorem KnownRel.delay {Γ : List (VarId × Expr)} {L : List VarId} {b b' : Expr
   exact factRefines_delay (MIR.lowerTotalExpr_closedAt htb) (MIR.lowerTotalExpr_closedAt htb') hr
 
 theorem KnownRel.force {Γ : List (VarId × Expr)} {L : List VarId} {b b' : Expr}
-    (h : KnownRel Γ L b b') : KnownRel Γ L (.Force b) (.Force b') := by
+    (h : KnownRel Q Γ L b b') : KnownRel Q Γ L (.Force b) (.Force b') := by
   intro env t hd hfresh hk hs hn hlow
   simp only [freshIn] at hfresh
   obtain ⟨tb, htb, rfl⟩ := lowerTotalExpr_force_some hlow
@@ -161,8 +166,8 @@ theorem KnownRel.force {Γ : List (VarId × Expr)} {L : List VarId} {b b' : Expr
   exact ⟨.Force tb', by rw [MIR.lowerTotalExpr_force, htb']; rfl, factRefines_force hr⟩
 
 theorem KnownRel.app {Γ : List (VarId × Expr)} {L : List VarId} {f f' a a' : Expr}
-    (hf : KnownRel Γ L f f') (ha : KnownRel Γ L a a') :
-    KnownRel Γ L (.App f a) (.App f' a') := by
+    (hf : KnownRel Q Γ L f f') (ha : KnownRel Q Γ L a a') :
+    KnownRel Q Γ L (.App f a) (.App f' a') := by
   intro env t hd hfresh hk hs hn hlow
   simp only [freshIn, Bool.and_eq_true] at hfresh
   obtain ⟨tf, ta, htf, hta, rfl⟩ := lowerTotalExpr_app_some hlow
@@ -172,11 +177,11 @@ theorem KnownRel.app {Γ : List (VarId × Expr)} {L : List VarId} {f f' a a' : E
   exact factRefines_apply hrf hra (MIR.lowerTotalExpr_closedAt htf') (MIR.lowerTotalExpr_closedAt hta)
 
 theorem KnownRel.list {Γ : List (VarId × Expr)} {L : List VarId} :
-    ∀ {es es' : List Expr}, ListRel (KnownRel Γ L) es es' →
+    ∀ {es es' : List Expr}, ListRel (KnownRel Q Γ L) es es' →
       ∀ env ts, EnvDistinct env → freshInList env es = true → KeysBound Γ env →
         FactsScoped Γ env → NamesBound L env → MIR.lowerTotalExprList env es = some ts →
         ∃ ts', MIR.lowerTotalExprList env es' = some ts' ∧
-          ListRel (FactRefines env.length (KnownFacts Γ L env)) ts ts'
+          ListRel (FactRefines env.length (KnownFacts Q Γ L env)) ts ts'
   | [], [], _, env, ts, _, _, _, _, _, h => by
     rw [MIR.lowerTotalExprList_nil] at h; cases h
     exact ⟨[], MIR.lowerTotalExprList_nil env, trivial⟩
@@ -197,7 +202,7 @@ theorem KnownRel.list {Γ : List (VarId × Expr)} {L : List VarId} :
         refine ⟨te' :: tes', by rw [MIR.lowerTotalExprList_cons, hte', htes']; rfl, hr, hrs⟩
 
 theorem KnownRel.constr {Γ : List (VarId × Expr)} {L : List VarId} {tag : Nat} {es es' : List Expr}
-    (h : ListRel (KnownRel Γ L) es es') : KnownRel Γ L (.Constr tag es) (.Constr tag es') := by
+    (h : ListRel (KnownRel Q Γ L) es es') : KnownRel Q Γ L (.Constr tag es) (.Constr tag es') := by
   intro env t hd hfresh hk hs hn hlow
   simp only [freshIn] at hfresh
   rw [MIR.lowerTotalExpr_constr_of_list] at hlow
@@ -211,8 +216,8 @@ theorem KnownRel.constr {Γ : List (VarId × Expr)} {L : List VarId} {tag : Nat}
       (lowerTotalExprList_closedAtList hts')
 
 theorem KnownRel.case {Γ : List (VarId × Expr)} {L : List VarId} {s s' : Expr}
-    {alts alts' : List Expr} (hs : KnownRel Γ L s s') (halts : ListRel (KnownRel Γ L) alts alts') :
-    KnownRel Γ L (.Case s alts) (.Case s' alts') := by
+    {alts alts' : List Expr} (hs : KnownRel Q Γ L s s') (halts : ListRel (KnownRel Q Γ L) alts alts') :
+    KnownRel Q Γ L (.Case s alts) (.Case s' alts') := by
   intro env t hd hfresh hk hsc hn hlow
   simp only [freshIn, Bool.and_eq_true] at hfresh
   obtain ⟨ts, talts, hts, htalts, rfl⟩ := lowerTotalExpr_case_some hlow
@@ -223,8 +228,8 @@ theorem KnownRel.case {Γ : List (VarId × Expr)} {L : List VarId} {s s' : Expr}
     (lowerTotalExprList_closedAtList htalts)
 
 theorem listRel_known_attach_map {Γ : List (VarId × Expr)} {L : List VarId}
-    (children : List Expr) (f : Expr → Expr) (h : ∀ c ∈ children, KnownRel Γ L c (f c)) :
-    ListRel (KnownRel Γ L) children (children.attach.map fun ⟨c, _⟩ => f c) := by
+    (children : List Expr) (f : Expr → Expr) (h : ∀ c ∈ children, KnownRel Q Γ L c (f c)) :
+    ListRel (KnownRel Q Γ L) children (children.attach.map fun ⟨c, _⟩ => f c) := by
   induction children with
   | nil => trivial
   | cons c cs ih =>
@@ -234,7 +239,7 @@ theorem listRel_known_attach_map {Γ : List (VarId × Expr)} {L : List VarId}
     simpa [Function.comp_def] using this
 
 theorem KnownRel.fix_lam {Γ : List (VarId × Expr)} {L : List VarId} {f x : VarId} {b b' : Expr}
-    (h : KnownRel Γ L b b') : KnownRel Γ L (.Fix f (.Lam x b)) (.Fix f (.Lam x b')) := by
+    (h : KnownRel Q Γ L b b') : KnownRel Q Γ L (.Fix f (.Lam x b)) (.Fix f (.Lam x b')) := by
   intro env t hd hfresh hk hsc hn hlow
   simp only [freshIn, Bool.and_eq_true] at hfresh
   obtain ⟨hf, hx, hb⟩ := hfresh
@@ -317,8 +322,8 @@ theorem KnownRel.fix_lam {Γ : List (VarId × Expr)} {L : List VarId} {f x : Var
 
 theorem KnownRel.let_single {Γ : List (VarId × Expr)} {L : List VarId} {x : VarId}
     {r r' b b' : Expr} {er : Bool} (rf : Expr) (hrf : rf = r ∨ rf = r')
-    (hr : KnownRel Γ L r r') (hb : KnownRel ((x, rf) :: Γ) L b b') :
-    KnownRel Γ L (.Let [(x, r, er)] b) (.Let [(x, r', er)] b') := by
+    (hr : KnownRel Q Γ L r r') (hb : KnownRel Q ((x, rf) :: Γ) L b b') :
+    KnownRel Q Γ L (.Let [(x, r, er)] b) (.Let [(x, r', er)] b') := by
   intro env t hd hfresh hk hsc hn hlow
   rw [freshIn_let_single] at hfresh
   simp only [Bool.and_eq_true] at hfresh
@@ -344,13 +349,13 @@ theorem KnownRel.let_single {Γ : List (VarId × Expr)} {L : List VarId} {x : Va
   have closedTb' := MIR.lowerTotalExpr_closedAt htb'
   simp only [List.length_cons] at closedTb closedTb' hrb
   have body : ∀ tr₀, lowerTotalExpr env rf = some tr₀ → closedAt env.length tr₀ = true →
-      FactRefines env.length (KnownFacts Γ L env) (.Apply (.Lam 0 tb) tr₀) (.Apply (.Lam 0 tb') tr₀) := by
+      FactRefines env.length (KnownFacts Q Γ L env) (.Apply (.Lam 0 tb) tr₀) (.Apply (.Lam 0 tb') tr₀) := by
     intro tr₀ htr₀ closed₀
     apply factRefines_let 0 0 closed₀ _ hrb
     intro ρ v hF hv
     exact ⟨FactsHold.push hF.1 ⟨tr₀, htr₀, hv⟩, hF.2.extend v hn hx⟩
   have rhs : ∀ tb₀, closedAt (env.length + 1) tb₀ = true →
-      FactRefines env.length (KnownFacts Γ L env) (.Apply (.Lam 0 tb₀) tr) (.Apply (.Lam 0 tb₀) tr') :=
+      FactRefines env.length (KnownFacts Q Γ L env) (.Apply (.Lam 0 tb₀) tr) (.Apply (.Lam 0 tb₀) tr') :=
     fun tb₀ c₀ => factRefines_apply (FactRefines.refl _ _ _) hrr (by simp [closedAt, c₀]) closedTr
   rcases htrf_eq with rfl | rfl
   · exact (body trf htrf closedTr).trans (rhs tb' closedTb')

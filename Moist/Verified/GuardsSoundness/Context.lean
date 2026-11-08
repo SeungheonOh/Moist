@@ -89,7 +89,7 @@ structure Inv (c : TCtx) (env : List VarId) (ρ : CekEnv) : Prop where
   wf : EnvWellFormed env.length ρ
   len : env.length ≤ ρ.length
   facts : FactsHold PF c.facts env ρ
-  lists : ListsHold c.lists env ρ
+  lists : ListsHold anyList c.lists env ρ
   roles : ∀ r ∈ c.roles, RoleHolds env ρ r
 
 omit sv in
@@ -137,8 +137,8 @@ theorem fresh_roles {c : TCtx} {x : VarId} (h : c.fresh x = true) :
   exact ⟨this.1.1, this.1.2, this.2⟩
 
 omit sv in
-theorem ListsHold.extend' {L env : List VarId} {ρ : CekEnv} {x : VarId} (h : ListsHold L env ρ)
-    (hx : L.contains x = false) (w : CekValue) : ListsHold L (x :: env) (ρ.extend w) := by
+theorem ListsHold.extend' {L env : List VarId} {ρ : CekEnv} {x : VarId} (h : ListsHold anyList L env ρ)
+    (hx : L.contains x = false) (w : CekValue) : ListsHold anyList L (x :: env) (ρ.extend w) := by
   intro y hy i hi
   exact (BoundValue.extend (fun i hi => h y hy i hi) (small_beq hy hx) w) i hi
 

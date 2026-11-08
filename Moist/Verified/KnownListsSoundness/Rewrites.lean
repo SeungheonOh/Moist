@@ -20,6 +20,7 @@ open Moist.CEK Moist.Plutus.Term
 open Moist.MIR Moist.MIR.Advanced
 open Moist.Verified Moist.Verified.Equivalence Moist.Verified.Contextual
 open Moist.Verified.BetaValueRefines
+open Moist.Verified.KnownLists (ListFamily anyList)
 
 theorem unMapData_result {vs : List CekValue} {v : CekValue} (hlen : vs.length = 1)
     (h : evalBuiltin .UnMapData vs = some v) : ListValue v := by
@@ -33,7 +34,7 @@ theorem unMapData_result {vs : List CekValue} {v : CekValue} (hlen : vs.length =
 theorem knownListValue_sound :
     ∀ (n : Nat) (Γ : List (VarId × Expr)) (L : List VarId) (e : Expr) {env : List VarId}
       {ρ : CekEnv} {t : Term} {v : CekValue},
-      knownListValue n Γ L e = true → FactsHold Produces Γ env ρ → ListsHold L env ρ →
+      knownListValue n Γ L e = true → FactsHold Produces Γ env ρ → ListsHold anyList L env ρ →
       EnvDistinct env → lowerTotalExpr env e = some t → Halts ρ t v → ListValue v := by
   intro n
   induction n with
@@ -100,13 +101,13 @@ theorem knownListValue_sound :
 
 theorem listKnown_sound {Γ : List (VarId × Expr)} {L : List VarId} {e : Expr} {env : List VarId}
     {ρ : CekEnv} {t : Term} {v : CekValue} (h : listKnown Γ L e = true)
-    (hF : KnownFacts Γ L env ρ) (hd : EnvDistinct env) (hlow : lowerTotalExpr env e = some t)
+    (hF : KnownFacts anyList Γ L env ρ) (hd : EnvDistinct env) (hlow : lowerTotalExpr env e = some t)
     (hv : Halts ρ t v) : ListValue v :=
   knownListValue_sound 64 Γ L e h hF.1 hF.2 hd hlow hv
 
 /-- The value of a variable accepted by `listKnown` is a list. -/
 theorem listKnown_var {Γ : List (VarId × Expr)} {L : List VarId} {l : VarId} {env : List VarId}
-    {ρ : CekEnv} {il : Nat} (h : listKnown Γ L (.Var l) = true) (hF : KnownFacts Γ L env ρ)
+    {ρ : CekEnv} {il : Nat} (h : listKnown Γ L (.Var l) = true) (hF : KnownFacts anyList Γ L env ρ)
     (hd : EnvDistinct env) (hil : envLookupT env l = some il) (henv : EnvWellFormed env.length ρ) :
     ∃ v, ρ.lookup (il + 1) = some v ∧ ListValue v := by
   have hil_lt := Moist.MIR.envLookupT_bound env l il hil
@@ -118,11 +119,11 @@ theorem listKnown_var {Γ : List (VarId × Expr)} {L : List VarId} {l : VarId} {
 open Moist.Verified.KnownLists (listCase_dispatch listValue_vcon)
 
 /-- The cons alternative of a list `case` binds a head and a list tail. -/
-theorem consAlt_facts {Γ : List (VarId × Expr)} {L env : List VarId} {ρ : CekEnv} {h t : VarId}
-    {c : Const} {tl : CekValue} (hF : KnownFacts Γ L env ρ) (hn : NamesBound L env)
+theorem consAlt_facts {Q : ListFamily} {Γ : List (VarId × Expr)} {L env : List VarId} {ρ : CekEnv}
+    {h t : VarId} {c : Const} {tl : CekValue} (hF : KnownFacts Q Γ L env ρ) (hn : NamesBound L env)
     (hk : KeysBound Γ env) (hh : (envLookupT env h).isNone = true)
-    (ht : (envLookupT (h :: env) t).isNone = true) (htl : ListValue tl) :
-    KnownFacts Γ (t :: L) (t :: h :: env) ((ρ.extend (.VCon c)).extend tl) := by
+    (ht : (envLookupT (h :: env) t).isNone = true) (htl : Q.mem tl) :
+    KnownFacts Q Γ (t :: L) (t :: h :: env) ((ρ.extend (.VCon c)).extend tl) := by
   have hnh := find?_none_of_unbound hk hh
   have hnt := find?_none_of_unbound (hk.cons h) ht
   have h₁ := hF.extend (.VCon c) hn hh hnh
@@ -166,13 +167,13 @@ theorem lowerTotalExpr_consAlt_of {env : List VarId} {h t : VarId} {C : Expr} {t
   rw [MIR.lowerTotalExpr_lam, MIR.lowerTotalExpr_lam, htC]; rfl
 
 /-- The cons alternative under list facts for the tail. -/
-theorem consAlt_rel {Γ : List (VarId × Expr)} {L : List VarId} {h t : VarId} {C C' : Expr}
-    (hC : KnownRel Γ (t :: L) C C') {env : List VarId} {tC : Term} (hd : EnvDistinct env)
+theorem consAlt_rel {Q : ListFamily} {Γ : List (VarId × Expr)} {L : List VarId} {h t : VarId}
+    {C C' : Expr} (hC : KnownRel Q Γ (t :: L) C C') {env : List VarId} {tC : Term} (hd : EnvDistinct env)
     (hk : KeysBound Γ env) (hs : FactsScoped Γ env) (hn : NamesBound L env)
     (hh : (envLookupT env h).isNone = true) (ht : (envLookupT (h :: env) t).isNone = true)
     (hfC : freshIn (t :: h :: env) C = true) (htC : lowerTotalExpr (t :: h :: env) C = some tC) :
     ∃ tC', lowerTotalExpr (t :: h :: env) C' = some tC' ∧
-      FactRefines (env.length + 2) (KnownFacts Γ (t :: L) (t :: h :: env)) tC tC' := by
+      FactRefines (env.length + 2) (KnownFacts Q Γ (t :: L) (t :: h :: env)) tC tC' := by
   obtain ⟨hd₁, hk₁, hs₁, _⟩ := enter_binder hd hk hs hh
   obtain ⟨hd₂, hk₂, hs₂, _⟩ := enter_binder hd₁ hk₁ hs₁ ht
   have hn₂ : NamesBound (t :: L) (t :: h :: env) :=
@@ -214,7 +215,7 @@ theorem listShape {v : CekValue} (hv : ListValue v) :
           match alts[1]? with
           | some alt => .compute π ρ alt
           | none => .error) := by
-  rcases listCase_dispatch hv with ⟨c, tl, htl, hd⟩ | hd
+  rcases listCase_dispatch (Q := anyList) hv with ⟨c, tl, htl, hd⟩ | hd
   · refine .inl ⟨c, tl, htl, ?_, hd⟩
     obtain ⟨c', rfl⟩ := listValue_vcon hv
     have := hd [] .nil [.Error]
@@ -228,11 +229,13 @@ theorem listShape {v : CekValue} (hv : ListValue v) :
     | ConstList _ xs => cases xs <;> simp_all [step, constToTagAndFields, nullResult]
     | _ => exact absurd hv id
 
-theorem KnownRel.listCase {Γ : List (VarId × Expr)} {L : List VarId} {l h t : VarId}
+/-- The tail bound by a `case` on a list of the family is a list of the family. -/
+theorem KnownRel.listCaseOf {Q : ListFamily} {Γ : List (VarId × Expr)} {L : List VarId} {l h t : VarId}
     {C C' : Expr} {rest rest' : List Expr}
-    (hl : listKnown Γ L (.Var l) = true) (hC : KnownRel Γ (t :: L) C C')
-    (hrest : ListRel (KnownRel Γ L) rest rest') :
-    KnownRel Γ L (.Case (.Var l) (.Lam h (.Lam t C) :: rest))
+    (hl : ∀ {env : List VarId} {ρ : CekEnv} {il : Nat}, KnownFacts Q Γ L env ρ → EnvDistinct env →
+      envLookupT env l = some il → EnvWellFormed env.length ρ → ∃ v, ρ.lookup (il + 1) = some v ∧ Q.mem v)
+    (hC : KnownRel Q Γ (t :: L) C C') (hrest : ListRel (KnownRel Q Γ L) rest rest') :
+    KnownRel Q Γ L (.Case (.Var l) (.Lam h (.Lam t C) :: rest))
       (.Case (.Var l) (.Lam h (.Lam t C') :: rest')) := by
   intro env t₀ hd hfresh hk hs hn hlow
   simp only [freshIn, freshInList, Bool.and_eq_true] at hfresh
@@ -255,7 +258,7 @@ theorem KnownRel.listCase {Γ : List (VarId × Expr)} {L : List VarId} {l h t : 
       lowerTotalExpr_consAlt_of htC', htR']
     rfl
   intro ρ π henv hlen hπ hF
-  obtain ⟨vl, hvl, hlv⟩ := listKnown_var hl hF hd hil henv
+  obtain ⟨vl, hvl, hlv⟩ := hl hF hd hil henv
   have hlenR := listRel_length hrR
   refine obsRefines_of_steps 3 3 ?_
   rw [steps_trans 2 1, steps_trans 2 1, case_var_steps hvl, case_var_steps hvl]
@@ -267,7 +270,7 @@ theorem KnownRel.listCase {Γ : List (VarId × Expr)} {L : List VarId} {l h t : 
     · exact obsRefines_refl _
     · refine obsRefines_of_steps 4 4 ?_
       rw [consAlt_steps, consAlt_steps]
-      obtain ⟨henv₂, hlen₂⟩ := consAlt_env (c := c) henv hlen htl
+      obtain ⟨henv₂, hlen₂⟩ := consAlt_env (c := c) henv hlen (Q.list htl)
       exact hrC _ π henv₂ hlen₂ hπ (consAlt_facts hF hn hk hh ht htl)
   · rw [hdisp, hdisp]
     simp only [List.length_cons, hlenR, List.getElem?_cons_succ]
@@ -277,12 +280,20 @@ theorem KnownRel.listCase {Γ : List (VarId × Expr)} {L : List VarId} {l h t : 
       · rw [e₁, e₂]; exact obsRefines_refl _
       · rw [e₁, e₂]; exact hxy ρ π henv hlen hπ hF
 
+theorem KnownRel.listCase {Γ : List (VarId × Expr)} {L : List VarId} {l h t : VarId}
+    {C C' : Expr} {rest rest' : List Expr}
+    (hl : listKnown Γ L (.Var l) = true) (hC : KnownRel anyList Γ (t :: L) C C')
+    (hrest : ListRel (KnownRel anyList Γ L) rest rest') :
+    KnownRel anyList Γ L (.Case (.Var l) (.Lam h (.Lam t C) :: rest))
+      (.Case (.Var l) (.Lam h (.Lam t C') :: rest')) :=
+  KnownRel.listCaseOf (fun hF hd hil henv => listKnown_var hl hF hd hil henv) hC hrest
+
 theorem KnownRel.nullFuse {Γ : List (VarId × Expr)} {L : List VarId} {sel : Expr} {l l' h t : VarId}
     {C C' em em' : Expr} {inner : List Expr}
     (hsel : resolveHead 64 Γ sel = .Force (.Builtin .NullList))
     (hl : listKnown Γ L (.Var l) = true) (hll : (l' == l) = true) (hinner : inner.length ≤ 1)
-    (hC : KnownRel Γ (t :: L) C C') (hem : KnownRel Γ L em em') :
-    KnownRel Γ L (.Case (.App sel (.Var l)) [.Case (.Var l') (.Lam h (.Lam t C) :: inner), em])
+    (hC : KnownRel anyList Γ (t :: L) C C') (hem : KnownRel anyList Γ L em em') :
+    KnownRel anyList Γ L (.Case (.App sel (.Var l)) [.Case (.Var l') (.Lam h (.Lam t C) :: inner), em])
       (.Case (.Var l) [.Lam h (.Lam t C'), em']) := by
   intro env t₀ hd hfresh hk hs hn hlow
   simp only [freshIn, freshInList, Bool.and_eq_true] at hfresh
@@ -382,9 +393,9 @@ theorem pair_dispatch {v : CekValue} (hv : PairValue v) :
     data list of the fields. -/
 theorem KnownRel.pairCase {Γ : List (VarId × Expr)} {L : List VarId} {s s' C C' : Expr}
     {h t : VarId} {rest rest' : List Expr}
-    (hs : KnownRel Γ L s s') (hpair : constructorPair 64 Γ s = true)
-    (hC : KnownRel Γ (t :: L) C C') (hrest : ListRel (KnownRel Γ L) rest rest') :
-    KnownRel Γ L (.Case s (.Lam h (.Lam t C) :: rest)) (.Case s' (.Lam h (.Lam t C') :: rest')) := by
+    (hs : KnownRel anyList Γ L s s') (hpair : constructorPair 64 Γ s = true)
+    (hC : KnownRel anyList Γ (t :: L) C C') (hrest : ListRel (KnownRel anyList Γ L) rest rest') :
+    KnownRel anyList Γ L (.Case s (.Lam h (.Lam t C) :: rest)) (.Case s' (.Lam h (.Lam t C') :: rest')) := by
   intro env t₀ hd hfresh hk hsc hn hlow
   simp only [freshIn, freshInList, Bool.and_eq_true] at hfresh
   obtain ⟨hfs, ⟨hh, ht, hfC⟩, hfrest⟩ := hfresh
