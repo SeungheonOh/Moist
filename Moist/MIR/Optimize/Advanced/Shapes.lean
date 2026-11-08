@@ -368,6 +368,155 @@ def isIntegerLiteral (expression : Expr) (value : Int) : Bool :=
   | .Lit (.Integer actual, .AtomicType .TypeInteger) => actual == value
   | _ => false
 
+/-! ## Comparisons against keys of known bytes
+
+`equalsData` costs about a million CPU units on every call. When one side is
+a key `d` whose bytes `k = unBData d` are bound, the comparison only has to
+check that the other side `x` is a `B` value with the bytes `k`. Under builtin
+semantics variant E, `equalsByteString` rejects bytestrings longer than 65536
+bytes where `equalsData` accepts them, so the bytes are compared with
+`equalsByteString` only after their lengths are known equal, and only for keys
+short enough (`keyGuardBound`); every other builtin used here is total.
+`insertKeyGuards` binds, once after `k`,
+
+```
+eqLk = equalsInteger (lengthOfByteString k)
+eqK  = case (dropList (lengthOfByteString k) [(), …]) [λ_ _. equalsByteString k, λy. equalsData d (bData y)]
+n    = case (eqLk 0) [B #, B #00]
+```
+
+so that `n` is a `B` value whose length differs from that of `k`, and a case
+`case (equalsData d x) [miss, hit]` becomes
+
+```
+case (eqLk (lengthOfByteString (unBData (chooseData x n n n n x))))
+  [miss, case (eqK (unBData x)) [miss, hit]]
+```
+-/
+
+/-- Keys at most this long are compared with `equalsByteString`. -/
+def keyGuardBound : Nat := 64
+
+def unitListLiteral (count : Nat) : Expr :=
+  .Lit (.ConstList (.AtomicType .TypeUnit) (List.replicate count .Unit),
+    .TypeOperator (.TypeList (.AtomicType .TypeUnit)))
+
+def lengthApp (key : VarId) : Expr := .App (.Builtin .LengthOfByteString) (.Var key)
+
+def emptyBytesData : Expr := .Lit (.Data (.B ByteArray.empty), .AtomicType .TypeData)
+
+def zeroBytesData : Expr := .Lit (.Data (.B ⟨#[0]⟩), .AtomicType .TypeData)
+
+/-- `equalsInteger (lengthOfByteString k)`. -/
+def guardLength (key : VarId) : Expr := .App (.Builtin .EqualsInteger) (lengthApp key)
+
+/-- The comparison of bytes of the length of `k` with `k`. -/
+def guardCompare (source key headBinder tailBinder bytes : VarId) : Expr :=
+  .Case (.App (.App (.Force (.Builtin .DropList)) (lengthApp key)) (unitListLiteral keyGuardBound))
+    [.Lam headBinder (.Lam tailBinder (.App (.Builtin .EqualsByteString) (.Var key))),
+     .Lam bytes (.App (.App (.Builtin .EqualsData) (.Var source)) (.App (.Builtin .BData) (.Var bytes)))]
+
+/-- A `B` value whose length differs from that of `k`. -/
+def guardOther (lengthTest : VarId) : Expr :=
+  .Case (.App (.Var lengthTest) (integerConstant 0)) [emptyBytesData, zeroBytesData]
+
+/-- The right-hand side recorded for a binder. -/
+def bindingOf (environment : List (VarId × Expr)) (binder : VarId) : Option Expr :=
+  (environment.find? fun entry => entry.1 == binder).map (·.2)
+
+/-- The key bytes tested by a length test binder. -/
+def lengthTestKey (environment : List (VarId × Expr)) (lengthTest : VarId) : Option VarId :=
+  match bindingOf environment lengthTest with
+  | some (.App (.Builtin .EqualsInteger) (.App (.Builtin .LengthOfByteString) (.Var key))) => some key
+  | _ => none
+
+/-- The source of key bytes `k = unBData d`. -/
+def keySource (environment : List (VarId × Expr)) (key : VarId) : Option VarId :=
+  match bindingOf environment key with
+  | some (.App (.Builtin .UnBData) (.Var source)) => some source
+  | _ => none
+
+/-- A comparison of bytes with the key `k` of `d`: the bytes are compared with
+    `equalsByteString` only when `dropList` leaves some of the at most
+    `keyGuardBound` units, that is when the key is shorter than that list. -/
+def isGuardCompare (source key : VarId) : Expr → Bool
+  | .Case (.App (.App (.Force (.Builtin .DropList)) (.App (.Builtin .LengthOfByteString) (.Var lengthKey)))
+        (.Lit (.ConstList _ units, _)))
+      [.Lam headBinder (.Lam tailBinder (.App (.Builtin .EqualsByteString) (.Var compareKey))),
+       .Lam bytes (.App (.App (.Builtin .EqualsData) (.Var compareSource))
+          (.App (.Builtin .BData) (.Var bytes')))] =>
+    lengthKey == key && compareKey == key && compareSource == source && bytes' == bytes &&
+      !(headBinder == key) && !(tailBinder == key) && !(bytes == source) &&
+      decide (units.length ≤ keyGuardBound)
+  | _ => false
+
+/-- The length test of an other `B` value. -/
+def otherLengthTest : Expr → Option VarId
+  | .Case (.App (.Var lengthTest) (.Lit (.Integer 0, .AtomicType .TypeInteger)))
+      [.Lit (.Data (.B empty), .AtomicType .TypeData), .Lit (.Data (.B zero), .AtomicType .TypeData)] =>
+    if empty.size == 0 && zero.size == 1 then some lengthTest else none
+  | _ => none
+
+/-- The length test, comparison and other `B` value bound for key `d`. -/
+def keyGuardFor (environment : List (VarId × Expr)) (source : VarId) : Option (VarId × VarId × VarId) :=
+  environment.findSome? fun entry => do
+    let rhs ← bindingOf environment entry.1
+    let lengthTest ← otherLengthTest rhs
+    let key ← lengthTestKey environment lengthTest
+    let keySourceBinder ← keySource environment key
+    if keySourceBinder == source then
+      let candidate ← environment.find? fun candidate =>
+        (bindingOf environment candidate.1).any (isGuardCompare source key)
+      some (lengthTest, candidate.1, entry.1)
+    else none
+
+/-- The outermost binder of the forced `chooseData` builtin, or the forced builtin. -/
+def isForcedChooseData : Option Expr → Bool
+  | some (.Force (.Builtin .ChooseData)) => true
+  | _ => false
+
+def chooseHead (environment : List (VarId × Expr)) : Expr :=
+  match environment.reverse.find? (fun entry => isForcedChooseData (bindingOf environment entry.1)) with
+  | some entry => .Var entry.1
+  | none => .Force (.Builtin .ChooseData)
+
+def chooseWith (head scrutinee constrCase mapCase listCase intCase bytesCase : Expr) : Expr :=
+  .App (.App (.App (.App (.App (.App head scrutinee) constrCase) mapCase) listCase) intCase) bytesCase
+
+/-- The guarded comparison of `x` with the key, choosing `miss` or `hit`. -/
+def guardedComparison (choose : Expr) (lengthTest compare other x : VarId) (miss hit : Expr) : Expr :=
+  .Case (.App (.Var lengthTest) (.App (.Builtin .LengthOfByteString) (.App (.Builtin .UnBData)
+      (chooseWith choose (.Var x) (.Var other) (.Var other) (.Var other) (.Var other) (.Var x)))))
+    [miss, .Case (.App (.Var compare) (.App (.Builtin .UnBData) (.Var x))) [miss, hit]]
+
+/-- The key and the other operand of an `equalsData` comparison against a
+    guarded key. -/
+def keyedOperands (environment : List (VarId × Expr)) (first second : Expr) :
+    Option (VarId × Expr) :=
+  match first with
+  | .Var a =>
+    if (keyGuardFor environment a).isSome then some (a, second)
+    else match second with
+      | .Var b => if (keyGuardFor environment b).isSome then some (b, first) else none
+      | _ => none
+  | _ =>
+    match second with
+    | .Var b => if (keyGuardFor environment b).isSome then some (b, first) else none
+    | _ => none
+
+def keyComparison (base : Nat) (environment : List (VarId × Expr)) : Expr → Option Expr
+  | .Case (.App (.App (.Builtin .EqualsData) first) second) [miss, hit] => do
+    let (source, operand) ← keyedOperands environment first second
+    let (lengthTest, compare, other) ← keyGuardFor environment source
+    match operand with
+    | .Var x => some (guardedComparison (chooseHead environment) lengthTest compare other x miss hit)
+    | _ =>
+      let x : VarId :=
+        { uid := max base (max (maxUidExpr operand) (max (maxUidExpr miss) (maxUidExpr hit)) + 1),
+          origin := .gen, hint := "compared" }
+      some (.Let [(x, operand, false)] (guardedComparison (chooseHead environment) lengthTest compare other x miss hit))
+  | _ => none
+
 def retainEvaluation (base : Nat) (environment : List (VarId × Expr))
     (expression result : Expr) : Expr :=
   if totalWithFacts 64 environment expression then result
@@ -426,6 +575,8 @@ def checkedRewrite (useShapes : Bool) (base : Nat) (environment : List (VarId ×
     (checkedRoundTrip environment result).getD result else result
   let result := if useShapes then
     (integerIdentity base environment result).getD result else result
+  let result := if useShapes then
+    (keyComparison base environment result).getD result else result
   match result with
   | .App (.App (.App (.Force (.Builtin .IfThenElse)) condition) whenTrue) whenFalse =>
     if knownBoolean 64 environment condition && isPure whenTrue && isPure whenFalse then

@@ -171,7 +171,7 @@ theorem Inv.addList {c : TCtx} {env : List VarId} {ρ : CekEnv} {x : VarId} (h :
   len := h.len
   facts := h.facts
   lists := by
-    show ListsHold ([x] ++ c.lists) env ρ
+    show ListsHold anyList ([x] ++ c.lists) env ρ
     exact ListsHold.add h.lists hx
   roles := h.roles
 

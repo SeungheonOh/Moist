@@ -20,6 +20,29 @@ open Moist.Verified Moist.Verified.Equivalence Moist.Verified.Contextual
 open Moist.Verified.BetaValueRefines
 open Moist.Verified.ShapeFacts
 
+variable {Q : ListFamily}
+
+/-! ## Knowledge of lists -/
+
+/-- A test accepting expressions whose values, under the facts, are lists of
+    the family `Q`; a variable it accepts is bound. -/
+structure ListKnowledge (Q : ListFamily) where
+  known : List (VarId × Expr) → List VarId → Expr → Bool
+  sound : ∀ {Γ : List (VarId × Expr)} {L : List VarId} {e : Expr} {env : List VarId} {ρ : CekEnv}
+    {t : Term} {v : CekValue}, known Γ L e = true → KnownFacts Q Γ L env ρ → EnvDistinct env →
+    lowerTotalExpr env e = some t → Halts ρ t v → Q.mem v
+  bound : ∀ {Γ : List (VarId × Expr)} {L env : List VarId} {y : VarId},
+    known Γ L (.Var y) = true → KeysBound Γ env → NamesBound L env → (envLookupT env y).isSome = true
+
+theorem ListKnowledge.var (K : ListKnowledge Q) {Γ : List (VarId × Expr)} {L : List VarId} {l : VarId}
+    {env : List VarId} {ρ : CekEnv} {il : Nat} (h : K.known Γ L (.Var l) = true)
+    (hF : KnownFacts Q Γ L env ρ) (hd : EnvDistinct env) (hil : envLookupT env l = some il)
+    (henv : EnvWellFormed env.length ρ) :
+    ∃ v, ρ.lookup (il + 1) = some v ∧ Q.mem v := by
+  have hil_lt := Moist.MIR.envLookupT_bound env l il hil
+  obtain ⟨v, hv, _⟩ := envWellFormed_lookup env.length henv (n := il + 1) (by omega) (by omega)
+  exact ⟨v, hv, K.sound h hF hd (by rw [lowerTotalExpr_var, hil]; rfl) (halts_var_of_lookup hv)⟩
+
 /-! ## Application spines and lambda chains -/
 
 omit sv in
@@ -63,8 +86,8 @@ theorem freshIn_applyAll (avoid : List VarId) :
     simp only [freshIn, freshInList, Bool.and_assoc]
 
 theorem KnownRel.applyAll {Γ : List (VarId × Expr)} {L : List VarId} :
-    ∀ {f f' : Expr} {args args' : List Expr}, KnownRel Γ L f f' → ListRel (KnownRel Γ L) args args' →
-      KnownRel Γ L (Advanced.applyAll f args) (Advanced.applyAll f' args')
+    ∀ {f f' : Expr} {args args' : List Expr}, KnownRel Q Γ L f f' → ListRel (KnownRel Q Γ L) args args' →
+      KnownRel Q Γ L (Advanced.applyAll f args) (Advanced.applyAll f' args')
   | _, _, [], [], hf, _ => hf
   | _, _, [], _ :: _, _, h => absurd h id
   | _, _, _ :: _, [], _, h => absurd h id
@@ -72,8 +95,8 @@ theorem KnownRel.applyAll {Γ : List (VarId × Expr)} {L : List VarId} :
     KnownRel.applyAll (f := .App f a) (f' := .App f' a') (hf.app h.1) h.2
 
 theorem KnownRel.lambdaWrap {Γ : List (VarId × Expr)} {L : List VarId} :
-    ∀ (xs : List VarId) {e e' : Expr}, KnownRel Γ L e e' →
-      KnownRel Γ L (Advanced.lambdaWrap xs e) (Advanced.lambdaWrap xs e')
+    ∀ (xs : List VarId) {e e' : Expr}, KnownRel Q Γ L e e' →
+      KnownRel Q Γ L (Advanced.lambdaWrap xs e) (Advanced.lambdaWrap xs e')
   | [], _, _, h => h
   | _ :: xs, _, _, h => (KnownRel.lambdaWrap xs h).lam
 
@@ -115,8 +138,8 @@ theorem enter_lambdaWrap {Γ : List (VarId × Expr)} {L : List VarId} :
       EnvDistinct (xs.reverse ++ env) ∧ KeysBound Γ (xs.reverse ++ env) ∧
         FactsScoped Γ (xs.reverse ++ env) ∧ NamesBound L (xs.reverse ++ env) ∧
         freshIn (xs.reverse ++ env) e = true ∧
-        (∀ ρ as, KnownFacts Γ L env ρ → as.length = xs.length →
-          KnownFacts Γ L (xs.reverse ++ env) (extendAll ρ as)) ∧
+        (∀ ρ as, KnownFacts Q Γ L env ρ → as.length = xs.length →
+          KnownFacts Q Γ L (xs.reverse ++ env) (extendAll ρ as)) ∧
         (∀ x ∈ xs, (envLookupT env x).isNone = true)
   | [], env, e, hf, hd, hk, hs, hn => by
     simp only [List.reverse_nil, List.nil_append]
@@ -260,7 +283,7 @@ theorem fix_setup {Γ : List (VarId × Expr)} {L : List VarId} {f : VarId}
     {params : List VarId} {inner inner' : Expr} {P : List Nat}
     (hne : params ≠ [])
     (hcheck : listCallsOK f params.length P (listedParameters params P ++ L) inner = true)
-    (hbody : KnownRel Γ (listedParameters params P ++ L) inner inner')
+    (hbody : KnownRel Q Γ (listedParameters params P ++ L) inner inner')
     {env : List VarId} {tF : Term} (hd : EnvDistinct env) (hk : KeysBound Γ env)
     (hs : FactsScoped Γ env) (hn : NamesBound L env)
     (hfF : freshIn env (.Fix f (Advanced.lambdaWrap params inner)) = true)
@@ -271,8 +294,8 @@ theorem fix_setup {Γ : List (VarId × Expr)} {L : List VarId} {f : VarId}
       closedAt (env.length + 2 + params.length) T₁ = true ∧
       closedAt (env.length + 2 + params.length) T₂ = true ∧
       tB₁ = lams (params.length - 1) T₁ ∧ tB₂ = lams (params.length - 1) T₂ ∧
-      ∀ ρ, EnvWellFormed env.length ρ → env.length ≤ ρ.length → KnownFacts Γ L env ρ →
-        ∀ k, Knot P params.length tB₁ tB₂ T₁ T₂ ρ k := by
+      ∀ ρ, EnvWellFormed env.length ρ → env.length ≤ ρ.length → KnownFacts Q Γ L env ρ →
+        ∀ k, Knot Q P params.length tB₁ tB₂ T₁ T₂ ρ k := by
   obtain ⟨x₀, rest, rfl⟩ : ∃ x₀ rest, params = x₀ :: rest := by
     cases params with
     | nil => exact absurd rfl hne
@@ -407,7 +430,7 @@ theorem fix_setup {Γ : List (VarId × Expr)} {L : List VarId} {f : VarId}
   intro ρ henv hlen hF
   have hLs : ∀ i ∈ Ls, (0 < i ∧ i ≤ (x₀ :: rest).length ∧ (x₀ :: rest).length - i ∈ P) ∨
       ((x₀ :: rest).length + 2 < i ∧ ∃ l, ρ.lookup (i - ((x₀ :: rest).length + 2)) = some l ∧
-        ListValue l) := by
+        Q.mem l) := by
     intro i hi
     obtain ⟨y, hy, hyi⟩ := List.mem_filterMap.mp hi
     obtain ⟨j, hj, rfl⟩ := Option.map_eq_some_iff.mp hyi
@@ -427,7 +450,7 @@ theorem fix_setup {Γ : List (VarId × Expr)} {L : List VarId} {f : VarId}
       rw [show j' + (rest.length + 3) + 1 - ((x₀ :: rest).length + 2) = j' + 1 by simp; omega]
       exact hl
   have hbody' : ∀ as : List CekValue, as.length = (x₀ :: rest).length →
-      (∀ a ∈ as, ValueWellFormed a) → (∀ p ∈ P, ∀ a, as[p]? = some a → ListValue a) →
+      (∀ a ∈ as, ValueWellFormed a) → (∀ p ∈ P, ∀ a, as[p]? = some a → Q.mem a) →
       ∀ π, StackWellFormed π →
       ObsRefines (.compute π (extendAll (fixEnv (lams rest.length T₂) ρ) as) T₁)
         (.compute π (extendAll (fixEnv (lams rest.length T₂) ρ) as) T₂) := by
@@ -435,13 +458,13 @@ theorem fix_setup {Γ : List (VarId × Expr)} {L : List VarId} {f : VarId}
     have htB₂ : closedAt (env.length + 3) (lams rest.length T₂) = true := by
       rw [closedAt_lams]; simpa [Nat.add_comm, Nat.add_left_comm, Nat.add_assoc] using hcT₂
     obtain ⟨henv', hlen'⟩ := prefixEnv_wf henv hlen htB₂ hw
-    have hF₁ : KnownFacts Γ L (s :: env) (ρ.extend (selfVal (lams rest.length T₂) ρ)) :=
+    have hF₁ : KnownFacts Q Γ L (s :: env) (ρ.extend (selfVal (lams rest.length T₂) ρ)) :=
       hF.extend _ hn hs_none (find?_none_of_unbound hk hs_none)
-    have hF₂ : KnownFacts Γ L (f :: s :: env) (fixEnv (lams rest.length T₂) ρ) :=
+    have hF₂ : KnownFacts Q Γ L (f :: s :: env) (fixEnv (lams rest.length T₂) ρ) :=
       hF₁.extend _ (hn.cons s) hf_none' (find?_none_of_unbound hk₁ hf_none')
     have hF₃ := hfactsN _ as hF₂ has
     rw [henvN] at hF₃
-    have hlisted : ListsHold (listedParameters (x₀ :: rest) P) (rest.reverse ++ x₀ :: f :: s :: env)
+    have hlisted : ListsHold Q (listedParameters (x₀ :: rest) P) (rest.reverse ++ x₀ :: f :: s :: env)
         (extendAll (fixEnv (lams rest.length T₂) ρ) as) := by
       intro y hy i hi
       obtain ⟨y', hy', hyy'⟩ := List.contains_iff_exists_mem_beq.mp hy
@@ -459,20 +482,20 @@ theorem fix_setup {Γ : List (VarId × Expr)} {L : List VarId} {f : VarId}
       rw [extendAll_lookup_low _ as _ (by omega) (by omega), has,
         show (x₀ :: rest).length - ((x₀ :: rest).length - 1 - p + 1) = p by omega]
       exact ha
-    have hFN : KnownFacts Γ names (rest.reverse ++ x₀ :: f :: s :: env)
+    have hFN : KnownFacts Q Γ names (rest.reverse ++ x₀ :: f :: s :: env)
         (extendAll (fixEnv (lams rest.length T₂) ρ) as) := ⟨hF₃.1, hF₃.2.append hlisted⟩
     rw [has] at henv' hlen'
     exact hrB _ π' (by rw [hlenN]; exact henv') (by rw [hlenN]; exact hlen') hπ' hFN
   exact knot henv hlen hcT₁ hcT₂ hB₁ hB₂ hm hcalls hLs hbody'
 
-theorem KnownRel.fixApp {Γ : List (VarId × Expr)} {L : List VarId} {f : VarId}
+theorem KnownRel.fixApp {K : ListKnowledge Q} {Γ : List (VarId × Expr)} {L : List VarId} {f : VarId}
     {params : List VarId} {inner inner' : Expr} {args args' : List Expr} {P : List Nat}
     (hne : params ≠ []) (hlenA : params.length ≤ args.length)
-    (hargs : ListRel (KnownRel Γ L) args args')
-    (hpos : ∀ p ∈ P, ∃ a, args[p]? = some a ∧ listKnown Γ L a = true)
+    (hargs : ListRel (KnownRel Q Γ L) args args')
+    (hpos : ∀ p ∈ P, ∃ a, args[p]? = some a ∧ K.known Γ L a = true)
     (hcheck : listCallsOK f params.length P (listedParameters params P ++ L) inner = true)
-    (hbody : KnownRel Γ (listedParameters params P ++ L) inner inner') :
-    KnownRel Γ L (Advanced.applyAll (.Fix f (Advanced.lambdaWrap params inner)) args)
+    (hbody : KnownRel Q Γ (listedParameters params P ++ L) inner inner') :
+    KnownRel Q Γ L (Advanced.applyAll (.Fix f (Advanced.lambdaWrap params inner)) args)
       (Advanced.applyAll (.Fix f (Advanced.lambdaWrap params inner')) args') := by
   intro env t hd hfresh hk hs hn hlow
   rw [freshIn_applyAll, Bool.and_eq_true] at hfresh
@@ -487,12 +510,12 @@ theorem KnownRel.fixApp {Γ : List (VarId × Expr)} {L : List VarId} {f : VarId}
     cases params with
     | nil => exact absurd rfl hne
     | cons _ _ => simp
-  have hlist : ∀ p ∈ P, ∀ a, targs[p]? = some a → ∀ v, Halts ρ a v → ListValue v := by
+  have hlist : ∀ p ∈ P, ∀ a, targs[p]? = some a → ∀ v, Halts ρ a v → Q.mem v := by
     intro p hp a ha v hv
     obtain ⟨a₀, ha₀, hl⟩ := hpos p hp
     obtain ⟨ta, hta, hlow⟩ := lowerList_get htargs ha₀
     rw [hta] at ha; cases ha
-    exact listKnown_sound hl hF hd hlow hv
+    exact K.sound hl hF hd hlow hv
   have hclosedA := lowerTotalExprList_closedAtList htargs
   have hclosedA' := lowerTotalExprList_closedAtList htargs'
   have hnA : params.length ≤ targs.length := by
@@ -531,15 +554,15 @@ theorem letFix_steps (tb tB : Term) (π : Stack) (ρ : CekEnv) :
     .compute (.funV (.VLam tb ρ) :: π) ρ (fixLamWrapUplc tB) from rfl, fix_steps]
   rfl
 
-theorem KnownRel.letFix {Γ : List (VarId × Expr)} {L : List VarId} {g f : VarId}
+theorem KnownRel.letFix {K : ListKnowledge Q} {Γ : List (VarId × Expr)} {L : List VarId} {g f : VarId}
     {params : List VarId} {inner inner' b b' : Expr} {er : Bool} {P : List Nat} {B : List VarId}
     (hne : params ≠ [])
     (hcheck : listCallsOK f params.length P (listedParameters params P ++ L) inner = true)
-    (hinner : KnownRel Γ (listedParameters params P ++ L) inner inner')
+    (hinner : KnownRel Q Γ (listedParameters params P ++ L) inner inner')
     (hcheckBody : listCallsOK g params.length P B b = true)
-    (hB : ∀ y, B.contains y = true → listKnown Γ L (.Var y) = true)
-    (hbody : KnownRel ((g, .Fix f (Advanced.lambdaWrap params inner')) :: Γ) L b b') :
-    KnownRel Γ L (.Let [(g, .Fix f (Advanced.lambdaWrap params inner), er)] b)
+    (hB : ∀ y, B.contains y = true → K.known Γ L (.Var y) = true)
+    (hbody : KnownRel Q ((g, .Fix f (Advanced.lambdaWrap params inner')) :: Γ) L b b') :
+    KnownRel Q Γ L (.Let [(g, .Fix f (Advanced.lambdaWrap params inner), er)] b)
       (.Let [(g, .Fix f (Advanced.lambdaWrap params inner'), er)] b') := by
   intro env t hd hfresh hk hs hn hlow
   rw [freshIn_let_single] at hfresh
@@ -562,7 +585,7 @@ theorem KnownRel.letFix {Γ : List (VarId × Expr)} {L : List VarId} {g f : VarI
   have hctx : CheckCtx g [] B (g :: env) 1 [] Ls := by
     refine ⟨by rw [MIR.envLookupT_cons_of_beq (varId_beq_self g)], by omega,
       fun x hx => (by cases hx), fun y hy => ?_⟩
-    obtain ⟨j, hj⟩ := Option.isSome_iff_exists.mp (listKnown_bound (hB y hy) hk hn)
+    obtain ⟨j, hj⟩ := Option.isSome_iff_exists.mp (K.bound (hB y hy) hk hn)
     obtain ⟨y', hy', hyy'⟩ := List.contains_iff_exists_mem_beq.mp hy
     refine ⟨j + 1, lookup_shift hx hj, List.mem_filterMap.mpr ⟨y', hy', ?_⟩⟩
     rw [← envLookupT_congr hyy', lookup_shift hx hj]; rfl
@@ -587,7 +610,7 @@ theorem KnownRel.letFix {Γ : List (VarId × Expr)} {L : List VarId} {g f : VarI
   rw [letFix_steps, letFix_steps]
   apply obsRefines_of_forall_k
   intro k
-  have henvOK : EnvOK P params.length k (env.length + 1) 1 [] Ls (ρ.extend (fixVal tB₁ ρ))
+  have henvOK : EnvOK Q P params.length k (env.length + 1) 1 [] Ls (ρ.extend (fixVal tB₁ ρ))
       (ρ.extend (fixVal tB₂ ρ)) := by
     refine ⟨fun n hn hnd h1 _ => ?_, fun i hi => ?_, ?_⟩
     · obtain ⟨n', rfl⟩ : ∃ n', n = n' + 1 := ⟨n - 1, by omega⟩
@@ -597,9 +620,9 @@ theorem KnownRel.letFix {Γ : List (VarId × Expr)} {L : List VarId} {g f : VarI
     · obtain ⟨y, hy, hyi⟩ := List.mem_filterMap.mp hi
       obtain ⟨j, hj, rfl⟩ := Option.map_eq_some_iff.mp hyi
       have hyc : B.contains y = true := List.contains_iff_exists_mem_beq.mpr ⟨y, hy, varId_beq_self y⟩
-      obtain ⟨j', hj'⟩ := Option.isSome_iff_exists.mp (listKnown_bound (hB y hyc) hk hn)
+      obtain ⟨j', hj'⟩ := Option.isSome_iff_exists.mp (K.bound (hB y hyc) hk hn)
       rw [lookup_shift hx hj'] at hj; cases hj
-      obtain ⟨l, hl, hlv⟩ := listKnown_var (hB y hyc) hF hd hj' henv
+      obtain ⟨l, hl, hlv⟩ := K.var (hB y hyc) hF hd hj' henv
       refine ⟨l, ?_, ?_, hlv⟩
       · rw [lookup_extend_succ _ _ _ (by omega)]; exact hl
       · rw [lookup_extend_succ _ _ _ (by omega)]; exact hl
@@ -609,7 +632,7 @@ theorem KnownRel.letFix {Γ : List (VarId × Expr)} {L : List VarId} {g f : VarI
         (fixVal_applies tB₁ T₁ hB₁) (fixVal_applies tB₂ T₂ hB₂)
   have hst₁ : Moist.Verified.TermObsRefinesWF.wfGuard.St (.compute π (ρ.extend (fixVal tB₁ ρ)) tb) := .compute hπ henv₁ (hlen' _) hctb
   have hst₂ : Moist.Verified.TermObsRefinesWF.wfGuard.St (.compute π (ρ.extend (fixVal tB₂ ρ)) tb) := .compute hπ henv₂ (hlen' _) hctb
-  have hFb : KnownFacts ((g, .Fix f (Advanced.lambdaWrap params inner')) :: Γ) L (g :: env)
+  have hFb : KnownFacts Q ((g, .Fix f (Advanced.lambdaWrap params inner')) :: Γ) L (g :: env)
       (ρ.extend (fixVal tB₂ ρ)) :=
     ⟨FactsHold.push hF.1 ⟨_, htr', fix_halts tB₂ ρ⟩, hF.2.extend _ hn hx⟩
   exact InlineSoundness.SubstRefinesExt.obsRefinesK_compose_obsRefines_right

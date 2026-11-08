@@ -288,14 +288,15 @@ theorem prepare_refines_of
 theorem simplify_refines_of
     (hFuse : ∀ e, MIRCtxRefines e (Advanced.fuseListDestructors e))
     (hChecks : ∀ e, MIRCtxRefines e (Advanced.specializeDataChecks e))
+    (hKeys : ∀ e, MIRCtxRefines e (Advanced.insertKeyGuards e))
     (hShape : ∀ e, MIRCtxRefines e (Advanced.shapeDCE e))
     (hTags : ∀ e, MIRCtxRefines e (Advanced.caseTagChains e)) (e : Expr) :
     MIRCtxRefines e (Advanced.simplify e) :=
   mirCtxRefines_trans (hFuse e)
     (mirCtxRefines_trans (Moist.Verified.MIR.constantFold_refines _)
       (mirCtxRefines_trans (Moist.Verified.MIR.foldDataConstructors_refines _)
-        (mirCtxRefines_trans (hChecks _)
-          (mirCtxRefines_trans (hShape _) (hTags _)))))
+        (mirCtxRefines_trans (hChecks _) (mirCtxRefines_trans (hKeys _)
+          (mirCtxRefines_trans (hShape _) (hTags _))))))
 
 theorem structural_refines_of
     (hChoices : ∀ e, MIRCtxRefines e (Advanced.fuseListChoices e))
@@ -305,12 +306,14 @@ theorem structural_refines_of
     (hKnown : ∀ e, MIRCtxRefines e (Advanced.fuseKnownListCases e))
     (hTagGuards : ∀ e, MIRCtxRefines e (Advanced.tagGuards e))
     (hFailFast : ∀ e, MIRCtxRefines e (Advanced.failFast e))
-    (hChecks : ∀ e, MIRCtxRefines e (Advanced.checksFirst e)) (e : Expr) :
+    (hChecks : ∀ e, MIRCtxRefines e (Advanced.checksFirst e))
+    (hPairs : ∀ e, MIRCtxRefines e (Advanced.destructurePairEntries e)) (e : Expr) :
     MIRCtxRefines e (Advanced.structural e) :=
   mirCtxRefines_trans (hChoices e)
     (mirCtxRefines_trans (hProducts _) (mirCtxRefines_trans (hBranches _)
       (mirCtxRefines_trans (hRecords _) (mirCtxRefines_trans (hKnown _)
-        (mirCtxRefines_trans (hTagGuards _) (mirCtxRefines_trans (hFailFast _) (hChecks _)))))))
+        (mirCtxRefines_trans (hTagGuards _) (mirCtxRefines_trans (hFailFast _)
+          (mirCtxRefines_trans (hChecks _) (hPairs _))))))))
 
 theorem finish_refines_of
     (hLow : ∀ o e, MIRCtxRefines e (Advanced.shareLow o e))

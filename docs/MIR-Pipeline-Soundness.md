@@ -51,9 +51,9 @@ allocation stage.
 graph TD
   V["validateCompilationInput<br>(compileOptimized_error)"] --> S["staticArguments"]
   S --> O["optimize<br>prepare, floatOut, betaReduce, ANF"]
-  O --> L["simplifyLoop<br>simplify (incl. caseTagChains), CSE, DCE,<br>inline, beta, eta, forceDelay, caseMerge"]
+  O --> L["simplifyLoop<br>simplify (incl. insertKeyGuards, caseTagChains), CSE, DCE,<br>inline, beta, eta, forceDelay, caseMerge"]
   L --> P["preLower<br>preLowerInline, ANF"]
-  P --> T["structural<br>fuseListChoices, destructureProducts,<br>optimizeCheckedBranches, unpackRecords,<br>fuseKnownListCases, tagGuards,<br>failFast, checksFirst"]
+  P --> T["structural<br>fuseListChoices, destructureProducts,<br>optimizeCheckedBranches, unpackRecords,<br>fuseKnownListCases, tagGuards,<br>failFast, checksFirst,<br>destructurePairEntries"]
   T --> W["lowerExpr ≈ lowerTotalExpr<br>(LoweringSoundness)"]
   W --> F["finish on liftUPLC<br>packing, low sharing,<br>builtin sharing, pooling"]
 ```
@@ -86,6 +86,8 @@ check under `Test/MIR/Opt/Axioms/` or in `Test/MIR/Opt/FormalAxioms.lean`.
 | Boolean results and Boolean case rewrites (inside shape DCE) | `booleanResultCore_sound`, `booleanCaseRewrite_factRel` | `ShapeFacts/Results.lean`, `ShapesSoundness/BooleanCases.lean` |
 | Constructor-tag chains to integer cases | `caseTagChains_refines` | `TagChainsSoundness.lean`, `TagChainsSoundness/` |
 | Data kind guards to unData checks | `specializeDataChecks_refines` | `DataShapesSoundness.lean` |
+| Guards bound after `k = unBData d` (length test, `dropList`-bounded comparison, other `B` value, forced `chooseData`) | `insertKeyGuards_refines` (`insertGuards_factRel`, `guards_factRefines`) | `KeyGuardsSoundness.lean` |
+| `case (equalsData d x)` against a guarded key to a length test then `equalsByteString` (inside shape DCE; sound under variants C and E) | `keyComparison_factRel` (`keyGuard_values`, `guarded_data`, `compareValue_spec`) | `ShapesSoundness/KeyComparisons.lean`, `ShapesSoundness/KeyGuards.lean` |
 | `Advanced.simplify` | `simplify_refines` | `ShapesSoundness/Pipeline.lean` |
 | Pre-lowering inline, `preLower` | `preLowerInlineExpr_refines`, `preLower_refines'` | `PreLowerSoundness.lean`, `CompilerSoundness.lean` |
 | Product destructuring (projections resolved through let aliases; whole-pair and bound-projection unboxing) | `destructureProducts_refines` (`unbox_factRel`, `unboxProjection_factRel`, `project_factRel`) | `ProductsSoundness.lean`, `ProductsSoundness/` |
@@ -95,6 +97,7 @@ check under `Test/MIR/Opt/Axioms/` or in `Test/MIR/Opt/FormalAxioms.lean`.
 | Constructor-tag prechecks before field decoding | `tagGuards_refines` | `TagGuardSoundness.lean`, `TagGuardSoundness/` |
 | Bindings moved into the accepting alternative of a terminating check | `failFast_refines` | `FailFastSoundness.lean` |
 | Checks before work: `if _ then u else error` consumers pushed into the checked computation, strict bindings and list/pair destructurings moved below the checks that follow them | `checksFirst_refines` (`pushAsserts_refines`, `sinkUnits_refines`, `swap_rel`, `terminatesWith_sound`) | `GuardsSoundness.lean`, `GuardsSoundness/` |
+| Entries of lists of data pairs (`unMapData` results, their tails, recursive parameters every call of which passes such lists): the head of a list `case` alternative is bound twice (`prepareHeads`), then destructured by `case h [λa b. …]` with `fstPair h`/`sndPair h` replaced by `a`/`b` (sound under variants C and E) | `destructurePairEntries_refines` (`prepareHeads_refines`, `pairListWalk_rel`, `KnownRel.pairEntryCase`, `pairKnowledge`) | `PairListsSoundness.lean`, `PairListsSoundness/` |
 | `Advanced.structural` | `structural_refines` | `CompilerSoundness.lean` |
 | Application packing | `packApplications_refines` | `ApplicationPackingSoundness.lean` |
 | Builtin sharing, constant pooling | `hoistBuiltinStates_refines`, `poolConstants_refines` | `SharingSoundness.lean` |

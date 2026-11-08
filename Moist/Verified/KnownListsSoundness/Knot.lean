@@ -12,7 +12,7 @@ environment `fixEnv tB ρ`, which binds the self-application wrapper and the
 recursive function `recVal tB ρ`. The source body `T₁` and the target body
 `T₂` are the bodies after the first `m` parameters.
 
-`Knot P m … k` (`Φ`) states that the two bodies are related at step index
+`Knot Q P m … k` (`Φ`) states that the two bodies are related at step index
 `k` in the environments of the two fixed points, for argument vectors
 holding lists at the positions `P`. It is proved by strong induction on `k`:
 the source body is first evaluated with the target's recursive function
@@ -203,14 +203,14 @@ theorem getElem?_snoc_last {xs : List α} {x : α} : (xs ++ [x])[xs.length]? = s
 
 section Knot
 
-variable (P : List Nat) (m : Nat) (Ls : List Nat) (tB₁ tB₂ T₁ T₂ : Term) (ρ : CekEnv)
+variable (Q : ListFamily) (P : List Nat) (m : Nat) (Ls : List Nat) (tB₁ tB₂ T₁ T₂ : Term) (ρ : CekEnv)
 
 /-- The two bodies are related at index `k` in the environments of the two
     fixed points, for arguments holding lists at the positions `P`. -/
 def Knot (k : Nat) : Prop :=
   ∀ as₁ as₂ : List CekValue, as₁.length = m → ListRel (ValueRel wfGuard k) as₁ as₂ →
     (∀ a ∈ as₁, ValueWellFormed a) → (∀ a ∈ as₂, ValueWellFormed a) →
-    (∀ p ∈ P, ∀ a, as₁[p]? = some a → ListValue a) →
+    (∀ p ∈ P, ∀ a, as₁[p]? = some a → Q.mem a) →
     Eval wfGuard k (extendAll (fixEnv tB₁ ρ) as₁) (extendAll (fixEnv tB₂ ρ) as₂) T₁ T₂
 
 /-- `G` applied to one more argument enters the body after the argument
@@ -219,13 +219,13 @@ def Applies (tB T : Term) (G : CekValue) (as : List CekValue) (r : Nat) : Prop :
   ∃ n, ∀ (π : Stack) (a : CekValue), steps (n + 1) (.ret (.funV G :: π) a) =
     .compute π (extendAll (fixEnv tB ρ) (as ++ [a])) (lams (r - 1) T)
 
-variable {P m Ls tB₁ tB₂ T₁ T₂ ρ}
+variable {Q P m Ls tB₁ tB₂ T₁ T₂ ρ}
 
 omit sv in
 theorem lists_snoc {as : List CekValue} {a : CekValue} {r : Nat}
     (hlen : as.length = m - r)
-    (hlist : ∀ p ∈ P, ∀ b, as[p]? = some b → ListValue b) (ha : m - r ∈ P → ListValue a) :
-    ∀ p ∈ P, ∀ b, (as ++ [a])[p]? = some b → ListValue b := by
+    (hlist : ∀ p ∈ P, ∀ b, as[p]? = some b → Q.mem b) (ha : m - r ∈ P → Q.mem a) :
+    ∀ p ∈ P, ∀ b, (as ++ [a])[p]? = some b → Q.mem b := by
   intro p hp b hb
   by_cases hlt : p < as.length
   · rw [getElem?_snoc_of_lt hlt] at hb; exact hlist p hp b hb
@@ -288,11 +288,11 @@ theorem prefixEnv_wf {tB : Term} (htB : closedAt (d + 3) tB = true) {as : List C
 
 /-- Partial applications of the two recursive functions agree on list
     arguments, given the knot below `k`. -/
-theorem partial_PR (k : Nat) (ih : ∀ j < k, Knot P m tB₁ tB₂ T₁ T₂ ρ j) :
+theorem partial_PR (k : Nat) (ih : ∀ j < k, Knot Q P m tB₁ tB₂ T₁ T₂ ρ j) :
     ∀ r, 0 < r → r ≤ m → ∀ k' ≤ k, ∀ as₁ as₂ : List CekValue, as₁.length = m - r →
       ListRel (ValueRel wfGuard k') as₁ as₂ → (∀ a ∈ as₁, ValueWellFormed a) →
-      (∀ a ∈ as₂, ValueWellFormed a) → (∀ p ∈ P, ∀ a, as₁[p]? = some a → ListValue a) →
-      ∀ G₁ G₂, Applies ρ tB₁ T₁ G₁ as₁ r → Applies ρ tB₂ T₂ G₂ as₂ r → PR P m r k' G₁ G₂ := by
+      (∀ a ∈ as₂, ValueWellFormed a) → (∀ p ∈ P, ∀ a, as₁[p]? = some a → Q.mem a) →
+      ∀ G₁ G₂, Applies ρ tB₁ T₁ G₁ as₁ r → Applies ρ tB₂ T₂ G₂ as₂ r → PR Q P m r k' G₁ G₂ := by
   intro r
   induction r with
   | zero => intro h; omega
@@ -348,12 +348,12 @@ theorem partial_PR (k : Nat) (ih : ∀ j < k, Knot P m tB₁ tB₂ T₁ T₂ ρ 
 /-- The knot at every index. -/
 theorem knot (hcalls : Calls P m (m + 1) [m + 2] Ls T₁)
     (hLs : ∀ i ∈ Ls, (0 < i ∧ i ≤ m ∧ m - i ∈ P) ∨
-      (m + 2 < i ∧ ∃ l, ρ.lookup (i - (m + 2)) = some l ∧ ListValue l))
+      (m + 2 < i ∧ ∃ l, ρ.lookup (i - (m + 2)) = some l ∧ Q.mem l))
     (hbody : ∀ as : List CekValue, as.length = m → (∀ a ∈ as, ValueWellFormed a) →
-      (∀ p ∈ P, ∀ a, as[p]? = some a → ListValue a) → ∀ π, StackWellFormed π →
+      (∀ p ∈ P, ∀ a, as[p]? = some a → Q.mem a) → ∀ π, StackWellFormed π →
       ObsRefines (.compute π (extendAll (fixEnv tB₂ ρ) as) T₁)
         (.compute π (extendAll (fixEnv tB₂ ρ) as) T₂)) :
-    ∀ k, Knot P m tB₁ tB₂ T₁ T₂ ρ k := by
+    ∀ k, Knot Q P m tB₁ tB₂ T₁ T₂ ρ k := by
   intro k
   induction k using Nat.strongRecOn with
   | ind k ih =>
@@ -363,13 +363,13 @@ theorem knot (hcalls : Calls P m (m + 1) [m + 2] Ls T₁)
   have htB₂ := tB_closed₂ hT₂ hB₂ hm
   have henv₂ := prefixEnv_wf hρ hlen htB₂ hw₂
   rw [hlen₂] at henv₂
-  have hlist₂ : ∀ p ∈ P, ∀ a, as₂[p]? = some a → ListValue a := by
+  have hlist₂ : ∀ p ∈ P, ∀ a, as₂[p]? = some a → Q.mem a := by
     intro p hp a ha
     rcases listRel_getElem? hrel p with ⟨h₁, h₂⟩ | ⟨x, y, h₁, h₂, hxy⟩
     · rw [h₂] at ha; cases ha
     · rw [h₂] at ha; cases ha
       have hx := hlist p hp x h₁
-      obtain ⟨c, rfl⟩ := listValue_vcon hx
+      obtain ⟨c, rfl⟩ := listValue_vcon (Q.list hx)
       rw [valueRel_vcon_left hxy]; exact hx
   have hlookup_low : ∀ (σ : CekEnv) (as : List CekValue), as.length = m → ∀ n, 0 < n → n ≤ m →
       (extendAll σ as).lookup n = as[m - n]? := by
@@ -384,7 +384,7 @@ theorem knot (hcalls : Calls P m (m + 1) [m + 2] Ls T₁)
       (extendAll (fixEnv tB ρ) as).lookup (m + 1) = some (recVal tB ρ) := by
     intro tB as hl
     rw [extendAll_lookup_high _ as (m + 1) (by omega), hl, show m + 1 - m = 1 by omega]; rfl
-  have henv : EnvOK P m k (d + 2 + m) (m + 1) [m + 2] Ls (extendAll (fixEnv tB₁ ρ) as₁)
+  have henv : EnvOK Q P m k (d + 2 + m) (m + 1) [m + 2] Ls (extendAll (fixEnv tB₁ ρ) as₁)
       (extendAll (fixEnv tB₂ ρ) as₂) := by
     refine ⟨fun n hn hnd hF hS => ?_, fun i hi => ?_, ?_⟩
     · have hS' : n ≠ m + 2 := fun h => hS (by simp [h])
@@ -401,7 +401,7 @@ theorem knot (hcalls : Calls P m (m + 1) [m + 2] Ls T₁)
         rcases listRel_getElem? hrel (m - i) with ⟨h₁, _⟩ | ⟨x, y, h₁, h₂, hxy⟩
         · rw [List.getElem?_eq_none_iff] at h₁; omega
         · have hx := hlist (m - i) hp x h₁
-          obtain ⟨c, rfl⟩ := listValue_vcon hx
+          obtain ⟨c, rfl⟩ := listValue_vcon (Q.list hx)
           rw [valueRel_vcon_left hxy] at h₂
           exact ⟨_, h₁, h₂, hx⟩
       · rw [hlookup_high _ as₁ hlen₁ i hi2, hlookup_high _ as₂ hlen₂ i hi2]
@@ -428,11 +428,11 @@ theorem argFrames_wf {as : List Term} (hclosed : ∀ a ∈ as, closedAt d a = tr
 
 /-- The two fixed points applied to the remaining arguments `rest`, with the
     argument values `as` already bound. -/
-theorem fixApply_rest (hknot : ∀ k, Knot P m tB₁ tB₂ T₁ T₂ ρ k) :
+theorem fixApply_rest (hknot : ∀ k, Knot Q P m tB₁ tB₂ T₁ T₂ ρ k) :
     ∀ r, 0 < r → r ≤ m → ∀ as : List CekValue, as.length = m - r →
-      (∀ a ∈ as, ValueWellFormed a) → (∀ p ∈ P, ∀ a, as[p]? = some a → ListValue a) →
+      (∀ a ∈ as, ValueWellFormed a) → (∀ p ∈ P, ∀ a, as[p]? = some a → Q.mem a) →
       ∀ rest : List Term, r ≤ rest.length → (∀ a ∈ rest, closedAt d a = true) →
-      (∀ i a, rest[i]? = some a → m - r + i ∈ P → ∀ v, Halts ρ a v → ListValue v) →
+      (∀ i a, rest[i]? = some a → m - r + i ∈ P → ∀ v, Halts ρ a v → Q.mem v) →
       ∀ π, StackWellFormed π → ∀ G₁ G₂, Applies ρ tB₁ T₁ G₁ as r → Applies ρ tB₂ T₂ G₂ as r →
       ObsRefines (.ret (rest.map (fun a => Frame.arg a ρ) ++ π) G₁)
         (.ret (rest.map (fun a => Frame.arg a ρ) ++ π) G₂) := by
@@ -451,7 +451,7 @@ theorem fixApply_rest (hknot : ∀ k, Knot P m tB₁ tB₂ T₁ T₂ ρ k) :
   apply obsRefines_of_continuation
   intro v hv
   have hwv := halts_wellFormed hρ hlen hca hv
-  have hlv : m - (r + 1) ∈ P → ListValue v := fun hp =>
+  have hlv : m - (r + 1) ∈ P → Q.mem v := fun hp =>
     hrlist 0 a rfl (by simpa using hp) v hv
   have hw' := wf_snoc hw hwv
   have hlist' := lists_snoc (r := r + 1) hlenA hlist hlv
@@ -497,9 +497,9 @@ theorem applyAllT_steps : ∀ (args : List Term) (f : Term) (π : Stack),
 
 /-- The two fixed points applied to the same arguments in the same
     environment. -/
-theorem fixApply_obs (hknot : ∀ k, Knot P m tB₁ tB₂ T₁ T₂ ρ k) (targs : List Term)
+theorem fixApply_obs (hknot : ∀ k, Knot Q P m tB₁ tB₂ T₁ T₂ ρ k) (targs : List Term)
     (hn : m ≤ targs.length) (hclosed : ∀ a ∈ targs, closedAt d a = true)
-    (hlist : ∀ p ∈ P, ∀ a, targs[p]? = some a → ∀ v, Halts ρ a v → ListValue v)
+    (hlist : ∀ p ∈ P, ∀ a, targs[p]? = some a → ∀ v, Halts ρ a v → Q.mem v)
     (π : Stack) (hπ : StackWellFormed π) :
     ObsRefines (.compute π ρ (applyAllT (Moist.MIR.fixLamWrapUplc tB₁) targs))
       (.compute π ρ (applyAllT (Moist.MIR.fixLamWrapUplc tB₂) targs)) := by

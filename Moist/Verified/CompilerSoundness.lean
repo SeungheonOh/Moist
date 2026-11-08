@@ -14,6 +14,7 @@ import Moist.Verified.ProductsSoundness
 import Moist.Verified.RecordsSoundness
 import Moist.Verified.CheckedBranchesSoundness
 import Moist.Verified.KnownListsSoundness
+import Moist.Verified.PairListsSoundness
 import Moist.Verified.FailFastSoundness
 import Moist.Verified.TagGuardSoundness
 import Moist.Verified.GuardsSoundness
@@ -42,7 +43,8 @@ theorem structural_refines (e : Expr) : MIRCtxRefines e (Advanced.structural e) 
     Moist.Verified.MIR.optimizeCheckedBranches_refines
     Moist.Verified.MIR.unpackRecords_refines
     Moist.Verified.MIR.fuseKnownListCases_refines Moist.Verified.MIR.tagGuards_refines
-    Moist.Verified.MIR.failFast_refines Moist.Verified.MIR.checksFirst_refines e
+    Moist.Verified.MIR.failFast_refines Moist.Verified.MIR.checksFirst_refines
+    Moist.Verified.MIR.destructurePairEntries_refines e
 
 theorem stageCertificates : StageCertificates where
   staticArguments := Moist.Verified.MIR.staticArguments_refines
