@@ -964,7 +964,7 @@ def genProgram (depth : Nat) : Gen Program := do
   let traces ← chance 40
   let confused ← chance 25
   let crypto ← chance 40
-  let huge ← chance 6
+  let huge ← chance 15
   modify fun s => { s with traces, confused, crypto, huge }
   let count ← weighted [(3, pure 1), (3, pure 2), (1, pure 3)]
   let params ← (List.range count).mapM fun index => do
