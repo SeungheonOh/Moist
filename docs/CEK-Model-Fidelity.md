@@ -186,10 +186,17 @@ whose elements are data values / data pairs.
   budget mismatches remain (integer division family, `expModInteger`,
   `equalsByteString`, `equalsString`, `appendString`, `encodeUtf8`, the
   hashes); they do not affect the halt/error semantics the proofs use.
-- `Term.Constant (c, ty)` keeps an annotation `ty` that the machine ignores and
-  the flat encoder uses. A constant whose annotation differs from `constType c`
-  has no plutus-core counterpart; the parser and decoder never produce one, but
-  nothing in `compileOptimized` checks it.
+- Budget order under variant E: plutus-core unlifts each builtin argument as it
+  is applied, so an argument outside the E bounds fails before the builtin's
+  cost is charged. The costed evaluator (`Machine.eval`) charges the saturated
+  builtin first and checks the bounds afterwards. With an unbounded budget both
+  fail; under a binding budget the model can report budget exhaustion where
+  plutus-core reports an error (found by real-machine fuzzing, e.g.
+  `byteStringToInteger False` on 65,537 bytes). `step` has no budget, so the
+  proofs are unaffected.
+- `Term.Constant (c, ty)` keeps an annotation `ty` that the machine ignores.
+  The flat encoder now writes `constType c`, not `ty`, so the annotation cannot
+  change what is put on chain.
 - `trace` messages are not observed.
 - `decodeUtf8` relies on Lean's `String.validateUTF8` agreeing with
   `Data.ByteString.isValidUtf8`; the conformance `decodeUtf8` tests pass, no

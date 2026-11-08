@@ -50,7 +50,7 @@ The Plinth source is the specification.
   ScriptContext, for example normalized, sorted `Value`s.
 - **Plutarch:** the Plutarch scripts are the repository's originals. They differ from Plinth on some malformed data.
 - **Plinth fix:** the repository's Plinth ProgrammableLogicGlobal rejected every valid SeizeAct. Its final check
-  `check || error ()` evaluated `error ()` even when the check held. The fix (`e9edfbb`) rewrites it as an `if`.
+  `check || error ()` evaluated `error ()` even when the check held. The fix (`711dd87`) rewrites it as an `if`.
   The conformance suite now passes all 465 tests, against 461 before.
 - **Ports unchanged:** the Moist ports are the same as in the baseline. Every gain below comes from the compiler.
 
@@ -60,42 +60,42 @@ The Plinth source is the specification.
 
 | Validator | moist | moist-size | aiken | plinth | plutarch |
 |---|---|---|---|---|---|
-| Voting | 48.4M | **48.3M** | 66.5M | 78.0M | 82.8M |
+| Voting | 44.4M | **44.3M** | 66.5M | 78.0M | 82.8M |
 | Certifying | 16.1M | **16.0M** | 40.0M | 38.0M | 38.9M |
-| Vesting | **444.1M** | 445.2M | 750.0M | 1,015.6M | 884.3M |
-| Constitution | **179.6M** | 179.9M | 340.5M | 485.3M | 355.2M |
-| Crowdfund | **392.2M** | 392.9M | 702.7M | 965.6M | 1,178.9M |
-| Settings | **1,158.2M** | 1,158.4M | 2,126.7M | 2,427.8M | 2,235.1M |
-| Hydra | **321.0M** | 324.1M | 754.8M | 1,539.6M | 435.8M |
-| ProgrammableLogicGlobal | **1,042.2M** | 1,045.9M | 1,564.1M | 1,594.7M | 1,382.7M |
+| Vesting | **429.7M** | 430.8M | 750.0M | 1,015.6M | 884.3M |
+| Constitution | **178.7M** | 182.2M | 340.5M | 485.3M | 355.2M |
+| Crowdfund | **376.6M** | 377.1M | 702.7M | 965.6M | 1,178.9M |
+| Settings | **1,134.0M** | 1,134.2M | 2,126.7M | 2,427.8M | 2,235.1M |
+| Hydra | 317.4M | **317.3M** | 754.8M | 1,539.6M | 435.8M |
+| ProgrammableLogicGlobal | **1,047.6M** | 1,048.3M | 1,564.1M | 1,594.7M | 1,382.7M |
 | Sample | 221.8M | **215.9M** | 566.4M | 608.1M | 631.8M |
 
 ### Total bench Memory (variant C)
 
 | Validator | moist | moist-size | aiken | plinth | plutarch |
 |---|---|---|---|---|---|
-| Voting | 79.0k | **78.2k** | 212.3k | 184.7k | 200.9k |
+| Voting | 77.9k | **77.1k** | 212.3k | 184.7k | 200.9k |
 | Certifying | 45.3k | **44.5k** | 93.5k | 98.3k | 98.1k |
 | Vesting | **1.2M** | 1.2M | 2.0M | 2.8M | 2.4M |
-| Constitution | **723.5k** | 725.3k | 1.2M | 1.7M | 1.2M |
+| Constitution | **727.9k** | 749.7k | 1.2M | 1.7M | 1.2M |
 | Crowdfund | **1.1M** | 1.1M | 1.9M | 2.9M | 3.2M |
 | Settings | **3.1M** | 3.1M | 5.7M | 6.8M | 5.6M |
-| Hydra | **941.0k** | 960.0k | 2.2M | 6.3M | 1.2M |
-| ProgrammableLogicGlobal | **2.8M** | 2.8M | 4.1M | 4.8M | 3.8M |
+| Hydra | 938.1k | **937.1k** | 2.2M | 6.3M | 1.2M |
+| ProgrammableLogicGlobal | **2.7M** | 2.7M | 4.1M | 4.8M | 3.8M |
 | Sample | 973.5k | **936.5k** | 1.8M | 2.1M | 2.2M |
 
 ### Script size (CBOR bytes)
 
 | Validator | moist | moist-size | aiken | plinth | plutarch |
 |---|---|---|---|---|---|
-| Voting | **153** | 155 | 295 | 244 | 272 |
+| Voting | **149** | 151 | 295 | 244 | 272 |
 | Certifying | 224 | **220** | 316 | 381 | 317 |
-| Vesting | **671** | 675 | 859 | 1,177 | 1,219 |
-| Constitution | **685** | 691 | 817 | 791 | 769 |
-| Crowdfund | **1,347** | 1,352 | 1,604 | 2,169 | 1,888 |
-| Settings | **1,772** | 1,773 | 1,922 | 2,405 | 2,162 |
-| Hydra | 5,292 | **5,276** | 7,548 | 9,615 | 6,001 |
-| ProgrammableLogicGlobal | **3,085** | 3,088 | 3,828 | 3,918 | 4,080 |
+| Vesting | **636** | 640 | 859 | 1,177 | 1,219 |
+| Constitution | **698** | 704 | 817 | 791 | 769 |
+| Crowdfund | **1,327** | 1,329 | 1,604 | 2,169 | 1,888 |
+| Settings | **1,754** | **1,754** | 1,922 | 2,405 | 2,162 |
+| Hydra | 5,256 | **5,240** | 7,548 | 9,615 | 6,001 |
+| ProgrammableLogicGlobal | **3,110** | **3,110** | 3,828 | 3,918 | 4,080 |
 | Sample | **67** | 69 | 118 | 131 | 109 |
 
 ### Geometric mean vs Plinth over all bench cases (variant C; lower is better)
@@ -103,7 +103,7 @@ The Plinth source is the specification.
 | Compiler | CPU | Memory | Size |
 |---|---|---|---|
 | moist | 0.39x | 0.34x | 0.64x |
-| moist-size | 0.40x | 0.34x | 0.64x |
+| moist-size | 0.39x | 0.34x | 0.64x |
 | aiken | 0.78x | 0.72x | 0.88x |
 | plinth | 1.00x | 1.00x | 1.00x |
 | plutarch | 0.83x | 0.75x | 0.90x |
@@ -115,7 +115,10 @@ Bold marks the best value in each row.
 - **Every case:** the default Moist build is strictly cheaper than Aiken, Plinth and Plutarch in both CPU and
   memory on all 152 bench cases, reject cases included, under both cost-model variants.
 - **Every size:** the default build is the smallest script on all nine validators. The closest margins are
-  Constitution (685 against Plutarch's 769) and Settings (1,772 against Aiken's 1,922).
+  Constitution (698 against Plutarch's 769) and Settings (1,754 against Aiken's 1,922).
+- **Tightest case margins:** reject cases are charged in 200-step blocks, so a change that adds a few steps
+  before a check can cost a whole block. The closest wins are the Settings admin rejects (about 1.6k memory below
+  Aiken) and, in the edge suite, ValueLookup "last of 30x3" (133,372 memory against Aiken's 133,758).
 - **Against Plinth:** per-case CPU is 0.39× and memory 0.34×, against Aiken's 0.78× and 0.72× and Plutarch's 0.83× and
   0.75×. Script size is 0.64× Plinth.
 - **`moist-size`:** this profile is now within a few percent of the default build and is no longer needed to win
@@ -125,14 +128,14 @@ Bold marks the best value in each row.
 
 | Validator | Size before | Size after | CPU before | CPU after | Memory before | Memory after |
 |---|---|---|---|---|---|---|
-| Voting | 182 | 153 | 58.3M | 48.4M | 116.0k | 79.0k |
+| Voting | 182 | 149 | 58.3M | 44.4M | 116.0k | 77.9k |
 | Certifying | 346 | 224 | 34.3M | 16.1M | 93.1k | 45.3k |
-| Vesting | 807 | 671 | 586.9M | 444.1M | 1.6M | 1.2M |
-| Constitution | 986 | 685 | 307.9M | 179.6M | 1.1M | 723.5k |
-| Crowdfund | 1,534 | 1,347 | 510.0M | 392.2M | 1.4M | 1.1M |
-| Settings | 2,153 | 1,772 | 1,385.4M | 1,158.2M | 3.8M | 3.1M |
-| Hydra | 6,869 | 5,292 | 412.0M | 321.0M | 1.2M | 941.0k |
-| ProgrammableLogicGlobal | 3,571 | 3,085 | 1,244.4M | 1,042.2M | 3.3M | 2.8M |
+| Vesting | 807 | 636 | 586.9M | 429.7M | 1.6M | 1.2M |
+| Constitution | 986 | 698 | 307.9M | 178.7M | 1.1M | 727.9k |
+| Crowdfund | 1,534 | 1,327 | 510.0M | 376.6M | 1.4M | 1.1M |
+| Settings | 2,153 | 1,754 | 1,385.4M | 1,134.0M | 3.8M | 3.1M |
+| Hydra | 6,869 | 5,256 | 412.0M | 317.4M | 1.2M | 938.1k |
+| ProgrammableLogicGlobal | 3,571 | 3,110 | 1,244.4M | 1,047.6M | 3.3M | 2.7M |
 | Sample | 93 | 67 | 330.8M | 221.8M | 1.5M | 973.5k |
 
 Before the expansion the default build lost 28 of 226 bench cases (main and edge suites) on CPU or memory and lost
@@ -150,21 +153,25 @@ nested lists, polynomial evaluation, and short-circuiting all/any.
 | AllAny | 8 | **105** | 156 | **583.6M** | 1,114.2M | **2.4M** | 3.3M |
 | ByteSearch | 8 | **51** | 134 | **264.7M** | 539.0M | **1.2M** | 1.8M |
 | EnumDispatch | 8 | **252** | 328 | **13.0M** | 24.1M | **49.8k** | 86.5k |
-| GuardOrder | 8 | **45** | 77 | **134.2M** | 259.7M | **612.7k** | 839.6k |
+| GuardOrder | 8 | **42** | 77 | **134.0M** | 259.7M | **611.5k** | 839.6k |
 | Horner | 7 | **46** | 68 | **159.9M** | 268.7M | **649.5k** | 848.9k |
 | ListSum | 7 | **37** | 58 | **164.7M** | 317.5M | **751.8k** | 1.0M |
 | MapFilterCount | 7 | **112** | 156 | **751.4M** | 1,312.3M | **3.1M** | 4.4M |
 | NestedLists | 7 | **100** | 121 | **280.6M** | 448.7M | **1.2M** | 1.5M |
-| ValueLookup | 8 | **169** | 219 | **74.6M** | 108.4M | **323.8k** | 368.6k |
+| ValueLookup | 8 | 274 | **219** | **78.0M** | 108.4M | **359.1k** | 368.6k |
 | WideRecord | 6 | **63** | 83 | **14.9M** | 22.3M | **43.1k** | 55.4k |
 
-Moist is strictly cheaper than Aiken in both CPU and memory on all 74 edge bench cases and smaller on all ten
-scripts.
+Moist is strictly cheaper than Aiken in both CPU and memory on all 74 edge bench cases, under both cost-model
+variants, and smaller on nine of the ten scripts. ValueLookup is the exception: comparing map keys quickly and
+correctly under variant E (see [Correctness](#correctness)) costs a kind and length check per key, which makes it
+274 bytes against Aiken's 219.
 
 ## Optimizer expansion
 
-Each pass below is proved for every MIR expression, and `compileOptimized_refines` and `compileOptimized_error`
-(`Moist/Verified/CompilerSoundness.lean`) keep their statements, with no hypotheses and only the standard axioms.
+Each pass below is proved for every MIR expression and for both builtin semantics variants, and
+`compileOptimized_refines` and `compileOptimized_error` (`Moist/Verified/CompilerSoundness.lean`) keep their
+statements, quantified over the variant (`[sv : SemVariant]`) and otherwise with no hypotheses and only the
+standard axioms.
 
 | Pass | What it does | Certificate |
 |---|---|---|
@@ -176,20 +183,51 @@ Each pass below is proved for every MIR expression, and `compileOptimized_refine
 | Fail fast | Moves strict work below terminating checks, prechecks decoded constructor tags, runs checks before decoding | `failFast_refines`, `tagGuards_refines`, `checksFirst_refines` |
 | Low sharing | Shares repeated closed terms at their lowest dominating node, only where no successful run gets slower; now the default | `shareLow_refines` |
 | Record unpacking | Reads a record's fields with one `case` when a return-shape analysis proves its constructor and arity | `unpackRecords_refines` |
-| Data builtins | Compares `unBData` keys by bytes, removes encode/decode round trips, checks Data kinds with the unData builtin | `specializeDataChecks_refines`, `insertKeyBytes_refines`, `dataComparison_factRel` |
+| Data builtins | Removes encode/decode round trips and checks Data kinds with the unData builtin | `specializeDataChecks_refines` |
+| Guarded key comparison | Compares a key known to be `B k` with `equalsByteString` behind a kind and length check, falling back to `equalsData` for keys over 64 bytes, so variant E's 65,536-byte bound is never reached | `insertKeyGuards_refines`, `keyComparison_factRel` |
+| Pair-list entries | Destructures entries of lists from `unMapData` (including through recursive loop parameters) with one `case` | `destructurePairEntries_refines` |
 
-The Lean CEK model also gained the missing data-pair-list cases for `headList`, `tailList`, `nullList`,
-`chooseList`, `mkCons`, `dropList`, `mapData` and `case`. Before that fix every map traversal errored in the model,
-so refinement proofs said nothing about code that walks a map.
+Rewrites that were only correct under variant C were restricted: integer identities and integer totality facts
+need operands below 2^64, the tag-chain range test needs a small tag, and constant folding only folds when both
+variants agree.
 
 ```mermaid
 graph TD
-  A["staticArguments, optimize,<br>simplifyLoop"] --> B["Advanced.simplify<br>+ Boolean cases, tag chains,<br>Data builtins"]
+  A["staticArguments, optimize,<br>simplifyLoop"] --> B["Advanced.simplify<br>+ Boolean cases, tag chains,<br>Data builtins, key guards"]
   B --> C["preLower"]
-  C --> D["structural<br>pairs, checked branches,<br>records, known lists,<br>tag guards, fail fast, checks first"]
+  C --> D["structural<br>pairs, checked branches,<br>records, known lists,<br>tag guards, fail fast, checks first,<br>pair-list entries"]
   D --> E["lowerExpr<br>direct recursive calls"]
   E --> F["finish<br>packing, low sharing"]
 ```
+
+## Correctness
+
+The proofs are relative to a Lean model of the CEK machine, so the model was checked against plutus-core 1.65 and
+the optimizer was tested on the real machine.
+
+- **Model fidelity:** the model now passes all 1,003 official conformance evaluation tests (710 before). Lists and
+  arrays carry their element type and every Plutus value has one encoding; the array builtins, shift/rotate bounds,
+  `expModInteger` bounds and `serialiseData` were fixed; cryptographic and BLS builtins are `opaque` to proofs (real
+  implementations at run time) and BLS points carry their bytes; the Value builtins follow plutus-core. Details and
+  the remaining cost-only differences are in [CEK-Model-Fidelity.md](CEK-Model-Fidelity.md).
+- **Semantics variants:** the model is parametric in the builtin semantics variant, C (mainnet PlutusV3 today) and
+  E (from the van Rossem protocol version, with integer and bytestring bounds). The compiler output does not depend
+  on the variant and is proved correct under both, so a deployed script stays correct across the switch.
+- **Serialization:** six BLS builtins had wrong flat tags, the encoder wrote a constant's annotation instead of its
+  value's type, and large constants made encoding quadratic or overflow the stack. All are fixed and tested.
+- **Real-machine fuzzing:** the optimizer was compared with the unoptimized lowering on the real plutus-core 1.65 machine
+  under both variants: 5,000 typed and 2,000 untyped generated programs, 358 probes (case on builtin values, list,
+  pair and Data builtins, crypto, BLS, Value, values at the variant E bounds, map keys around the guarded
+  comparison's lengths), all 19 validators on 108,477 cases and mutated inputs, and 1,900 mutated validators.
+  Each program ran as roughly 80 variants (each pass alone, every pipeline prefix, `compileOptimized` under 22
+  option sets), 38.27M comparisons in total, with 0 discrepancies: whenever the unoptimized program halted the
+  optimized one halted with an equal value, and whenever it failed the optimized one failed. The Lean model agreed
+  with the real machine on 1.61M comparisons except one budget-only case (see CEK-Model-Fidelity.md). The tooling
+  is `Test/MIR/FuzzReal/` (`run_campaign.sh` reruns it with fixed seeds) and `cross-bench batch` in the comparison
+  repo.
+- **Limits found by stress testing:** Data nested about 100k levels deep overflows the stack in encoding,
+  readback and compilation (works to 70k; pretty printing to 30k). A 16,384-byte transaction can carry at most about
+  16k levels, so this is not reachable on chain. Flat decoding and some model builtins are slow on very large values.
 
 ## Moist issues found while porting
 

@@ -185,6 +185,15 @@ on the Lean CEK machine. It does not cover:
 - trace equivalence
 - correspondence with the native plutuz CEK machine
 - Flat encoding
+- divergence: when the source does not terminate, the output is unconstrained
+
+The model itself is checked against plutus-core 1.65: it passes all 1,003
+official conformance evaluation tests under variant E, and the remaining
+differences are cost-only (`CEK-Model-Fidelity.md`). The optimizer and the flat
+encoder are also tested on the real plutus-core machine under variants C and E:
+generated programs, probes, all 19 benchmark validators with mutated inputs and
+1,900 mutated validators, 38.27M optimized-versus-unoptimized comparisons with 0
+discrepancies (`Test/MIR/FuzzReal/`, see `Cross-Language-Benchmark.md`).
 
 Optimization quality is checked separately. `checked_branch_bench` output (CPU,
 memory and size for all 252 rows) is byte-identical to the output before this
