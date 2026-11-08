@@ -51,8 +51,8 @@ def structural (expression : Expr) : Expr :=
     (destructureProducts (fuseListChoices expression)))))))
 
 def simplify (expression : Expr) : Expr :=
-  caseTagChains (shapeDCE (specializeDataChecks
-    (foldDataConstructors (constantFold (fuseListDestructors expression)))))
+  caseTagChains (shapeDCE (insertKeyGuards (specializeDataChecks
+    (foldDataConstructors (constantFold (fuseListDestructors expression))))))
 
 def preLower (expression : Expr) : Expr :=
   go 4 expression

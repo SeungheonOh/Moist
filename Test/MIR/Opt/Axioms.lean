@@ -12,6 +12,7 @@ import Test.MIR.Opt.Axioms.FailFast
 import Test.MIR.Opt.Axioms.FixLowering
 import Test.MIR.Opt.Axioms.Guards
 import Test.MIR.Opt.Axioms.FloatOut
+import Test.MIR.Opt.Axioms.KeyGuards
 import Test.MIR.Opt.Axioms.KnownLists
 import Test.MIR.Opt.Axioms.ForceDelay
 import Test.MIR.Opt.Axioms.Pipeline
