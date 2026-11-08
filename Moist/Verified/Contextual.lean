@@ -4,6 +4,8 @@ import Moist.Plutus.Term
 import Moist.Verified.Equivalence
 import Moist.Verified.Definitions.Contextual
 
+variable [sv : Moist.CEK.SemVariant]
+
 namespace Moist.Verified.Contextual
 
 open Moist.CEK
@@ -27,6 +29,7 @@ open Moist.Verified.Equivalence
 -- `Moist.Verified.Definitions.Contextual`; theorems about it stay here.
 --------------------------------------------------------------------------------
 
+omit sv in
 /-- The composition law: filling a composed context equals filling outer with the
     inner-filled term. -/
 theorem fill_compose (outer inner : Context) (t : Term) :
@@ -42,6 +45,7 @@ theorem fill_compose (outer inner : Context) (t : Term) :
   | Case C alts ih => simp [Context.compose, fill, ih]
   | CaseAlt scrut lefts C rights ih => simp [Context.compose, fill, ih]
 
+omit sv in
 /-- `closedAtList` distributes over list concatenation. -/
 theorem closedAtList_append (d : Nat) (xs ys : List Term) :
     closedAtList d (xs ++ ys) = true ↔
@@ -57,6 +61,7 @@ theorem closedAtList_append (d : Nat) (xs ys : List Term) :
     · rintro ⟨⟨hx, hxs⟩, hys⟩
       exact ⟨hx, ih.mpr ⟨hxs, hys⟩⟩
 
+omit sv in
 mutual
   /-- Monotonicity of `closedAt`: a term closed at depth `d` is also closed
       at any larger depth. Re-established for `Moist.Verified.closedAt`
@@ -102,11 +107,13 @@ mutual
   termination_by sizeOf ts
 end
 
+omit sv in
 /-- `closedAtList` on a singleton unfolds to the element. -/
 theorem closedAtList_singleton (d : Nat) (t : Term) :
     closedAtList d [t] = true ↔ closedAt d t = true := by
   simp [closedAtList]
 
+omit sv in
 /-- **Decomposition lemma**: closedness of `fill C t` at depth `d` is exactly
     closedness of `C` at `d` plus closedness of `t` at the shifted depth
     `d + C.binders`. This is the key lemma that lets us discharge the

@@ -42,10 +42,9 @@ def constantValue : Expr → Option Moist.CEK.CekValue
     else match remaining.tail with
       | some rest => some (.VBuiltin builtin (value :: arguments) rest)
       | none => do
-        let result ← Moist.CEK.evalBuiltin builtin (value :: arguments)
-        match result with
-        | .VCon constant => if smallScalar constant then some result else none
-        | _ => none
+        -- Fold only when every semantics variant (C and E) yields the same constant.
+        let constant ← Moist.CEK.evalBuiltinAgreed builtin (value :: arguments)
+        if smallScalar constant then some (.VCon constant) else none
   | _ => none
 
 def foldConstant (expression : Expr) : Expr :=
@@ -66,10 +65,8 @@ def literalData : Expr → Option Moist.Plutus.Data
   | _ => none
 
 def literalDataList : Expr → Option (List Moist.Plutus.Data)
-  | .Lit (.ConstDataList values, annotation) =>
-    if annotation == dataListType then some values else none
-  | .Lit (.ConstList values, annotation) =>
-    if annotation == dataListType then
+  | .Lit (.ConstList elementType values, annotation) =>
+    if annotation == dataListType && decide (elementType = .AtomicType .TypeData) then
       values.mapM fun value => match value with
         | .Data datum => some datum
         | _ => none
@@ -82,12 +79,10 @@ def foldedDataConstructor : Expr → Option (Const × BuiltinType)
   | .App (.Builtin .BData) (.Lit (.ByteString value, .AtomicType .TypeByteString)) =>
     some (.Data (.B value), .AtomicType .TypeData)
   | .App (.Builtin .MkNilData) (.Lit (.Unit, .AtomicType .TypeUnit)) =>
-    some (.ConstDataList [], dataListType)
+    some (.ConstList (.AtomicType .TypeData) [], dataListType)
   | .App (.App (.Force (.Builtin .MkCons)) head) tail => do
     let values := (← literalData head) :: (← literalDataList tail)
-    match tail with
-    | .Lit (.ConstList _, _) => return (.ConstList (values.map Const.Data), dataListType)
-    | _ => return (.ConstDataList values, dataListType)
+    return (.ConstList (.AtomicType .TypeData) (values.map Const.Data), dataListType)
   | .App (.Builtin .ListData) fields => do
     return (.Data (.List (← literalDataList fields)), .AtomicType .TypeData)
   | .App (.App (.Builtin .ConstrData) (.Lit (.Integer tag, .AtomicType .TypeInteger))) fields => do

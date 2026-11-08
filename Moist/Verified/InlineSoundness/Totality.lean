@@ -1,6 +1,8 @@
 import Moist.Verified.InlineSoundness.StrictOcc
 import Moist.Verified.Purity
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Total terms
 
 `TotalTerm`: UPLC terms whose evaluation halts in every environment that
@@ -33,6 +35,7 @@ mutual
     | cons : TotalTerm head → TotalTerms tail → TotalTerms (head :: tail)
 end
 
+omit sv in
 mutual
   theorem TotalTerm.rename {term : Term} (total : TotalTerm term) (rename : Nat → Nat)
       (positive : ∀ index, 1 ≤ index → 1 ≤ rename index) :
@@ -129,6 +132,7 @@ theorem TotalTerm.subst_halts {term rhs : Term} (total : TotalTerm term)
   exact (total.rename _ (fun _ bound => StrictOcc.unshiftRename_ge1 positive bound)).halts
     depth environment substitutedClosed sized
 
+omit sv in
 private theorem force_builtin_total (builtin : BuiltinFun)
     (pure : isPure (.Force (.Builtin builtin)) = true) :
     TotalTerm (.Force (.Builtin builtin)) := by
@@ -137,6 +141,7 @@ private theorem force_builtin_total (builtin : BuiltinFun)
       (simp only [isPure, isForceable, expectedArgs, ExpectedArgs.head, Bool.and_true] at pure
        exact absurd pure (by decide))
 
+omit sv in
 private theorem force_force_builtin_total (builtin : BuiltinFun)
     (pure : isPure (.Force (.Force (.Builtin builtin))) = true) :
     TotalTerm (.Force (.Force (.Builtin builtin))) := by
@@ -145,6 +150,7 @@ private theorem force_force_builtin_total (builtin : BuiltinFun)
       (simp only [isPure, isForceable, expectedArgs, ExpectedArgs.head, Bool.and_true] at pure
        exact absurd pure (by decide))
 
+omit sv in
 mutual
   theorem lowerTotal_total (expression : Expr) (environment : List VarId) (term : Term)
       (pure : isPure expression = true) (lowered : lowerTotal environment expression = some term) :

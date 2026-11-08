@@ -4,6 +4,8 @@ import Moist.Verified.InlineSoundness.Frontier
 import Moist.Verified.Contextual.Congruence
 import Moist.MIR.Lower
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # The two Z-combinator encodings of `Fix`
 
 `lowerTotalExpr` encodes `Fix f (Lam x body)` with an explicit redex,
@@ -38,6 +40,7 @@ open Moist.Verified.InlineSoundness.StrictOcc
   (multiShift is0preserving_multiShift iterShift_eq_renameTerm_multiShift freeOf freeOfList)
 open Moist.Verified.BetaValueRefines (closedAt_substTerm)
 
+omit sv in
 theorem lookup_zero (ρ : CekEnv) : ρ.lookup 0 = none := by
   cases ρ <;> rfl
 
@@ -151,6 +154,7 @@ theorem SlotRel.extend {W : Guard} {j k K d d₀ : Nat} {rb : Term}
         rw [show m + 1 - 1 = m from by omega] at hold
         exact hold
 
+omit sv in
 theorem iterShift_lam (K name : Nat) (rb : Term) :
     iterShift K (.Lam name rb) =
       .Lam name (renameTerm (liftRename (multiShift K)) rb) := by
@@ -325,6 +329,7 @@ abbrev selfAppBody : Term := .Apply (.Apply (.Var 2) (.Var 2)) (.Var 1)
 /-- `s s` with `s` at index `p`. -/
 abbrev selfCallAt (p : Nat) : Term := .Apply (.Var p) (.Var p)
 
+omit sv in
 theorem substTerm_selfCallAt_lam {p : Nat} (hp : 1 ≤ p) (nm : Nat) (body : Term) :
     substTerm p (selfCallAt p) (.Lam nm body) =
       .Lam nm (substTerm (p + 1) (selfCallAt (p + 1)) body) := by

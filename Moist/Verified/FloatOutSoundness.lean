@@ -2,6 +2,8 @@ import Moist.Verified.FloatOut.Steps
 import Moist.Verified.HygieneSoundness
 import Moist.MIR.Optimize.FloatOut
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Soundness of let float-out
 
 `floatOut_refines`: for every MIR expression `e`, `e ⊑Ctxᴹ (floatOut e).1`.
@@ -31,6 +33,7 @@ abbrev Binding := VarId × Expr × Bool
 
 /-! ## Lowering of the helper shapes -/
 
+omit sv in
 theorem lowerTotalExpr_let_congr {M₁ M₂ : Expr}
     (h : ∀ env, lowerTotalExpr env M₁ = lowerTotalExpr env M₂) :
     ∀ (bs : List Binding) (env : List VarId),
@@ -39,12 +42,14 @@ theorem lowerTotalExpr_let_congr {M₁ M₂ : Expr}
   | (x, rhs, er) :: rest, env => by
     rw [lowerTotalExpr_let_cons, lowerTotalExpr_let_cons, lowerTotalExpr_let_congr h rest]
 
+omit sv in
 theorem lowerTotalExpr_mkLet (env : List VarId) (bs : List Binding) (body : Expr) :
     lowerTotalExpr env (mkLet bs body) = lowerTotalExpr env (.Let bs body) := by
   cases bs with
   | nil => rw [mkLet, lowerTotalExpr_let_nil]
   | cons _ _ => rfl
 
+omit sv in
 theorem lowerTotalExpr_mkLet_append (env : List VarId) (bs cs : List Binding) (body : Expr) :
     lowerTotalExpr env (mkLet bs (mkLet cs body)) =
       lowerTotalExpr env (mkLet (bs ++ cs) body) := by
@@ -74,6 +79,7 @@ def FloatOK (binders stays : List VarId) (blocked : VarSet) (b : Binding) : Prop
     (∀ y ∈ stays, (freeVars b.2.1).contains y = false) ∧ (∀ y ∈ binders, (b.1 == y) = false) ∧
     blocked.contains b.1 = false
 
+omit sv in
 theorem floatsPast_spec {binders stays : List VarId} {blocked : VarSet} {x : VarId}
     {rhs : Expr} {er : Bool} (h : floatsPast binders stays blocked x rhs = true) :
     FloatOK binders stays blocked (x, rhs, er) := by
@@ -82,6 +88,7 @@ theorem floatsPast_spec {binders stays : List VarId} {blocked : VarSet} {x : Var
   exact ⟨h₁, fun y hy => by simpa using h₂ y hy, fun y hy => by simpa using h₃ y hy,
     fun y hy => by rw [beq_comm]; simpa using h₄ y hy, h₅⟩
 
+omit sv in
 theorem partitionFrom_floats (binders : List VarId) :
     ∀ (binds : List Binding) (stays : List VarId) (blocked : VarSet),
       ∀ b ∈ (partitionFrom binders stays blocked binds).1, FloatOK binders stays blocked b
@@ -140,6 +147,7 @@ theorem mirCtxRefines_reorder (binders : List VarId) (B : Expr) :
 
 /-! ## Floating out of `Lam` and `Fix` -/
 
+omit sv in
 private theorem lowerTotalExpr_let_mkLet_cons (env : List VarId) (b : Binding)
     (F : List Binding) (M : Expr) :
     lowerTotalExpr env (.Let [b] (mkLet F M)) = lowerTotalExpr env (mkLet (b :: F) M) := by
@@ -226,6 +234,7 @@ theorem tryFloat_fix (g x : VarId) (body : Expr) (r : Expr × Bool)
 
 /-! ## Floating out of `Case` -/
 
+omit sv in
 theorem lowerTotalExpr_flattenLets (env : List VarId) :
     ∀ (acc : List Binding) (e : Expr),
       lowerTotalExpr env (.Let (flattenLets acc e).1 (flattenLets acc e).2) =
@@ -254,6 +263,7 @@ theorem floatAlt_refines (alt : Expr) :
     · rw [lowerTotalExpr_mkLet_append, lowerTotalExpr_mkLet, hpart]
   · exact mirCtxRefines_refl _
 
+omit sv in
 theorem floatAlt_pure (alt : Expr) : ∀ b ∈ (floatAlt alt).1, isPure b.2.1 = true := by
   unfold floatAlt
   split
@@ -267,6 +277,7 @@ theorem floatAlt_pure (alt : Expr) : ∀ b ∈ (floatAlt alt).1, isPure b.2.1 = 
     exact (partitionFrom_floats [] all [] VarSet.empty b (by rw [hpart']; exact hb)).1
   · intro b hb; cases hb
 
+omit sv in
 theorem freeVars_mkLet_not_contains {bs : List Binding} {body : Expr} {y : VarId}
     (hbs : ∀ r ∈ bs, (freeVars r.2.1).contains y = false)
     (hb : (freeVars body).contains y = false) : (freeVars (mkLet bs body)).contains y = false := by
@@ -277,6 +288,7 @@ theorem freeVars_mkLet_not_contains {bs : List Binding} {body : Expr} {y : VarId
     rw [freeVars]
     exact freeVarsLet_not_contains_of_fresh _ body y hbs hb
 
+omit sv in
 private theorem lowerTotalExpr_case_mid (env : List VarId) (scrut : Expr) (pre post : List Expr)
     {a b : Expr} (h : lowerTotalExpr env a = lowerTotalExpr env b) :
     lowerTotalExpr env (.Case scrut (pre ++ a :: post)) =
@@ -328,6 +340,7 @@ theorem mirCtxRefines_hoistAlts (scrut : Expr) :
     exact mirCtxRefines_trans h₁ (mirCtxRefines_trans (mirCtxRefines_mkLet_body h₂)
       (mirCtxRefines_of_lowerEq fun env => lowerTotalExpr_mkLet_append env _ _ _))
 
+omit sv in
 theorem caseFloatSafe_of_nil (scrutFV : VarSet) :
     ∀ (done : List Expr) (todo : List (List Binding × Expr)), (∀ t ∈ todo, t.1 = []) →
       caseFloatSafe scrutFV done todo = true

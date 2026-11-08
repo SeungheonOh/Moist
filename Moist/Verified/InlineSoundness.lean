@@ -10,6 +10,8 @@ import Moist.Verified.InlineSoundness.WellScoped
 import Moist.Verified.InlineSoundness.Preservation
 import Moist.Verified.InlineSoundness.FrontierError
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Soundness of the MIR inlining pass
 
 `inline_refines : MIRCtxRefines e (inlinePassWithCanon e s).1.1` for every
@@ -41,6 +43,7 @@ open Moist.Verified.InlineSoundness.Rename (maxUid_let_cons maxUid_list_cons)
 open Moist.Verified.Contextual (CtxRefines ctxRefines_refl)
 open Moist.Verified.Equivalence (ListRel)
 
+omit sv in
 theorem InlineGate_impure_frontier (binder : VarId) (rhs body : Expr)
     (rest : List (VarId × Expr × Bool))
     (notAtomic : rhs.isAtom = false) (notValue : rhs.isValue = false)
@@ -147,6 +150,7 @@ theorem betaReduce_soundness (f x : Expr) (s : FreshState)
 
 /-! ## The let-inlining loop -/
 
+omit sv in
 private theorem lowerTotalExpr_let_split (env : List VarId)
     (binds₁ binds₂ : List (VarId × Expr × Bool)) (body : Expr) :
     lowerTotalExpr env (.Let (binds₁ ++ binds₂) body) =
@@ -159,6 +163,7 @@ private theorem lowerTotalExpr_let_split (env : List VarId)
     rw [List.cons_append, Moist.Verified.InlineSoundness.Rename.lowerTotalExpr_let_cons,
       Moist.Verified.InlineSoundness.Rename.lowerTotalExpr_let_cons, ih]
 
+omit sv in
 private theorem distinctBinders_of_map_fst_eq
     {binds binds' : List (VarId × Expr × Bool)}
     (heq : binds'.map (·.1) = binds.map (·.1))
@@ -175,6 +180,7 @@ private theorem distinctBinders_of_map_fst_eq
       obtain ⟨c', hc', hname⟩ := List.mem_map.mp (heq.2 ▸ List.mem_map.mpr ⟨c, hc, rfl⟩)
       rw [heq.1, ← hname]; exact hd.1 c' hc'
 
+omit sv in
 private theorem substInBindings_map_fst (v : VarId) (repl : Expr) :
     ∀ (binds : List (VarId × Expr × Bool)) (s : FreshState),
       (substInBindings v repl binds s).1.val.map (·.1) = binds.map (·.1)
@@ -183,6 +189,7 @@ private theorem substInBindings_map_fst (v : VarId) (repl : Expr) :
     rw [Moist.Verified.InlineSoundness.SubstCommute.substInBindings_cons_val]
     simp only [List.map, substInBindings_map_fst v repl rest]
 
+omit sv in
 private theorem inlineBindings_map_fst :
     ∀ (binds : List (VarId × Expr × Bool)) (s : FreshState),
       (inlineBindings binds s).1.1.map (·.1) = binds.map (·.1)

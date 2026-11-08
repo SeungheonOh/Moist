@@ -1,5 +1,7 @@
 import Moist.Verified.GuardsSoundness.Steps
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Alternatives that bind fields -/
 
 namespace Moist.Verified.Guards

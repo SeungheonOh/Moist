@@ -2,6 +2,8 @@ import Moist.Verified.TagGuardSoundness.PairGuard
 import Moist.Verified.FailFastSoundness
 import Moist.Verified.HygieneSoundness
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Soundness of constructor-tag prechecks
 
 `tagGuards_refines`: for every MIR expression `e`, `e ⊑Ctxᴹ tagGuards e`.

@@ -87,13 +87,10 @@ private partial def constToExpr : Const → Lean.Expr
   | .String s             => mkApp (.const ``Const.String []) (toExpr s)
   | .Unit                 => .const ``Const.Unit []
   | .Bool b               => mkApp (.const ``Const.Bool []) (toExpr b)
-  | .ConstList cs         => mkApp (.const ``Const.ConstList []) (listConstToExpr cs)
-  | .ConstDataList ds     => mkApp (.const ``Const.ConstDataList []) (toExpr ds)
-  | .ConstPairDataList ps => mkApp (.const ``Const.ConstPairDataList []) (toExpr ps)
+  | .ConstList ty cs      => mkApp2 (.const ``Const.ConstList []) (toExpr ty) (listConstToExpr cs)
   | .Pair p               => mkApp (.const ``Const.Pair []) (pairConstToExpr p)
-  | .PairData p           => mkApp (.const ``Const.PairData []) (toExpr p)
   | .Data d               => mkApp (.const ``Const.Data []) (toExpr d)
-  | .ConstArray cs        => mkApp (.const ``Const.ConstArray []) (listConstToExpr cs)
+  | .ConstArray ty cs     => mkApp2 (.const ``Const.ConstArray []) (toExpr ty) (listConstToExpr cs)
   | .Bls12_381_G1_element => .const ``Const.Bls12_381_G1_element []
   | .Bls12_381_G2_element => .const ``Const.Bls12_381_G2_element []
   | .Bls12_381_MlResult   => .const ``Const.Bls12_381_MlResult []

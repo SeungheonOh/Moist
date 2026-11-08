@@ -1,6 +1,8 @@
 import Moist.Verified.CheckedBranchesSoundness.Relation
 import Moist.Verified.ShapeFacts
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Branches of list discriminators
 
 * `chooseList l e (delay n)`: the suspension of `n` escapes only as the result

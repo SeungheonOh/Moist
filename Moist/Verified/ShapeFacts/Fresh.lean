@@ -1,5 +1,7 @@
 import Moist.Verified.ShapeFacts.Facts
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Binders fresh for a lowering environment
 
 `freshIn env e` holds when no binder of `e` is already bound in `env` and no
@@ -34,6 +36,7 @@ mutual
   termination_by bs body => sizeOf bs + sizeOf body
 end
 
+omit sv in
 theorem freshInList_iff {avoid : List VarId} :
     ∀ {es : List Expr}, freshInList avoid es = true ↔ ∀ e ∈ es, freshIn avoid e = true
   | [] => by simp [freshInList]
@@ -41,6 +44,7 @@ theorem freshInList_iff {avoid : List VarId} :
     simp only [freshInList, Bool.and_eq_true, List.mem_cons, forall_eq_or_imp]
     rw [freshInList_iff]
 
+omit sv in
 theorem EnvDistinct.cons {env : List VarId} {x : VarId} (hd : EnvDistinct env)
     (hx : (envLookupT env x).isNone = true) : EnvDistinct (x :: env) :=
   ⟨by simpa using hx, hd⟩
@@ -51,6 +55,7 @@ theorem EnvDistinct.cons {env : List VarId} {x : VarId} (hd : EnvDistinct env)
 def Avoids (avoid avoid' : List VarId) (bound : Nat) : Prop :=
   ∀ y, (envLookupT avoid' y).isSome = true → (envLookupT avoid y).isSome = true ∨ bound < y.uid
 
+omit sv in
 theorem Avoids.cons {avoid avoid' : List VarId} {bound : Nat} (h : Avoids avoid avoid' bound)
     (x : VarId) : Avoids (x :: avoid) (x :: avoid') bound := by
   intro y hy
@@ -61,6 +66,7 @@ theorem Avoids.cons {avoid avoid' : List VarId} {bound : Nat} (h : Avoids avoid 
     simp only [hxy, Bool.false_eq_true, if_false, Option.isSome_map] at hy ⊢
     exact h y hy
 
+omit sv in
 theorem Avoids.mono {avoid avoid' : List VarId} {b b' : Nat} (h : Avoids avoid avoid' b)
     (hb : b' ≤ b) : Avoids avoid avoid' b' := by
   intro y hy
@@ -68,6 +74,7 @@ theorem Avoids.mono {avoid avoid' : List VarId} {b b' : Nat} (h : Avoids avoid a
   · exact .inl h
   · exact .inr (by omega)
 
+omit sv in
 private theorem lookup_none_of_avoids {avoid avoid' : List VarId} {bound : Nat} {x : VarId}
     (h : Avoids avoid avoid' bound) (hx : (envLookupT avoid x).isNone = true)
     (hbound : x.uid ≤ bound) : (envLookupT avoid' x).isNone = true := by

@@ -8,6 +8,8 @@ import Moist.Verified.HygieneSoundness
 import Moist.Verified.DeadFixSoundness
 import Moist.MIR.Optimize.Advanced
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Soundness of delayed-value sharing
 
 `let v = delay d in s` with pure `d` and every use of `v` forced becomes
@@ -117,6 +119,7 @@ theorem shareEnv_mono {j k d p : Nat} (hjk : j ≤ k) {ρ₁ ρ₂ : CekEnv}
   obtain ⟨v₁, v₂, h₁, h₂, hp, hq⟩ := h n hn hnd
   exact ⟨v₁, v₂, h₁, h₂, fun e => delayShare_mono hjk (hp e), fun e => valueRel_mono hjk (hq e)⟩
 
+omit sv in
 private theorem extend_lookup_succ (ρ : CekEnv) (v : CekValue) (m : Nat) (hm : m ≥ 1) :
     (ρ.extend v).lookup (m + 1) = ρ.lookup m := by
   match m, hm with
@@ -137,6 +140,7 @@ theorem shareEnv_extend {k d p : Nat} (hp : 0 < p) {ρ₁ ρ₂ : CekEnv} {a₁ 
 
 /-! ## Fundamental property -/
 
+omit sv in
 private theorem forceShareList_listRel {d p : Nat} {R : Term → Term → Prop}
     (h : ∀ {a₁ a₂}, ForceShare d p a₁ a₂ → R a₁ a₂) :
     ∀ {l₁ l₂ : List Term}, ForceShareList d p l₁ l₂ → ListRel R l₁ l₂
@@ -279,6 +283,7 @@ open Moist.MIR.Advanced
 def Visible (env : List VarId) (v : VarId) (pos : Nat) : Prop :=
   ∀ y, envLookupT env y = some pos ↔ (v == y) = true
 
+omit sv in
 theorem visible_cons {env : List VarId} {v x : VarId} {pos : Nat}
     (hne : (v == x) = false) (h : Visible env v pos) : Visible (x :: env) v (pos + 1) := by
   intro y
@@ -299,6 +304,7 @@ theorem visible_cons {env : List VarId} {v x : VarId} {pos : Nat}
     rw [Moist.MIR.envLookupT_cons_neq x y env hxy, ← h y]
     cases envLookupT env y <;> simp
 
+omit sv in
 theorem visible_head (env : List VarId) (v : VarId) : Visible (v :: env) v 0 := by
   intro y
   cases hvy : (v == y) with
@@ -307,21 +313,25 @@ theorem visible_head (env : List VarId) (v : VarId) : Visible (v :: env) v 0 := 
     rw [Moist.MIR.envLookupT_cons_neq v y env hvy]
     cases envLookupT env y <;> simp
 
+omit sv in
 private theorem ne_of_bne {a b : VarId} (h : (a != b) = true) : (a == b) = false := by
   unfold bne at h; cases hab : (a == b) <;> simp_all
 
+omit sv in
 private theorem removeForces_force_of_nonvar (v : VarId) {inner : Expr}
     (h : ∀ x, inner ≠ .Var x) : removeForces v (.Force inner) = .Force (removeForces v inner) := by
   cases inner with
   | Var x => exact absurd rfl (h x)
   | _ => simp [removeForces]
 
+omit sv in
 private theorem onlyForced_force_of_nonvar (v : VarId) {inner : Expr}
     (h : ∀ x, inner ≠ .Var x) : onlyForced v (.Force inner) = onlyForced v inner := by
   cases inner with
   | Var x => exact absurd rfl (h x)
   | _ => simp [onlyForced]
 
+omit sv in
 private theorem expandFix_nonvar {inner : Expr} (h : ∀ x, inner ≠ .Var x) :
     ∀ x, expandFix inner ≠ .Var x := by
   intro x e
@@ -547,6 +557,7 @@ open Moist.MIR.Advanced
    rewriteBottomUp)
 open Moist.Verified.DelaySharing
 
+omit sv in
 private theorem let_single_lower (env : List VarId) (v : VarId) (rhs body : Expr) (er : Bool) :
     lowerTotalExpr env (.Let [(v, rhs, er)] body) =
       (lowerTotalExpr env rhs).bind fun r =>
@@ -599,6 +610,7 @@ theorem shareDelayBinding_refines (binding : VarId × Expr × Bool) (suffix : Ex
     · exact mirCtxRefines_refl _
   | _ => simp only [shareDelayBinding]; exact mirCtxRefines_refl _
 
+omit sv in
 private theorem let_cons_lowerEq (binding : VarId × Expr × Bool)
     (rest : List (VarId × Expr × Bool)) (body : Expr) (env : List VarId) :
     lowerTotalExpr env (.Let (binding :: rest) body) =

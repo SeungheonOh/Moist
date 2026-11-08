@@ -1,5 +1,7 @@
 import Moist.Verified.GuardsSoundness.Simple
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # `chk` on names, constants, builtin applications and constructors -/
 
 namespace Moist.Verified.Guards

@@ -1,5 +1,7 @@
 import Moist.Verified.Contextual
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Locality bisimulation for CEK closed-term evaluation
 
 Core *locality* lemma: two CEK states with the same term, same stack
@@ -114,6 +116,7 @@ end
 -- 2. LocalEnv helpers
 --------------------------------------------------------------------------------
 
+omit sv in
 /-- Lookups within `LocalEnv k` return matching `LocalValue`-related pairs. -/
 theorem localEnv_lookup : ∀ (k : Nat) {ρ₁ ρ₂ : CekEnv},
     LocalEnv k ρ₁ ρ₂ → ∀ {n : Nat}, 0 < n → n ≤ k →
@@ -129,6 +132,7 @@ theorem localEnv_lookup : ∀ (k : Nat) {ρ₁ ρ₂ : CekEnv},
       · subst h_eq; exact ⟨_, _, hl₁, hl₂, h_v⟩
       · exact ih h_rest hm (by omega)
 
+omit sv in
 /-- `LocalEnv k` implies the envs have at least length `k`. -/
 theorem localEnv_length : ∀ (k : Nat) {ρ₁ ρ₂ : CekEnv},
     LocalEnv k ρ₁ ρ₂ → k ≤ ρ₁.length ∧ k ≤ ρ₂.length := by
@@ -140,6 +144,7 @@ theorem localEnv_length : ∀ (k : Nat) {ρ₁ ρ₂ : CekEnv},
     cases h with
     | succ _ hlen₁ hlen₂ _ _ _ => exact ⟨hlen₁, hlen₂⟩
 
+omit sv in
 /-- Extending two `LocalEnv k`-related envs with `LocalValue`-related values
     preserves `LocalEnv (k + 1)` on the new envs. This is the key
     propagation step used in `step_preserves` for VLam application. -/
@@ -225,6 +230,7 @@ def localState_symm : ∀ {s₁ s₂ : State}, LocalState s₁ s₂ → LocalSta
 -- 4. LocalValueList structural helpers
 --------------------------------------------------------------------------------
 
+omit sv in
 /-- Concatenating two pairs of `LocalValueList`-related lists preserves the
     relation. Structural induction on the first list. -/
 theorem localValueList_append : ∀ (xs₁ : List CekValue) {xs₂ ys₁ ys₂ : List CekValue},
@@ -238,6 +244,7 @@ theorem localValueList_append : ∀ (xs₁ : List CekValue) {xs₂ ys₁ ys₂ :
     | cons hv hrest =>
       exact LocalValueList.cons hv (localValueList_append rest hrest hys)
 
+omit sv in
 /-- `List.reverse` preserves `LocalValueList`. -/
 theorem localValueList_reverse : ∀ (xs₁ : List CekValue) {xs₂ : List CekValue},
     LocalValueList xs₁ xs₂ → LocalValueList xs₁.reverse xs₂.reverse
@@ -249,6 +256,7 @@ theorem localValueList_reverse : ∀ (xs₁ : List CekValue) {xs₂ : List CekVa
       exact localValueList_append _ (localValueList_reverse rest hrest)
               (LocalValueList.cons hv LocalValueList.nil)
 
+omit sv in
 /-- Mapping `Frame.applyArg` over a `LocalValueList`-related pair produces
     a `LocalStack`-related pair; prepending to a `LocalStack`-related stack
     preserves the relation. -/
@@ -265,6 +273,7 @@ theorem localValueList_to_applyArg_stack : ∀ (fs₁ : List CekValue)
       exact LocalStack.cons (LocalFrame.applyArg hv)
               (localValueList_to_applyArg_stack rest hrest hπ)
 
+omit sv in
 /-- `closedAtList d alts → alts[n]? = some alt → closedAt d alt`.
     Extraction of per-element closedness from list closedness. -/
 theorem closedAtList_get : ∀ (d : Nat) (alts : List Term) (n : Nat) (alt : Term),
@@ -286,6 +295,7 @@ theorem closedAtList_get : ∀ (d : Nat) (alts : List Term) (n : Nat) (alt : Ter
 -- 5. Inversion/destructuring lemmas for LocalValueList and LocalValue
 --------------------------------------------------------------------------------
 
+omit sv in
 theorem localValue_vcon_inv : ∀ {c : Const} {v : CekValue},
     LocalValue (.VCon c) v → v = .VCon c
   | _, _, h => by cases h; rfl
@@ -294,6 +304,7 @@ theorem localValue_vcon_inv : ∀ {c : Const} {v : CekValue},
 -- 6. evalBuiltin under LocalValueList (instance of `evalBuiltin_rel`)
 --------------------------------------------------------------------------------
 
+omit sv in
 theorem localValueList_listRel : ∀ {xs ys : List CekValue},
     LocalValueList xs ys → ListRel LocalValue xs ys
   | _, _, .nil => trivial
@@ -320,6 +331,7 @@ theorem localState_evalBuiltin {b : BuiltinFun} {args₁ args₂ : List CekValue
 -- values, so `LocalValueList fs fs` holds reflexively via `LocalValue.vcon`.
 --------------------------------------------------------------------------------
 
+omit sv in
 /-- `constToTagAndFields` fields are constants, hence `LocalValueList`-reflexive. -/
 theorem localValueList_constToTagAndFields_refl :
     ∀ {c : Const} {tag numCtors : Nat} {fs : List CekValue},
@@ -606,21 +618,25 @@ theorem localState_preserves_steps : ∀ (n : Nat) {s₁ s₂ : State},
     show LocalState (steps m (step s₁)) (steps m (step s₂))
     exact ih (step_preserves h)
 
+omit sv in
 /-- If `LocalState (.halt v) s`, then `s` must be a halt state. -/
 theorem localState_halt_inv : ∀ {v : CekValue} {s : State},
     LocalState (.halt v) s → ∃ v', s = .halt v'
   | _, _, .halt _ => ⟨_, rfl⟩
 
+omit sv in
 /-- If `LocalState s (.halt v)`, then `s` must be a halt state. -/
 theorem localState_halt_inv' {v : CekValue} {s : State}
     (h : LocalState s (.halt v)) : ∃ v', s = .halt v' :=
   localState_halt_inv (localState_symm h)
 
+omit sv in
 /-- If `LocalState .error s`, then `s` must be the error state. -/
 theorem localState_error_inv : ∀ {s : State},
     LocalState .error s → s = .error
   | _, .error => rfl
 
+omit sv in
 /-- If `LocalState s .error`, then `s` must be the error state. -/
 theorem localState_error_inv' {s : State} (h : LocalState s .error) : s = .error :=
   localState_error_inv (localState_symm h)

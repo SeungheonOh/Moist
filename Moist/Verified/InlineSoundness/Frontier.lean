@@ -1,6 +1,8 @@
 import Moist.Verified.InlineSoundness.StrictOcc
 import Moist.Verified.AdvancedRefinement
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Beta reduction at the evaluation frontier
 
 `beta_ctxRefines_of_errorFrontier` is the single UPLC beta rule used by the

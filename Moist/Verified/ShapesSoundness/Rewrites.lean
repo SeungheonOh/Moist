@@ -3,6 +3,8 @@ import Moist.Verified.ShapeFacts.Results
 import Moist.Verified.ShapeFacts.Total
 import Moist.Verified.MIR.AlphaEqBool
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Local rewrites of the fact-driven simplifier
 
 Each rewrite of `simplifyWalk` and `shapeRewrite` refines its input under the

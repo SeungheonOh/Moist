@@ -1,5 +1,7 @@
 import Moist.Verified.GuardsSoundness.SinkSpec
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Exchanging two steps found by `unitView` -/
 
 namespace Moist.Verified.Guards

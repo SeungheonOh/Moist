@@ -1,6 +1,8 @@
 import Moist.Verified.KnownListsSoundness.Lowering
 import Moist.Verified.KnownListsSoundness.Knot
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Recursive functions applied to known lists
 
 `KnownRel.fixApp`: when every call of a recursive function — the external

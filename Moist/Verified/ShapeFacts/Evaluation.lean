@@ -1,6 +1,8 @@
 import Moist.Verified.InlineSoundness.Frontier
 import Moist.Verified.StepWellFormed
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Evaluation from the empty stack
 
 `Halts ρ t v` and `Errs ρ t` describe the outcome of evaluating `t` in `ρ`

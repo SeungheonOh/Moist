@@ -4,6 +4,8 @@ import Moist.MIR.Lower
 import Moist.MIR.LowerTotal
 import Moist.Verified.Definitions
 
+variable [sv : Moist.CEK.SemVariant]
+
 namespace Moist.Verified.Semantics
 
 open Moist.CEK
@@ -74,6 +76,7 @@ theorem reaches_unique {s : State} {v w : CekValue}
 def WellSizedEnv (d : Nat) (ρ : CekEnv) : Prop :=
   ∀ n, 0 < n → n ≤ d → ∃ v, ρ.lookup n = some v
 
+omit sv in
 /-- Extending a well-sized environment increases the depth by 1. -/
 theorem wellSizedEnv_extend {d : Nat} {ρ : CekEnv} (h : WellSizedEnv d ρ) (v : CekValue) :
     WellSizedEnv (d + 1) (ρ.extend v) := by

@@ -2,6 +2,8 @@ import Moist.Verified.AdvancedRedexes
 import Moist.Verified.FundamentalRefinesWF
 import Moist.Verified.InlineSoundness.SubstRefinesExt
 
+variable [sv : Moist.CEK.SemVariant]
+
 namespace Moist.Verified.AdvancedRefinement
 
 open Moist.CEK Moist.Plutus.Term
@@ -96,27 +98,14 @@ theorem contextual_of_uniform_join {depth : Nat} {source target : Term}
   obtain ⟨leftFuel, rightFuel, joined⟩ := join environment stack
   exact finite_join_refines joined
 
-theorem fold_mkCons_generic_data (head : Moist.Plutus.Data)
+theorem fold_mkCons_data (head : Moist.Plutus.Data)
     (tail : List Moist.Plutus.Data) :
     CtxRefines
       (.Apply (.Apply (.Force (.Builtin .MkCons))
         (.Constant (.Data head, .AtomicType .TypeData)))
-        (.Constant (.ConstList (tail.map Const.Data),
+        (.Constant (.ConstList (.AtomicType .TypeData) (tail.map Const.Data),
           .TypeOperator (.TypeList (.AtomicType .TypeData)))))
-      (.Constant (.ConstList ((head :: tail).map Const.Data),
-        .TypeOperator (.TypeList (.AtomicType .TypeData)))) := by
-  apply contextual_of_uniform_join (depth := 0) (by simp [closedAt]) (by intros; simp [closedAt])
-  intro environment stack
-  exact ⟨11, 1, rfl⟩
-
-theorem fold_mkCons_specialized_data (head : Moist.Plutus.Data)
-    (tail : List Moist.Plutus.Data) :
-    CtxRefines
-      (.Apply (.Apply (.Force (.Builtin .MkCons))
-        (.Constant (.Data head, .AtomicType .TypeData)))
-        (.Constant (.ConstDataList tail,
-          .TypeOperator (.TypeList (.AtomicType .TypeData)))))
-      (.Constant (.ConstDataList (head :: tail),
+      (.Constant (.ConstList (.AtomicType .TypeData) ((head :: tail).map Const.Data),
         .TypeOperator (.TypeList (.AtomicType .TypeData)))) := by
   apply contextual_of_uniform_join (depth := 0) (by simp [closedAt]) (by intros; simp [closedAt])
   intro environment stack

@@ -1,6 +1,8 @@
 import Moist.Verified.GuardsSoundness.PushRel
 import Moist.Verified.MIR.Hoist
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Shifting a term below a block of unused binders -/
 
 namespace Moist.Verified.Guards

@@ -3,6 +3,8 @@ import Moist.Verified.ShapeFacts.Values
 import Moist.Verified.ShapeFacts.Results
 import Moist.MIR.Optimize.Advanced.TagGuard
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Soundness of the abstract interpreter of the tag prechecks
 
 `aeval fuel Γ H L e = none` implies that the lowering of `e` does not halt,
@@ -85,6 +87,7 @@ structure Ctx (Γ : List (VarId × Expr)) (H L : List (VarId × AVal)) (outer : 
   hyps : HypHold H outer (dropEnv L.length ρ)
   locals : LocalsHold L ρ
 
+omit sv in
 theorem LocalsHold.cons {L : List (VarId × AVal)} {ρ : CekEnv} {x : VarId} {a : AVal} {v : CekValue}
     (h : LocalsHold L ρ) (hv : a.Holds v) : LocalsHold ((x, a) :: L) (ρ.extend v) := by
   intro i hi
@@ -99,6 +102,7 @@ theorem Ctx.extend {Γ : List (VarId × Expr)} {H L : List (VarId × AVal)} {out
     Ctx Γ H ((x, a) :: L) outer (ρ.extend v) :=
   ⟨h.distinct, by simpa using h.facts, by simpa using h.hyps, h.locals.cons hv⟩
 
+omit sv in
 theorem HypHold.drop {H : List (VarId × AVal)} {env : List VarId} {ρ : CekEnv}
     (h : HypHold H env ρ) (hd : EnvDistinct env) (k : Nat) :
     HypHold H (env.drop k) (dropEnv k ρ) := by
@@ -108,6 +112,7 @@ theorem HypHold.drop {H : List (VarId × AVal)} {env : List VarId} {ρ : CekEnv}
   rw [dropEnv_lookup k ρ (i + 1) (by omega), show i + 1 + k = i + k + 1 by omega]
   exact hv
 
+omit sv in
 /-- A local lookup is the first matching binder of the local block. -/
 theorem lookupAVal_some : ∀ {L : List (VarId × AVal)} {x : VarId} {a : AVal},
     lookupAVal L x = some a →
@@ -124,6 +129,7 @@ theorem lookupAVal_some : ∀ {L : List (VarId × AVal)} {x : VarId} {a : AVal},
       refine ⟨i + 1, by simp; omega, ?_, by simpa using ha⟩
       rw [List.map_cons, envLookupT_cons, if_neg hyx, hl]; rfl
 
+omit sv in
 theorem lookupAVal_none : ∀ {L : List (VarId × AVal)} {x : VarId},
     lookupAVal L x = none → envLookupT (L.map Prod.fst) x = none
   | [], _, _ => by simp [envLookupT, envLookupT.go]
@@ -254,14 +260,17 @@ theorem halts_constr {ρ : CekEnv} {tag : Nat} {ts : List Term} {v : CekValue}
 
 /-! ## Case dispatch on known values -/
 
+omit sv in
 theorem dispatch_bool (alts : List Term) (b : Bool) :
     dispatch alts (.VCon (.Bool b)) =
       if alts.length > 2 then none else alts[if b then 1 else 0]?.map fun a => (a, []) := by
   cases b <;> simp [dispatch, constToTagAndFields]
 
+omit sv in
 theorem dispatch_constr (alts : List Term) (tag : Nat) (fs : List CekValue) :
     dispatch alts (.VConstr tag fs) = alts[tag]?.map fun a => (a, fs) := rfl
 
+omit sv in
 theorem dispatch_int (alts : List Term) (n : Int) :
     dispatch alts (.VCon (.Integer n)) =
       if n < 0 then none else alts[n.toNat]?.map fun a => (a, []) := by
@@ -271,6 +280,7 @@ theorem dispatch_int (alts : List Term) (n : Int) :
   · have : 0 ≤ n := by omega
     simp [dispatch, constToTagAndFields, hn, this]
 
+omit sv in
 theorem dispatch_pair (alts : List Term) (a b : Const) :
     dispatch alts (.VCon (.Pair (a, b))) =
       if alts.length > 1 then none else alts[0]?.map fun t => (t, [.VCon a, .VCon b]) := by
@@ -320,6 +330,7 @@ theorem case_after {ρ : CekEnv} {ts : Term} {talts : List Term} {v : CekValue}
 
 /-! ## Alternatives -/
 
+omit sv in
 theorem selectAlt_spec {fuel : Nat} {Γ : List (VarId × Expr)} {H L : List (VarId × AVal)}
     {env : List VarId} :
     ∀ (alts : List Expr) (talts : List Term), MIR.lowerTotalExprList env alts = some talts →
@@ -347,6 +358,7 @@ theorem selectAlt_spec {fuel : Nat} {Γ : List (VarId × Expr)} {H L : List (Var
           · exact .inl ⟨by simpa using hn, by rw [selectAlt]; exact hs⟩
           · exact .inr ⟨b, tb, .tail _ hb, by simpa using hn, hlb, by rw [selectAlt]; exact hs⟩
 
+omit sv in
 theorem fieldsHalt_false {fuel : Nat} {Γ : List (VarId × Expr)} {H L : List (VarId × AVal)} :
     ∀ {fields : List Expr}, fieldsHalt fuel Γ H L fields = false →
       ∃ f ∈ fields, aeval fuel Γ H L f = none
@@ -358,6 +370,7 @@ theorem fieldsHalt_false {fuel : Nat} {Γ : List (VarId × Expr)} {H L : List (V
     · obtain ⟨g, hg, hn⟩ := fieldsHalt_false h
       exact ⟨g, .tail _ hg, hn⟩
 
+omit sv in
 theorem allAltsFail_mem {fuel : Nat} {Γ : List (VarId × Expr)} {H L : List (VarId × AVal)} :
     ∀ {alts : List Expr}, allAltsFail fuel Γ H L alts = true → ∀ a ∈ alts, aeval fuel Γ H L a = none
   | [], _, _, h => by cases h
@@ -384,6 +397,7 @@ def HoldsAll : List AVal → List CekValue → Prop
   | a :: as, v :: vs => a.Holds v ∧ HoldsAll as vs
   | _, _ => False
 
+omit sv in
 theorem holdsAll_replicate_top : ∀ (fs : List CekValue), HoldsAll (List.replicate fs.length .top) fs
   | [] => trivial
   | _ :: fs => ⟨trivial, holdsAll_replicate_top fs⟩
@@ -464,6 +478,7 @@ theorem result_of_no_halt {r : Option AVal} {s : State} (h : ¬ ∃ v, Reaches s
   | none => exact h
   | some a => exact fun v hv => absurd ⟨v, hv⟩ h
 
+omit sv in
 theorem lowerTotalExprList_mem' {env : List VarId} :
     ∀ {es : List Expr} {ts : List Term}, MIR.lowerTotalExprList env es = some ts →
       ∀ e ∈ es, ∃ t ∈ ts, lowerTotalExpr env e = some t
@@ -482,6 +497,7 @@ theorem lowerTotalExprList_mem' {env : List VarId} :
         · obtain ⟨t, ht, hl⟩ := lowerTotalExprList_mem' has e he
           exact ⟨t, .tail _ ht, hl⟩
 
+omit sv in
 theorem lowerTotalExprList_len {env : List VarId} :
     ∀ {es : List Expr} {ts : List Term}, MIR.lowerTotalExprList env es = some ts → ts.length = es.length
   | [], ts, h => by rw [MIR.lowerTotalExprList_nil] at h; cases h; rfl
@@ -496,6 +512,7 @@ theorem lowerTotalExprList_len {env : List VarId} :
         rw [ha, has] at h; cases h
         simp [lowerTotalExprList_len has]
 
+omit sv in
 theorem applyAVal_cases (vf va : AVal) :
     applyAVal vf va = .top ∨ (∃ i, vf = .fstPairFn ∧ va = .pair i ∧ applyAVal vf va = .int i) ∨
       (∃ i k, vf = .eqIntFn i ∧ va = .int (.exact k) ∧ applyAVal vf va = i.eqLit k) := by

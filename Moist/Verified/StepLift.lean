@@ -1,5 +1,7 @@
 import Moist.Verified.Semantics
 
+variable [sv : Moist.CEK.SemVariant]
+
 set_option linter.unusedSimpArgs false
 
 namespace Moist.Verified.StepLift
@@ -179,6 +181,7 @@ theorem firstInactive (s : State) (bound : Nat)
       subst hk_eq
       exact ⟨bound + 1, Nat.le_refl _, hinact, fun j hj => hall j (by omega)⟩
 
+omit sv in
 /-- `liftState base s` is never `halt`. A lifted state is either `compute`
     (stack extended), `ret` (stack extended or base for halt), or `error`.
     This fact drives the contradiction in `beta_reaches`: the inner
@@ -188,6 +191,7 @@ theorem liftState_ne_halt (base : Stack) (s : State) (v : CekValue) :
     liftState base s ≠ .halt v := by
   cases s <;> simp [liftState]
 
+omit sv in
 /-- `liftState` reflects errors: if the lifted state is `error`, the
     original state must also be `error` (since all other constructors
     produce `compute` or `ret` under `liftState`). -/

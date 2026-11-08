@@ -1,5 +1,7 @@
 import Moist.Verified.CaseMerge.Reduce
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Lowering and closedness of the case-merge result
 
 `caseMerge_lower`: whenever the source lowers, so does the result, and every
@@ -30,6 +32,7 @@ def ListRel2 {α β : Type} (R : α → β → Prop) : List α → List β → P
 /-- A literal fact field and the constant value it denotes. -/
 def LitField (f : Expr) (v : CekValue) : Prop := ∃ c ty, f = .Lit (c, ty) ∧ v = .VCon c
 
+omit sv in
 theorem mapM_lit_fields {g : CekValue × Moist.Plutus.Term.BuiltinType → Option Expr}
     (hg : ∀ v ty f, g (v, ty) = some f → ∃ c, v = .VCon c ∧ f = .Lit (c, ty)) :
     ∀ (vs : List CekValue) (tys : List Moist.Plutus.Term.BuiltinType) (fields : List Expr),
@@ -51,6 +54,7 @@ theorem mapM_lit_fields {g : CekValue × Moist.Plutus.Term.BuiltinType → Optio
   | [], _ :: _, _, hl, _ => by simp at hl
   | _ :: _, [], _, hl, _ => by simp at hl
 
+omit sv in
 theorem knownConstructor_lit {Γ : KnownCtors} {c : Moist.Plutus.Term.Const}
     {ty : Moist.Plutus.Term.BuiltinType} {info : KnownCtor}
     (h : knownConstructor Γ (.Lit (c, ty)) = some info) :
@@ -78,6 +82,7 @@ theorem knownConstructor_lit {Γ : KnownCtors} {c : Moist.Plutus.Term.Const}
          cases hinfo
          exact ⟨_, rfl, mapM_lit_fields hg _ _ fs (by simp) hm⟩)
 
+omit sv in
 theorem knownConstructor_var {Γ : KnownCtors} {y : VarId} {info : KnownCtor}
     (h : knownConstructor Γ (.Var y) = some info) :
     ∃ p ∈ Γ, (p.1 == y) = true ∧ p.2 = info := by
@@ -85,6 +90,7 @@ theorem knownConstructor_var {Γ : KnownCtors} {y : VarId} {info : KnownCtor}
   obtain ⟨p, hp, rfl⟩ := h
   exact ⟨p, List.mem_of_find?_eq_some hp, by simpa using List.find?_some hp, rfl⟩
 
+omit sv in
 theorem knownConstructor_constr {Γ : KnownCtors} {tag : Nat} {fields : List Expr}
     {info : KnownCtor} (h : knownConstructor Γ (.Constr tag fields) = some info) :
     info = ⟨tag, 0, fields, false⟩ ∧ ∀ f ∈ fields, f.isAtom = true := by
@@ -95,6 +101,7 @@ theorem knownConstructor_constr {Γ : KnownCtors} {tag : Nat} {fields : List Exp
     exact ⟨rfl, fun f hf => List.all_eq_true.mp hall f hf⟩
   · cases h
 
+omit sv in
 theorem knownConstructor_cases {Γ : KnownCtors} {e : Expr} {info : KnownCtor}
     (h : knownConstructor Γ e = some info) :
     (∃ y, e = .Var y ∧ ∃ p ∈ Γ, (p.1 == y) = true ∧ p.2 = info) ∨
@@ -111,6 +118,7 @@ theorem knownConstructor_cases {Γ : KnownCtors} {e : Expr} {info : KnownCtor}
     exact .inr (.inr ⟨c, ty, rfl, knownConstructor_lit h⟩)
   | _ => simp [knownConstructor] at h
 
+omit sv in
 theorem listRel2_mem_left {α β : Type} {R : α → β → Prop} :
     ∀ {xs : List α} {ys : List β}, ListRel2 R xs ys → ∀ x ∈ xs, ∃ y ∈ ys, R x y
   | [], [], _, x, hx => by cases hx
@@ -132,16 +140,20 @@ def FieldsOK (Γ : KnownCtors) (env : List VarId) : Prop :=
 def FieldsClosed (Γ : KnownCtors) (env : List VarId) (k : Nat) : Prop :=
   ∀ p ∈ Γ, ∀ f ∈ p.2.fields, ∀ t, lowerTotalExpr env f = some t → closedAt k t = true
 
+omit sv in
 theorem fieldsOK_nil (env : List VarId) : FieldsOK [] env := fun _ h => by cases h
 
+omit sv in
 theorem fieldsClosed_nil (env : List VarId) (k : Nat) : FieldsClosed [] env k :=
   fun _ h => by cases h
 
+omit sv in
 theorem lowerTotalExpr_lit (env : List VarId) (c : Moist.Plutus.Term.Const)
     (ty : Moist.Plutus.Term.BuiltinType) :
     lowerTotalExpr env (.Lit (c, ty)) = some (.Constant (c, ty)) := by
   simp [lowerTotalExpr, expandFix, lowerTotal]
 
+omit sv in
 /-- A sub-environment whose fields avoid `x` keeps its invariants under `x`. -/
 theorem fieldsOK_cons {Γ Γ' : KnownCtors} {env : List VarId} {x : VarId}
     (hsub : ∀ p ∈ Γ', p ∈ Γ ∧ (freeVarsList p.2.fields).contains x = false)
@@ -153,6 +165,7 @@ theorem fieldsOK_cons {Γ Γ' : KnownCtors} {env : List VarId} {x : VarId}
   rw [lowerTotalExpr_prepend_unused env x f (freeVarsList_not_contains_mem hx f hf)]
   simpa using hs
 
+omit sv in
 theorem fieldsClosed_cons {Γ Γ' : KnownCtors} {env : List VarId} {x : VarId} {k : Nat}
     (hsub : ∀ p ∈ Γ', p ∈ Γ ∧ (freeVarsList p.2.fields).contains x = false)
     (h : FieldsClosed Γ env k) : FieldsClosed Γ' (x :: env) (k + 1) := by
@@ -166,14 +179,17 @@ theorem fieldsClosed_cons {Γ Γ' : KnownCtors} {env : List VarId} {x : VarId} {
     exact Moist.Verified.closedAt_renameTerm_shiftRename t₀ k 1 (Nat.le_refl _) (by omega)
       (h p hm f hf t₀ hl)
 
+omit sv in
 theorem filterKnown_sub {x : VarId} {Γ : KnownCtors} :
     ∀ p ∈ filterKnown x Γ, p ∈ Γ ∧ (freeVarsList p.2.fields).contains x = false :=
   fun _ hp => let h := mem_filterKnown.mp hp; ⟨h.1, h.2.2⟩
 
+omit sv in
 theorem fresh_sub {Γ : KnownCtors} {s : VarId} (hs : s.uid > maxUidKnown Γ) :
     ∀ p ∈ Γ, p ∈ Γ ∧ (freeVarsList p.2.fields).contains s = false :=
   fun p hp => ⟨hp, (fresh_known hs p hp).2⟩
 
+omit sv in
 /-- The fields of a recorded fact lower, closed wherever the bound expression is. -/
 theorem knownConstructor_fields {Γ : KnownCtors} {env : List VarId} {e : Expr} {te : Term}
     {info : KnownCtor} (hk : knownConstructor Γ e = some info)
@@ -202,6 +218,7 @@ theorem knownConstructor_fields {Γ : KnownCtors} {env : List VarId} {e : Expr} 
     · obtain ⟨_, _, c', ty', rfl, _⟩ := listRel2_mem_left hrel f hf
       rw [lowerTotalExpr_lit] at ht; cases ht; simp [closedAt]
 
+omit sv in
 theorem bindFact_fieldsOK {Γ : KnownCtors} {env : List VarId} {x : VarId} {r : Expr} {tr : Term}
     (hΓ : FieldsOK Γ env) (hr : lowerTotalExpr env r = some tr) :
     FieldsOK (bindFact Γ x r) (x :: env) := by
@@ -213,6 +230,7 @@ theorem bindFact_fieldsOK {Γ : KnownCtors} {env : List VarId} {x : VarId} {r : 
     rw [lowerTotalExpr_prepend_unused env x f (freeVarsList_not_contains_mem hx f hf)]
     simpa using hs
 
+omit sv in
 theorem bindFact_fieldsClosed {Γ : KnownCtors} {env : List VarId} {x : VarId} {r : Expr}
     {tr : Term} {k : Nat} (hΓ : FieldsOK Γ env) (hc : FieldsClosed Γ env k)
     (hr : lowerTotalExpr env r = some tr) (hcr : closedAt k tr = true) :
@@ -237,6 +255,7 @@ def selectTerm (tag constructorCount : Nat) (fields alternatives : List Term) : 
     | some a => fields.foldl Term.Apply a
     | none => .Error
 
+omit sv in
 theorem lower_selectAlternative {env : List VarId} {tag cc : Nat} {fields alts : List Expr}
     {tf ta : List Term} (hf : lowerTotalExprList env fields = some tf)
     (ha : lowerTotalExprList env alts = some ta) :
@@ -251,6 +270,7 @@ theorem lower_selectAlternative {env : List VarId} {tag cc : Nat} {fields alts :
       rw [lowerTotalExpr_foldl_app, hl, hf]; rfl
     · rw [he, ht]; exact lowerTotalExpr_error env
 
+omit sv in
 theorem closedAt_selectTerm {k tag cc : Nat} {tf ta : List Term}
     (hf : closedAtList k tf = true) (ha : closedAtList k ta = true) :
     closedAt k (selectTerm tag cc tf ta) = true := by
@@ -259,6 +279,7 @@ theorem closedAt_selectTerm {k tag cc : Nat} {tf ta : List Term}
   · simp [closedAt]
   · exact closedAt_select hf ha
 
+omit sv in
 theorem closedAtList_of_fields {env : List VarId} {k : Nat} :
     ∀ {fields : List Expr} {tf : List Term}, lowerTotalExprList env fields = some tf →
       (∀ f ∈ fields, ∀ t, lowerTotalExpr env f = some t → closedAt k t = true) →
@@ -274,6 +295,7 @@ theorem closedAtList_of_fields {env : List VarId} {k : Nat} :
 
 /-! ## Recursive functions under a fresh self variable -/
 
+omit sv in
 theorem closedAt_fixLamWrapUplc (k : Nat) (b : Term) :
     closedAt k (fixLamWrapUplc b) = closedAt (k + 3) b := by
   simp [fixLamWrapUplc, closedAt]
@@ -282,23 +304,28 @@ theorem closedAt_fixLamWrapUplc (k : Nat) (b : Term) :
 def fixSelf (b₁ b₂ : Expr) (Γ : KnownCtors) : VarId :=
   ⟨max (maxUidExpr (expandFix b₁)) (max (maxUidExpr (expandFix b₂)) (maxUidKnown Γ)) + 1, .gen, "s"⟩
 
+omit sv in
 theorem fixSelf_fresh₁ (b₁ b₂ : Expr) (Γ : KnownCtors) :
     (freeVars (expandFix b₁)).contains (fixSelf b₁ b₂ Γ) = false :=
   maxUidExpr_fresh _ _ (by simp only [fixSelf]; omega)
 
+omit sv in
 theorem fixSelf_fresh₂ (b₁ b₂ : Expr) (Γ : KnownCtors) :
     (freeVars (expandFix b₂)).contains (fixSelf b₁ b₂ Γ) = false :=
   maxUidExpr_fresh _ _ (by simp only [fixSelf]; omega)
 
+omit sv in
 theorem fixSelf_freshΓ (b₁ b₂ : Expr) (Γ : KnownCtors) :
     (fixSelf b₁ b₂ Γ).uid > maxUidKnown Γ := by
   simp only [fixSelf]; omega
 
+omit sv in
 theorem lowerTotalExpr_fix_lam (env : List VarId) (f x : VarId) (b₁ b₂ : Expr) (Γ : KnownCtors) :
     lowerTotalExpr env (.Fix f (.Lam x b₁)) =
       (lowerTotalExpr (x :: f :: fixSelf b₁ b₂ Γ :: env) b₁).map fixLamWrapUplc :=
   lowerTotalExpr_fix_lam_with_fresh env f x b₁ _ (fixSelf_fresh₁ b₁ b₂ Γ)
 
+omit sv in
 theorem lowerTotalExpr_fix_lam' (env : List VarId) (f x : VarId) (b₁ b₂ : Expr) (Γ : KnownCtors) :
     lowerTotalExpr env (.Fix f (.Lam x b₂)) =
       (lowerTotalExpr (x :: f :: fixSelf b₁ b₂ Γ :: env) b₂).map fixLamWrapUplc :=

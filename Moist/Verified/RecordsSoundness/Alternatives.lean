@@ -1,5 +1,7 @@
 import Moist.Verified.RecordsSoundness.Unpack
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Alternatives with field facts
 
 When the shape of the scrutinee fixes the number of fields at the tag of an

@@ -1,6 +1,8 @@
 import Moist.Verified.ShapeFacts.Reflexivity
 import Moist.Verified.AdvancedRefinement
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Refinement under environment facts
 
 `FactRefines d F t t'` compares `t` and `t'` in the *same* well-formed
@@ -186,6 +188,7 @@ theorem factRefines_constr {d : Nat} {F : CekEnv → Prop} {tag : Nat} {ms ms' :
     exact factRefines_constrField henv hlen hπ hF h.2 closed.2 closed'.2 .nil w
       (halts_wellFormed henv hlen closed'.1 hw)
 
+omit sv in
 theorem listRel_length {α : Type} {R : α → α → Prop} :
     ∀ {xs ys : List α}, ListRel R xs ys → xs.length = ys.length
   | [], [], _ => rfl
@@ -193,6 +196,7 @@ theorem listRel_length {α : Type} {R : α → α → Prop} :
   | _ :: _, [], h => absurd h id
   | _ :: _, _ :: _, h => by simp [listRel_length h.2]
 
+omit sv in
 theorem listRel_getElem? {α : Type} {R : α → α → Prop} :
     ∀ {xs ys : List α}, ListRel R xs ys → ∀ n : Nat,
       (xs[n]? = none ∧ ys[n]? = none) ∨ ∃ x y, xs[n]? = some x ∧ ys[n]? = some y ∧ R x y
@@ -202,6 +206,7 @@ theorem listRel_getElem? {α : Type} {R : α → α → Prop} :
   | x :: _, y :: _, h, 0 => .inr ⟨x, y, rfl, rfl, h.1⟩
   | _ :: _, _ :: _, h, n + 1 => by simpa using listRel_getElem? h.2 n
 
+omit sv in
 theorem valueListWellFormed_map_vcon :
     ∀ {fields : List CekValue}, (∀ v ∈ fields, ∃ c, v = .VCon c) → ValueListWellFormed fields
   | [], _ => .nil
@@ -209,6 +214,7 @@ theorem valueListWellFormed_map_vcon :
     obtain ⟨c, rfl⟩ := h _ (.head _)
     exact .cons (.vcon c) (valueListWellFormed_map_vcon fun w hw => h w (.tail _ hw))
 
+omit sv in
 theorem stackWellFormed_applyArgs :
     ∀ {fields : List CekValue} {π : Stack}, ValueListWellFormed fields → StackWellFormed π →
       StackWellFormed (fields.map Frame.applyArg ++ π)
@@ -267,6 +273,7 @@ theorem factRefines_case {d : Nat} {F : CekEnv → Prop} {s s' : Term} {alts alt
 
 /-! ## Shifting under an unused binder -/
 
+omit sv in
 theorem shiftBisimEnv_shift {d : Nat} {ρ : CekEnv} (w : CekValue) :
     EnvWellFormed d ρ → ShiftBisimEnv (shiftRename 1) d ρ (ρ.extend w)
   | .zero => .zero
@@ -275,6 +282,7 @@ theorem shiftBisimEnv_shift {d : Nat} {ρ : CekEnv} (w : CekValue) :
     rw [shiftRename_ge (by omega)]
     exact hl
 
+omit sv in
 private theorem shiftBisimFrame_refl {f : Frame} (h : FrameWellFormed f) : ShiftBisimFrame f f := by
   cases h with
   | force => exact .force
@@ -292,6 +300,7 @@ private theorem shiftBisimFrame_refl {f : Frame} (h : FrameWellFormed f) : Shift
       ShiftBisimFrame.caseScrutinee FundamentalRefines.is0preserving_id
         (shiftBisimEnv_refl_id_aux henv) hc
 
+omit sv in
 theorem shiftBisimStack_refl : ∀ {π : Stack}, StackWellFormed π → ShiftBisimStack π π
   | [], _ => .nil
   | _ :: _, .cons hf hπ => .cons (shiftBisimFrame_refl hf) (shiftBisimStack_refl hπ)

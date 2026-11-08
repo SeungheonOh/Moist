@@ -3,6 +3,8 @@ import Moist.Verified.ShapeFacts.Evaluation
 import Moist.Verified.InlineSoundness.SubstRefinesExt
 import Moist.MIR.LowerTotal
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Recursive functions called on lists
 
 The lowered fixed point `fixLamWrapUplc tB` evaluates to a closure over the

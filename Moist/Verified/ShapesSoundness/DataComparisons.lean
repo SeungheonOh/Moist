@@ -1,6 +1,8 @@
 import Moist.Verified.ShapesSoundness.Rewrites
 import Moist.Verified.TagChainsSoundness.Tests
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Comparisons with a key of known bytes
 
 `dataComparison` replaces `equalsData d x`, where the facts make `d` the `B`

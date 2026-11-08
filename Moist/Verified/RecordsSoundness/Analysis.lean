@@ -1,5 +1,7 @@
 import Moist.Verified.RecordsSoundness.Steps
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Soundness of `shapeOf`
 
 Under realized facts, whatever an expression returns has the shape that

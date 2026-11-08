@@ -1,5 +1,7 @@
 import Moist.Verified.ShapeFacts.Facts
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Decomposing successful evaluations
 
 Inversion lemmas for `Halts` on each term former, and the corresponding
@@ -189,23 +191,28 @@ theorem force_reaches {w v : CekValue} (h : Reaches (.ret [.force] w) (.halt v))
 
 /-! ## Lowering of single nodes -/
 
+omit sv in
 theorem lowerTotalExpr_var (env : List VarId) (x : VarId) :
     lowerTotalExpr env (.Var x) = (envLookupT env x).map fun i => .Var (i + 1) := by
   simp only [lowerTotalExpr, expandFix, lowerTotal]
   cases envLookupT env x <;> rfl
 
+omit sv in
 theorem lowerTotalExpr_lit (env : List VarId) (c : Const) (ty : BuiltinType) :
     lowerTotalExpr env (.Lit (c, ty)) = some (.Constant (c, ty)) := by
   simp only [lowerTotalExpr, expandFix, lowerTotal]
 
+omit sv in
 theorem lowerTotalExpr_builtin (env : List VarId) (b : BuiltinFun) :
     lowerTotalExpr env (.Builtin b) = some (.Builtin b) := by
   simp only [lowerTotalExpr, expandFix, lowerTotal]
 
+omit sv in
 theorem lowerTotalExpr_error (env : List VarId) :
     lowerTotalExpr env .Error = some .Error := by
   simp only [lowerTotalExpr, expandFix, lowerTotal]
 
+omit sv in
 theorem lowerTotalExpr_app_some {env : List VarId} {f a : Expr} {t : Term}
     (h : lowerTotalExpr env (.App f a) = some t) :
     ∃ tf ta, lowerTotalExpr env f = some tf ∧ lowerTotalExpr env a = some ta ∧ t = .Apply tf ta := by
@@ -217,6 +224,7 @@ theorem lowerTotalExpr_app_some {env : List VarId} {f a : Expr} {t : Term}
     | none => rw [hf, ha] at h; cases h
     | some ta => rw [hf, ha] at h; cases h; exact ⟨tf, ta, rfl, rfl, rfl⟩
 
+omit sv in
 theorem lowerTotalExpr_force_some {env : List VarId} {e : Expr} {t : Term}
     (h : lowerTotalExpr env (.Force e) = some t) :
     ∃ te, lowerTotalExpr env e = some te ∧ t = .Force te := by
@@ -225,6 +233,7 @@ theorem lowerTotalExpr_force_some {env : List VarId} {e : Expr} {t : Term}
   | none => rw [he] at h; cases h
   | some te => rw [he] at h; cases h; exact ⟨te, rfl, rfl⟩
 
+omit sv in
 theorem lowerTotalExpr_delay_some {env : List VarId} {e : Expr} {t : Term}
     (h : lowerTotalExpr env (.Delay e) = some t) :
     ∃ te, lowerTotalExpr env e = some te ∧ t = .Delay te := by
@@ -233,6 +242,7 @@ theorem lowerTotalExpr_delay_some {env : List VarId} {e : Expr} {t : Term}
   | none => rw [he] at h; cases h
   | some te => rw [he] at h; cases h; exact ⟨te, rfl, rfl⟩
 
+omit sv in
 theorem lowerTotalExpr_lam_some {env : List VarId} {x : VarId} {e : Expr} {t : Term}
     (h : lowerTotalExpr env (.Lam x e) = some t) :
     ∃ te, lowerTotalExpr (x :: env) e = some te ∧ t = .Lam 0 te := by
@@ -241,6 +251,7 @@ theorem lowerTotalExpr_lam_some {env : List VarId} {x : VarId} {e : Expr} {t : T
   | none => rw [he] at h; cases h
   | some te => rw [he] at h; cases h; exact ⟨te, rfl, rfl⟩
 
+omit sv in
 theorem lowerTotalExpr_var_some {env : List VarId} {x : VarId} {t : Term}
     (h : lowerTotalExpr env (.Var x) = some t) :
     ∃ i, envLookupT env x = some i ∧ t = .Var (i + 1) := by
@@ -249,6 +260,7 @@ theorem lowerTotalExpr_var_some {env : List VarId} {x : VarId} {t : Term}
   | none => rw [hx] at h; cases h
   | some i => rw [hx] at h; cases h; exact ⟨i, rfl, rfl⟩
 
+omit sv in
 theorem lowerTotalExpr_case_some {env : List VarId} {s : Expr} {alts : List Expr} {t : Term}
     (h : lowerTotalExpr env (.Case s alts) = some t) :
     ∃ ts talts, lowerTotalExpr env s = some ts ∧ MIR.lowerTotalExprList env alts = some talts ∧

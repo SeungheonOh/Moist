@@ -4,6 +4,8 @@ import Moist.Verified.ShapesSoundness.Simplify
 import Moist.Verified.TagChainsSoundness
 import Moist.Verified.DataShapesSoundness
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # The advanced simplification step
 
 `Advanced.simplify` fuses list destructors, folds constants and data

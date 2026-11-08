@@ -2,6 +2,8 @@ import Moist.Verified.InlineSoundness
 import Moist.Verified.HygieneSoundness
 import Moist.MIR.Optimize.BetaReduce
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Soundness of general beta reduction
 
 `betaReducePass_refines : MIRCtxRefines e (betaReducePass e s).1.1` for every
@@ -36,6 +38,7 @@ open Moist.Verified.Equivalence (ListRel)
 section Equations
 variable (s : FreshState)
 
+omit sv in
 theorem core_app (f x : Expr) :
     betaReduceCore (.App f x) s =
       betaContract (betaReduceCore f s).1.1 (betaReduceCore x (betaReduceCore f s).2).1.1
@@ -43,60 +46,72 @@ theorem core_app (f x : Expr) :
         (betaReduceCore x (betaReduceCore f s).2).2 := by
   rw [Moist.MIR.betaReduceCore.eq_1]; rfl
 
+omit sv in
 theorem core_lam (x : VarId) (b : Expr) :
     (betaReduceCore (.Lam x b) s).1.1 = .Lam x (betaReduceCore b s).1.1 ∧
       (betaReduceCore (.Lam x b) s).2 = (betaReduceCore b s).2 := by
   rw [Moist.MIR.betaReduceCore.eq_2]; exact ⟨rfl, rfl⟩
 
+omit sv in
 theorem core_fix (f : VarId) (b : Expr) :
     (betaReduceCore (.Fix f b) s).1.1 = .Fix f (betaReduceCore b s).1.1 ∧
       (betaReduceCore (.Fix f b) s).2 = (betaReduceCore b s).2 := by
   rw [Moist.MIR.betaReduceCore.eq_3]; exact ⟨rfl, rfl⟩
 
+omit sv in
 theorem core_force (e : Expr) :
     (betaReduceCore (.Force e) s).1.1 = .Force (betaReduceCore e s).1.1 ∧
       (betaReduceCore (.Force e) s).2 = (betaReduceCore e s).2 := by
   rw [Moist.MIR.betaReduceCore.eq_4]; exact ⟨rfl, rfl⟩
 
+omit sv in
 theorem core_delay (e : Expr) :
     (betaReduceCore (.Delay e) s).1.1 = .Delay (betaReduceCore e s).1.1 ∧
       (betaReduceCore (.Delay e) s).2 = (betaReduceCore e s).2 := by
   rw [Moist.MIR.betaReduceCore.eq_5]; exact ⟨rfl, rfl⟩
 
+omit sv in
 theorem core_constr (tag : Nat) (args : List Expr) :
     (betaReduceCore (.Constr tag args) s).1.1 = .Constr tag (betaReduceCoreList args s).1.1 ∧
       (betaReduceCore (.Constr tag args) s).2 = (betaReduceCoreList args s).2 := by
   rw [Moist.MIR.betaReduceCore.eq_6]; exact ⟨rfl, rfl⟩
 
+omit sv in
 theorem core_case (scrut : Expr) (alts : List Expr) :
     (betaReduceCore (.Case scrut alts) s).1.1 =
         .Case (betaReduceCore scrut s).1.1 (betaReduceCoreList alts (betaReduceCore scrut s).2).1.1 ∧
       (betaReduceCore (.Case scrut alts) s).2 = (betaReduceCoreList alts (betaReduceCore scrut s).2).2 := by
   rw [Moist.MIR.betaReduceCore.eq_7]; exact ⟨rfl, rfl⟩
 
+omit sv in
 theorem core_let (binds : List (VarId × Expr × Bool)) (body : Expr) :
     (betaReduceCore (.Let binds body) s).1.1 =
         .Let (betaReduceCoreBinds binds s).1.1 (betaReduceCore body (betaReduceCoreBinds binds s).2).1.1 ∧
       (betaReduceCore (.Let binds body) s).2 = (betaReduceCore body (betaReduceCoreBinds binds s).2).2 := by
   rw [Moist.MIR.betaReduceCore.eq_8]; exact ⟨rfl, rfl⟩
 
+omit sv in
 theorem core_leaf (e : Expr)
     (leaf : match e with | .Var _ | .Lit _ | .Builtin _ | .Error => True | _ => False) :
     betaReduceCore e s = ((e, false), s) := by
   cases e <;> first | exact leaf.elim | (rw [Moist.MIR.betaReduceCore.eq_9] <;> first | rfl | (intros; simp_all))
 
+omit sv in
 theorem coreList_nil : betaReduceCoreList [] s = (([], false), s) := by
   rw [Moist.MIR.betaReduceCoreList.eq_1]; rfl
 
+omit sv in
 theorem coreList_cons (e : Expr) (rest : List Expr) :
     (betaReduceCoreList (e :: rest) s).1.1 =
         (betaReduceCore e s).1.1 :: (betaReduceCoreList rest (betaReduceCore e s).2).1.1 ∧
       (betaReduceCoreList (e :: rest) s).2 = (betaReduceCoreList rest (betaReduceCore e s).2).2 := by
   rw [Moist.MIR.betaReduceCoreList.eq_2]; exact ⟨rfl, rfl⟩
 
+omit sv in
 theorem coreBinds_nil : betaReduceCoreBinds [] s = (([], false), s) := by
   rw [Moist.MIR.betaReduceCoreBinds.eq_1]; rfl
 
+omit sv in
 theorem coreBinds_cons (v : VarId) (rhs : Expr) (er : Bool) (rest : List (VarId × Expr × Bool)) :
     (betaReduceCoreBinds ((v, rhs, er) :: rest) s).1.1 =
         (v, (betaReduceCore rhs s).1.1, er) :: (betaReduceCoreBinds rest (betaReduceCore rhs s).2).1.1 ∧
@@ -108,16 +123,19 @@ end Equations
 
 /-! ## The contraction step -/
 
+omit sv in
 theorem contract_lam (p : VarId) (b x : Expr) (c : Bool) (s : FreshState) :
     betaContract (.Lam p b) x c s =
       if x.isAtom then (((subst p x b s).1, true), (subst p x b s).2)
       else ((.Let [(p, x, false)] b, true), s) := by
   simp only [betaContract]; split <;> rfl
 
+omit sv in
 theorem contract_other (f x : Expr) (c : Bool) (s : FreshState) (h : ∀ p b, f ≠ .Lam p b) :
     betaContract f x c s = ((.App f x, c), s) := by
   cases f <;> first | rfl | exact absurd rfl (h _ _)
 
+omit sv in
 theorem contract_fresh (f x : Expr) (c : Bool) (s : FreshState)
     (hf : maxUidExpr f < s.next) (hx : maxUidExpr x < s.next) :
     maxUidExpr (betaContract f x c s).1.1 < (betaContract f x c s).2.next ∧
@@ -314,6 +332,7 @@ end
 
 /-! ## The pass -/
 
+omit sv in
 theorem betaReducePass_eq (e : Expr) (s : FreshState) :
     betaReducePass e s =
       betaReduceCore (uniqueOptimizationBinders e)

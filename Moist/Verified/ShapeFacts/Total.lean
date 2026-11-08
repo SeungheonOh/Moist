@@ -2,6 +2,8 @@ import Moist.Verified.ShapeFacts.Delays
 import Moist.Verified.ShapeFacts.Known
 import Moist.Verified.Purity
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Totality under facts
 
 `totalWithFacts` accepts pure expressions, integer arithmetic on known
@@ -42,6 +44,7 @@ def integerOperation : BuiltinFun → Bool
   | .LessThanInteger | .LessThanEqualsInteger => true
   | _ => false
 
+omit sv in
 theorem integerOperation_args {b : BuiltinFun} (h : integerOperation b = true) :
     expectedArgs b = .more .argV (.one .argV) := by
   cases b <;> simp [integerOperation] at h <;> rfl

@@ -2,6 +2,8 @@ import Moist.Verified.FailFastSoundness.Sink
 import Moist.Verified.ShapeFacts.Known
 import Moist.MIR.Optimize.Advanced.FailFast
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Soundness of the termination analysis
 
 `terminates e` implies that the lowering of `e` halts or errors in every
@@ -75,6 +77,7 @@ theorem InertAt.terminates {d : Nat} {t : Term} (h : InertAt d t) : TerminatesAt
   · exact .inl he
   · exact .inr ⟨v, hv⟩
 
+omit sv in
 theorem argCount_pos (ea : ExpectedArgs) : 0 < argCount ea := by
   cases ea <;> simp [argCount]
 
@@ -91,6 +94,7 @@ theorem termState_inert_fields {v : CekValue} (hv : InertV v) :
 
 /-! ## Dispatch facts -/
 
+omit sv in
 theorem constToTagAndFields_wellFormed {c : Const} {tag numCtors : Nat} {fields : List CekValue}
     (h : constToTagAndFields c = some (tag, numCtors, fields)) : ValueListWellFormed fields := by
   have hvcon := constToTagAndFields_fields_vcon c
@@ -105,6 +109,7 @@ theorem constToTagAndFields_wellFormed {c : Const} {tag numCtors : Nat} {fields 
     subst hc'
     exact .cons (.vcon c') (ih fun v hv => hvcon v (.inr hv))
 
+omit sv in
 theorem dispatch_spec {alts : List Term} {v : CekValue} {alt : Term} {fields : List CekValue}
     (h : dispatch alts v = some (alt, fields)) (hv : ValueWellFormed v) :
     alt ∈ alts ∧ ValueListWellFormed fields := by
@@ -143,11 +148,13 @@ theorem halts_var_wf {d : Nat} {ρ : CekEnv} (henv : EnvWellFormed d ρ) {i : Na
   obtain ⟨v, hl, _⟩ := envWellFormed_lookup d henv (n := i + 1) (by omega) (by omega)
   exact ⟨v, halts_var_of_lookup hl⟩
 
+omit sv in
 theorem envLookupT_lt {env : List VarId} {x : VarId} {i : Nat} (h : envLookupT env x = some i) :
     i < env.length := by
   have := envLookupT_bound env x i h
   omega
 
+omit sv in
 theorem envWellFormed_extend' {d : Nat} {ρ : CekEnv} {v : CekValue} (henv : EnvWellFormed d ρ)
     (hlen : d ≤ ρ.length) (hv : ValueWellFormed v) :
     EnvWellFormed (d + 1) (ρ.extend v) ∧ d + 1 ≤ (ρ.extend v).length :=
@@ -496,6 +503,7 @@ theorem altSafeAt_of_inert {d : Nat} {t : Term} (h : InertAt d t) : AltSafeAt d 
 
 /-! ## List predicates -/
 
+omit sv in
 theorem terminatesList_mem : ∀ {es : List Expr}, terminatesList es = true → ∀ e ∈ es, terminates e = true
   | [], _, _, h => by cases h
   | e :: rest, h, x, hx => by
@@ -504,6 +512,7 @@ theorem terminatesList_mem : ∀ {es : List Expr}, terminatesList es = true → 
     · exact h.1
     · exact terminatesList_mem h.2 x hx
 
+omit sv in
 theorem inertList_mem : ∀ {es : List Expr}, inertList es = true → ∀ e ∈ es, inert e = true
   | [], _, _, h => by cases h
   | e :: rest, h, x, hx => by
@@ -512,6 +521,7 @@ theorem inertList_mem : ∀ {es : List Expr}, inertList es = true → ∀ e ∈ 
     · exact h.1
     · exact inertList_mem h.2 x hx
 
+omit sv in
 theorem altsSafe_mem : ∀ {es : List Expr}, altsSafe es = true → ∀ e ∈ es, altSafe e = true
   | [], _, _, h => by cases h
   | e :: rest, h, x, hx => by
@@ -520,6 +530,7 @@ theorem altsSafe_mem : ∀ {es : List Expr}, altsSafe es = true → ∀ e ∈ es
     · exact h.1
     · exact altsSafe_mem h.2 x hx
 
+omit sv in
 theorem terminatesBinds_mem : ∀ {bs : List (VarId × Expr × Bool)}, terminatesBinds bs = true →
     ∀ b ∈ bs, terminates b.2.1 = true
   | [], _, _, h => by cases h

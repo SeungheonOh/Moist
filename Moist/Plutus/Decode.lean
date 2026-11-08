@@ -113,7 +113,7 @@ partial def decodeConstType : List Nat → Option (List Nat × BuiltinType)
   | 7 :: 5      :: l => do
       let (l', t) ← decodeConstType l
       .some (l', .TypeOperator (.TypeList t))
-  | 7 :: 9      :: l => do
+  | 7 :: 12     :: l => do
       let (l', t) ← decodeConstType l
       .some (l', .TypeOperator (.TypeArray t))
   | 7 :: 7 :: 6 :: l => do
@@ -137,12 +137,12 @@ partial def decodeConstValue (s : List Bool) : BuiltinType → Option (List Bool
       let (rest, d) ← decodeData t
       let _         ← Option.filter (λ () => rest = ByteArray.empty) (.some ())
       .some (s', .Data d)
-  | .TypeOperator (.TypeList t)     => Prod.map id .ConstList <$> decodeList (flip decodeConstValue t) s
+  | .TypeOperator (.TypeList t)     => Prod.map id (.ConstList t) <$> decodeList (flip decodeConstValue t) s
   | .TypeOperator (.TypePair t₁ t₂) => do
       let (s₁, c₁) ← decodeConstValue s  t₁
       let (s₂, c₂) ← decodeConstValue s₁ t₂
       .some (s₂, .Pair (c₁, c₂))
-  | .TypeOperator (.TypeArray t)    => Prod.map id .ConstArray <$> decodeList (flip decodeConstValue t) s
+  | .TypeOperator (.TypeArray t)    => Prod.map id (.ConstArray t) <$> decodeList (flip decodeConstValue t) s
   | .AtomicType .TypeBls12_381_G1_element => do
       let (s', _bs) ← decodeBytestring s
       .some (s', .Bls12_381_G1_element)

@@ -251,6 +251,19 @@ def knownInteger : Nat → List (VarId × Expr) → Expr → Bool
           | _ => false
     | _ => false
 
+/-- Integers known to lie within the `CInteger` bounds of every semantics variant
+    (variant E rejects arithmetic arguments beyond `±2^262143`): literals below `2^64`
+    in magnitude, possibly through let-bound variables. -/
+def boundedInteger : Nat → List (VarId × Expr) → Expr → Bool
+  | 0, _, _ => false
+  | fuel + 1, environment, expression =>
+    match expression with
+    | .Lit (.Integer value, _) => decide (value.natAbs < 2 ^ 64)
+    | .Var binder =>
+      (environment.find? (fun entry => entry.1 == binder)).any
+        (fun entry => boundedInteger fuel environment entry.2)
+    | _ => false
+
 def totalWithFacts : Nat → List (VarId × Expr) → Expr → Bool
   | 0, _, expression => isPure expression
   | fuel + 1, environment, expression =>
@@ -264,6 +277,8 @@ def totalWithFacts : Nat → List (VarId × Expr) → Expr → Bool
             | .LessThanInteger | .LessThanEqualsInteger => true
             | _ => false
           integerOperation && knownInteger 64 environment first && knownInteger 64 environment argument &&
+            (builtin == .EqualsInteger ||
+              (boundedInteger 64 environment first && boundedInteger 64 environment argument)) &&
             totalWithFacts fuel environment first && totalWithFacts fuel environment argument
         | .Force (.Force (.Builtin builtin)) =>
           (builtin == .FstPair || builtin == .SndPair) && constructorPair 64 environment argument &&
@@ -275,6 +290,16 @@ def delayBody : Expr → Option Expr
   | .Delay body => some body
   | _ => none
 
+/-- A constant that is a data value. -/
+def isDataConst : Const → Bool
+  | .Data _ => true
+  | _ => false
+
+/-- A constant that is a pair of data values. -/
+def isPairDataConst : Const → Bool
+  | .Pair (.Data _, .Data _) => true
+  | _ => false
+
 /-- Values represented as lists of data pairs: `unMapData` results and
     pair-list literals. -/
 def knownPairDataList : Nat → List (VarId × Expr) → Expr → Bool
@@ -284,7 +309,8 @@ def knownPairDataList : Nat → List (VarId × Expr) → Expr → Bool
     | .Var binder =>
       (environment.find? (fun entry => entry.1 == binder)).any
         (fun entry => knownPairDataList fuel environment entry.2)
-    | .Lit (.ConstPairDataList _, _) => true
+    | .Lit (.ConstList elementType items, _) =>
+      decide (elementType = pairDataType) && items.all isPairDataConst
     | .App function _ =>
       match resolveHead fuel environment function with
       | .Builtin .UnMapData => true
@@ -300,7 +326,8 @@ def knownDataList : Nat → List (VarId × Expr) → Expr → Bool
     | .Var binder =>
       (environment.find? (fun entry => entry.1 == binder)).any
         (fun entry => knownDataList fuel environment entry.2)
-    | .Lit (.ConstDataList _, _) => true
+    | .Lit (.ConstList elementType items, _) =>
+      decide (elementType = dataType) && items.all isDataConst
     | .App function _ =>
       match resolveHead fuel environment function with
       | .Builtin .UnListData => true
@@ -402,6 +429,10 @@ def retainEvaluation (base : Nat) (environment : List (VarId × Expr))
 def integerIdentity (base : Nat) (environment : List (VarId × Expr)) : Expr → Option Expr
   | .App (.App (.Builtin builtin) first) second => do
     if !knownInteger 64 environment first || !knownInteger 64 environment second then none
+    -- Arithmetic and ordering unlift `CInteger` arguments under variant E, so they can fail
+    -- on huge integers; only `equalsInteger` is total on every integer.
+    else if builtin != .EqualsInteger &&
+        !(boundedInteger 64 environment first && boundedInteger 64 environment second) then none
     else
       match builtin with
       | .AddInteger =>

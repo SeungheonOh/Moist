@@ -1,5 +1,7 @@
 import Moist.Verified.HygieneSoundness
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Soundness of the Boolean alpha-equivalence checker
 
 `Moist.MIR.alphaEq` is used as a guard by passes that replace one
@@ -15,18 +17,21 @@ open Moist.Plutus.Term (Term Const BuiltinType BuiltinFun AtomicType TypeOperato
 
 /-! ## Lawfulness of the literal comparisons -/
 
+omit sv in
 theorem atomicType_eq_of_beq {a b : AtomicType} (h : (a == b) = true) : a = b := by
   have hidx : a.ctorIdx = b.ctorIdx := by
     simpa [BEq.beq, Moist.Plutus.Term.instBEqAtomicType.beq] using h
   have := congrArg AtomicType.ofNat hidx
   rwa [AtomicType.ofNat_ctorIdx, AtomicType.ofNat_ctorIdx] at this
 
+omit sv in
 theorem builtinFun_eq_of_beq {a b : BuiltinFun} (h : (a == b) = true) : a = b := by
   have hidx : a.ctorIdx = b.ctorIdx := by
     simpa [BEq.beq, Moist.Plutus.Term.instBEqBuiltinFun.beq] using h
   have := congrArg BuiltinFun.ofNat hidx
   rwa [BuiltinFun.ofNat_ctorIdx, BuiltinFun.ofNat_ctorIdx] at this
 
+omit sv in
 theorem byteString_eq_of_beq {a b : ByteString} (h : (a == b) = true) : a = b :=
   ByteArray.ext (Array.eq_of_isEqv a.data b.data h)
 
@@ -113,21 +118,16 @@ mutual
       · simp only [beq_iff_eq] at h; rw [h]
       · rfl
       · simp only [beq_iff_eq] at h; rw [h]
-      · rw [constList_eq_of_constEqList h]
-      · rw [dataList_eq_of_dataEqList h]
-      · rw [dataPairs_eq_of_dataEqPairs h]
+      · simp only [Bool.and_eq_true] at h
+        rw [builtinType_eq_of_builtinTypeEq h.1, constList_eq_of_constEqList h.2]
       · rename_i p q
         obtain ⟨p1, p2⟩ := p
         obtain ⟨q1, q2⟩ := q
         simp only [Bool.and_eq_true] at h
         rw [const_eq_of_constEq h.1, const_eq_of_constEq h.2]
-      · rename_i p q
-        obtain ⟨p1, p2⟩ := p
-        obtain ⟨q1, q2⟩ := q
-        simp only [Bool.and_eq_true] at h
-        rw [data_eq_of_dataEq h.1, data_eq_of_dataEq h.2]
       · rw [data_eq_of_dataEq h]
-      · rw [constList_eq_of_constEqList h]
+      · simp only [Bool.and_eq_true] at h
+        rw [builtinType_eq_of_builtinTypeEq h.1, constList_eq_of_constEqList h.2]
       · rfl
       · rfl
       · rfl
@@ -149,6 +149,7 @@ theorem lit_eq_of_litEq {a b : Const × BuiltinType} (h : litEq a b = true) : a 
 
 /-! ## Variable lookups -/
 
+omit sv in
 theorem envLookupT_go_eq_findIdx? (v : VarId) :
     ∀ (env : List VarId) (n : Nat),
       envLookupT.go v env n = (env.findIdx? (· == v)).map (· + n)
@@ -158,10 +159,12 @@ theorem envLookupT_go_eq_findIdx? (v : VarId) :
     split <;> simp [envLookupT_go_eq_findIdx? v xs, Option.map_map, Function.comp_def,
       Nat.add_comm, Nat.add_left_comm]
 
+omit sv in
 theorem envLookupT_eq_findIdx? (env : List VarId) (v : VarId) :
     envLookupT env v = env.findIdx? (· == v) := by
   simpa [envLookupT] using envLookupT_go_eq_findIdx? v env 0
 
+omit sv in
 theorem alphaEqAux_var_eq (A1 A2 : List VarId) (x y : VarId) :
     alphaEqAux A1 A2 (.Var x) (.Var y) =
       (match envLookupT A1 x, envLookupT A2 y with
@@ -172,6 +175,7 @@ theorem alphaEqAux_var_eq (A1 A2 : List VarId) (x y : VarId) :
     envLookupT_eq_findIdx?, envLookupT_eq_findIdx?]
   rfl
 
+omit sv in
 theorem envLookupT_go_congr {x y : VarId} (h : (x == y) = true) :
     ∀ (env : List VarId) (n : Nat), envLookupT.go x env n = envLookupT.go y env n
   | [], _ => rfl
@@ -182,6 +186,7 @@ theorem envLookupT_go_congr {x y : VarId} (h : (x == y) = true) :
       rw [hxy.1, hxy.2]
     simp only [envLookupT.go, hz, envLookupT_go_congr h zs (n + 1)]
 
+omit sv in
 theorem envLookupT_cons_of_beq {a x : VarId} (h : (a == x) = true) (env : List VarId) :
     envLookupT (a :: env) x = some 0 := by
   simp only [envLookupT, envLookupT.go, h, if_true]
@@ -191,6 +196,7 @@ checker identifies under the alpha environments `A1`, `A2` to the same index. -/
 def VarRel (A1 A2 L1 L2 : List VarId) : Prop :=
   ∀ x y, alphaEqAux A1 A2 (.Var x) (.Var y) = true → envLookupT L1 x = envLookupT L2 y
 
+omit sv in
 theorem VarRel.nil (L : List VarId) : VarRel [] [] L L := by
   intro x y h
   rw [alphaEqAux_var_eq] at h
@@ -198,6 +204,7 @@ theorem VarRel.nil (L : List VarId) : VarRel [] [] L L := by
   simp only [envLookupT]
   exact envLookupT_go_congr h L 0
 
+omit sv in
 theorem VarRel.cons {A1 A2 L1 L2 : List VarId} (hR : VarRel A1 A2 L1 L2) (a b : VarId) :
     VarRel (a :: A1) (b :: A2) (a :: L1) (b :: L2) := by
   intro x y h
@@ -218,18 +225,21 @@ theorem VarRel.cons {A1 A2 L1 L2 : List VarId} (hR : VarRel A1 A2 L1 L2) (a b : 
 
 /-! ## Fix with a non-lambda body -/
 
+omit sv in
 theorem lowerTotalExpr_fix_nonLam (L : List VarId) (f : VarId) (body : Expr)
     (h : ∀ x inner, body ≠ .Lam x inner) : lowerTotalExpr L (.Fix f body) = none := by
   cases body with
   | Lam x inner => exact absurd rfl (h x inner)
   | _ => simp [lowerTotalExpr, expandFix, lowerTotal]
 
+omit sv in
 theorem alphaEqAux_lam_left {A1 A2 : List VarId} {x : VarId} {c b : Expr}
     (h : alphaEqAux A1 A2 (.Lam x c) b = true) :
     ∃ y d, b = .Lam y d ∧ alphaEqAux (x :: A1) (y :: A2) c d = true := by
   cases b <;> simp only [alphaEqAux, Bool.false_eq_true] at h
   exact ⟨_, _, rfl, h⟩
 
+omit sv in
 theorem alphaEqAux_lam_right {A1 A2 : List VarId} {y : VarId} {a d : Expr}
     (h : alphaEqAux A1 A2 a (.Lam y d) = true) :
     ∃ x c, a = .Lam x c ∧ alphaEqAux (x :: A1) (y :: A2) c d = true := by

@@ -1,5 +1,9 @@
 import Moist.Verified.ListShapeSoundness
 
+/-- Tests evaluate under semantics variant E (the conformance-suite variant). -/
+private local instance testSemVariant : Moist.CEK.SemVariant := .E
+
+
 namespace Test.MIR.Opt.ListShapeCertificates
 
 open Moist.CEK Moist.Plutus.Term Moist.Verified.Equivalence

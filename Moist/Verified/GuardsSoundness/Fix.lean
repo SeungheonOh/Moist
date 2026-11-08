@@ -1,5 +1,7 @@
 import Moist.Verified.GuardsSoundness.Calls
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Calls of recursive functions terminate by induction on the shrinking argument -/
 
 namespace Moist.Verified.Guards

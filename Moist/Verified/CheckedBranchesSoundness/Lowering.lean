@@ -1,6 +1,8 @@
 import Moist.Verified.CheckedBranchesSoundness.Builtins
 import Moist.MIR.Optimize.Advanced.CheckedBranches
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Delayed list choices as a discriminator
 
 `force (chooseList l (delay e) (delay n))` becomes `case (nullList l) [n, e]`.

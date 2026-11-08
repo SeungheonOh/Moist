@@ -2,6 +2,8 @@ import Moist.Verified.AdvancedRefinement
 import Moist.Verified.InlineSoundness.StrictOcc
 import Moist.Verified.Contextual
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Sharing closed values through outer bindings
 
 `Shared K P d t u` says that `u` is `t` with every variable bound outside the
@@ -28,15 +30,18 @@ open Moist.Verified.Contextual.SoundnessRefines
     `d` innermost binders. -/
 def shareShift (d K n : Nat) : Nat := if n ≤ d then n else n + K
 
+omit sv in
 theorem shareShift_zero (d K : Nat) : shareShift d K 0 = 0 := by
   simp [shareShift]
 
+omit sv in
 theorem shareShift_succ (d K n : Nat) : shareShift (d + 1) K (n + 1) = shareShift d K n + 1 := by
   unfold shareShift
   by_cases h : n ≤ d
   · simp [h]
   · simp [h]; omega
 
+omit sv in
 theorem shareShift_of_le {d K n : Nat} (h : n ≤ d) : shareShift d K n = n := by
   simp [shareShift, h]
 
@@ -64,6 +69,7 @@ mutual
         Shared K P d t₁ t₂ → SharedList K P d ts₁ ts₂ → SharedList K P d (t₁ :: ts₁) (t₂ :: ts₂)
 end
 
+omit sv in
 theorem Shared.var_le {K : Nat} {P : Term → Nat → Prop} {d n : Nat} (h : n ≤ d) :
     Shared K P d (.Var n) (.Var n) := by
   have := Shared.var (K := K) (P := P) d n
@@ -135,9 +141,11 @@ theorem sharedEnv_mono {K : Nat} {P : Term → Nat → Prop} {j k d m : Nat} {ρ
   · obtain ⟨v, hl, hpin⟩ := h.2 c p hp
     exact ⟨v, hl, fun i hi => hpin i (Nat.le_trans hi hjk)⟩
 
+omit sv in
 theorem lookup_zero (ρ : CekEnv) : ρ.lookup 0 = none := by
   cases ρ <;> rfl
 
+omit sv in
 theorem lookup_extend_succ (ρ : CekEnv) (v : CekValue) {n : Nat} (hn : 1 ≤ n) :
     (ρ.extend v).lookup (n + 1) = ρ.lookup n := by
   match n, hn with
@@ -260,6 +268,7 @@ def extendAll (ρ : CekEnv) : List CekValue → CekEnv
 /-- A term returning a value from every environment. -/
 def Halts (t : Term) : Prop := ∀ ρ : CekEnv, ∃ v, Reaches (.compute [] ρ t) (.halt v)
 
+omit sv in
 theorem mkLets_closedAt {ts : List Term} (hts : ∀ c ∈ ts, closedAt 0 c = true) :
     ∀ {depth : Nat} {body : Term}, closedAt (depth + ts.length) body = true →
       closedAt depth (mkLets ts body) = true := by
@@ -272,6 +281,7 @@ theorem mkLets_closedAt {ts : List Term} (hts : ∀ c ∈ ts, closedAt 0 c = tru
       Moist.Verified.Contextual.closedAt_mono (hts c (.head _)) (Nat.zero_le _)⟩
     simpa [Nat.add_assoc, Nat.add_comm 1] using h
 
+omit sv in
 theorem extendAll_lookup_shift : ∀ (vals : List CekValue) (ρ : CekEnv) {n : Nat}, 1 ≤ n →
     (extendAll ρ vals).lookup (n + vals.length) = ρ.lookup n
   | [], _, _, _ => rfl
@@ -280,6 +290,7 @@ theorem extendAll_lookup_shift : ∀ (vals : List CekValue) (ρ : CekEnv) {n : N
     rw [show n + (vs.length + 1) = (n + 1) + vs.length by omega,
       extendAll_lookup_shift vs (ρ.extend v) (by omega), lookup_extend_succ ρ v hn]
 
+omit sv in
 theorem extendAll_lookup_get : ∀ (vals : List CekValue) (ρ : CekEnv) {j : Nat}
     (hj : j < vals.length), (extendAll ρ vals).lookup (vals.length - j) = some vals[j]
   | [], _, _, hj => absurd hj (Nat.not_lt_zero _)

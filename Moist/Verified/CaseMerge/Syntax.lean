@@ -1,6 +1,8 @@
 import Moist.MIR.Optimize.CaseMerge
 import Moist.Verified.MIR.Hoist
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Known-constructor case simplification: syntactic facts
 
 Unfolding equations for `caseMerge`, membership in filtered fact
@@ -36,44 +38,55 @@ def bindFact (Γ : KnownCtors) (x : VarId) (rhs : Expr) : KnownCtors :=
     else (x, info) :: filterKnown x Γ
   | none => filterKnown x Γ
 
+omit sv in
 theorem caseMerge_lam (Γ : KnownCtors) (x : VarId) (body : Expr) :
     (caseMerge Γ (.Lam x body)).1 = .Lam x (caseMerge (filterKnown x Γ) body).1 := by
   simp [caseMerge]
 
+omit sv in
 theorem caseMerge_fix (Γ : KnownCtors) (x : VarId) (body : Expr) :
     (caseMerge Γ (.Fix x body)).1 = .Fix x (caseMerge (filterKnown x Γ) body).1 := by
   simp [caseMerge]
 
+omit sv in
 theorem caseMerge_app (Γ : KnownCtors) (f a : Expr) :
     (caseMerge Γ (.App f a)).1 = .App (caseMerge Γ f).1 (caseMerge Γ a).1 := by
   simp [caseMerge]
 
+omit sv in
 theorem caseMerge_force (Γ : KnownCtors) (e : Expr) :
     (caseMerge Γ (.Force e)).1 = .Force (caseMerge Γ e).1 := by
   simp [caseMerge]
 
+omit sv in
 theorem caseMerge_delay (Γ : KnownCtors) (e : Expr) :
     (caseMerge Γ (.Delay e)).1 = .Delay (caseMerge Γ e).1 := by
   simp [caseMerge]
 
+omit sv in
 theorem caseMerge_constr (Γ : KnownCtors) (tag : Nat) (fields : List Expr) :
     (caseMerge Γ (.Constr tag fields)).1 = .Constr tag (caseMergeList Γ fields).1 := by
   simp [caseMerge]
 
+omit sv in
 theorem caseMerge_var (Γ : KnownCtors) (x : VarId) : (caseMerge Γ (.Var x)).1 = .Var x := by
   simp [caseMerge]
 
+omit sv in
 theorem caseMerge_lit (Γ : KnownCtors) (l : Moist.Plutus.Term.Const × Moist.Plutus.Term.BuiltinType) :
     (caseMerge Γ (.Lit l)).1 = .Lit l := by
   simp [caseMerge]
 
+omit sv in
 theorem caseMerge_builtin (Γ : KnownCtors) (b : Moist.Plutus.Term.BuiltinFun) :
     (caseMerge Γ (.Builtin b)).1 = .Builtin b := by
   simp [caseMerge]
 
+omit sv in
 theorem caseMerge_error (Γ : KnownCtors) : (caseMerge Γ .Error).1 = .Error := by
   simp [caseMerge]
 
+omit sv in
 theorem caseMerge_case (Γ : KnownCtors) (s : Expr) (alts : List Expr) :
     (caseMerge Γ (.Case s alts)).1 =
       caseResult Γ (caseMerge Γ s).1 (caseMergeList Γ alts).1 := by
@@ -85,15 +98,18 @@ theorem caseMerge_case (Γ : KnownCtors) (s : Expr) (alts : List Expr) :
   cases s' <;> simp only [caseResult] <;>
     (try (cases knownConstructor Γ _ <;> simp only [] <;> (try split) <;> rfl))
 
+omit sv in
 theorem caseMerge_let (Γ : KnownCtors) (bs : List (VarId × Expr × Bool)) (body : Expr) :
     (caseMerge Γ (.Let bs body)).1 =
       .Let (caseMergeBinds Γ bs).1 (caseMerge (caseMergeBinds Γ bs).2.1 body).1 := by
   simp [caseMerge]
 
+omit sv in
 theorem caseMergeBinds_nil (Γ : KnownCtors) :
     (caseMergeBinds Γ []).1 = [] ∧ (caseMergeBinds Γ []).2.1 = Γ := by
   simp [caseMergeBinds]
 
+omit sv in
 theorem caseMergeBinds_cons (Γ : KnownCtors) (x : VarId) (r : Expr) (er : Bool)
     (rest : List (VarId × Expr × Bool)) :
     (caseMergeBinds Γ ((x, r, er) :: rest)).1 =
@@ -104,6 +120,7 @@ theorem caseMergeBinds_cons (Γ : KnownCtors) (x : VarId) (r : Expr) (er : Bool)
   simp only [caseMergeBinds, bindFact]
   constructor <;> rfl
 
+omit sv in
 /-- Unfolding of a non-empty `let` through `caseMerge`. -/
 theorem caseMerge_let_cons (Γ : KnownCtors) (x : VarId) (r : Expr) (er : Bool)
     (rest : List (VarId × Expr × Bool)) (body : Expr) :
@@ -114,10 +131,12 @@ theorem caseMerge_let_cons (Γ : KnownCtors) (x : VarId) (r : Expr) (er : Bool)
   rw [caseMerge_let, (caseMergeBinds_cons Γ x r er rest).1,
     (caseMergeBinds_cons Γ x r er rest).2]
 
+omit sv in
 theorem caseMerge_let_nil (Γ : KnownCtors) (body : Expr) :
     (caseMerge Γ (.Let [] body)).1 = .Let [] (caseMerge Γ body).1 := by
   rw [caseMerge_let, (caseMergeBinds_nil Γ).1, (caseMergeBinds_nil Γ).2]
 
+omit sv in
 theorem caseMergeList_eq_map (Γ : KnownCtors) :
     ∀ (es : List Expr), (caseMergeList Γ es).1 = es.map (fun e => (caseMerge Γ e).1)
   | [] => by simp [caseMergeList]
@@ -126,16 +145,19 @@ theorem caseMergeList_eq_map (Γ : KnownCtors) :
     simp only [caseMergeList, List.map_cons] at ih ⊢
     rw [ih]
 
+omit sv in
 theorem caseMergeList_length (Γ : KnownCtors) (es : List Expr) :
     (caseMergeList Γ es).1.length = es.length := by
   rw [caseMergeList_eq_map, List.length_map]
 
+omit sv in
 theorem caseMergeList_getElem? (Γ : KnownCtors) (es : List Expr) (n : Nat) :
     (caseMergeList Γ es).1[n]? = es[n]?.map (fun e => (caseMerge Γ e).1) := by
   rw [caseMergeList_eq_map, List.getElem?_map]
 
 /-! ## Shapes of `caseResult` -/
 
+omit sv in
 theorem caseResult_cases (Γ : KnownCtors) (s : Expr) (alts : List Expr) :
     (∃ tag fields, s = .Constr tag fields ∧
         caseResult Γ s alts = reduceConstructorCase tag fields alts) ∨
@@ -163,6 +185,7 @@ theorem caseResult_cases (Γ : KnownCtors) (s : Expr) (alts : List Expr) :
 
 /-! ## Filtered fact environments -/
 
+omit sv in
 theorem mem_filterKnown {x : VarId} {Γ : KnownCtors} {p : VarId × KnownCtor} :
     p ∈ filterKnown x Γ ↔
       p ∈ Γ ∧ (p.1 == x) = false ∧ (freeVarsList p.2.fields).contains x = false := by
@@ -174,6 +197,7 @@ theorem mem_filterKnown {x : VarId} {Γ : KnownCtors} {p : VarId × KnownCtor} :
   · rintro ⟨hm, hne, hc⟩
     exact ⟨hm, by simp [bne, hne], hc⟩
 
+omit sv in
 theorem mem_bindFact {Γ : KnownCtors} {x : VarId} {rhs : Expr} {p : VarId × KnownCtor} :
     p ∈ bindFact Γ x rhs →
       p ∈ filterKnown x Γ ∨
@@ -199,6 +223,7 @@ def maxUidKnown : KnownCtors → Nat
   | [] => 0
   | (x, info) :: rest => max (max x.uid (maxUidExprList info.fields)) (maxUidKnown rest)
 
+omit sv in
 theorem maxUidKnown_mem : ∀ {Γ : KnownCtors} {p : VarId × KnownCtor}, p ∈ Γ →
     p.1.uid ≤ maxUidKnown Γ ∧ maxUidExprList p.2.fields ≤ maxUidKnown Γ
   | (x, info) :: rest, p, hp => by
@@ -207,6 +232,7 @@ theorem maxUidKnown_mem : ∀ {Γ : KnownCtors} {p : VarId × KnownCtor}, p ∈ 
     · simp only []; omega
     · have := maxUidKnown_mem hp; omega
 
+omit sv in
 /-- Every key and field of the fact environment avoids a variable above its uids. -/
 theorem fresh_known {Γ : KnownCtors} {s : VarId} (hs : s.uid > maxUidKnown Γ) :
     ∀ p ∈ Γ, (p.1 == s) = false ∧ (freeVarsList p.2.fields).contains s = false := by
@@ -217,6 +243,7 @@ theorem fresh_known {Γ : KnownCtors} {s : VarId} (hs : s.uid > maxUidKnown Γ) 
 
 /-! ## Variables and lookups -/
 
+omit sv in
 theorem envLookupT_congr {env : List VarId} {a b : VarId} (h : (a == b) = true) :
     envLookupT env a = envLookupT env b := by
   have hab := (VarId.beq_true_iff a b).mp h
@@ -241,6 +268,7 @@ theorem envLookupT_congr {env : List VarId} {a b : VarId} (h : (a == b) = true) 
     · rfl
     · exact ih (n + 1)
 
+omit sv in
 theorem freeVarsList_not_contains_mem {fields : List Expr} {x : VarId}
     (h : (freeVarsList fields).contains x = false) :
     ∀ f ∈ fields, (freeVars f).contains x = false := by
@@ -252,12 +280,14 @@ theorem freeVarsList_not_contains_mem {fields : List Expr} {x : VarId}
     · exact freeVarsList_union_left _ _ _ h
     · exact ih (freeVarsList_union_right _ _ _ h) f hf
 
+omit sv in
 theorem freeVars_var_not_contains {z x : VarId} (h : (freeVars (.Var z)).contains x = false) :
     (z == x) = false := by
   rw [freeVars, VarSet.singleton_contains'] at h; exact h
 
 /-! ## Lowering of produced shapes -/
 
+omit sv in
 theorem lowerTotalExpr_let_cons (env : List VarId) (x : VarId) (r : Expr) (er : Bool)
     (rest : List (VarId × Expr × Bool)) (body : Expr) :
     lowerTotalExpr env (.Let ((x, r, er) :: rest) body) =
@@ -267,6 +297,7 @@ theorem lowerTotalExpr_let_cons (env : List VarId) (x : VarId) (r : Expr) (er : 
   cases lowerTotal env (expandFix r) <;>
     cases lowerTotalLet (x :: env) (expandFixBinds rest) (expandFix body) <;> rfl
 
+omit sv in
 /-- Lowering of a left-nested application spine. -/
 theorem lowerTotalExpr_foldl_app (env : List VarId) :
     ∀ (args : List Expr) (f : Expr),
@@ -281,6 +312,7 @@ theorem lowerTotalExpr_foldl_app (env : List VarId) :
     cases lowerTotalExpr env f <;> cases lowerTotalExpr env a <;>
       cases lowerTotalExprList env args <;> rfl
 
+omit sv in
 theorem closedAt_foldl_apply (d : Nat) :
     ∀ (args : List Term) (f : Term),
       closedAt d (args.foldl Term.Apply f) = (closedAt d f && closedAtList d args)
@@ -289,6 +321,7 @@ theorem closedAt_foldl_apply (d : Nat) :
     rw [List.foldl_cons, closedAt_foldl_apply d args]
     simp only [closedAt, closedAtList, Bool.and_assoc]
 
+omit sv in
 theorem lowerTotalExprList_length {env : List VarId} :
     ∀ {es : List Expr} {ts : List Term}, lowerTotalExprList env es = some ts → ts.length = es.length
   | [], ts, h => by rw [lowerTotalExprList_nil] at h; cases h; rfl
@@ -299,6 +332,7 @@ theorem lowerTotalExprList_length {env : List VarId} :
     subst h
     simp [lowerTotalExprList_length hes]
 
+omit sv in
 theorem lowerTotalExprList_getElem? {env : List VarId} :
     ∀ {es : List Expr} {ts : List Term}, lowerTotalExprList env es = some ts →
       ∀ n : Nat, (∃ e t, es[n]? = some e ∧ ts[n]? = some t ∧ lowerTotalExpr env e = some t) ∨
@@ -313,6 +347,7 @@ theorem lowerTotalExprList_getElem? {env : List VarId} :
     | zero => exact .inl ⟨e, _, rfl, rfl, he⟩
     | succ n => simpa using lowerTotalExprList_getElem? hes n
 
+omit sv in
 theorem lowerTotalExprList_of_forall {env : List VarId} :
     ∀ {es : List Expr}, (∀ e ∈ es, (lowerTotalExpr env e).isSome) →
       ∃ ts, lowerTotalExprList env es = some ts
@@ -322,6 +357,7 @@ theorem lowerTotalExprList_of_forall {env : List VarId} :
     obtain ⟨ts, hts⟩ := lowerTotalExprList_of_forall (fun e' he' => h e' (.tail _ he'))
     exact ⟨t :: ts, by rw [lowerTotalExprList_cons, ht, hts]; rfl⟩
 
+omit sv in
 theorem lowerTotalExprList_mem {env : List VarId} :
     ∀ {es : List Expr} {ts : List Term}, lowerTotalExprList env es = some ts →
       ∀ e ∈ es, ∃ t ∈ ts, lowerTotalExpr env e = some t

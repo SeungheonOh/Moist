@@ -1,5 +1,7 @@
 import Moist.Verified.GuardsSoundness.CallSound
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # `chk` is sound
 
 `chk_sound`: when `chk n c v alt e` holds, the lowering of `e` in any

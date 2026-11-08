@@ -1,6 +1,8 @@
 import Moist.Verified.TermObsRefinesWF
 import Moist.Verified.FundamentalRefines
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Well-formedness instance of the fundamental theorem
 
 `ftlr_wf`: every closed term self-refines under the well-formedness-guarded

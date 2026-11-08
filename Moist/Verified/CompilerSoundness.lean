@@ -18,6 +18,8 @@ import Moist.Verified.FailFastSoundness
 import Moist.Verified.TagGuardSoundness
 import Moist.Verified.GuardsSoundness
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Soundness of `compileOptimized`
 
 Every optimizer stage is certified for every MIR expression, so the stage

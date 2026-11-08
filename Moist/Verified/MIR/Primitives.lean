@@ -5,6 +5,8 @@ import Moist.Verified.MIR.Primitives.Atomize
 import Moist.Verified.MIR.Primitives.LetFlattenRhsHead
 import Moist.Verified.MIR.Primitives.Iterated
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # MIR rewrite primitives
 
 Forward `MIRCtxRefines` rewrites on `.Let` structure, used by ANF

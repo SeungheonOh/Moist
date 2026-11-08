@@ -1,6 +1,8 @@
 import Moist.Verified.ProductsSoundness.Replace
 import Moist.Verified.CSE.Lowering
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Unboxing known pairs
 
 `let x = r in S` becomes `case r [λf s. S[fstPair x := f, sndPair x := s]]`

@@ -1,6 +1,8 @@
 import Moist.Verified.Equivalence
 import Moist.Verified.Definitions.StepIndexed
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Guarded step-indexed logical relation
 
 One step-indexed value relation, parameterized by well-formedness predicates

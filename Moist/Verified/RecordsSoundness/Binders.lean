@@ -1,5 +1,7 @@
 import Moist.Verified.RecordsSoundness.Replace
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Entering several binders with facts
 
 Binding the names `qs` (newest first) in front of an environment, with the

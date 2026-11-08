@@ -1,5 +1,7 @@
 import Moist.Verified.TagGuardSoundness.Pair
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Soundness of `pairGuard`
 
 In the scope of `case (unConstrData e₁) [λt₁ f₁. body]`, the bindings in front

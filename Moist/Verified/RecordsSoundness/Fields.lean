@@ -1,5 +1,7 @@
 import Moist.Verified.RecordsSoundness.Analysis
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Field reads and recorded fields
 
 A field read `case r [λ…. f]` of a value whose first alternative receives

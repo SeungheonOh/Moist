@@ -2,6 +2,8 @@ import Moist.Verified.Purity
 import Moist.MIR.Optimize.Safety
 import Moist.MIR.Optimize.PreLower
 
+variable [sv : Moist.CEK.SemVariant]
+
 namespace Moist.Verified.BuiltinState
 
 open Moist.MIR Moist.Plutus.Term Moist.CEK
@@ -100,6 +102,7 @@ theorem builtinRemainder_halts (expression : Expr) (environment : List VarId)
   obtain ⟨fuel, returns⟩ := returns []
   exact ⟨.VBuiltin builtin arguments remaining, fuel + 1, by rw [steps_trans, returns]; rfl⟩
 
+omit sv in
 theorem builtinRemainder_expandFix (expression : Expr) (remaining : ExpectedArgs)
     (checked : builtinRemainder expression = some remaining) :
     builtinRemainder (expandFix expression) = some remaining := by

@@ -80,20 +80,14 @@ def constToTagAndFields : Const → Option (Nat × Nat × List CekValue)
   | .Bool true => some (1, 2, [])
   | .Unit => some (0, 1, [])
   | .Integer n => if n >= 0 then some (n.toNat, 0, []) else none
-  -- Plutus SOP: Cons=tag 0, Nil=tag 1
-  | .ConstList [] => some (1, 2, [])
-  | .ConstList (h :: t) => some (0, 2, [.VCon h, .VCon (.ConstList t)])
-  | .ConstDataList [] => some (1, 2, [])
-  | .ConstDataList (h :: t) => some (0, 2, [.VCon (.Data h), .VCon (.ConstDataList t)])
-  | .ConstPairDataList [] => some (1, 2, [])
-  | .ConstPairDataList (h :: t) =>
-    some (0, 2, [.VCon (.PairData h), .VCon (.ConstPairDataList t)])
+  -- Plutus SOP: Cons=tag 0, Nil=tag 1 (Universe.hs `caseBuiltin`)
+  | .ConstList _ [] => some (1, 2, [])
+  | .ConstList ty (h :: t) => some (0, 2, [.VCon h, .VCon (.ConstList ty t)])
   | .Pair (a, b) => some (0, 1, [.VCon a, .VCon b])
-  | .PairData (a, b) => some (0, 1, [.VCon (.Data a), .VCon (.Data b)])
   | _ => none
 
 /-- Perform one step of the CEK machine (pure, no costing). -/
-def step : State → State
+def step [sv : SemVariant] : State → State
   | .error => .error
   | .halt v => .halt v
 
@@ -202,11 +196,9 @@ where
     | .String s => s.length
     | .Bool _ => 1 | .Unit => 1
     | .Data d => dataSize d
-    | .ConstList l => l.length
-    | .ConstDataList l => l.length
-    | .ConstPairDataList l => l.length
-    | .ConstArray l => l.length
-    | .Pair _ => 1 | .PairData _ => 1
+    | .ConstList _ l => l.length
+    | .ConstArray _ l => l.length
+    | .Pair _ => 1
     | .Bls12_381_G1_element => 18
     | .Bls12_381_G2_element => 36
     | .Bls12_381_MlResult => 72
@@ -460,7 +452,7 @@ def defaultMemBudget : Int := 14000000
 /-- Evaluate a closed UPLC term with a budget limit.
 Returns the result and the consumed budget.
 Budget is enforced: if either CPU or memory goes negative, returns `outOfBudget`. -/
-partial def eval (t : Term) (cpuLimit : Int := defaultCpuBudget)
+partial def eval [sv : SemVariant] (t : Term) (cpuLimit : Int := defaultCpuBudget)
     (memLimit : Int := defaultMemBudget) : EvalResult :=
   let initial : ExBudget := ⟨cpuLimit, memLimit⟩
   let afterStartup := initial - startupCost

@@ -1,6 +1,8 @@
 import Moist.Verified.ShapesSoundness.Choices
 import Moist.MIR.Optimize.Advanced.Products
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Known builtin pairs
 
 `knownProduct` resolves an expression to an application of `unConstrData` or

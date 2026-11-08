@@ -2,6 +2,8 @@ import Moist.Verified.EtaReduce.Rule
 import Moist.Verified.AdvancedTraversal
 import Moist.MIR.Optimize.EtaReduce
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Soundness of MIR eta reduction
 
 `etaReduce` rewrites `λx. f x` to `f` bottom-up when `x` is not free in `f`
@@ -29,6 +31,7 @@ theorem etaRule_refines {expression reduced : Expr} (fired : etaRule expression 
     · cases fired
   · cases fired
 
+omit sv in
 private theorem bindings_fst (fuel : Nat) (binds : List (VarId × Expr × Bool)) :
     List.map Prod.fst (binds.map fun (v, rhs, er) =>
         let (rhs', changed) := etaReduceFuel fuel rhs
@@ -112,6 +115,7 @@ so any fuel of at least `exprSize e` computes the same result as `etaReduce`. -/
 
 open Moist.MIR (exprSize exprSizeList exprSizeBinds)
 
+omit sv in
 theorem etaRule_smaller {expression reduced : Expr} (fired : etaRule expression = some reduced) :
     exprSize reduced < exprSize expression := by
   unfold etaRule at fired
@@ -121,6 +125,7 @@ theorem etaRule_smaller {expression reduced : Expr} (fired : etaRule expression 
     · cases fired
   · cases fired
 
+omit sv in
 private theorem sizeList_map_le (transform : Expr → Expr)
     (smaller : ∀ expression, exprSize (transform expression) ≤ exprSize expression) :
     ∀ expressions : List Expr,
@@ -132,6 +137,7 @@ private theorem sizeList_map_le (transform : Expr → Expr)
     simp only [List.map_cons, exprSizeList]
     omega
 
+omit sv in
 private theorem sizeBinds_map_le (transform : Expr → Expr)
     (smaller : ∀ expression, exprSize (transform expression) ≤ exprSize expression) :
     ∀ bindings : List (VarId × Expr × Bool),
@@ -144,6 +150,7 @@ private theorem sizeBinds_map_le (transform : Expr → Expr)
     simp only [List.map_cons, exprSizeBinds] at tail ⊢
     omega
 
+omit sv in
 theorem etaReduceFuel_size (fuel : Nat) (expression : Expr) :
     exprSize (etaReduceFuel fuel expression).1 ≤ exprSize expression := by
   induction fuel generalizing expression with
@@ -209,6 +216,7 @@ theorem etaReduceFuel_size (fuel : Nat) (expression : Expr) :
       rw [bindings_fst]
       omega
 
+omit sv in
 private theorem exprSize_binding_le {binding : VarId × Expr × Bool}
     {bindings : List (VarId × Expr × Bool)} (member : binding ∈ bindings) :
     exprSize binding.2.1 ≤ exprSizeBinds bindings := by
@@ -221,6 +229,7 @@ private theorem exprSize_binding_le {binding : VarId × Expr × Bool}
     | inl equal => subst binding; simp [exprSizeBinds]
     | inr member => have bound := ih member; simp only [exprSizeBinds]; omega
 
+omit sv in
 /-- Fuel beyond the expression size does not change the result. -/
 theorem etaReduceFuel_irrel (left right : Nat) (expression : Expr)
     (leftBound : exprSize expression ≤ left) (rightBound : exprSize expression ≤ right) :
@@ -295,6 +304,7 @@ theorem etaReduceFuel_irrel (left right : Nat) (expression : Expr)
           simp only [equal]
         simp only [etaReduceFuel, bindingsEqual, child body (by simp [exprSize]; omega)]
 
+omit sv in
 /-- `etaReduce` runs `etaReduceFuel` with enough fuel: any larger fuel agrees. -/
 theorem etaReduce_eq_fuel (expression : Expr) (fuel : Nat)
     (bound : exprSize expression ≤ fuel) :

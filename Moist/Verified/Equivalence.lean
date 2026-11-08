@@ -6,6 +6,8 @@ import Moist.Verified.Definitions.Contextual
 import Moist.Verified.Definitions.StepIndexed
 import Moist.CEK.DecidableEq
 
+variable [sv : Moist.CEK.SemVariant]
+
 namespace Moist.Verified.Equivalence
 
 open Moist.CEK
@@ -155,6 +157,7 @@ macro "obsRefinesK_of_step_auto" : tactic =>
   `(tactic| first | refine obsRefinesK_of_step_compute ?_
                   | refine obsRefinesK_of_step_ret ?_)
 
+omit sv in
 theorem listRel_mono {R S : α → α → Prop} (hRS : ∀ a b, R a b → S a b)
     {l₁ l₂ : List α} (h : ListRel R l₁ l₂) : ListRel S l₁ l₂ := by
   induction l₁ generalizing l₂ with
@@ -164,6 +167,7 @@ theorem listRel_mono {R S : α → α → Prop} (hRS : ∀ a b, R a b → S a b)
     | nil => simp [ListRel] at h
     | cons b bs => simp only [ListRel] at h ⊢; exact ⟨hRS _ _ h.1, ih h.2⟩
 
+omit sv in
 theorem listRel_append {R : α → α → Prop} {l₁ l₂ m₁ m₂ : List α}
     (hl : ListRel R l₁ l₂) (hm : ListRel R m₁ m₂) : ListRel R (l₁ ++ m₁) (l₂ ++ m₂) := by
   induction l₁ generalizing l₂ with
@@ -173,6 +177,7 @@ theorem listRel_append {R : α → α → Prop} {l₁ l₂ m₁ m₂ : List α}
     | nil => simp [ListRel] at hl
     | cons b bs => simp only [List.cons_append, ListRel]; exact ⟨hl.1, ih hl.2⟩
 
+omit sv in
 theorem listRel_reverse {R : α → α → Prop} {l₁ l₂ : List α}
     (h : ListRel R l₁ l₂) : ListRel R l₁.reverse l₂.reverse := by
   induction l₁ generalizing l₂ with
@@ -184,6 +189,7 @@ theorem listRel_reverse {R : α → α → Prop} {l₁ l₂ : List α}
       simp only [List.reverse_cons, ListRel] at h ⊢
       exact listRel_append (ih h.2) ⟨h.1, trivial⟩
 
+omit sv in
 theorem constToTagAndFields_fields_vcon (c : Const) :
     match constToTagAndFields c with
     | some (_, _, fields) => ∀ v ∈ fields, ∃ c, v = .VCon c
@@ -194,29 +200,13 @@ theorem constToTagAndFields_fields_vcon (c : Const) :
   | Integer n =>
     simp only [constToTagAndFields]
     split <;> simp_all
-  | ConstList l =>
-    cases l with
-    | nil => simp [constToTagAndFields]
-    | cons h t =>
-      simp only [constToTagAndFields]
-      intro v hv; simp at hv; rcases hv with rfl | rfl <;> exact ⟨_, rfl⟩
-  | ConstDataList l =>
+  | ConstList ty l =>
     cases l with
     | nil => simp [constToTagAndFields]
     | cons h t =>
       simp only [constToTagAndFields]
       intro v hv; simp at hv; rcases hv with rfl | rfl <;> exact ⟨_, rfl⟩
   | Pair p =>
-    obtain ⟨a, b⟩ := p
-    simp only [constToTagAndFields]
-    intro v hv; simp at hv; rcases hv with rfl | rfl <;> exact ⟨_, rfl⟩
-  | ConstPairDataList l =>
-    cases l with
-    | nil => simp [constToTagAndFields]
-    | cons h t =>
-      simp only [constToTagAndFields]
-      intro v hv; simp at hv; rcases hv with rfl | rfl <;> exact ⟨_, rfl⟩
-  | PairData p =>
     obtain ⟨a, b⟩ := p
     simp only [constToTagAndFields]
     intro v hv; simp at hv; rcases hv with rfl | rfl <;> exact ⟨_, rfl⟩
@@ -228,16 +218,19 @@ theorem constToTagAndFields_fields_vcon (c : Const) :
 relations used in the proofs (`ValueRefinesK`, `ValueRefinesKWF`,
 `LocalValue`) have this shape. -/
 
+omit sv in
 theorem listRel_cons_inv {R : α → α → Prop} {a : α} {as : List α} {l₂ : List α}
     (h : ListRel R (a :: as) l₂) : ∃ b bs, l₂ = b :: bs ∧ R a b ∧ ListRel R as bs := by
   cases l₂ with
   | nil => exact absurd h id
   | cons b bs => exact ⟨b, bs, rfl, h.1, h.2⟩
 
+omit sv in
 theorem listRel_nil_inv {R : α → α → Prop} {l₂ : List α}
     (h : ListRel R ([] : List α) l₂) : l₂ = [] := by
   cases l₂ with | nil => rfl | cons => exact absurd h id
 
+omit sv in
 theorem extractConsts_rel {R : CekValue → CekValue → Prop}
     (vconL : ∀ {c v}, R (.VCon c) v → v = .VCon c)
     (vconR : ∀ {c v}, R v (.VCon c) → v = .VCon c)
@@ -254,6 +247,7 @@ theorem extractConsts_rel {R : CekValue → CekValue → Prop}
       | .VCon _ => cases vconR ha
       | .VLam _ _ | .VDelay _ _ | .VConstr _ _ | .VBuiltin _ _ _ => rfl
 
+omit sv in
 private theorem listRel_cons_vcon {R : CekValue → CekValue → Prop}
     (vconL : ∀ {c v}, R (.VCon c) v → v = .VCon c)
     {c : Const} {as bs : List CekValue}
@@ -261,11 +255,13 @@ private theorem listRel_cons_vcon {R : CekValue → CekValue → Prop}
   obtain ⟨b, bs', rfl, hb, h⟩ := listRel_cons_inv h
   exact ⟨bs', by rw [vconL hb], h⟩
 
+omit sv in
 theorem listRel_flip {R : α → α → Prop} : ∀ {as bs : List α},
     ListRel R as bs → ListRel (fun x y => R y x) bs as
   | [], [], _ => trivial
   | _ :: _, _ :: _, ⟨h, hs⟩ => ⟨h, listRel_flip hs⟩
 
+omit sv in
 /-- Pass-through builtins only inspect constant arguments, so a successful call
     on the left has a related successful call on the right. -/
 private theorem evalBuiltinPassThrough_some_rel {R : CekValue → CekValue → Prop}
@@ -285,6 +281,7 @@ private theorem evalBuiltinPassThrough_some_rel {R : CekValue → CekValue → P
       | refine ⟨_, ?_, ‹_›⟩; simp [evalBuiltinPassThrough, *]
       | exact ⟨_, rfl, vconRefl _⟩
 
+omit sv in
 /-- Pass-through builtins on related arguments give related results, for any
     value relation that relates a constant exactly to itself. -/
 theorem evalBuiltinPassThrough_rel {R : CekValue → CekValue → Prop}

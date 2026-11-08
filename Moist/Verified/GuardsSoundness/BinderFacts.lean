@@ -1,5 +1,7 @@
 import Moist.Verified.GuardsSoundness.Sound
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Facts about the fields a list or pair case binds
 
 The first alternative `λh t. b` of a case on a list receives the head and

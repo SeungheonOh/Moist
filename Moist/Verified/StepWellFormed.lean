@@ -1,5 +1,7 @@
 import Moist.Verified.BetaValueRefines
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Step preservation of well-formedness
 
 The CEK `step` function preserves a state well-formedness invariant:
@@ -41,10 +43,12 @@ well-formed state is shift-related to itself at the identity renaming, so
 
 open Moist.Verified.FundamentalRefines (is0preserving_id)
 
+omit sv in
 private theorem le_length_of_lookup {ρ : CekEnv} {n : Nat} {v : CekValue}
     (h : ρ.lookup n = some v) : n ≤ ρ.length :=
   Nat.le_of_not_gt fun gt => by rw [CekEnv.lookup_none_of_gt_length ρ n gt] at h; cases h
 
+omit sv in
 mutual
   private theorem wf_of_shiftState : ∀ {s₁ s₂ : State}, ShiftBisimState s₁ s₂ → StateWellFormed s₁
     | _, _, .compute _ henv hc hπ =>
@@ -87,6 +91,7 @@ mutual
       .caseScrutinee (wf_of_shiftEnv henv).1 (wf_of_shiftEnv henv).2 hc
 end
 
+omit sv in
 private theorem shiftFrame_refl {f : Frame} (h : FrameWellFormed f) : ShiftBisimFrame f f := by
   cases h with
   | force => exact .force
@@ -103,10 +108,12 @@ private theorem shiftFrame_refl {f : Frame} (h : FrameWellFormed f) : ShiftBisim
     simpa only [renameTermList_id] using
       ShiftBisimFrame.caseScrutinee is0preserving_id (shiftBisimEnv_refl_id_aux henv) hc
 
+omit sv in
 private theorem shiftStack_refl : ∀ {π : Stack}, StackWellFormed π → ShiftBisimStack π π
   | [], _ => .nil
   | _ :: _, .cons hf hs => .cons (shiftFrame_refl hf) (shiftStack_refl hs)
 
+omit sv in
 private theorem shiftState_refl {s : State} (h : StateWellFormed s) : ShiftBisimState s s := by
   cases h with
   | compute hπ henv _ hc =>

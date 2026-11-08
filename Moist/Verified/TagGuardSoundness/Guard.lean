@@ -1,6 +1,8 @@
 import Moist.Verified.TagGuardSoundness.Abstract
 import Moist.Verified.ShapesSoundness.Choices
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Soundness of guard trees
 
 A guard tree `case x [λtag fields. case tag [t₀ … tₙ]]` that `guardOK`

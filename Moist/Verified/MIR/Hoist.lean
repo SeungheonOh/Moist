@@ -1,5 +1,7 @@
 import Moist.Verified.MIR.Primitives.LetFlattenBody
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Hoisting a `let` out of an evaluation frame
 
 The ANF primitives all have the same shape: a single-binding `let` sits in
@@ -67,6 +69,7 @@ theorem mirCtxRefines_of_shape {α : Type} {m₁ m₂ : Expr}
 
 /-! ## Lowering -/
 
+omit sv in
 /-- Prepending a variable that is not free in `e` shifts the lowering of `e`. -/
 theorem lowerTotalExpr_prepend_unused (env : List VarId) (v : VarId) (e : Expr)
     (h : (freeVars e).contains v = false) :
@@ -76,6 +79,7 @@ theorem lowerTotalExpr_prepend_unused (env : List VarId) (v : VarId) (e : Expr)
   | none => exact lowerTotal_prepend_unused_none env v _ h' hl
   | some t => exact lowerTotal_prepend_unused env v _ h' t hl
 
+omit sv in
 theorem lowerTotalExprList_prepend_unused (env : List VarId) (v : VarId) :
     ∀ (es : List Expr), (∀ e ∈ es, (freeVars e).contains v = false) →
       lowerTotalExprList (v :: env) es =
@@ -87,6 +91,7 @@ theorem lowerTotalExprList_prepend_unused (env : List VarId) (v : VarId) :
       lowerTotalExprList_prepend_unused env v es (fun e he => h e (.tail _ he))]
     cases lowerTotalExpr env e <;> cases lowerTotalExprList env es <;> rfl
 
+omit sv in
 theorem lowerTotalExprList_append (env : List VarId) (pre post : List Expr) :
     lowerTotalExprList env (pre ++ post) =
       (lowerTotalExprList env pre).bind fun pre' =>
@@ -98,6 +103,7 @@ theorem lowerTotalExprList_append (env : List VarId) (pre post : List Expr) :
     cases lowerTotalExpr env e <;> cases lowerTotalExprList env pre <;>
       cases lowerTotalExprList env post <;> rfl
 
+omit sv in
 theorem lowerTotalExpr_let_single (env : List VarId) (v : VarId) (rhs body : Expr) (er : Bool) :
     lowerTotalExpr env (.Let [(v, rhs, er)] body) =
       (lowerTotalExpr env rhs).bind fun tr =>
@@ -105,12 +111,14 @@ theorem lowerTotalExpr_let_single (env : List VarId) (v : VarId) (rhs body : Exp
   simp only [lowerTotalExpr, expandFix, expandFixBinds, lowerTotal, lowerTotalLet]
   cases lowerTotal env (expandFix rhs) <;> cases lowerTotal (v :: env) (expandFix body) <;> rfl
 
+omit sv in
 theorem lowerTotalExpr_wrapLet (bs : List (VarId × Expr × Bool)) (body : Expr)
     (env : List VarId) : lowerTotalExpr env (wrapLet bs body) = lowerTotalExpr env (.Let bs body) := by
   cases bs with
   | nil => simp only [wrapLet, lowerTotalExpr, expandFix, expandFixBinds, lowerTotal, lowerTotalLet]
   | cons _ _ => rfl
 
+omit sv in
 theorem lowerTotalExpr_wrapLet_append (bs₁ bs₂ : List (VarId × Expr × Bool)) (body : Expr)
     (env : List VarId) :
     lowerTotalExpr env (wrapLet (bs₁ ++ bs₂) body) =
@@ -120,6 +128,7 @@ theorem lowerTotalExpr_wrapLet_append (bs₁ bs₂ : List (VarId × Expr × Bool
   | cons _ _ =>
     rw [lowerTotalExpr_wrapLet, lowerTotalExpr_wrapLet bs₁, ← lowerTotalExpr_let_flatten_body]; rfl
 
+omit sv in
 theorem freeVarsLet_not_contains_of_fresh (rest : List (VarId × Expr × Bool)) (body : Expr)
     (y : VarId) (hrest : ∀ r ∈ rest, (freeVars r.2.1).contains y = false)
     (hbody : (freeVars body).contains y = false) :
@@ -153,6 +162,7 @@ def valueOf (ρ : CekEnv) : Term → CekValue
   | .Lam _ b => .VLam b ρ
   | _ => .VCon .Unit
 
+omit sv in
 theorem lookup_extend_succ (ρ : CekEnv) (w : CekValue) {n : Nat} (hn : 0 < n) :
     (ρ.extend w).lookup (n + 1) = ρ.lookup n := by
   match n, hn with
@@ -198,6 +208,7 @@ theorem valueTerm_rel {d i : Nat} {t : Term} (ht : IsValueTerm d t)
 def isLeafAtomTerm (t : Term) : Prop :=
   (∃ n, n ≥ 1 ∧ t = .Var n) ∨ (∃ ct, t = .Constant ct) ∨ (∃ b, t = .Builtin b)
 
+omit sv in
 /-- For atom MIR expressions, the lowering produces a leaf term. -/
 theorem lowerTotal_atom_isLeafAtom :
     ∀ (env : List VarId) (g : Expr) (t_g : Term),
@@ -224,6 +235,7 @@ theorem lowerTotal_atom_isLeafAtom :
     exact .inr (.inr ⟨b, rfl⟩)
   | _ => simp [Expr.isAtom] at hatom
 
+omit sv in
 theorem lowerTotalExpr_atom_valueTerm {env : List VarId} {g : Expr} {t : Term}
     (hg : g.isAtom = true) (ht : lowerTotalExpr env g = some t) : IsValueTerm env.length t := by
   have hc := lowerTotalExpr_closedAt ht
@@ -232,6 +244,7 @@ theorem lowerTotalExpr_atom_valueTerm {env : List VarId} {g : Expr} {t : Term}
   · trivial
   · trivial
 
+omit sv in
 theorem lowerTotalExprList_valueTerms {env : List VarId} :
     ∀ {es : List Expr} {ts : List Term}, (∀ a ∈ es, a.isAtom = true) →
       lowerTotalExprList env es = some ts → ∀ t ∈ ts, IsValueTerm env.length t
@@ -293,11 +306,13 @@ def push (ρ : CekEnv) : HoistFrame → Stack → Stack
 
 end HoistFrame
 
+omit sv in
 theorem renameTermList_eq_map (σ : Nat → Nat) :
     ∀ (ts : List Term), renameTermList σ ts = ts.map (renameTerm σ)
   | [] => rfl
   | t :: ts => by rw [renameTermList, List.map_cons, renameTermList_eq_map σ ts]
 
+omit sv in
 theorem getElem?_renameTermList (σ : Nat → Nat) (ts : List Term) (n : Nat) :
     (renameTermList σ ts)[n]? = ts[n]?.map (renameTerm σ) := by
   rw [renameTermList_eq_map, List.getElem?_map]
@@ -459,6 +474,7 @@ theorem rel (F : HoistFrame) {d i : Nat} (hF : F.WF d) {ρ₁ ρ₂ : CekEnv} {�
     obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hp'
     exact (hrel p hp).2.1
 
+omit sv in
 theorem closedAt_hoist (F : HoistFrame) {k : Nat} {tb tr : Term}
     (h : closedAt k (F.fill (.Apply (.Lam 0 tb) tr)) = true) :
     closedAt k (.Apply (.Lam 0 (F.shift.fill tb)) tr) = true := by
@@ -507,6 +523,7 @@ def HoistFrame.toContext : HoistFrame → Context
   | .case alts => .Case .Hole alts
   | .constr tag pre post => .Constr tag pre .Hole post
 
+omit sv in
 theorem HoistFrame.fill_eq (F : HoistFrame) (t : Term) :
     F.fill t = Moist.Verified.Contextual.fill F.toContext t := by
   cases F <;> simp [HoistFrame.fill, HoistFrame.toContext, Moist.Verified.Contextual.fill]
@@ -560,6 +577,7 @@ def lower (env : List VarId) : MFrame → Option HoistFrame
     (lowerTotalLet (x :: env) (expandFixBinds rest) (expandFix body)).map
       fun t => .appArg (.Lam 0 t)
 
+omit sv in
 theorem lowerTotalExpr_fill (F : MFrame) (env : List VarId) (e : Expr) :
     lowerTotalExpr env (F.fill e) =
       (lowerTotalExpr env e).bind fun t => (F.lower env).map (·.fill t) := by
@@ -585,6 +603,7 @@ theorem lowerTotalExpr_fill (F : MFrame) (env : List VarId) (e : Expr) :
     cases lowerTotal env (expandFix e) <;>
       cases lowerTotalLet (x :: env) (expandFixBinds rest) (expandFix body) <;> rfl
 
+omit sv in
 theorem lower_cons (F : MFrame) {v : VarId} (hv : F.Fresh v) (env : List VarId) :
     F.lower (v :: env) = (F.lower env).map HoistFrame.shift := by
   cases F with
@@ -616,6 +635,7 @@ theorem lower_cons (F : MFrame) {v : VarId} (hv : F.Fresh v) (env : List VarId) 
       simp only [h', Option.map_some, HoistFrame.shift, renameTerm,
         Moist.Verified.liftRename_shiftRename (Nat.le_refl 1)]
 
+omit sv in
 theorem lower_wf (F : MFrame) (hA : F.Atomic) {env : List VarId} {H : HoistFrame}
     (h : F.lower env = some H) : H.WF env.length := by
   cases F with

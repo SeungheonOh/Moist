@@ -92,7 +92,7 @@ def runTest (root testDir : System.FilePath) : IO TestResult := do
     match parseUplcProgram inputText with
     | .error msg => return { name, category, status := "skip", detail := s!"input parse error: {msg}" }
     | .ok term =>
-      let er := eval term testCpuLimit testMemLimit
+      let er := eval (sv := .E) term testCpuLimit testMemLimit
       match er.result with
       | .failure =>
         let (bOk, bDet) := checkBudget budgetExpected er.consumed
@@ -106,7 +106,7 @@ def runTest (root testDir : System.FilePath) : IO TestResult := do
     match parseUplcProgram inputText with
     | .error msg => return { name, category, status := "skip", detail := s!"input parse error: {msg}" }
     | .ok term =>
-      let er := eval term testCpuLimit testMemLimit
+      let er := eval (sv := .E) term testCpuLimit testMemLimit
       match er.result with
       | .failure => return { name, category, status := "fail", detail := "evaluation failed (expected success)" }
       | .outOfBudget => return { name, category, status := "fail", detail := "out of budget (expected success)" }

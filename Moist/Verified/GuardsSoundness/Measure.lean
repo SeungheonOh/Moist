@@ -2,6 +2,8 @@ import Moist.Verified.FailFastSoundness.Termination
 import Moist.Verified.KnownListsSoundness
 import Moist.MIR.Optimize.Advanced.Guards
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Results, sizes and calls
 
 The semantic counterparts of the termination analysis `chk`:

@@ -1,5 +1,7 @@
 import Moist.Verified.GuardsSoundness.PushLayers
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # `pushWalk` and `pushAssert` refine their input -/
 
 namespace Moist.Verified.Guards

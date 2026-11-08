@@ -1,5 +1,7 @@
 import Moist.Verified.GuardsSoundness.BlockSwap
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Exchanging two strict steps
 
 A strict step (a binding, a case with one continuing alternative, an

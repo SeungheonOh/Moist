@@ -1,5 +1,7 @@
 import Moist.Verified.GuardsSoundness.Steps
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Soundness of the termination analysis `chk` -/
 
 namespace Moist.Verified.Guards

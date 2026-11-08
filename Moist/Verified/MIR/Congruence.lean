@@ -1,5 +1,7 @@
 import Moist.Verified.MIR
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # MIR-level congruence lemmas for `MIRCtxRefines`
 
 Each lemma has the shape `R a b → R (F a) (F b)` for a MIR constructor `F`.
@@ -59,6 +61,7 @@ theorem mirCtxRefines_lam {x : VarId} {body₁ body₂ : Expr} (h : MIRCtxRefine
   mirCtxRefines_of_map h (x :: ·) (.Lam 0 .Hole)
     (lowerTotalExpr_lam · x body₁) (lowerTotalExpr_lam · x body₂)
 
+omit sv in
 /-- Lowering of `App f a` as a context around `f` (or failure). -/
 private theorem lowerTotalExpr_app_left (env : List VarId) (a : Expr) :
     (∀ f, lowerTotalExpr env (.App f a) = none) ∨ ∃ ta, ∀ f,
@@ -83,6 +86,7 @@ theorem mirCtxRefines_app {f₁ f₂ a₁ a₂ : Expr}
 
 /-! ## Constr / Case congruences -/
 
+omit sv in
 /-- Lowering a list with one distinguished position. -/
 theorem lowerTotalExprList_split (env : List VarId) (x : Expr) (post : List Expr) :
     ∀ pre : List Expr, lowerTotalExprList env (pre ++ x :: post) =
@@ -98,6 +102,7 @@ theorem lowerTotalExprList_split (env : List VarId) (x : Expr) (post : List Expr
     cases lowerTotalExpr env p <;> cases lowerTotalExprList env pre <;>
       cases lowerTotalExprList env post <;> cases lowerTotalExpr env x <;> rfl
 
+omit sv in
 /-- Swapping one position of a list whose other positions lower to fixed terms. -/
 private theorem list_context {env : List VarId} {pre post : List Expr} {a b : Expr}
     {F : List Moist.Plutus.Term.Term → Moist.Plutus.Term.Term}
@@ -186,6 +191,7 @@ section LetCongruence
 
 open Moist.MIR (lowerTotal lowerTotalLet)
 
+omit sv in
 /-- Unconditional decomposition: `lowerTotalExpr env (.Let binds body)` equals
     `lowerTotalLet env (expandFixBinds binds) (expandFix body)`. Holds for any
     binds/body, including those containing Fix nodes. The expansion happens
@@ -196,6 +202,7 @@ theorem lowerTotalExpr_let (env : List VarId)
       lowerTotalLet env (Moist.MIR.expandFixBinds binds) (Moist.MIR.expandFix body) := by
   simp only [lowerTotalExpr, Moist.MIR.expandFix, Moist.MIR.lowerTotal]
 
+omit sv in
 /-- The bindings of a `Let` either always fail to lower, or lower to a fixed
     context around the body, which is lowered in an extended environment. -/
 theorem lowerTotalLet_context :
@@ -244,6 +251,7 @@ theorem mirCtxRefines_let_rhs_head
 -- 5. Empty let collapse
 --------------------------------------------------------------------------------
 
+omit sv in
 /-- `lowerTotalExpr env (.Let [] body) = lowerTotalExpr env body` definitionally
     via `lowerTotalExpr → lowerTotal ∘ expandFix → lowerTotal on .Let → lowerTotalLet`
     → nil case → `lowerTotal env (expandFix body)` = `lowerTotalExpr env body`. -/

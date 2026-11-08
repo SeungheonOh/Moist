@@ -1,5 +1,7 @@
 import Moist.Verified.GuardsSoundness.Fix
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Soundness of `callOK` -/
 
 namespace Moist.Verified.Guards

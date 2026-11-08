@@ -1,6 +1,8 @@
 import Moist.Verified.ShapeFacts.Unary
 import Moist.Verified.ShapeFacts.Counted
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Resolved delayed computations
 
 A head resolved to `delay d` returns a suspension of `d` in an older suffix of
@@ -25,6 +27,7 @@ def SuspensionOf (P : List VarId → CekEnv → Expr → CekValue → Prop) (Γ 
     freshIn (env.drop k) d = true ∧ FactsHold P Γ (env.drop k) (dropEnv k ρ) ∧
     EnvDistinct (env.drop k)
 
+omit sv in
 theorem SuspensionOf.drop {Γ : List (VarId × Expr)} {env : List VarId} {ρ : CekEnv} {d : Expr}
     {w : CekValue} (j : Nat) (hj : j ≤ env.length) (h : SuspensionOf P Γ (env.drop j) (dropEnv j ρ) d w) :
     SuspensionOf P Γ env ρ d w := by
@@ -143,6 +146,7 @@ theorem resolveHead_app_unfold
     | Lit _ | Error | Lam _ _ | Fix _ _ | Delay _ | Constr _ _ | Case _ _ | Let _ _ | Builtin _ =>
       simp only [resolveHead] at hres; cases hres
 
+omit sv in
 theorem beq_selector {x : Expr}
     (h : (x == Expr.Force (.Builtin .IfThenElse) || x == Expr.Force (.Force (.Builtin .ChooseList))) = true) :
     x = .Force (.Builtin .IfThenElse) ∨ x = .Force (.Force (.Builtin .ChooseList)) := by
@@ -197,13 +201,7 @@ theorem evalBuiltin_select {b : BuiltinFun} {d₁ d₂ : Term} {ρ₁ ρ₂ : Ce
       cases c with
       | VCon k =>
         cases k with
-        | ConstDataList l =>
-          simp only [evalBuiltinPassThrough, Option.some.injEq] at hp
-          subst hp; cases l.isEmpty <;> simp
-        | ConstList l =>
-          simp only [evalBuiltinPassThrough, Option.some.injEq] at hp
-          subst hp; cases l.isEmpty <;> simp
-        | ConstPairDataList l =>
+        | ConstList _ l =>
           simp only [evalBuiltinPassThrough, Option.some.injEq] at hp
           subst hp; cases l.isEmpty <;> simp
         | _ => simp [evalBuiltinPassThrough] at hp

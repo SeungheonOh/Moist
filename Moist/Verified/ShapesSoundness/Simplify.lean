@@ -2,6 +2,8 @@ import Moist.Verified.ShapesSoundness.Integers
 import Moist.Verified.ShapesSoundness.DataComparisons
 import Moist.Verified.ShapesSoundness.BooleanCases
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # The fact-driven simplifier
 
 `simplifyWalk` refines its input under the facts it records (`simplifyWalk_factRel`).

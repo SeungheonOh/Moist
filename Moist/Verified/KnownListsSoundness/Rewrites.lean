@@ -2,6 +2,8 @@ import Moist.Verified.KnownListsSoundness.Relation
 import Moist.Verified.KnownListsSoundness.Calls
 import Moist.Verified.CheckedBranchesSoundness.Builtins
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Known lists and list `case`s
 
 `knownListValue` is sound: under realized facts, an accepted expression

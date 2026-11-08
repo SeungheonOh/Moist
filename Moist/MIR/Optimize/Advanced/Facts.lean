@@ -54,9 +54,7 @@ def knownList : Nat → List (VarId × Expr) → Expr → Bool
     | .Var binder =>
       (environment.find? (fun entry => entry.1 == binder)).any
         (fun entry => knownList fuel environment entry.2)
-    | .Lit (.ConstList _, .TypeOperator (.TypeList _))
-    | .Lit (.ConstDataList _, .TypeOperator (.TypeList _))
-    | .Lit (.ConstPairDataList _, .TypeOperator (.TypeList _)) => true
+    | .Lit (.ConstList _ _, .TypeOperator (.TypeList _)) => true
     | .App function argument =>
       match resolveHead fuel environment function with
       | .Builtin .UnListData | .Force (.Builtin .TailList) => true

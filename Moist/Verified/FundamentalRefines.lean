@@ -5,6 +5,8 @@ import Moist.Verified.Definitions.StepIndexed
 import Moist.Verified.Contextual.SoundnessRefines
 import Moist.Verified.Semantics
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Renaming refinement (fundamental theorem of the logical relation)
 
 `renameRefinesG W r₁ r₂` relates `renameTerm r₁ t` (left) to `renameTerm r₂ t`
@@ -35,9 +37,11 @@ open Moist.Verified.Contextual.Guarded
 def Is0Preserving (r : Nat → Nat) : Prop :=
   r 0 = 0 ∧ ∀ n, n ≥ 1 → r n ≥ 1
 
+omit sv in
 theorem is0preserving_id : Is0Preserving id :=
   ⟨rfl, fun _ h => h⟩
 
+omit sv in
 theorem is0preserving_shiftRename {c : Nat} (hc : c ≥ 1) :
     Is0Preserving (Moist.Verified.shiftRename c) := by
   refine ⟨?_, ?_⟩
@@ -50,6 +54,7 @@ theorem is0preserving_shiftRename {c : Nat} (hc : c ≥ 1) :
     · simp [Moist.Verified.shiftRename, hnc]
     · simp [Moist.Verified.shiftRename, hnc]; omega
 
+omit sv in
 /-- `liftRename r` is *always* 0-preserving, regardless of `r`. -/
 theorem is0preserving_lift (r : Nat → Nat) :
     Is0Preserving (Moist.Verified.liftRename r) := by
@@ -95,6 +100,7 @@ def RenameEnvRefR (r : Nat → Nat) (k d : Nat) (ρ₁ ρ₂ : CekEnv) : Prop :=
     | none, none => True
     | _, _ => False
 
+omit sv in
 theorem renameEnvRef2_map {V V' : Nat → CekValue → CekValue → Prop}
     {r₁ r₂ : Nat → Nat} {j k d : Nat} {ρ₁ ρ₂ : CekEnv}
     (hV : ∀ v₁ v₂, V k v₁ v₂ → V' j v₁ v₂) (h : RenameEnvRef2 V r₁ r₂ k d ρ₁ ρ₂) :
@@ -112,15 +118,18 @@ theorem renameEnvRefR_mono {r : Nat → Nat} {j k d : Nat} (hjk : j ≤ k)
     {ρ₁ ρ₂ : CekEnv} (h : RenameEnvRefR r k d ρ₁ ρ₂) : RenameEnvRefR r j d ρ₁ ρ₂ :=
   renameEnvRef2_map (V := ValueRefinesK) (r₁ := id) (fun _ _ => valueRefinesK_mono hjk _ _) h
 
+omit sv in
 private theorem extend_lookup_succ (ρ : CekEnv) (v : CekValue) (m : Nat)
     (hm : m ≥ 1) :
     (ρ.extend v).lookup (m + 1) = ρ.lookup m := by
   match m, hm with
   | k + 1, _ => rfl
 
+omit sv in
 private theorem lookup_zero (ρ : CekEnv) : ρ.lookup 0 = none := by
   cases ρ <;> rfl
 
+omit sv in
 /-- `liftRename r` sends `n ≥ 2` past the new binder. -/
 private theorem extend_lookup_lift {r : Nat → Nat} (h_r : Is0Preserving r)
     (ρ : CekEnv) (v : CekValue) (n : Nat) (hn : n ≥ 2) :
@@ -128,6 +137,7 @@ private theorem extend_lookup_lift {r : Nat → Nat} (h_r : Is0Preserving r)
   match n, hn with
   | k + 2, _ => exact extend_lookup_succ ρ v (r (k + 1)) (h_r.2 (k + 1) (by omega))
 
+omit sv in
 /-- Extending both environments by related values lifts both renamings. -/
 theorem renameEnvRef2_extend {V : Nat → CekValue → CekValue → Prop}
     {r₁ r₂ : Nat → Nat} (h₁ : Is0Preserving r₁)
@@ -151,6 +161,7 @@ theorem renameEnvRefR_extend {r : Nat → Nat} (h_r : Is0Preserving r)
 
 /-! ## 3. Bridges from `EnvRefinesK` -/
 
+omit sv in
 /-- A strict environment relation is a renaming relation for `id`. -/
 theorem renameEnvRef2_id {V : Nat → CekValue → CekValue → Prop} {k d : Nat} {ρ₁ ρ₂ : CekEnv}
     (h : ∀ n, 0 < n → n ≤ d →

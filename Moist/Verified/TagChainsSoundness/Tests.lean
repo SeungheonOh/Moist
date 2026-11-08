@@ -2,6 +2,8 @@ import Moist.Verified.ShapeFacts.Total
 import Moist.Verified.ShapesSoundness.Choices
 import Moist.MIR.Optimize.Advanced.TagChains
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Tag tests under facts
 
 A resolved tag test `resolvedTagTest Γ s = some (t, c)` resolves, through the recorded

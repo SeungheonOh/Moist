@@ -1,5 +1,7 @@
 import Moist.Verified.ShapesSoundness.Rewrites
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Integer identities
 
 Arithmetic with a neutral or absorbing literal, and comparisons of a known

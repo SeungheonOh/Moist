@@ -1,6 +1,8 @@
 import Moist.Verified.TagChainsSoundness.Binding
 import Moist.Verified.CheckedBranchesSoundness.Lowering
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # The tag chain walk
 
 Every node is first related to the walk of its children by a congruence,

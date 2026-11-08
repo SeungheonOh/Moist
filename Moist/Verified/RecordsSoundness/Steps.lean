@@ -1,5 +1,7 @@
 import Moist.Verified.RecordsSoundness.Shapes
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Machine steps of constructors, cases and lambda telescopes
 
 A constructor returns the values of its fields (`halts_constr`). A `case`

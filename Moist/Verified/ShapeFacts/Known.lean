@@ -1,5 +1,7 @@
 import Moist.Verified.ShapeFacts.Values
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Soundness of the shape analyses
 
 Under realized facts, an expression accepted by `knownList`,
@@ -16,6 +18,7 @@ open Moist.Verified Moist.Verified.Equivalence
 
 variable {P : List VarId → CekEnv → Expr → CekValue → Prop}
 
+omit sv in
 theorem lowerTotalExprList_mem {env : List VarId} :
     ∀ {alts : List Expr} {talts : List Term}, MIR.lowerTotalExprList env alts = some talts →
       ∀ alt ∈ talts, ∃ a ∈ alts, lowerTotalExpr env a = some alt
@@ -86,6 +89,7 @@ theorem case_result {ρ : CekEnv} {s : Term} {talts : List Term} {v : CekValue}
   | VLam _ _ | VDelay _ _ | VBuiltin _ _ _ =>
     simp only [step] at r; exact absurd r (fun he => halt_not_error he ⟨0, rfl⟩)
 
+omit sv in
 theorem protocol_builtin (b : BuiltinFun) :
     builtinProtocolAfterSuccess (.Builtin b) = some (b, expectedArgs b) := rfl
 

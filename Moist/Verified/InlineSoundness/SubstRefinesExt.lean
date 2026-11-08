@@ -1,5 +1,7 @@
 import Moist.Verified.StepWellFormed
 
+variable [sv : Moist.CEK.SemVariant]
+
 namespace Moist.Verified.InlineSoundness.SubstRefinesExt
 
 open Moist.CEK

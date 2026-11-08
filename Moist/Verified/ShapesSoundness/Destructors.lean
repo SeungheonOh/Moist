@@ -2,6 +2,8 @@ import Moist.Verified.ShapeFacts.Unary
 import Moist.Verified.ShapeFacts.Top
 import Moist.Verified.HygieneSoundness
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # List destructor fusion
 
 `let h = headList l; let t = tailList l; body` becomes
@@ -32,32 +34,25 @@ theorem let_steps {ρ : CekEnv} {π : Stack} {r b : Term} {v : CekValue} (h : Ha
 /-- The fused form on a list value. -/
 theorem fused_case_steps {ρ : CekEnv} {π : Stack} {n : Nat} {vl : CekValue} {b : Term}
     (hvl : ρ.lookup n = some vl) :
-    ∀ hv tv, (∃ c cs, vl = .VCon (.ConstList (c :: cs)) ∧ hv = .VCon c ∧ tv = .VCon (.ConstList cs)) ∨
-      (∃ d ds, vl = .VCon (.ConstDataList (d :: ds)) ∧ hv = .VCon (.Data d) ∧
-        tv = .VCon (.ConstDataList ds)) ∨
-      (∃ p ps, vl = .VCon (.ConstPairDataList (p :: ps)) ∧ hv = .VCon (.PairData p) ∧
-        tv = .VCon (.ConstPairDataList ps)) →
+    ∀ hv tv, (∃ ty c cs, vl = .VCon (.ConstList ty (c :: cs)) ∧ hv = .VCon c ∧
+      tv = .VCon (.ConstList ty cs)) →
     Reaches (.compute π ρ (.Case (.Var n) [.Lam 0 (.Lam 0 b), .Error]))
       (.compute π ((ρ.extend hv).extend tv) b) := by
   intro hv tv h
-  rcases h with ⟨c, cs, rfl, rfl, rfl⟩ | ⟨d, ds, rfl, rfl, rfl⟩ | ⟨p, ps, rfl, rfl, rfl⟩
-  · exact ⟨7, by simp [steps, step, hvl, constToTagAndFields, CekEnv.extend]⟩
-  · exact ⟨7, by simp [steps, step, hvl, constToTagAndFields, CekEnv.extend]⟩
-  · exact ⟨7, by simp [steps, step, hvl, constToTagAndFields, CekEnv.extend]⟩
+  obtain ⟨ty, c, cs, rfl, rfl, rfl⟩ := h
+  exact ⟨7, by simp [steps, step, hvl, constToTagAndFields, CekEnv.extend]⟩
 
 theorem fused_case_errors {ρ : CekEnv} {π : Stack} {n : Nat} {vl : CekValue} {b : Term}
     (hvl : ρ.lookup n = some vl)
-    (hempty : vl = .VCon (.ConstList []) ∨ vl = .VCon (.ConstDataList []) ∨
-      vl = .VCon (.ConstPairDataList [])) :
+    (hempty : ∃ ty, vl = .VCon (.ConstList ty [])) :
     Reaches (.compute π ρ (.Case (.Var n) [.Lam 0 (.Lam 0 b), .Error])) .error := by
-  rcases hempty with rfl | rfl | rfl
-  · exact ⟨5, by simp [steps, step, hvl, constToTagAndFields]⟩
-  · exact ⟨5, by simp [steps, step, hvl, constToTagAndFields]⟩
-  · exact ⟨5, by simp [steps, step, hvl, constToTagAndFields]⟩
+  obtain ⟨ty, rfl⟩ := hempty
+  exact ⟨5, by simp [steps, step, hvl, constToTagAndFields]⟩
 
 theorem produces_hP : ∀ (env : List VarId) (ρ : CekEnv) (rhs : Expr) (v : CekValue),
     Produces env ρ rhs v → Produces env ρ rhs v := fun _ _ _ _ h => h
 
+omit sv in
 theorem lowerTotalExpr_fused {env : List VarId} {l h t : VarId} {B' : Expr} {il : Nat} {tB' : Term}
     (hil : envLookupT env l = some il) (htB' : lowerTotalExpr (t :: h :: env) B' = some tB') :
     lowerTotalExpr env (.Case (.Var l) [.Lam h (.Lam t B'), .Error]) =
@@ -121,18 +116,15 @@ theorem fusion_factRel {G : VarId → Prop} {Γ : List (VarId × Expr)} {h t : V
       · rw [envLookupT_congr hc] at hh; simp [hil] at hh
     simp [hhl, hil]
   have nonempty : ∀ hv tv : CekValue,
-      ((∃ c cs, vl = .VCon (.ConstList (c :: cs)) ∧ hv = .VCon c ∧ tv = .VCon (.ConstList cs)) ∨
-        (∃ d ds, vl = .VCon (.ConstDataList (d :: ds)) ∧ hv = .VCon (.Data d) ∧
-          tv = .VCon (.ConstDataList ds)) ∨
-        (∃ p ps, vl = .VCon (.ConstPairDataList (p :: ps)) ∧ hv = .VCon (.PairData p) ∧
-          tv = .VCon (.ConstPairDataList ps))) →
+      (∃ ty c cs, vl = .VCon (.ConstList ty (c :: cs)) ∧ hv = .VCon c ∧
+        tv = .VCon (.ConstList ty cs)) →
       ObsRefines (.compute π ρ (.Apply (.Lam 0 (.Apply (.Lam 0 tB) ttr)) thr))
         (.compute π ρ (.Case (.Var (il + 1)) [.Lam 0 (.Lam 0 tB'), .Error])) := by
     intro hv tv hshape
     have hhead_eval : evalBuiltin .HeadList [vl] = some hv := by
-      rcases hshape with ⟨c, cs, rfl, rfl, rfl⟩ | ⟨d, ds, rfl, rfl, rfl⟩ | ⟨p, ps, rfl, rfl, rfl⟩ <;> rfl
+      obtain ⟨ty, c, cs, rfl, rfl, rfl⟩ := hshape; rfl
     have htail_eval : evalBuiltin .TailList [vl] = some tv := by
-      rcases hshape with ⟨c, cs, rfl, rfl, rfl⟩ | ⟨d, ds, rfl, rfl, rfl⟩ | ⟨p, ps, rfl, rfl, rfl⟩ <;> rfl
+      obtain ⟨ty, c, cs, rfl, rfl, rfl⟩ := hshape; rfl
     have hthr_halts : Halts ρ thr hv := (hiffH hv).mpr hhead_eval
     have hvwf := halts_wellFormed henv hlen (MIR.lowerTotalExpr_closedAt hthr) hthr_halts
     have hF₁ : FactsHold Produces Γ (h :: env) (ρ.extend hv) := FactsHold.extend hv hF hnh
@@ -148,34 +140,26 @@ theorem fusion_factRel {G : VarId → Prop} {Γ : List (VarId × Expr)} {h t : V
       (fused_case_steps hvl hv tv hshape) ?_
     exact hrB _ π (envWellFormed_extend (env.length + 1) henv₁ hlen₁ htvwf)
       (by simp [CekEnv.extend, CekEnv.length]; omega) hπ hF₂
-  have empty : (vl = .VCon (.ConstList []) ∨ vl = .VCon (.ConstDataList []) ∨
-      vl = .VCon (.ConstPairDataList [])) →
+  have empty : (∃ ty, vl = .VCon (.ConstList ty [])) →
       ObsRefines (.compute π ρ (.Apply (.Lam 0 (.Apply (.Lam 0 tB) ttr)) thr))
         (.compute π ρ (.Case (.Var (il + 1)) [.Lam 0 (.Lam 0 tB'), .Error])) := by
     intro hshape
     have hnone : evalBuiltin .HeadList [vl] = none := by
-      rcases hshape with rfl | rfl | rfl <;> rfl
+      obtain ⟨ty, rfl⟩ := hshape; rfl
     exact obsRefines_of_errors (let_errors (herrH hnone)) (fused_case_errors hvl hshape)
   cases vl with
   | VCon c =>
     cases c with
-    | ConstList xs =>
+    | ConstList ty xs =>
       cases xs with
-      | nil => exact empty (.inl rfl)
-      | cons c cs => exact nonempty _ _ (.inl ⟨c, cs, rfl, rfl, rfl⟩)
-    | ConstDataList xs =>
-      cases xs with
-      | nil => exact empty (.inr (.inl rfl))
-      | cons d ds => exact nonempty _ _ (.inr (.inl ⟨d, ds, rfl, rfl, rfl⟩))
-    | ConstPairDataList ps =>
-      cases ps with
-      | nil => exact empty (.inr (.inr rfl))
-      | cons p ps => exact nonempty _ _ (.inr (.inr ⟨p, ps, rfl, rfl, rfl⟩))
+      | nil => exact empty ⟨ty, rfl⟩
+      | cons c cs => exact nonempty _ _ ⟨ty, c, cs, rfl, rfl, rfl⟩
     | _ => exact absurd hlist id
   | _ => exact absurd hlist id
 
 /-! ## Flattened bindings -/
 
+omit sv in
 theorem lowerTotalExpr_let_append : ∀ (bs more : List (VarId × Expr × Bool)) (s : Expr)
     (env : List VarId),
     lowerTotalExpr env (.Let (bs ++ more) s) = lowerTotalExpr env (.Let bs (.Let more s))
@@ -185,6 +169,7 @@ theorem lowerTotalExpr_let_append : ∀ (bs more : List (VarId × Expr × Bool))
       lowerTotalExpr_let_cons env (x, r, er) bs,
       lowerTotalExpr_let_single, lowerTotalExpr_let_single, lowerTotalExpr_let_append bs more s]
 
+omit sv in
 theorem freshIn_let_append : ∀ (bs more : List (VarId × Expr × Bool)) (s : Expr)
     (avoid : List VarId),
     freshIn avoid (.Let (bs ++ more) s) = freshIn avoid (.Let bs (.Let more s))
@@ -194,6 +179,7 @@ theorem freshIn_let_append : ∀ (bs more : List (VarId × Expr × Bool)) (s : E
       freshIn_let_cons avoid (x, r, er) bs, freshIn_let_single, freshIn_let_single,
       freshIn_let_append bs more s]
 
+omit sv in
 theorem flattenBindings_lower (bs : List (VarId × Expr × Bool)) (body : Expr) (env : List VarId) :
     lowerTotalExpr env (.Let (flattenBindings bs body).1 (flattenBindings bs body).2) =
       lowerTotalExpr env (.Let bs body) := by
@@ -205,6 +191,7 @@ theorem flattenBindings_lower (bs : List (VarId × Expr × Bool)) (body : Expr) 
 termination_by exprSize body
 decreasing_by simp [exprSize]; omega
 
+omit sv in
 theorem flattenBindings_fresh (bs : List (VarId × Expr × Bool)) (body : Expr) (avoid : List VarId) :
     freshIn avoid (.Let (flattenBindings bs body).1 (flattenBindings bs body).2) =
       freshIn avoid (.Let bs body) := by
@@ -226,6 +213,7 @@ theorem FactRel.of_flatten {G : VarId → Prop} {P : List VarId → CekEnv → E
 
 /-! ## The walk -/
 
+omit sv in
 theorem flatten_two_lt {bs rest : List (VarId × Expr × Bool)} {body inner hr tr : Expr}
     {h t : VarId} {he te : Bool}
     (hf : flattenBindings bs body = ((h, hr, he) :: (t, tr, te) :: rest, inner)) :
@@ -239,6 +227,7 @@ theorem flatten_two_lt {bs rest : List (VarId × Expr × Bool)} {body inner hr t
   have := exprSize_pos tr
   omega
 
+omit sv in
 theorem flatten_one_lt {bs : List (VarId × Expr × Bool)} {body inner r : Expr} {x : VarId} {er : Bool}
     (hf : flattenBindings bs body = ([(x, r, er)], inner)) :
     exprSize r < exprSize (.Let bs body) ∧ exprSize inner < exprSize (.Let bs body) := by
@@ -247,6 +236,7 @@ theorem flatten_one_lt {bs : List (VarId × Expr × Bool)} {body inner r : Expr}
   simp only [exprSize, exprSizeBinds] at bound ⊢
   omega
 
+omit sv in
 theorem flatten_nil_lt {bs : List (VarId × Expr × Bool)} {body inner : Expr}
     (hf : flattenBindings bs body = ([], inner)) : exprSize inner < exprSize (.Let bs body) := by
   have bound := exprSize_flattenBindings bs body

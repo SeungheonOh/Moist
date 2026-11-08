@@ -1,6 +1,8 @@
 import Moist.Verified.InlineSoundness.Totality
 import Moist.MIR.Optimize.Safety
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Evaluation paths
 
 `EvaluationPath p t`: evaluating `t` reaches the variable `p` before anything
@@ -12,13 +14,16 @@ namespace Moist.Verified.InlineSoundness.Frontier
 open Moist.CEK Moist.Plutus.Term Moist.MIR
 open Moist.Verified.InlineSoundness.Totality
 
+omit sv in
 private theorem varid_beq_refl (v : VarId) : (v == v) = true :=
   (VarId.beq_true_iff v v).mpr ⟨rfl, rfl⟩
 
+omit sv in
 private theorem varid_beq_symm {a b : VarId} (h : (a == b) = true) : (b == a) = true :=
   let ⟨origin, uid⟩ := (VarId.beq_true_iff a b).mp h
   (VarId.beq_true_iff b a).mpr ⟨origin.symm, uid.symm⟩
 
+omit sv in
 private theorem envLookupT_go_beq_congr (x v : VarId) (env : List VarId) (k : Nat)
     (hxv : (x == v) = true) :
     envLookupT.go x env k = envLookupT.go v env k := by
@@ -33,6 +38,7 @@ private theorem envLookupT_go_beq_congr (x v : VarId) (env : List VarId) (k : Na
     · rfl
     · exact ih (k + 1)
 
+omit sv in
 private theorem envLookupT_split_beq (envL : List VarId) (v : VarId) (envR : List VarId)
     (x : VarId) (hxv : (x == v) = true)
     (hv_notin : envL.findIdx? (· == v) = none) :
@@ -85,6 +91,7 @@ mutual
         CheckedPaths position tail → CheckedPaths position (head :: tail)
 end
 
+omit sv in
 mutual
   theorem CheckedPath.toEvaluationPath {position : Nat} {term : Term} :
       CheckedPath position term → EvaluationPath position term
@@ -102,6 +109,7 @@ mutual
     | .tail total _ inner => .tail total inner.toEvaluationPaths
 end
 
+omit sv in
 mutual
   theorem EvaluationPath.not_free {position : Nat} {term : Term} (path : EvaluationPath position term) :
       StrictOcc.freeOf position term = false := by
@@ -123,6 +131,7 @@ mutual
   termination_by sizeOf terms
 end
 
+omit sv in
 mutual
   theorem EvaluationPath.checked {position : Nat} {term : Term}
       (path : EvaluationPath position term) (single : StrictOcc.StrictSingleOcc position term) :
@@ -165,6 +174,7 @@ mutual
   termination_by sizeOf terms
 end
 
+omit sv in
 mutual
   theorem firstEvaluationUse_expandFix (identifier : VarId) (expression : Expr)
       (frontier : firstEvaluationUse identifier expression = true) :
@@ -225,6 +235,7 @@ mutual
   termination_by sizeOf bindings + sizeOf body
 end
 
+omit sv in
 mutual
   theorem firstEvaluationUse_lowerTotal (identifier : VarId) (leftEnv rightEnv : List VarId)
       (expression : Expr) (term : Term)
@@ -329,6 +340,7 @@ mutual
   decreasing_by all_goals subst_vars <;> simp_wf <;> omega
 end
 
+omit sv in
 theorem inlineGate_evaluationPath (identifier : VarId) (environment : List VarId)
     (bindings : List (VarId × Expr × Bool)) (body : Expr) (term : Term)
     (lowered : lowerTotalLet (identifier :: environment) (expandFixBinds bindings) (expandFix body) = some term)

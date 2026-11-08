@@ -9,6 +9,8 @@ import Moist.Verified.DataFoldingSoundness
 import Moist.Verified.AllocationFinishSoundness
 import Moist.MIR.Compile
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Soundness of the production compiler
 
 `compileOptimized_refines_of`: if `compileOptimized` succeeds, the source
@@ -34,16 +36,20 @@ open Moist.Verified.LoweringSoundness
 /-- `P` holds of the result of `m` from every initial state. -/
 def Post {σ α : Type} (m : StateM σ α) (P : α → Prop) : Prop := ∀ s, P (m.run s).1
 
+omit sv in
 theorem Post.pure {σ α : Type} {a : α} {P : α → Prop} (h : P a) :
     Post (σ := σ) (Pure.pure a) P := fun _ => h
 
+omit sv in
 theorem Post.bind {σ α β : Type} {m : StateM σ α} {k : α → StateM σ β}
     {P : α → Prop} {Q : β → Prop} (hm : Post m P) (hk : ∀ a, P a → Post (k a) Q) :
     Post (m >>= k) Q := fun s => hk _ (hm s) _
 
+omit sv in
 theorem Post.unit {σ β : Type} {m : StateM σ Unit} {k : Unit → StateM σ β} {Q : β → Prop}
     (hk : Post (k ()) Q) : Post (m >>= k) Q := fun _ => hk _
 
+omit sv in
 theorem Post.mono {σ α : Type} {m : StateM σ α} {P Q : α → Prop} (h : Post m P)
     (hPQ : ∀ a, P a → Q a) : Post m Q := fun s => hPQ _ (h s)
 

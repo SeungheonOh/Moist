@@ -1,6 +1,8 @@
 import Moist.Verified.TagChainsSoundness.Tests
 import Moist.Verified.ShapesSoundness.Destructors
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Tag tests as integer cases
 
 `TagRewrites Γ e e'` is refinement of lowerings in one environment that

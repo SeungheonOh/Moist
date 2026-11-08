@@ -2,6 +2,8 @@ import Moist.Verified.CaseMerge.Syntax
 import Moist.Verified.ContinuationRefinement
 import Moist.Verified.StepWellFormed
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Case on a literal constructor
 
 `reduceConstructorCase tag fields alts` binds the non-atomic fields in order
@@ -165,6 +167,7 @@ theorem isValueTerm_step {d : Nat} {ρ : CekEnv} (hρ : EnvWellFormed d ρ) {t :
   | .Builtin b, _ => rfl
   | .Lam _ b, _ => rfl
 
+omit sv in
 theorem isValueTerm_wf {d : Nat} {ρ : CekEnv} (hρ : EnvWellFormed d ρ) (hlen : d ≤ ρ.length)
     {t : Term} (ht : IsValueTerm d t) : ValueWellFormed (valueOf ρ t) := by
   match t, ht with
@@ -363,6 +366,7 @@ theorem sameRef_hoist {d tag : Nat} {pre rest alts : List Term} {f : Term}
 
 /-! ## The MIR rewrite -/
 
+omit sv in
 theorem selectAlternative_zero (tag : Nat) (args alts : List Expr) :
     selectAlternative tag 0 args alts =
       match alts[tag]? with | some a => args.foldl Expr.App a | none => .Error := by
@@ -370,6 +374,7 @@ theorem selectAlternative_zero (tag : Nat) (args alts : List Expr) :
   simp only [Nat.lt_irrefl, decide_false, Bool.false_and, Bool.false_eq_true, if_false]
   cases alts[tag]? <;> rfl
 
+omit sv in
 theorem maxUidExprList_append_eq : ∀ (xs ys : List Expr),
     maxUidExprList (xs ++ ys) = max (maxUidExprList xs) (maxUidExprList ys)
   | [], ys => by simp [maxUidExprList]
@@ -377,9 +382,11 @@ theorem maxUidExprList_append_eq : ∀ (xs ys : List Expr),
     rw [List.cons_append, maxUidExprList, maxUidExprList, maxUidExprList_append_eq xs ys]
     omega
 
+omit sv in
 theorem lowerTotalExpr_error (env : List VarId) : lowerTotalExpr env .Error = some .Error := by
   simp [lowerTotalExpr, expandFix, lowerTotal]
 
+omit sv in
 theorem lower_select {env : List VarId} {tag : Nat} {args alts : List Expr}
     {targs talts : List Term} (hargs : lowerTotalExprList env args = some targs)
     (halts : lowerTotalExprList env alts = some talts) :
@@ -392,6 +399,7 @@ theorem lower_select {env : List VarId} {tag : Nat} {args alts : List Expr}
     rw [lowerTotalExpr_foldl_app, hl, hargs]; rfl
   · rw [he, ht]; exact lowerTotalExpr_error env
 
+omit sv in
 theorem closedAt_select {k tag : Nat} {targs talts : List Term}
     (hargs : closedAtList k targs = true) (halts : closedAtList k talts = true) :
     closedAt k (match talts[tag]? with | some a => targs.foldl Term.Apply a | none => .Error) = true := by
@@ -402,6 +410,7 @@ theorem closedAt_select {k tag : Nat} {targs talts : List Term}
     rw [closedAt_foldl_apply, Contextual.BisimRef.closedAtList_get k talts tag a halts h, hargs]
     rfl
 
+omit sv in
 theorem lower_case_constr (env : List VarId) (tag : Nat) (fields alts : List Expr) :
     lowerTotalExpr env (.Case (.Constr tag fields) alts) =
       (lowerTotalExprList env fields).bind fun tf =>
@@ -409,16 +418,19 @@ theorem lower_case_constr (env : List VarId) (tag : Nat) (fields alts : List Exp
   rw [lowerTotalExpr_case_of_list, lowerTotalExpr_constr_of_list]
   cases lowerTotalExprList env fields <;> cases lowerTotalExprList env alts <;> rfl
 
+omit sv in
 theorem maxUidExpr_case_constr (tag : Nat) (fields alts : List Expr) :
     maxUidExpr (.Case (.Constr tag fields) alts) =
       max (maxUidExprList fields) (maxUidExprList alts) := by
   simp [maxUidExpr]
 
+omit sv in
 theorem caseFieldBindings_atom {next : Nat} {f : Expr} (rest : List Expr) (hf : f.isAtom = true) :
     caseFieldBindings next (f :: rest) =
       ((caseFieldBindings next rest).1, f :: (caseFieldBindings next rest).2) := by
   simp [caseFieldBindings, hf]
 
+omit sv in
 theorem caseFieldBindings_nonatom {next : Nat} {f : Expr} (rest : List Expr)
     (hf : f.isAtom = false) :
     caseFieldBindings next (f :: rest) =
@@ -428,6 +440,7 @@ theorem caseFieldBindings_nonatom {next : Nat} {f : Expr} (rest : List Expr)
           (caseFieldBindings (next + 1) rest).2) := by
   simp [caseFieldBindings, hf]
 
+omit sv in
 theorem fresh_of_maxUidList {es : List Expr} {v : VarId} (h : maxUidExprList es < v.uid) :
     ∀ e ∈ es, (freeVars e).contains v = false :=
   fun e he => maxUidExpr_fresh e v (by

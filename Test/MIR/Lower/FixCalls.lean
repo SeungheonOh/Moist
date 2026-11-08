@@ -5,6 +5,10 @@ import Moist.CEK.Readback
 import Moist.Plutus.Pretty
 import Test.Framework
 
+/-- Tests evaluate under semantics variant E (the conformance-suite variant). -/
+private local instance testSemVariant : Moist.CEK.SemVariant := .E
+
+
 /-! Recursive calls lower to `[[s s] a]`: the production encoding of `Fix`
 must behave exactly like the certified redex encoding of `lowerTotalExpr`,
 including trace order and failures, and must not take more machine steps. -/

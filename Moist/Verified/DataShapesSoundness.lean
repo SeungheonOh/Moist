@@ -2,6 +2,8 @@ import Moist.MIR.Optimize.Advanced.DataShapes
 import Moist.Verified.ShapesSoundness.Simplify
 import Moist.Verified.AdvancedTraversal
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Kind guards and key bytes
 
 `specializeDataChecks` replaces a kind guard

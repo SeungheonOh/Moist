@@ -621,27 +621,14 @@ private partial def parseConstValue (ty : BuiltinType) : Parser Const := do
         ws
         let item ← parseConstValue inner
         items := items ++ [item]
-    -- Specialize for data lists
-    match inner with
-    | .AtomicType .TypeData =>
-      let ds := items.filterMap fun
-        | .Data d => some d
-        | _ => none
-      pure (.ConstDataList ds)
-    | _ => pure (.ConstList items)
+    pure (.ConstList inner items)
   | .TypeOperator (.TypePair t1 t2) => do
     ws; expect '('
     let v1 ← parseConstValue t1
     ws; expect ','
     let v2 ← parseConstValue t2
     ws; expect ')'
-    -- Specialize for data pairs
-    match t1, t2 with
-    | .AtomicType .TypeData, .AtomicType .TypeData =>
-      match v1, v2 with
-      | .Data d1, .Data d2 => pure (.PairData (d1, d2))
-      | _, _ => pure (.Pair (v1, v2))
-    | _, _ => pure (.Pair (v1, v2))
+    pure (.Pair (v1, v2))
   | .TypeOperator (.TypeArray inner) => do
     ws; expect '['
     let mut items : List Const := []
@@ -656,7 +643,7 @@ private partial def parseConstValue (ty : BuiltinType) : Parser Const := do
         ws
         let item ← parseConstValue inner
         items := items ++ [item]
-    pure (.ConstArray items)
+    pure (.ConstArray inner items)
   | .AtomicType .TypeBls12_381_G1_element => do
     ws
     let c? ← peek?
@@ -754,6 +741,8 @@ where
       pure (.Delay e)
     | "constr" => do
       let tag ← parseNat
+      -- The tag is a `Word64` (plutus-core `Constr` carries a `Word64`).
+      if tag ≥ 2 ^ 64 then throw s!"constr tag out of range: {tag}"
       let mut args : List Term := []
       let mut done := false
       while !done do
@@ -841,7 +830,16 @@ def parseProgram : Parser (Nat × Nat × Nat × Term) := do
   let term ← parseTerm []
   ws; expect ')'
   ws
+  -- `constr` and `case` exist only from version 1.1.0 on.
+  if ver.1 < 1 || (ver.1 == 1 && ver.2.1 < 1) then
+    if usesSums term then throw "constr/case require program version 1.1.0"
   pure (ver.1, ver.2.1, ver.2.2, term)
+where
+  usesSums : Term → Bool
+    | .Constr .. | .Case .. => true
+    | .Lam _ b | .Delay b | .Force b => usesSums b
+    | .Apply f a => usesSums f || usesSums a
+    | _ => false
 
 /-! ## Runner -/
 

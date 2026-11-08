@@ -157,13 +157,10 @@ where
     | .String s => s!"\"{s}\""
     | .Unit => "()"
     | .Bool b => if b then "True" else "False"
-    | .ConstList xs => fmtConstList xs
-    | .ConstDataList xs => fmtDataList xs
-    | .ConstPairDataList xs => fmtDataPairList xs
+    | .ConstList _ xs => fmtConstList xs
     | .Pair p => fmtConstPair p
-    | .PairData p => fmtDataPair p
     | .Data d => fmtData d
-    | .ConstArray xs => fmtConstList xs
+    | .ConstArray _ xs => fmtConstList xs
     | .Bls12_381_G1_element => "<G1>"
     | .Bls12_381_G2_element => "<G2>"
     | .Bls12_381_MlResult => "<MlResult>"

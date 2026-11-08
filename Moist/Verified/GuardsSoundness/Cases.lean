@@ -1,5 +1,7 @@
 import Moist.Verified.GuardsSoundness.Leaves
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # `chk` on cases -/
 
 namespace Moist.Verified.Guards

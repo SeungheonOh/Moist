@@ -135,19 +135,19 @@ def unitTree : TestTree := suite "unit" do
   group "constEq" do
     test "pair_components" do
       -- Each component must be compared with its counterpart, not its sibling.
-      let p := fun a b => Moist.Plutus.Term.Const.PairData (.I a, .I b)
+      let p := fun a b => Moist.Plutus.Term.Const.pairData (.I a, .I b)
       check "pairData_distinct" (!constEq (p 0 0) (p 1 1))
       check "pairData_equal" (constEq (p 0 1) (p 0 1))
       check "pairDataList_distinct"
-        (!constEq (.ConstPairDataList [(.I 0, .I 0)]) (.ConstPairDataList [(.I 1, .I 1)]))
+        (!constEq (.pairDataList [(.I 0, .I 0)]) (.pairDataList [(.I 1, .I 1)]))
       check "alphaEq_pairData_literal"
         (!alphaEq (.Lit (p 0 0, .AtomicType .TypeData)) (.Lit (p 1 1, .AtomicType .TypeData)))
     test "array_reflexive" do
-      let arr : Expr := .Lit (.ConstArray [.Integer 1, .Integer 2],
+      let arr : Expr := .Lit (.ConstArray (.AtomicType .TypeInteger) [.Integer 1, .Integer 2],
         .TypeOperator (.TypeArray (.AtomicType .TypeInteger)))
       check "alphaEq_array_refl" (alphaEq arr arr)
       check "alphaEq_array_distinct"
-        (!alphaEq arr (.Lit (.ConstArray [.Integer 1],
+        (!alphaEq arr (.Lit (.ConstArray (.AtomicType .TypeInteger) [.Integer 1],
           .TypeOperator (.TypeArray (.AtomicType .TypeInteger)))))
 
 end Test.MIR.Analysis.Unit

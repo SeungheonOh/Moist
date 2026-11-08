@@ -1,5 +1,7 @@
 import Moist.Verified.GuardsSoundness.FreshExtend
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # The strict steps `unitView` finds, and their semantics -/
 
 namespace Moist.Verified.Guards

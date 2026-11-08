@@ -1,6 +1,8 @@
 import Moist.Verified.GuardsSoundness.Analysis
 import Moist.Verified.GuardsSoundness.Kinds
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # `chk` on lambdas, bindings, delays, constants and constructors -/
 
 namespace Moist.Verified.Guards

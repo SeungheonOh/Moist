@@ -1,5 +1,7 @@
 import Moist.Verified.RecordsSoundness.Binders
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Unpacking a record once
 
 When the recorded shape of `record` is constructor `0` with `n` fields,

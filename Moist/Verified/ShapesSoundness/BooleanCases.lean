@@ -1,5 +1,7 @@
 import Moist.Verified.ShapesSoundness.Rewrites
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Boolean case rewrites
 
 `booleanCaseRewrite` moves a case with small alternatives into the branches

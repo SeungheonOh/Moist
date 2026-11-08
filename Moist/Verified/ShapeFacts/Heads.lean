@@ -1,5 +1,7 @@
 import Moist.Verified.ShapeFacts.Decompose
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Resolved application heads
 
 `resolveHead` replaces variables by the right-hand sides recorded for them.
@@ -24,6 +26,7 @@ def valueArity : ExpectedArgs → Nat
   | .one k => if k = .argV then 1 else 0
   | .more k rest => (if k = .argV then 1 else 0) + valueArity rest
 
+omit sv in
 theorem valueArity_tail {rem rest : ExpectedArgs} (h : rem.tail = some rest) :
     valueArity rem = (if rem.head = .argV then 1 else 0) + valueArity rest := by
   cases rem with
@@ -50,6 +53,7 @@ theorem fact_of_var {Γ : List (VarId × Expr)} {env : List VarId} {ρ : CekEnv}
   rw [hw] at this; cases this
   exact ⟨k, hk, hp, hfacts.drop hd k, hd.drop k⟩
 
+omit sv in
 theorem protocol_force {e : Expr} {b : BuiltinFun} {rem : ExpectedArgs}
     (h : builtinProtocolAfterSuccess (.Force e) = some (b, rem)) :
     ∃ rem', builtinProtocolAfterSuccess e = some (b, rem') ∧ rem'.head = .argQ ∧ rem'.tail = some rem := by
@@ -61,6 +65,7 @@ theorem protocol_force {e : Expr} {b : BuiltinFun} {rem : ExpectedArgs}
     simp only [he] at h
     refine ⟨rem', ?_⟩
     cases hh : rem'.head <;> cases ht : rem'.tail <;> simp_all <;> exact absurd h.1 (by decide)
+omit sv in
 theorem protocol_app {f a : Expr} {b : BuiltinFun} {rem : ExpectedArgs}
     (h : builtinProtocolAfterSuccess (.App f a) = some (b, rem)) :
     ∃ rem', builtinProtocolAfterSuccess f = some (b, rem') ∧ rem'.head = .argV ∧ rem'.tail = some rem := by
@@ -127,21 +132,26 @@ theorem protocol_raw : ∀ (e : Expr) {b : BuiltinFun} {rem : ExpectedArgs} {env
   | .Constr _ _, _, _, _, _, _, _, h, _, _ | .Case _ _, _, _, _, _, _, _, h, _, _
   | .Let _ _, _, _, _, _, _, _, h, _, _ => by simp [builtinProtocolAfterSuccess] at h
 
+omit sv in
 theorem resolveHead_zero (Γ : List (VarId × Expr)) (e : Expr) : resolveHead 0 Γ e = e := by
   cases e <;> rfl
 
+omit sv in
 theorem resolveHead_var (n : Nat) (Γ : List (VarId × Expr)) (x : VarId) :
     resolveHead (n + 1) Γ (.Var x) =
       match Γ.find? (fun entry => entry.1 == x) with
       | some (_, rhs) => resolveHead n Γ rhs
       | none => .Var x := rfl
 
+omit sv in
 theorem resolveHead_app (n : Nat) (Γ : List (VarId × Expr)) (f a : Expr) :
     resolveHead (n + 1) Γ (.App f a) = .App (resolveHead n Γ f) a := rfl
 
+omit sv in
 theorem resolveHead_force (n : Nat) (Γ : List (VarId × Expr)) (e : Expr) :
     resolveHead (n + 1) Γ (.Force e) = .Force (resolveHead n Γ e) := rfl
 
+omit sv in
 theorem resolveHead_other (n : Nat) (Γ : List (VarId × Expr)) (e : Expr)
     (hvar : ∀ x, e ≠ .Var x) (happ : ∀ f a, e ≠ .App f a) (hforce : ∀ b, e ≠ .Force b) :
     resolveHead n Γ e = e := by
@@ -154,6 +164,7 @@ theorem resolveHead_other (n : Nat) (Γ : List (VarId × Expr)) (e : Expr)
     | Force b => exact absurd rfl (hforce b)
     | _ => rfl
 
+omit sv in
 /-- Cases of a resolved head. -/
 theorem resolveHead_cases (n : Nat) (Γ : List (VarId × Expr)) (e : Expr) :
     (n = 0 ∧ resolveHead n Γ e = e) ∨

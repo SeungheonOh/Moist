@@ -99,7 +99,7 @@ def e_type : BuiltinType → List Nat
   | BuiltinType.AtomicType t => [atomicTypeTag t]
   | BuiltinType.TypeOperator (TypeOperator.TypeList t) => [7,5] ++ e_type t
   | BuiltinType.TypeOperator (TypeOperator.TypePair t₁ t₂) => [7,7,6] ++ e_type t₁ ++ e_type t₂
-  | BuiltinType.TypeOperator (TypeOperator.TypeArray t) => [7,9] ++ e_type t
+  | BuiltinType.TypeOperator (TypeOperator.TypeArray t) => [7,12] ++ e_type t
 
 -- Encode a BuiltinType as a list of 4-bit nibbles using ℰ_list (ℰ_type).
 def ℰ_type (buf : BitBuffer) (t : BuiltinType) : BitBuffer :=
@@ -132,22 +132,13 @@ partial def ℰ_constant : Encoder Const
       buf.pushBit b
     | buf, Const.Data d =>
       ℰ_Data buf d
-    | buf, Const.ConstList elems =>
+    | buf, Const.ConstList _ elems =>
+      ℰ_list (fun buf elem => ℰ_constant buf elem) buf elems
+    | buf, Const.ConstArray _ elems =>
       ℰ_list (fun buf elem => ℰ_constant buf elem) buf elems
     | buf, Const.Pair (c1, c2) =>
       let buf := ℰ_constant buf c1
       ℰ_constant buf c2
-    | buf, Const.ConstDataList elems =>
-      let ℰ_elem buf elem := ℰ_constant buf (Const.Data elem)
-      ℰ_list ℰ_elem buf elems
-    | buf, Const.ConstPairDataList pairs =>
-      let ℰ_pair buf (p : Data × Data) :=
-      let buf := ℰ_constant buf (Const.Data p.1)
-      ℰ_constant buf (Const.Data p.2)
-      ℰ_list ℰ_pair buf pairs
-    | buf, Const.PairData (d1, d2) =>
-      let buf := ℰ_constant buf (Const.Data d1)
-      ℰ_constant buf (Const.Data d2)
   | buf, _ => buf
 
 /-- Map a BuiltinFun to its 7-bit tag per spec/flat-serialisation.tex:600-748. -/

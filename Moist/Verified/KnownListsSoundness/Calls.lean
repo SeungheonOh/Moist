@@ -1,6 +1,8 @@
 import Moist.Verified.ShapeFacts.Relation
 import Moist.Verified.ShapeFacts.Values
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Calls of a recursive function on lists
 
 `Calls P m F Ls t` states that in `t` the recursive function bound at index
@@ -143,19 +145,23 @@ theorem EnvOK.mono {P : List Nat} {m j k D F : Nat} {X Ls : List Nat} {ρ₁ ρ�
   · obtain ⟨r₁, r₂, e₁, e₂, hr, w₁, w₂⟩ := h.recursive
     exact ⟨r₁, r₂, e₁, e₂, PR_mono hjk hr, w₁, w₂⟩
 
+omit sv in
 theorem lookup_extend_succ (ρ : CekEnv) (v : CekValue) (n : Nat) (hn : 0 < n) :
     (ρ.extend v).lookup (n + 1) = ρ.lookup n := by
   match n, hn with
   | m + 1, _ => rfl
 
+omit sv in
 theorem lookup_extend_one (ρ : CekEnv) (v : CekValue) : (ρ.extend v).lookup 1 = some v := rfl
 
+omit sv in
 theorem mem_shiftLs {n i : Nat} {Ls : List Nat} : i ∈ shiftLs n Ls ↔ ∃ j ∈ Ls, i = j + n := by
   simp only [shiftLs, List.mem_map]
   constructor
   · rintro ⟨j, hj, rfl⟩; exact ⟨j, hj, rfl⟩
   · rintro ⟨j, hj, rfl⟩; exact ⟨j, hj, rfl⟩
 
+omit sv in
 theorem shiftLs_shiftLs (a b : Nat) (X : List Nat) : shiftLs a (shiftLs b X) = shiftLs (b + a) X := by
   simp only [shiftLs, List.map_map]
   congr 1; funext x; simp [Nat.add_assoc]
@@ -212,6 +218,7 @@ theorem EnvOK.extendCons {P : List Nat} {m k D F : Nat} {X Ls : List Nat} {ρ₁
 
 /-! ## List values under a `case` -/
 
+omit sv in
 theorem listValue_vcon {v : CekValue} (h : ListValue v) : ∃ c, v = .VCon c := by
   cases v with
   | VCon c => exact ⟨c, rfl⟩
@@ -238,29 +245,13 @@ theorem listCase_dispatch {v : CekValue} (hv : ListValue v) :
           | none => .error) := by
   obtain ⟨c, rfl⟩ := listValue_vcon hv
   cases c with
-  | ConstList l =>
+  | ConstList ty l =>
     cases l with
     | nil =>
       refine .inr fun π ρ alts => ?_
       cases e : alts[1]? <;> simp [step, constToTagAndFields, e]
     | cons h t =>
-      refine .inl ⟨h, .VCon (.ConstList t), trivial, fun π ρ alts => ?_⟩
-      cases e : alts[0]? <;> simp [step, constToTagAndFields, e]
-  | ConstDataList l =>
-    cases l with
-    | nil =>
-      refine .inr fun π ρ alts => ?_
-      cases e : alts[1]? <;> simp [step, constToTagAndFields, e]
-    | cons h t =>
-      refine .inl ⟨.Data h, .VCon (.ConstDataList t), trivial, fun π ρ alts => ?_⟩
-      cases e : alts[0]? <;> simp [step, constToTagAndFields, e]
-  | ConstPairDataList l =>
-    cases l with
-    | nil =>
-      refine .inr fun π ρ alts => ?_
-      cases e : alts[1]? <;> simp [step, constToTagAndFields, e]
-    | cons h t =>
-      refine .inl ⟨.PairData h, .VCon (.ConstPairDataList t), trivial, fun π ρ alts => ?_⟩
+      refine .inl ⟨h, .VCon (.ConstList ty t), trivial, fun π ρ alts => ?_⟩
       cases e : alts[0]? <;> simp [step, constToTagAndFields, e]
   | _ => exact absurd hv id
 

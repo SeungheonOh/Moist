@@ -1,5 +1,7 @@
 import Moist.Verified.GuardsSoundness.UnitSwap
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # The three kinds of strict steps -/
 
 namespace Moist.Verified.Guards

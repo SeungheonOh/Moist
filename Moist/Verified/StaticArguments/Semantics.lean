@@ -1,6 +1,8 @@
 import Moist.Verified.FundamentalRefines
 import Moist.MIR.LowerTotal
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Static argument transformation at the UPLC level
 
 The source fixed point `fix (λr. λp. λn. B)` and the target
@@ -93,11 +95,13 @@ end
 
 private abbrev VR := ValueRel Guard.trivial
 
+omit sv in
 theorem lookup_extend_succ (ρ : CekEnv) (v : CekValue) (n : Nat) (hn : 0 < n) :
     (ρ.extend v).lookup (n + 1) = ρ.lookup n := by
   match n, hn with
   | m + 1, _ => rfl
 
+omit sv in
 theorem lookup_zero (ρ : CekEnv) : ρ.lookup 0 = none := by
   cases ρ <;> rfl
 
@@ -287,6 +291,7 @@ private theorem envRel_mono {e j k : Nat} {ρ₁ ρ₂ : CekEnv} (hjk : j ≤ k)
   obtain ⟨v₁, v₂, h₁, h₂, hv⟩ := h n hn hnd
   exact ⟨v₁, v₂, h₁, h₂, valueRel_mono hjk hv⟩
 
+omit sv in
 private theorem lookup_extend4 (ρ : CekEnv) (v₁ v₂ v₃ v₄ : CekValue) (n : Nat) (hn : 0 < n) :
     ((((ρ.extend v₁).extend v₂).extend v₃).extend v₄).lookup (n + 4) = ρ.lookup n := by
   rw [show n + 4 = n + 3 + 1 by omega, lookup_extend_succ _ _ _ (by omega),

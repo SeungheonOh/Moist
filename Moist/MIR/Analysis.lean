@@ -198,13 +198,10 @@ mutual
     | .String a, .String b => a == b
     | .Unit, .Unit => true
     | .Bool a, .Bool b => a == b
-    | .ConstList a, .ConstList b => constEqList a b
-    | .ConstDataList a, .ConstDataList b => dataEqList a b
-    | .ConstPairDataList a, .ConstPairDataList b => dataEqPairs a b
+    | .ConstList ta a, .ConstList tb b => builtinTypeEq ta tb && constEqList a b
     | .Pair (a1, a2), .Pair (b1, b2) => constEq a1 b1 && constEq a2 b2
-    | .PairData (a1, a2), .PairData (b1, b2) => dataEq a1 b1 && dataEq a2 b2
     | .Data a, .Data b => dataEq a b
-    | .ConstArray a, .ConstArray b => constEqList a b
+    | .ConstArray ta a, .ConstArray tb b => builtinTypeEq ta tb && constEqList a b
     | .Bls12_381_G1_element, .Bls12_381_G1_element => true
     | .Bls12_381_G2_element, .Bls12_381_G2_element => true
     | .Bls12_381_MlResult, .Bls12_381_MlResult => true

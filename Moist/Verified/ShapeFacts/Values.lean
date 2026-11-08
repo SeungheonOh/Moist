@@ -1,6 +1,8 @@
 import Moist.Verified.ShapeFacts.Heads
 import Moist.Verified.ListShapeSoundness
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Shapes of builtin results
 
 Value predicates used by the shape analyses and the result shapes of the
@@ -21,7 +23,7 @@ def IntegerValue (v : CekValue) : Prop := ∃ i, v = .VCon (.Integer i)
 
 /-- The result of `UnConstrData`. -/
 def PairValue (v : CekValue) : Prop :=
-  ∃ i fields, v = .VCon (.Pair (.Integer i, .ConstDataList fields))
+  ∃ i fields, v = .VCon (.Pair (.Integer i, .dataList fields))
 
 export Moist.Verified.ListShape (ListValue)
 
@@ -50,6 +52,7 @@ theorem saturated_force {w v : CekValue} {b : BuiltinFun}
     · cases ht
     · exact ⟨args, by simp [valueArity] at hlen ⊢; omega, heval⟩
 
+omit sv in
 theorem extractConsts_length : ∀ {vs : List CekValue} {cs : List Const},
     extractConsts vs = some cs → cs.length = vs.length
   | [], cs, h => by simp [extractConsts] at h; subst h; rfl
@@ -97,7 +100,8 @@ theorem booleanBuiltin_result {b : BuiltinFun} (hb : booleanBuiltin b = true)
   all_goals first
     | (cases hc; done)
     | (cases x <;> (try cases hc) <;> exact ⟨_, rfl⟩)
-    | (cases x <;> (try cases hc) <;> cases y <;> (try cases hc) <;> exact ⟨_, rfl⟩)
+    | (cases x <;> (try cases hc) <;> cases y <;> (try cases hc) <;>
+        first | exact ⟨_, rfl⟩ | (obtain rfl := eq_of_ite_some hc; exact ⟨_, rfl⟩))
 
 /-- The integer-valued builtins accepted by `knownInteger`. -/
 def integerBuiltin : BuiltinFun → Bool
@@ -125,10 +129,13 @@ theorem integerBuiltin_result {b : BuiltinFun} (hb : integerBuiltin b = true)
     | (cases x <;> (try cases hc) <;> rename_i d <;> cases d <;> (try cases hc) <;> exact ⟨_, rfl⟩)
     | (cases x <;> (try cases hc) <;> cases y <;> (try cases hc)
        all_goals
-         change (if _ then none else some (.Integer _)) = some c at hc
-         split at hc
-         · cases hc
-         · cases hc; exact ⟨_, rfl⟩)
+         first
+           | (obtain rfl := eq_of_ite_some hc; exact ⟨_, rfl⟩)
+           | (have hc' := hc
+              change (if _ then _ else none) = some c at hc'
+              split at hc'
+              · first | (cases hc'; exact ⟨_, rfl⟩) | (obtain rfl := eq_of_ite_some hc'; exact ⟨_, rfl⟩)
+              · cases hc'))
 
 theorem evalBuiltin_single {b : BuiltinFun} {w v : CekValue}
     (hb : b ≠ .IfThenElse ∧ b ≠ .ChooseUnit ∧ b ≠ .Trace ∧ b ≠ .ChooseData ∧
@@ -145,6 +152,7 @@ theorem evalBuiltin_single {b : BuiltinFun} {w v : CekValue}
     | some r => rw [he] at h; cases h; exact ⟨c, r, rfl, he, rfl⟩
   | _ => simp [extractConsts] at h
 
+omit sv in
 theorem single_of_length {α : Type} {xs : List α} (h : xs.length = 1) : ∃ x, xs = [x] := by
   match xs, h with
   | [x], _ => exact ⟨x, rfl⟩

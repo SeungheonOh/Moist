@@ -1,6 +1,8 @@
 import Moist.Verified.TagChainsSoundness.Push
 import Moist.Verified.MIR.Hoist
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Bindings consumed by the next case or application
 
 `let b = r in case b alts` and `case r alts` evaluate `r` at the same point

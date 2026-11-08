@@ -1,6 +1,8 @@
 import Moist.Verified.ProductsSoundness.Unbox
 import Moist.Verified.PreLowerSoundness
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Product destructuring
 
 `destructureProducts` unboxes projection-only bindings of known builtin pairs

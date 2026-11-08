@@ -1,5 +1,7 @@
 import Moist.Verified.ShapesSoundness.Choices
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # List discriminators on runtime values
 
 `chooseList` and `nullList` accept exactly the same values: both reject every

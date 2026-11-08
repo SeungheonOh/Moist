@@ -1,5 +1,7 @@
 import Moist.Verified.GuardsSoundness.Cases
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Calls: spines, lambda chains and the size bound of a recursive function -/
 
 namespace Moist.Verified.Guards

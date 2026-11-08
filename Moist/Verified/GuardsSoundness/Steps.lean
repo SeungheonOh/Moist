@@ -1,5 +1,7 @@
 import Moist.Verified.GuardsSoundness.Context
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # CEK steps used by the soundness of `chk` -/
 
 namespace Moist.Verified.Guards

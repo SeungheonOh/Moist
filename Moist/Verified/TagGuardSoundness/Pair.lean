@@ -1,6 +1,8 @@
 import Moist.Verified.TagGuardSoundness.Guard
 import Moist.Verified.FailFastSoundness.Swap
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Pair cases on decoded constructors
 
 `case (unConstrData e) [λt f. b]` binds the integer tag `t` and the field list

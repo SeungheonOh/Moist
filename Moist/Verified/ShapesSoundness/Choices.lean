@@ -1,5 +1,7 @@
 import Moist.Verified.ShapesSoundness.Destructors
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # List choice fusion
 
 `case nullList l [nonempty, empty]` becomes
@@ -53,9 +55,11 @@ theorem projection_factRel {G : VarId → Prop} {Γ : List (VarId × Expr)} {b l
   exact obsRefines_of_reaches (halts_on_stack hsrc π) (halts_on_stack (halts_var_of_lookup hvh) π)
     (obsRefines_refl _)
 
+omit sv in
 theorem maxUidExpr_lt_lam {x : VarId} {b : Expr} {u : Nat} (h : maxUidExpr (.Lam x b) < u) :
     x.uid < u ∧ maxUidExpr b < u := by simp only [maxUidExpr] at h; omega
 
+omit sv in
 theorem binds_attach_map (f : Expr → Expr) (bs : List (VarId × Expr × Bool)) :
     (bs.attach.map fun ⟨(y, rhs, er), _⟩ => (y, f rhs, er)) =
       bs.map fun (y, rhs, er) => (y, f rhs, er) := by
@@ -72,10 +76,12 @@ theorem replaceListProjections_let (l h t : VarId) (bs : List (VarId × Expr × 
         (replaceListProjections l h t body) := by
   rw [replaceListProjections, binds_attach_map]
 
+omit sv in
 theorem maxUidExprBinds_cons' (b : VarId × Expr × Bool) (rest : List (VarId × Expr × Bool)) :
     maxUidExprBinds (b :: rest) = max b.1.uid (max (maxUidExpr b.2.1) (maxUidExprBinds rest)) := by
   obtain ⟨x, r, er⟩ := b; simp [maxUidExprBinds]
 
+omit sv in
 theorem exprSizeBinds_cons' (b : VarId × Expr × Bool) (rest : List (VarId × Expr × Bool)) :
     exprSizeBinds (b :: rest) = exprSize b.2.1 + exprSizeBinds rest := by
   obtain ⟨x, r, er⟩ := b; simp [exprSizeBinds]
@@ -92,10 +98,12 @@ theorem let_rhs_lt (b : VarId × Expr × Bool) (rest : List (VarId × Expr × Bo
 def headApp (l : VarId) : Expr := .App (.Force (.Builtin .HeadList)) (.Var l)
 def tailApp (l : VarId) : Expr := .App (.Force (.Builtin .TailList)) (.Var l)
 
+omit sv in
 theorem find?_cons_of_ne {Γ : List (VarId × Expr)} {x y : VarId} {r : Expr} (hxy : (x == y) = false) :
     ((x, r) :: Γ).find? (fun e => e.1 == y) = Γ.find? (fun e => e.1 == y) := by
   simp [hxy]
 
+omit sv in
 theorem beq_false_of_uid_lt {x y : VarId} (h : x.uid < y.uid) : (x == y) = false := by
   rw [VarId.beq_false_iff]; right; omega
 
@@ -226,6 +234,7 @@ theorem case_errs_of_scrutinee {ρ : CekEnv} {π : Stack} {s : Term} {alts : Lis
     (hs : Errs ρ s) : Reaches (.compute π ρ (.Case s alts)) .error :=
   reaches_trans (reaches_of_steps 1 rfl) (errs_on_stack hs _)
 
+omit sv in
 theorem envLookupT_mem {env : List VarId} {x : VarId} {i : Nat} (h : envLookupT env x = some i) :
     ∃ y ∈ env, (y == x) = true := by
   induction env generalizing i with
@@ -246,6 +255,7 @@ theorem lookup_none_of_not_G {G : VarId → Prop} {env : List VarId} {x : VarId}
     obtain ⟨y, hy, hyx⟩ := envLookupT_mem hl
     exact absurd (hG y hy) (hx y hyx)
 
+omit sv in
 theorem lowerTotalExpr_choice {env : List VarId} {l h t : VarId} {X em : Expr} {il : Nat}
     {tX tem : Term} (hil : envLookupT env l = some il)
     (htX : lowerTotalExpr (t :: h :: env) X = some tX) (htem : lowerTotalExpr env em = some tem) :
@@ -258,6 +268,7 @@ theorem lowerTotalExpr_choice {env : List VarId} {l h t : VarId} {X em : Expr} {
   rw [MIR.lowerTotalExprList_cons, htem, MIR.lowerTotalExprList_nil]
   rfl
 
+omit sv in
 theorem lowerTotalExpr_case2_some {env : List VarId} {s ne em : Expr} {t : Term}
     (h : lowerTotalExpr env (.Case s [ne, em]) = some t) :
     ∃ ts tne tem, lowerTotalExpr env s = some ts ∧ lowerTotalExpr env ne = some tne ∧
@@ -471,6 +482,7 @@ theorem choice_factRel {G : VarId → Prop} {Γ : List (VarId × Expr)} {s f' ne
 
 /-! ## Freshness of the walk -/
 
+omit sv in
 theorem beq_force_nullList {x : Expr} (h : (x == Expr.Force (.Builtin .NullList)) = true) :
     x = .Force (.Builtin .NullList) := by
   cases x with
@@ -482,6 +494,7 @@ theorem beq_force_nullList {x : Expr} (h : (x == Expr.Force (.Builtin .NullList)
     | _ => cases h
   | _ => cases h
 
+omit sv in
 theorem freshInList_attach_map {avoid : List VarId} (xs : List Expr) (f : Expr → Expr)
     (h : ∀ x ∈ xs, freshIn avoid (f x) = freshIn avoid x) :
     freshInList avoid (xs.attach.map fun ⟨x, _⟩ => f x) = freshInList avoid xs := by
@@ -494,6 +507,7 @@ theorem freshInList_attach_map {avoid : List VarId} (xs : List Expr) (f : Expr �
     rw [← ih (fun y hy => h y (.tail _ hy))]
     simp [Function.comp_def]
 
+omit sv in
 theorem freshInLet_map (f : Expr → Expr) :
     ∀ (bs : List (VarId × Expr × Bool)) (body : Expr) (avoid : List VarId),
       (∀ b ∈ bs, ∀ avoid, freshIn avoid (f b.2.1) = freshIn avoid b.2.1) →
@@ -545,6 +559,7 @@ decreasing_by
 /-- Names that cannot be binders generated above `base`. -/
 def GenSafe (base : Nat) (y : VarId) : Prop := y.uid < base ∨ y.origin ≠ .gen
 
+omit sv in
 theorem not_genSafe {base : Nat} {x : VarId} (hx : base ≤ x.uid) (hgen : x.origin = .gen) :
     ∀ y, (y == x) = true → ¬ GenSafe base y := by
   intro y hy hsafe
@@ -672,6 +687,7 @@ decreasing_by
 
 /-! ## The walk -/
 
+omit sv in
 theorem attach_map_eq_map (xs : List Expr) (f : Expr → Expr) :
     (xs.attach.map fun ⟨x, _⟩ => f x) = xs.map f := by
   induction xs with

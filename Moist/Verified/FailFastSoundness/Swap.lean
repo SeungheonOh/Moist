@@ -1,6 +1,8 @@
 import Moist.Verified.FailFastSoundness.Sink
 import Moist.Verified.FloatOut.Lowering
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Evaluating a terminating binding first
 
   `let x = e in let y = c in B  ⊑  let y = c in let x = e in B`
@@ -20,6 +22,7 @@ open Moist.Verified.BetaValueRefines
 open Moist.Verified.ShapeFacts
 open Moist.Verified.FloatOut (swapRename is0preserving_swapRename)
 
+omit sv in
 theorem shiftBisimEnv_shift' {d : Nat} {ρ : CekEnv} (w : CekValue) :
     EnvWellFormed d ρ → ShiftBisimEnv (shiftRename 1) d ρ (ρ.extend w)
   | .zero => .zero
@@ -43,9 +46,11 @@ theorem halts_shift {d : Nat} {ρ : CekEnv} {t : Term} {w : CekValue} (u : CekVa
   cases this with
   | halt hv => exact ⟨_, ⟨n, hs⟩, hv⟩
 
+omit sv in
 theorem lookup_extend_two (ρ : CekEnv) (a b : CekValue) (n : Nat) :
     ((ρ.extend a).extend b).lookup (n + 3) = ρ.lookup (n + 1) := rfl
 
+omit sv in
 /-- The environments with the last two bindings exchanged. -/
 theorem shiftBisimEnv_swap {ρ : CekEnv} {w w' v : CekValue} (hww : ShiftBisimValue w w')
     (hv : ValueWellFormed v) :

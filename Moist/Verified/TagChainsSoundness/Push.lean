@@ -1,5 +1,7 @@
 import Moist.Verified.TagChainsSoundness.Rules
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Applying a tree of field-less cases
 
 `(case s alts) y` evaluates `s`, selects an alternative, evaluates it and

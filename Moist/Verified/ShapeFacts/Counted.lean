@@ -1,5 +1,7 @@
 import Moist.Verified.ShapeFacts.Decompose
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Evaluations with step counts
 
 `HaltsIn ρ t n v`: `t` halts with `v` in exactly `n` steps from the empty stack.

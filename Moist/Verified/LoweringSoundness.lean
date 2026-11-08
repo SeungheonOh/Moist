@@ -6,6 +6,8 @@ import Moist.MIR.Lower
 import Moist.MIR.FromUPLC
 import Moist.MIR.Compile
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Production lowering and re-lifting
 
 * `lower_correct`: the executable `lower` succeeds exactly when
@@ -105,10 +107,12 @@ def lams : Nat → Context
   | 0 => .Hole
   | n + 1 => .Lam 0 (lams n)
 
+omit sv in
 theorem lams_binders : ∀ n, (lams n).binders = n
   | 0 => rfl
   | n + 1 => by simp [lams, Context.binders, lams_binders n]
 
+omit sv in
 theorem lams_closedAt : ∀ n d, (lams n).closedAt d = true
   | 0, _ => rfl
   | n + 1, d => by simp [lams, Context.closedAt, lams_closedAt n (d + 1)]
@@ -133,6 +137,7 @@ def fixLamWrapContext : Context :=
     (.Lam 0 (.AppLeft (.Lam 0 (.Lam 0 .Hole))
       (.Lam 0 (.Apply (.Apply (.Var 2) (.Var 2)) (.Var 1)))))
 
+omit sv in
 theorem fixLamWrapUplc_fill (B : Term) :
     fixLamWrapUplc B = Contextual.fill fixLamWrapContext B := rfl
 
@@ -149,6 +154,7 @@ def LowerListRel : Except String (List Term) → Option (List Term) → Prop
   | .error _, none => True
   | _, _ => False
 
+omit sv in
 /-- A lookup slot shadowed by an earlier entry is never reached. -/
 theorem lowerTotalExpr_shadow_slot (env : List VarId) (f x : VarId) (body : Expr) (s : VarId)
     (hs : maxUidExpr body < s.uid) :
@@ -165,6 +171,7 @@ theorem lowerTotalExpr_shadow_slot (env : List VarId) (f x : VarId) (body : Expr
         rw [Moist.MIR.VarId.beq_false_iff]; exact Or.inr (by omega)
       simp [hx, hf, hsz]
 
+omit sv in
 theorem lowerTotalExpr_fix_lam_shadow (env : List VarId) (f x : VarId) (body : Expr) :
     lowerTotalExpr env (.Fix f (.Lam x body)) =
       (lowerTotalExpr (x :: f :: x :: env) body).map fixLamWrapUplc := by
@@ -183,10 +190,12 @@ theorem fix_lowerRel {env : List VarId} {r : Except String Term} {o : Option Ter
   have hc := closedAt_of_ctxRefines h.1 hc₀
   exact (h.fill fixLamWrapContext).trans (fixLamWrap_ctxEquiv hc (hfree t rfl))
 
+omit sv in
 theorem lower_fix_lam (env : List VarId) (f x : VarId) (body : Expr) :
     lower env (.Fix f (.Lam x body)) = (lower (x :: f :: x :: env) body).map fixLamWrap := by
   simp only [lower]; cases lower (x :: f :: x :: env) body <;> rfl
 
+omit sv in
 theorem lower_fix_nonlam (env : List VarId) (f : VarId) (body : Expr)
     (h : ∀ x inner, body ≠ .Lam x inner) : ∃ msg, lower env (.Fix f body) = .error msg := by
   cases body with
@@ -195,6 +204,7 @@ theorem lower_fix_nonlam (env : List VarId) (f : VarId) (body : Expr)
 
 /-! ## Lowering never uses a shadowed slot -/
 
+omit sv in
 theorem envLookupT_go_ge (v : VarId) :
     ∀ (env : List VarId) (n m : Nat), envLookupT.go v env n = some m → n ≤ m
   | [], _, _, h => by simp [envLookupT.go] at h
@@ -204,6 +214,7 @@ theorem envLookupT_go_ge (v : VarId) :
     · cases h; exact Nat.le_refl _
     · exact Nat.le_of_succ_le (envLookupT_go_ge v xs (n + 1) m h)
 
+omit sv in
 /-- A name resolved at the position of `y` equals `y` and no earlier binder. -/
 theorem envLookupT_go_at (v y : VarId) (rest : List VarId) :
     ∀ (pre : List VarId) (n : Nat), envLookupT.go v (pre ++ y :: rest) n = some (n + pre.length) →
@@ -229,6 +240,7 @@ theorem envLookupT_go_at (v y : VarId) (rest : List VarId) :
       · simpa using hqv
       · exact hqs p hp
 
+omit sv in
 /-- A binder shadowed by an earlier one never resolves a name. -/
 theorem envLookupT_ne_shadowed {pre : List VarId} {y : VarId} (rest : List VarId)
     (hy : pre.any (· == y) = true) (v : VarId) :
@@ -301,6 +313,7 @@ theorem freeOf_fixLamWrap {n : Nat} {B : Term} (h : freeOf (n + 4) B = true) :
   simp only [fixLamWrap, freeOf, Bool.and_eq_true, bne_iff_ne, ne_eq]
   exact ⟨by omega, hs⟩
 
+omit sv in
 theorem any_cons_of {x y : VarId} {pre : List VarId} (h : pre.any (· == y) = true) :
     (x :: pre).any (· == y) = true := by simp [List.any_cons, h]
 
@@ -575,6 +588,7 @@ theorem lowerExpr_error_iff (e : Expr) (n : Nat) :
 
 open Moist.MIR (validateCompilationInput validateCompilationList validateCompilationBindings)
 
+omit sv in
 theorem envLookupT_go_isSome (v : VarId) :
     ∀ (env : List VarId) (n : Nat), (envLookupT.go v env n).isSome = env.any (· == v)
   | [], _ => rfl
@@ -584,6 +598,7 @@ theorem envLookupT_go_isSome (v : VarId) :
     · simpa using envLookupT_go_isSome v xs (n + 1)
     · rfl
 
+omit sv in
 theorem envLookupT_isSome (env : List VarId) (v : VarId) :
     (envLookupT env v).isSome = env.any (· == v) := envLookupT_go_isSome v env 0
 
@@ -601,6 +616,7 @@ def SameOutcomeList : Except String (List Term) → Except String Unit → Prop
 /-- Environments that bind the same names. -/
 def SameNames (env env' : List VarId) : Prop := ∀ v, env.any (· == v) = env'.any (· == v)
 
+omit sv in
 theorem SameNames.cons {env env' : List VarId} (h : SameNames env env') (x : VarId) :
     SameNames (x :: env) (x :: env') := fun v => by simp only [List.any_cons, h v]
 
@@ -1096,13 +1112,16 @@ structure LiftEnv (env : List VarId) (next : Nat) : Prop where
   lookup : ∀ (i : Nat) (h : i < env.length), envLookupT env env[i] = some i
   below : ∀ w ∈ env, w.uid < next
 
+omit sv in
 theorem LiftEnv.nil (next : Nat) : LiftEnv [] next :=
   ⟨fun _ h => absurd h (Nat.not_lt_zero _), fun _ h => absurd h List.not_mem_nil⟩
 
+omit sv in
 theorem LiftEnv.mono {env : List VarId} {next next' : Nat} (h : LiftEnv env next)
     (hle : next ≤ next') : LiftEnv env next' :=
   ⟨h.lookup, fun w hw => Nat.lt_of_lt_of_le (h.below w hw) hle⟩
 
+omit sv in
 theorem LiftEnv.cons {env : List VarId} {next next' : Nat} (h : LiftEnv env next)
     (hlt : next < next') : LiftEnv (liftedVar next :: env) next' := by
   refine ⟨fun i hi => ?_, fun w hw => ?_⟩
@@ -1119,6 +1138,7 @@ theorem LiftEnv.cons {env : List VarId} {next next' : Nat} (h : LiftEnv env next
     · simp [liftedVar]; exact hlt
     · exact Nat.lt_trans (h.below w hw) hlt
 
+omit sv in
 theorem fromUPLC_app_nonlam (env : List VarId) (next : Nat) (f x : Term)
     (hf : ∀ n b, f ≠ .Lam n b) :
     fromUPLC env next (.Apply f x) =

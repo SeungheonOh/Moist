@@ -2,6 +2,8 @@ import Moist.Verified.AdvancedTraversal
 import Moist.Verified.DeadLet
 import Moist.MIR.Optimize.DCE
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Soundness of MIR Dead Code Elimination
 
 `dce` is the bottom-up traversal of the local rewrite `dceLocal`, which drops
@@ -53,6 +55,7 @@ theorem dead_let_mirCtxRefines {x : VarId} {e body : Expr}
   simp only [closedAt, Bool.and_eq_true] at hclosed
   exact Moist.Verified.closedAt_renameTerm_shiftRename_inv t₂ k 1 (by omega) (by omega) hclosed.1
 
+omit sv in
 private theorem let_cons_lowerEq (binding : VarId × Expr × Bool)
     (rest : List (VarId × Expr × Bool)) (body : Expr) (env : List VarId) :
     lowerTotalExpr env (.Let (binding :: rest) body) =
@@ -98,17 +101,20 @@ theorem dceLocal_refines : ∀ expression, MIRCtxRefines expression (dceLocal ex
   | .Var _ | .Lit _ | .Builtin _ | .Error | .Lam _ _ | .Fix _ _ | .App _ _ | .Force _
   | .Delay _ | .Constr _ _ | .Case _ _ => mirCtxRefines_refl _
 
+omit sv in
 private theorem dceList_fst : ∀ (expressions : List Expr),
     (dceList expressions).1 = expressions.map fun child => (dce child).1
   | [] => by simp [dceList]
   | child :: rest => by simp [dceList, dceList_fst rest]
 
+omit sv in
 private theorem dceBinds_fst : ∀ (bindings : List (VarId × Expr × Bool)),
     (dceBinds bindings).1 =
       bindings.map fun (binder, rhs, erased) => (binder, (dce rhs).1, erased)
   | [] => by simp [dceBinds]
   | (binder, rhs, erased) :: rest => by simp [dceBinds, dceBinds_fst rest]
 
+omit sv in
 /-- `dce` is one `dceLocal` step after recursing into every child. -/
 theorem dce_eq_local (expression : Expr) :
     (dce expression).1 = dceLocal (mapChildren (fun child => (dce child).1) expression) := by

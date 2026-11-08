@@ -1,5 +1,7 @@
 import Moist.Verified.GuardsSoundness.Binders
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Scrutinee shapes and the fields they carry -/
 
 namespace Moist.Verified.Guards

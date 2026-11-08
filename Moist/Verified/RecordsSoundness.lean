@@ -1,6 +1,8 @@
 import Moist.Verified.RecordsSoundness.Alternatives
 import Moist.Verified.ProductsSoundness
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Record unpacking
 
 `unpackRecords` replaces the field reads of a record whose recorded shape is
