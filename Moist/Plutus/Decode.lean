@@ -269,11 +269,11 @@ def builtinTable : List (Nat × BuiltinFun) :=
     (93, .Bls12_381_G2_multiScalarMul),
     (94, .InsertCoin),
     (95, .LookupCoin),
-    (96, .ScaleValue),
-    (97, .UnionValue),
-    (98, .ValueContains),
-    (99, .ValueData),
-    (100, .UnValueData),
+    (96, .UnionValue),
+    (97, .ValueContains),
+    (98, .ValueData),
+    (99, .UnValueData),
+    (100, .ScaleValue),
   ]
 
 def decodeBuiltinFun (_v : Version) (s : List Bool) : Option (List Bool × BuiltinFun) := do

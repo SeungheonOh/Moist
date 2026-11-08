@@ -262,11 +262,11 @@ def builtinFunTag : BuiltinFun → Nat
   | BuiltinFun.Bls12_381_G2_multiScalarMul => 93
   | BuiltinFun.InsertCoin => 94
   | BuiltinFun.LookupCoin => 95
-  | BuiltinFun.ScaleValue => 96
-  | BuiltinFun.UnionValue => 97
-  | BuiltinFun.ValueContains => 98
-  | BuiltinFun.ValueData => 99
-  | BuiltinFun.UnValueData => 100
+  | BuiltinFun.UnionValue => 96
+  | BuiltinFun.ValueContains => 97
+  | BuiltinFun.ValueData => 98
+  | BuiltinFun.UnValueData => 99
+  | BuiltinFun.ScaleValue => 100
 
 /-- Encode a builtin function as a 7-bit value. -/
 def ℰ_builtin (buf : BitBuffer) (b : BuiltinFun) : BitBuffer :=
