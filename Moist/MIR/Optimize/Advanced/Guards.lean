@@ -336,44 +336,6 @@ def assertE (u : Const × BuiltinType) (x : Expr) : Expr :=
 def assertLeaf (facts : List (VarId × Expr)) (u : Const × BuiltinType) (x : Expr) : Expr :=
   if knownBooleanLocal kindFuel facts x then .Case x [.Error, .Lit u] else assertE u x
 
-def assertInto (facts : List (VarId × Expr)) (u : Const × BuiltinType) : Nat → Expr → Expr
-  | 0, x => assertE u x
-  | n + 1, x =>
-    match x with
-    | .Lit (.Bool true, _) => .Lit u
-    | .Lit (.Bool false, _) | .Error => .Error
-    | .Let [] body => assertInto facts u n body
-    | .Let ((y, r, er) :: rest) body => consLet (y, r, er) (assertInto ((y, r) :: facts) u n (.Let rest body))
-    | .Case s alts =>
-      match scrutineeKind facts [] s with
-      | .bool | .int => .Case s (alts.map (assertInto facts u n))
-      | .list =>
-        match alts with
-        | (.Lam h (.Lam t b)) :: a1 :: rest =>
-          .Case s (.Lam h (.Lam t (assertInto (binderFacts .list s h t facts) u n b)) ::
-            assertInto facts u n a1 :: rest)
-        | _ => assertLeaf facts u x
-      | .pair =>
-        match alts with
-        | [.Lam a (.Lam b body)] =>
-          .Case s [.Lam a (.Lam b (assertInto (binderFacts .pair s a b facts) u n body))]
-        | _ => assertLeaf facts u x
-      | _ => assertLeaf facts u x
-    | .Force inner =>
-      match iteView inner with
-      | some (cnd, a, b) =>
-        .Force (iteE cnd (.Delay (assertInto facts u n a)) (.Delay (assertInto facts u n b)))
-      | none => assertLeaf facts u x
-    | _ => assertLeaf facts u x
-
-def assertFuel : Nat := 4096
-
-/-- The constant `u` of `force (ifThenElse x (delay u) (delay error))`. -/
-def assertView : Expr → Option (Expr × (Const × BuiltinType))
-  | .Force (.App (.App (.App (.Force (.Builtin .IfThenElse)) x) (.Delay (.Lit u))) (.Delay .Error)) =>
-    some (x, u)
-  | _ => none
-
 /-- Facts for the binders of the first alternative of a case on `s`. -/
 def altFacts (facts : List (VarId × Expr)) (s : Expr) (h t : VarId) : List (VarId × Expr) :=
   match scrutineeKind facts [] s with
@@ -381,30 +343,67 @@ def altFacts (facts : List (VarId × Expr)) (s : Expr) (h t : VarId) : List (Var
   | .pair => binderFacts .pair s h t facts
   | _ => facts
 
-def pushWalk (facts : List (VarId × Expr)) (e : Expr) : Expr :=
-  match e with
-  | .Let [] body => pushWalk facts body
-  | .Let ((x, r, er) :: rest) body =>
-    consLet (x, pushWalk facts r, er) (pushWalk ((x, r) :: facts) (.Let rest body))
-  | .Lam x b => .Lam x (pushWalk facts b)
-  | .Fix f b => .Fix f (pushWalk facts b)
-  | .App f a => .App (pushWalk facts f) (pushWalk facts a)
-  | .Delay b => .Delay (pushWalk facts b)
-  | .Constr tag fields => .Constr tag (fields.attach.map fun ⟨field, _⟩ => pushWalk facts field)
-  | .Case s ((.Lam h (.Lam t b)) :: rest) =>
-    .Case (pushWalk facts s) (.Lam h (.Lam t (pushWalk (altFacts facts s h t) b)) ::
-      rest.attach.map fun ⟨alt, _⟩ => pushWalk facts alt)
-  | .Case s alts => .Case (pushWalk facts s) (alts.attach.map fun ⟨alt, _⟩ => pushWalk facts alt)
-  | .Force (.App (.App (.App (.Force (.Builtin .IfThenElse)) x) (.Delay (.Lit u))) (.Delay .Error)) =>
-    assertInto facts u assertFuel (pushWalk facts x)
-  | .Force inner => .Force (pushWalk facts inner)
-  | .Var _ | .Lit _ | .Builtin _ | .Error => e
-termination_by exprSize e
-decreasing_by
-  all_goals first
-    | (simp only [exprSize, exprSizeList]; omega)
-    | (have := exprSize_lt_of_mem (by assumption); simp only [exprSize, exprSizeList]; omega)
-    | (simp only [exprSize, exprSizeBinds]; have := exprSize_pos r; omega)
+mutual
+  /-- Push every `if _ then u else error` consumer of the expression inwards. -/
+  def pushWalk (facts : List (VarId × Expr)) (e : Expr) : Expr :=
+    match e with
+    | .Let [] body => pushWalk facts body
+    | .Let ((x, r, er) :: rest) body =>
+      consLet (x, pushWalk facts r, er) (pushWalk ((x, r) :: facts) (.Let rest body))
+    | .Lam x b => .Lam x (pushWalk facts b)
+    | .Fix f b => .Fix f (pushWalk facts b)
+    | .App f a => .App (pushWalk facts f) (pushWalk facts a)
+    | .Delay b => .Delay (pushWalk facts b)
+    | .Constr tag fields => .Constr tag (fields.attach.map fun ⟨field, _⟩ => pushWalk facts field)
+    | .Case s ((.Lam h (.Lam t b)) :: rest) =>
+      .Case (pushWalk facts s) (.Lam h (.Lam t (pushWalk (altFacts facts (pushWalk facts s) h t) b)) ::
+        rest.attach.map fun ⟨alt, _⟩ => pushWalk facts alt)
+    | .Case s alts => .Case (pushWalk facts s) (alts.attach.map fun ⟨alt, _⟩ => pushWalk facts alt)
+    | .Force (.App (.App (.App (.Force (.Builtin .IfThenElse)) x) (.Delay (.Lit u))) (.Delay .Error)) =>
+      pushAssert facts u x
+    | .Force inner => .Force (pushWalk facts inner)
+    | .Var _ | .Lit _ | .Builtin _ | .Error => e
+  termination_by (exprSize e, 0)
+  decreasing_by
+    all_goals first
+      | (simp only [exprSize, exprSizeList]; omega)
+      | (have := exprSize_lt_of_mem (by assumption); simp only [exprSize, exprSizeList]; omega)
+      | (simp only [exprSize, exprSizeBinds]; have := exprSize_pos r; omega)
+
+  /-- `force (ifThenElse x (delay u) (delay error))`, with the consumer moved into `x`. -/
+  def pushAssert (facts : List (VarId × Expr)) (u : Const × BuiltinType) (x : Expr) : Expr :=
+    match x with
+    | .Lit (.Bool true, _) => .Lit u
+    | .Lit (.Bool false, _) | .Error => .Error
+    | .Let [] body => pushAssert facts u body
+    | .Let ((y, r, er) :: rest) body =>
+      consLet (y, pushWalk facts r, er) (pushAssert ((y, r) :: facts) u (.Let rest body))
+    | .Case s alts =>
+      match hk : scrutineeKind facts [] s with
+      | .bool | .int => .Case (pushWalk facts s) (alts.attach.map fun ⟨a, _⟩ => pushAssert facts u a)
+      | .list =>
+        match alts with
+        | (.Lam h (.Lam t b)) :: a1 :: rest =>
+          .Case (pushWalk facts s) (.Lam h (.Lam t (pushAssert (altFacts facts (pushWalk facts s) h t) u b)) ::
+            pushAssert facts u a1 :: rest.attach.map fun ⟨a, _⟩ => pushWalk facts a)
+        | others => assertLeaf facts u (pushWalk facts (.Case s others))
+      | .pair =>
+        match alts with
+        | [.Lam a (.Lam b body)] =>
+          .Case (pushWalk facts s) [.Lam a (.Lam b (pushAssert (altFacts facts (pushWalk facts s) a b) u body))]
+        | others => assertLeaf facts u (pushWalk facts (.Case s others))
+      | _ => assertLeaf facts u (pushWalk facts (.Case s alts))
+    | .Force (.App (.App (.App (.Force (.Builtin .IfThenElse)) c) (.Delay a)) (.Delay b)) =>
+      .Force (iteE (pushWalk facts c) (.Delay (pushAssert facts u a)) (.Delay (pushAssert facts u b)))
+    | other => assertLeaf facts u (pushWalk facts other)
+  termination_by (exprSize x, 1)
+  decreasing_by
+    all_goals first
+      | (simp only [exprSize, exprSizeList]; omega)
+      | (have := exprSize_lt_of_mem (by assumption); simp only [exprSize, exprSizeList]; omega)
+      | (simp only [exprSize, exprSizeBinds]; have := exprSize_pos r; omega)
+      | (simp_wf; omega)
+end
 
 def pushAsserts (e : Expr) : Expr :=
   let prepared := uniqueOptimizationBinders e
