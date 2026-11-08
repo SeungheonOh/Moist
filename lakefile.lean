@@ -90,3 +90,9 @@ lean_exe checked_branch_bench where
 
 lean_exe cross_bench_export where
   root := `Test.Comparison.CrossExport
+
+lean_exe fuzz_real where
+  root := `Test.MIR.FuzzRealMain
+
+lean_exe fuzz_validators where
+  root := `Test.MIR.FuzzValidatorsMain
