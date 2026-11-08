@@ -284,10 +284,11 @@ partial def ℰ_term : Encoder Term
     let buf := buf.appendNibble 3
     let buf := ℰ_term buf t1
     ℰ_term buf t2
-  -- Constant: tag 0100, encode type via ℰ_type, then encode constant value
+  -- Constant: tag 0100, then the type of the value itself (the annotation is ignored, as it is by
+  -- the machine, so a stale annotation can never change the meaning on chain), then the value
   | buf, Moist.Plutus.Term.Term.Constant c =>
     let buf := buf.appendNibble 4
-    let buf := ℰ_type buf c.2
+    let buf := ℰ_type buf (constType c.1)
     ℰ_constant buf c.1
   -- Force: tag 0101, then recursive encode
   | buf, Term.Force t =>

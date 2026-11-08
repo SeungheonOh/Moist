@@ -231,6 +231,12 @@ def tests : TestTree := suite "acceptance" do
       checkEq s!"flat tag of {repr builtin}" (Moist.Plutus.Encode.builtinFunTag builtin) tag
     checkEq "decoder covers every builtin" table.length 101
     checkEq "decoder tags are distinct" (table.map (·.1)).eraseDups.length table.length
+  test "constant_annotation_does_not_change_flat" do
+    let program (annotation : BuiltinType) : Program :=
+      .Program (.Version 1 1 0) (.Constant (.Integer 7, annotation))
+    let right := (program (.AtomicType .TypeInteger)).encode
+    let stale := (program (.AtomicType .TypeByteString)).encode
+    check "a stale annotation encodes as the value's type" (right.bits == stale.bits)
   test "all_builtin_partial_protocols_preserve_acceptance" do
     let mut count := 0
     for (name, script) in protocolScripts do
