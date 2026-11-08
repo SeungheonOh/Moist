@@ -65,10 +65,14 @@ def main (arguments : List String) : IO UInt32 := do
       IO.println s!"seed {seed}: MIR size {(Moist.MIR.pretty program.expr).length} chars"
       (← IO.getStdout).flush
       for (name, thunk) in variantThunks program.expr do
+        IO.print s!"  {name}: "
+        (← IO.getStdout).flush
         let started ← IO.monoMsNow
         let result := thunk ()
+        IO.print s!"{match result with | .ok _ => "ok" | .error e => e} {(← IO.monoMsNow) - started} ms, "
+        (← IO.getStdout).flush
         let size := match result with | .ok term => (flatHex term).length | .error _ => 0
-        IO.println s!"  {name}: {(← IO.monoMsNow) - started} ms, {size / 2} bytes"
+        IO.println s!"{size / 2} bytes"
         (← IO.getStdout).flush
     return 0
   unless encoderBlsTagsCorrect do
