@@ -207,6 +207,48 @@ def boundBytesPrograms : List (String × Expr) :=
    ("slice-all", fx (apps (.Builtin .SliceByteString) [intE 0, intE 100000, X])),
    ("sha2", fx (app1 .Sha2_256 X)), ("index0", fx (app2 .IndexByteString X (intE 0)))]
 
+/-- A map lookup comparing keys with `equalsData` (the shape the guarded key
+    comparison rewrites), on B keys of the lengths it distinguishes and on
+    non-B keys, with the searched key as the second argument. -/
+def keyLookup : Expr :=
+  let m := v 70
+  let k := v 71
+  let go := v 72
+  let ps := v 73
+  let h := v 74
+  let t := v 75
+  let kb := v 76
+  let body := Expr.Case (nullE (.Var ps))
+    [lets [(h, headE (.Var ps)), (t, tailE (.Var ps))]
+      (iteDelay (app2 .EqualsData (fstE (.Var h)) (.Var k)) (sndE (.Var h)) (.App (.Var go) (.Var t))),
+     .Error]
+  .Lam m (.Lam k (lets [(kb, app1 .UnBData (.Var k))]
+    (.App (.Fix go (.Lam ps body)) (app1 .UnMapData (.Var m)))))
+
+def keyLookupUnguarded : Expr :=
+  let m := v 80
+  let k := v 81
+  let go := v 82
+  let ps := v 83
+  let h := v 84
+  let t := v 85
+  let body := Expr.Case (nullE (.Var ps))
+    [lets [(h, headE (.Var ps)), (t, tailE (.Var ps))]
+      (iteDelay (app2 .EqualsData (fstE (.Var h)) (.Var k)) (sndE (.Var h)) (.App (.Var go) (.Var t))),
+     .Error]
+  .Lam m (.Lam k (.App (.Fix go (.Lam ps body)) (app1 .UnMapData (.Var m))))
+
+def keyLengths : List Nat := [0, 1, 63, 64, 65, 65536, 65537]
+
+def keyOf (n : Nat) (last : Nat) : Data :=
+  .B ⟨((List.replicate (n - 1) (0xaa : UInt8)) ++ (if n == 0 then [] else [last.toUInt8])).toArray⟩
+
+def keyArguments : List (List Expr) :=
+  let keys := keyLengths.map (keyOf · 1) ++ [Data.I 1, .Constr 0 [], .List []]
+  let entries := (keyLengths.map fun n => (keyOf n 1, Data.I (Int.ofNat n))) ++ [(.I 1, .I 99)]
+  let maps := [Data.Map entries, .Map (entries.reverse), .Map [(keyOf 64 2, .I 0)], .Map []]
+  maps.flatMap fun mp => (keys ++ [keyOf 64 2, keyOf 65 2]).map fun key => [dataE mp, dataE key]
+
 def boundIntArguments : List Int := [0, 1, 2] ++ hugeInts
 def boundBytesArguments : List Nat := [0, 1, 65535, 65536, 65537]
 
@@ -214,6 +256,9 @@ def boundArguments : List (String × Expr × List Expr) :=
   (boundPrograms.map fun (name, p) => (s!"bound/int/{name}", p, boundIntArguments.map intE)) ++
   (boundBytesPrograms.map fun (name, p) => (s!"bound/bytes/{name}", p,
     boundBytesArguments.map fun n => rep n 7))
+
+def keyPrograms : List (String × Expr × List (List Expr)) :=
+  [("keys/guarded-bytes", keyLookup, keyArguments), ("keys/equalsData", keyLookupUnguarded, keyArguments)]
 
 def all : List (String × Expr) := caseProbes ++ builtinProbes ++ cryptoProbes ++
   [("bound/literal/add-max", app2 .AddInteger (intE (hugeInts[0]!)) (intE 1)),

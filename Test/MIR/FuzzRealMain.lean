@@ -34,8 +34,10 @@ def programOf (label : String) (inputs depth : Nat) : Option (Moist.MIR.Expr × 
   if label.startsWith "probe/" then
     match (Probes.all.find? (·.1 == label.drop 6)) with
     | some (_, program) => some (program, [[]])
-    | none => (Probes.boundArguments.find? (·.1 == label.drop 6)).map fun (_, program, values) =>
-      (program, values.map ([·]))
+    | none => match (Probes.keyPrograms.find? (·.1 == label.drop 6)) with
+      | some (_, program, argumentLists) => some (program, argumentLists)
+      | none => (Probes.boundArguments.find? (·.1 == label.drop 6)).map fun (_, program, values) =>
+        (program, values.map ([·]))
   else if label.startsWith "u" then
     (label.drop 1).toNat?.map fun seed =>
       let input : Moist.MIR.VarId := { uid := 12000, origin := .source, hint := "input" }
@@ -107,6 +109,11 @@ def main (arguments : List String) : IO UInt32 := do
   if arguments.contains "--probes" then
     for (name, program) in Probes.all do
       jobs := jobs + (← emitProgram sink s!"probe/{name}" program [[]] true {} [("family", .str "probe")])
+    for (name, program, argumentLists) in Probes.keyPrograms do
+      let arguments ← match argumentLists.mapM (·.mapM argumentOfExpr) with
+        | .ok arguments => pure arguments
+        | .error message => throw (IO.userError message)
+      jobs := jobs + (← emitProgram sink s!"probe/{name}" program arguments true {} [("family", .str "probe")])
     for (name, program, values) in Probes.boundArguments do
       let arguments ← match values.mapM (fun v => (argumentOfExpr v).map ([·])) with
         | .ok arguments => pure arguments

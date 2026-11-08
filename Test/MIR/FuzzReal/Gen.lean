@@ -170,9 +170,23 @@ partial def genAnyData (depth : Nat) : Gen Data := do
         return .Constr (Int.ofNat (← rand 4))
           (← (List.range (← rand 3)).mapM fun _ => genAnyData (depth - 1)))]
 
+/-- Bytes keys around the lengths the guarded key comparison distinguishes
+    (0, 1, 63, 64, 65; 65536 and 65537 only in bound-testing programs), drawn
+    from a small alphabet so lookups hit. -/
+def keyBytes : Gen ByteArray := do
+  let huge := (← get).huge
+  let length ← weighted [(6, pure 1), (1, pure 0), (1, pick [63, 64, 65]),
+    (if huge then 1 else 0, pick [65536, 65537])]
+  let byte ← pick [0xaa, 0xbb, 0x01]
+  let last ← pick [byte, 0x02]
+  return ⟨((List.replicate (length - 1) (byte : Nat).toUInt8) ++
+    (if length == 0 then [] else [(last : Nat).toUInt8])).toArray⟩
+
 def keyPool (shape : Shape) : Gen Data := do
   match shape with
-  | .bytes => return .B ⟨#[(← pick [0xaa, 0xbb, 0x01]).toUInt8]⟩
+  | .bytes => weighted [(9, do return .B (← keyBytes)),
+      -- a non-B key in a map of B keys
+      (1, pick [Data.I 1, .Constr 0 [], .List [.B ⟨#[0xaa]⟩]])]
   | _ => return .I (Int.ofNat (← rand 4))
 
 partial def genData (shape : Shape) : Gen Data := do
@@ -795,7 +809,8 @@ partial def mapLookup (ty : Ty) (d : Nat) (env : Env) : Gen Expr := do
   let ps ← fresh "ps"
   let h ← fresh "entry"
   let t ← fresh "more"
-  let wanted ← gen (.data key) d env
+  let wanted ← weighted [(6, gen (.data key) d env), (2, do return dataE (← keyPool key)),
+    (1, pure (dataE (.I 0)))]
   let w ← fresh "key"
   let found ← fresh "found"
   -- the key as a parameter of the loop (static argument) or captured
