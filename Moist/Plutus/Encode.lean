@@ -93,6 +93,7 @@ def atomicTypeTag (t : AtomicType) : Nat :=
   | AtomicType.TypeBls12_381_G1_element => 9
   | AtomicType.TypeBls12_381_G2_element => 10
   | AtomicType.TypeBls12_381_MlResult => 11
+  | AtomicType.TypeValue => 13
 
 -- Convert a BuiltinType to a list of 4-bit tags following the spec (e_type).
 def e_type : BuiltinType → List Nat
@@ -148,6 +149,12 @@ partial def ℰ_constant : Encoder Const
     | buf, Const.PairData (d1, d2) =>
       let buf := ℰ_constant buf (Const.Data d1)
       ℰ_constant buf (Const.Data d2)
+    | buf, Const.Value entries =>
+      -- `Flat Value`: the nested map as a list of (currency, list of (token, quantity))
+      let ℰ_token buf (t : ByteString × Int) := ℰ_ℤ (ℰ_B buf t.1.data.toList) t.2
+      let ℰ_currency buf (c : ByteString × List (ByteString × Int)) :=
+        ℰ_list ℰ_token (ℰ_B buf c.1.data.toList) c.2
+      ℰ_list ℰ_currency buf entries
   | buf, _ => buf
 
 /-- Map a BuiltinFun to its 7-bit tag per spec/flat-serialisation.tex:600-748. -/

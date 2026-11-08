@@ -1,3 +1,4 @@
+import Moist.Plutus.Value
 import Moist.Plutus.Term
 import Moist.Plutus.CBOR
 import Moist.Plutus.Encode
@@ -124,6 +125,7 @@ partial def decodeConstType : List Nat → Option (List Nat × BuiltinType)
   | 9           :: l => .some (l, .AtomicType .TypeBls12_381_G1_element)
   | 10          :: l => .some (l, .AtomicType .TypeBls12_381_G2_element)
   | 11          :: l => .some (l, .AtomicType .TypeBls12_381_MlResult)
+  | 13          :: l => .some (l, .AtomicType .TypeValue)
   | _      => .none
 
 partial def decodeConstValue (s : List Bool) : BuiltinType → Option (List Bool × Const)
@@ -143,15 +145,23 @@ partial def decodeConstValue (s : List Bool) : BuiltinType → Option (List Bool
       let (s₂, c₂) ← decodeConstValue s₁ t₂
       .some (s₂, .Pair (c₁, c₂))
   | .TypeOperator (.TypeArray t)    => Prod.map id .ConstArray <$> decodeList (flip decodeConstValue t) s
-  | .AtomicType .TypeBls12_381_G1_element => do
-      let (s', _bs) ← decodeBytestring s
-      .some (s', .Bls12_381_G1_element)
-  | .AtomicType .TypeBls12_381_G2_element => do
-      let (s', _bs) ← decodeBytestring s
-      .some (s', .Bls12_381_G2_element)
-  | .AtomicType .TypeBls12_381_MlResult => do
-      let (s', _bs) ← decodeBytestring s
-      .some (s', .Bls12_381_MlResult)
+  -- BLS12-381 constants cannot be flat-decoded (`Flat Element` fails on decoding)
+  | .AtomicType .TypeBls12_381_G1_element => .none
+  | .AtomicType .TypeBls12_381_G2_element => .none
+  | .AtomicType .TypeBls12_381_MlResult => .none
+  | .AtomicType .TypeValue => do
+      let decodeToken (s : List Bool) : Option (List Bool × (ByteString × Int)) := do
+        let (s₁, token) ← decodeBytestring s
+        let (s₂, amount) ← decodeInt s₁
+        .some (s₂, (token, amount))
+      let decodeCurrency (s : List Bool) :
+          Option (List Bool × (ByteString × List (ByteString × Int))) := do
+        let (s₁, currency) ← decodeBytestring s
+        let (s₂, tokens) ← decodeList decodeToken s₁
+        .some (s₂, (currency, tokens))
+      let (s', entries) ← decodeList decodeCurrency s
+      let entries ← Moist.Plutus.Value.build? entries
+      .some (s', .Value entries)
 
 /- Decodes a constant. -/
 def decodeConst (s : List Bool) : Option (List Bool × (Const × BuiltinType)) := do
