@@ -169,8 +169,10 @@ def tests : TestTree := suite "tag-chains" do
       compare s!"constructor range/{index}" (.Lam datum (constructorTag (failing values default)))
         constructors
       compare s!"integer range/{index}" (.Lam datum (integerTag (failing values default))) integers
-    check "contiguous range converted"
-      (converted (.Lam datum (integerTag (failing [0, 1, 2, 3, 4] (intLit 7)))))
+    -- `lessThanEqualsInteger` fails under semantics variant E on tags beyond ±2^262143,
+    -- where the equality tests succeed: an unbounded tag keeps its tests.
+    check "unbounded range kept"
+      (!converted (.Lam datum (integerTag (failing [0, 1, 2, 3, 4] (intLit 7)))))
     check "gapped range kept"
       (!converted (.Lam datum (integerTag (failing [0, 2, 3] (intLit 7)))))
   test "applied_chains" do
