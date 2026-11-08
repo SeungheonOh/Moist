@@ -91,6 +91,84 @@ def builtinProbes : List (String × Expr) :=
    ("let/unused-error", .Let [(v 3, .Error, false)] (intE 1)),
    ("let/unused-delay-error", .Let [(v 4, .Delay .Error, false)] (intE 1))]
 
-def all : List (String × Expr) := caseProbes ++ builtinProbes
+def bs (bytes : List Nat) : Expr := bytesE ⟨(bytes.map (·.toUInt8)).toArray⟩
+def rep (n : Nat) (b : Nat) : Expr := bs (List.replicate n b)
+def g1Of (msg : Nat) : Expr := app2 .Bls12_381_G1_hashToGroup (bs [msg]) dstE
+def g2Of (msg : Nat) : Expr := app2 .Bls12_381_G2_hashToGroup (bs [msg]) dstE
+def valueE (entries : List (List Nat × List (List Nat × Int))) : Expr :=
+  lit (.Value (entries.map fun (c, ts) => (⟨(c.map (·.toUInt8)).toArray⟩,
+    ts.map fun (t, q) => (⟨(t.map (·.toUInt8)).toArray⟩, q)))) valueType
+def insertCoin (c t : Expr) (q : Int) (v : Expr) : Expr := apps (.Builtin .InsertCoin) [c, t, intE q, v]
+
+def cryptoProbes : List (String × Expr) :=
+  [("sha2/empty", app1 .Sha2_256 (bs [])), ("sha3/abc", app1 .Sha3_256 (bs [97, 98, 99])),
+   ("blake2b256/1", app1 .Blake2b_256 (bs [1])), ("blake2b224/1", app1 .Blake2b_224 (bs [1])),
+   ("keccak/empty", app1 .Keccak_256 (bs [])), ("ripemd/abc", app1 .Ripemd_160 (bs [97, 98, 99])),
+   ("ed25519/short-key", apps (.Builtin .VerifyEd25519Signature) [rep 31 1, bs [1], rep 64 2]),
+   ("ed25519/short-sig", apps (.Builtin .VerifyEd25519Signature) [rep 32 1, bs [1], rep 63 2]),
+   ("ed25519/random", apps (.Builtin .VerifyEd25519Signature) [rep 32 1, bs [1], rep 64 2]),
+   ("ecdsa/short-key", apps (.Builtin .VerifyEcdsaSecp256k1Signature) [rep 32 2, rep 32 1, rep 64 1]),
+   ("ecdsa/invalid-key", apps (.Builtin .VerifyEcdsaSecp256k1Signature) [rep 33 2, rep 32 1, rep 64 1]),
+   ("ecdsa/short-msg", apps (.Builtin .VerifyEcdsaSecp256k1Signature) [rep 33 2, rep 31 1, rep 64 1]),
+   ("schnorr/invalid-key", apps (.Builtin .VerifySchnorrSecp256k1Signature) [rep 32 0xff, bs [1], rep 64 1]),
+   ("schnorr/short-sig", apps (.Builtin .VerifySchnorrSecp256k1Signature) [rep 32 1, bs [1], rep 63 1]),
+   ("g1/compress-hash", app1 .Bls12_381_G1_compress (g1Of 1)),
+   ("g1/roundtrip", app2 .Bls12_381_G1_equal (app1 .Bls12_381_G1_uncompress (app1 .Bls12_381_G1_compress (g1Of 1))) (g1Of 1)),
+   ("g1/uncompress-zero", app1 .Bls12_381_G1_uncompress (rep 48 0)),
+   ("g1/uncompress-infinity", app1 .Bls12_381_G1_compress (app1 .Bls12_381_G1_uncompress (bs (0xc0 :: List.replicate 47 0)))),
+   ("g1/uncompress-short", app1 .Bls12_381_G1_uncompress (rep 47 0)),
+   ("g1/add-neg", app1 .Bls12_381_G1_compress (app2 .Bls12_381_G1_add (g1Of 2) (app1 .Bls12_381_G1_neg (g1Of 2)))),
+   ("g1/scalar0", app1 .Bls12_381_G1_compress (app2 .Bls12_381_G1_scalarMul (intE 0) (g1Of 3))),
+   ("g1/scalar-neg", app2 .Bls12_381_G1_equal (app2 .Bls12_381_G1_scalarMul (intE (-1)) (g1Of 3)) (app1 .Bls12_381_G1_neg (g1Of 3))),
+   ("g1/scalar-big", app1 .Bls12_381_G1_compress (app2 .Bls12_381_G1_scalarMul (intE (2 ^ 300)) (g1Of 3))),
+   ("g1/equal-distinct", app2 .Bls12_381_G1_equal (g1Of 1) (g1Of 2)),
+   ("g1/dst-too-long", app1 .Bls12_381_G1_compress (app2 .Bls12_381_G1_hashToGroup (bs [1]) (rep 256 1))),
+   ("g1/dst-empty", app1 .Bls12_381_G1_compress (app2 .Bls12_381_G1_hashToGroup (bs [1]) (bs []))),
+   ("g2/compress-hash", app1 .Bls12_381_G2_compress (g2Of 1)),
+   ("g2/roundtrip", app2 .Bls12_381_G2_equal (app1 .Bls12_381_G2_uncompress (app1 .Bls12_381_G2_compress (g2Of 1))) (g2Of 1)),
+   ("g2/uncompress-zero", app1 .Bls12_381_G2_uncompress (rep 96 0)),
+   ("g2/add-neg", app1 .Bls12_381_G2_compress (app2 .Bls12_381_G2_add (g2Of 2) (app1 .Bls12_381_G2_neg (g2Of 2)))),
+   ("g2/scalar7", app1 .Bls12_381_G2_compress (app2 .Bls12_381_G2_scalarMul (intE 7) (g2Of 3))),
+   ("pairing/bilinear", app2 .Bls12_381_finalVerify
+      (app2 .Bls12_381_millerLoop (app2 .Bls12_381_G1_scalarMul (intE 5) (g1Of 1)) (g2Of 1))
+      (app2 .Bls12_381_millerLoop (g1Of 1) (app2 .Bls12_381_G2_scalarMul (intE 5) (g2Of 1)))),
+   ("pairing/unequal", app2 .Bls12_381_finalVerify
+      (app2 .Bls12_381_millerLoop (g1Of 1) (g2Of 1)) (app2 .Bls12_381_millerLoop (g1Of 2) (g2Of 1))),
+   ("pairing/mul", app2 .Bls12_381_finalVerify
+      (app2 .Bls12_381_mulMlResult (app2 .Bls12_381_millerLoop (g1Of 1) (g2Of 1)) (app2 .Bls12_381_millerLoop (g1Of 1) (g2Of 1)))
+      (app2 .Bls12_381_millerLoop (app2 .Bls12_381_G1_scalarMul (intE 2) (g1Of 1)) (g2Of 1))),
+   ("value/insert", insertCoin (bs [1]) (bs [0xaa]) 5 (valueE [])),
+   ("value/insert-zero-removes", insertCoin (bs [1]) (bs []) 0 (valueE [([1], [([], 5)])])),
+   ("value/insert-long-key", insertCoin (rep 33 1) (bs []) 5 (valueE [])),
+   ("value/insert-long-token", insertCoin (bs [1]) (rep 33 1) 5 (valueE [])),
+   ("value/insert-zero-long-key", insertCoin (rep 33 1) (bs []) 0 (valueE [])),
+   ("value/insert-overflow", insertCoin (bs [1]) (bs []) (2 ^ 127) (valueE [])),
+   ("value/insert-min", insertCoin (bs [1]) (bs []) (-(2 ^ 127)) (valueE [])),
+   ("value/lookup", apps (.Builtin .LookupCoin) [bs [1], bs [0xaa], valueE [([1], [([0xaa], 9)])]]),
+   ("value/lookup-missing", apps (.Builtin .LookupCoin) [bs [2], bs [], valueE [([1], [([0xaa], 9)])]]),
+   ("value/union", app2 .UnionValue (valueE [([1], [([], 5)])]) (valueE [([1], [([], -5)]), ([2], [([], 1)])])),
+   ("value/union-overflow", app2 .UnionValue (valueE [([1], [([], 2 ^ 126)])]) (valueE [([1], [([], 2 ^ 126)])])),
+   ("value/contains", app2 .ValueContains (valueE [([1], [([], 5)]), ([2], [([], 1)])]) (valueE [([1], [([], 3)])])),
+   ("value/contains-neg", app2 .ValueContains (valueE [([1], [([], 5)])]) (valueE [([1], [([], -3)])])),
+   ("value/contains-neg-left", app2 .ValueContains (valueE [([1], [([], -5)])]) (valueE [])),
+   ("value/scale0", app2 .ScaleValue (intE 0) (valueE [([1], [([], 5)])])),
+   ("value/scale-neg", app2 .ScaleValue (intE (-2)) (valueE [([1], [([], 5)])])),
+   ("value/scale-overflow", app2 .ScaleValue (intE (2 ^ 126)) (valueE [([1], [([], 5)])])),
+   ("value/data", app1 .ValueData (valueE [([1], [([0xaa], 5), ([0xbb], -1)])])),
+   ("value/roundtrip", app1 .UnValueData (app1 .ValueData (valueE [([1], [([0xaa], 5)])]))),
+   ("value/undata-unsorted", app1 .UnValueData (dataE (.Map [(.B ⟨#[2]⟩, .Map [(.B ⟨#[]⟩, .I 1)]), (.B ⟨#[1]⟩, .Map [(.B ⟨#[]⟩, .I 1)])]))),
+   ("value/undata-zero", app1 .UnValueData (dataE (.Map [(.B ⟨#[1]⟩, .Map [(.B ⟨#[]⟩, .I 0)])]))),
+   ("value/undata-empty-inner", app1 .UnValueData (dataE (.Map [(.B ⟨#[1]⟩, .Map [])]))),
+   ("value/undata-int", app1 .UnValueData (dataE (.I 1))),
+   ("value/equalsData", app2 .EqualsData (app1 .ValueData (valueE [([1], [([], 1)])])) (dataE (.Map [(.B ⟨#[1]⟩, .Map [(.B ⟨#[]⟩, .I 1)])]))),
+   ("i2b/width-small", apps (.Builtin .IntegerToByteString) [boolE true, intE 1, intE 256]),
+   ("i2b/negative", apps (.Builtin .IntegerToByteString) [boolE true, intE 0, intE (-1)]),
+   ("i2b/little", apps (.Builtin .IntegerToByteString) [boolE false, intE 4, intE 258]),
+   ("b2i/little", app2 .ByteStringToInteger (boolE false) (bs [1, 2])),
+   ("expmod/inverse", apps (.Builtin .ExpModInteger) [intE 3, intE (-1), intE 7]),
+   ("expmod/no-inverse", apps (.Builtin .ExpModInteger) [intE 2, intE (-1), intE 4]),
+   ("expmod/mod0", apps (.Builtin .ExpModInteger) [intE 2, intE 3, intE 0])]
+
+def all : List (String × Expr) := caseProbes ++ builtinProbes ++ cryptoProbes
 
 end Test.MIR.FuzzReal.Probes

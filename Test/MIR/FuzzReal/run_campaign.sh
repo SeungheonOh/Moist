@@ -1,5 +1,5 @@
 #!/bin/sh
-# The full differential campaign against the plutus-core 1.65 CEK machine,
+# The full differential campaign (builtin semantics variants E and C) against the plutus-core 1.65 CEK machine,
 # with the seeds of the reported run. Usage: run_campaign.sh OUTDIR
 #
 # Needs `cross-bench` with the `batch` command (plinth-plutarch-comparison,
@@ -14,7 +14,7 @@ lake build fuzz_real fuzz_validators
 mkdir -p "$out"
 
 # Machine-semantics probes, every variant also on the Lean model.
-python3 -I "$here/fuzz_real.py" "$out/probes" --probes --model-all --jobs 4 || true
+python3 -I "$here/fuzz_real.py" "$out/probes" --probes --model-all --jobs 4 > "$out/probes.log" 2>&1 || true
 
 # Typed generator: seeds 1000-5999, 8 argument lists each, Lean model on every job.
 pids=""
@@ -27,18 +27,16 @@ done
 python3 -I "$here/fuzz_real.py" "$out/untyped" --from 0 --count 2000 --untyped --model-all \
   --jobs 2 > "$out/untyped.log" 2>&1 &
 pids="$pids $!"
-for p in $pids; do wait "$p" || true; done
 
 # The 19 validators: every exported case and its mutations (depth 3).
-python3 -I "$here/fuzz_validators.py" "$out/validators" --model-every 10 --jobs 8 \
-  > "$out/validators.log" 2>&1 || true
+python3 -I "$here/fuzz_validators.py" "$out/validators" --model-every 10 --jobs 6 \
+  > "$out/validators.log" 2>&1 &
+pids="$pids $!"
 
 # Mutants of the validators' MIR: 100 per validator, 40 cases each.
 python3 -I "$here/fuzz_validators.py" "$out/mutants" --mutants 100 --sample 40 --seed 1 \
-  --model-every 5 --jobs 8 > "$out/mutants.log" 2>&1 || true
+  --model-every 5 --jobs 6 > "$out/mutants.log" 2>&1 &
+pids="$pids $!"
+for p in $pids; do wait "$p" || true; done
 
-# Typed programs again under builtin semantics variant C.
-python3 -I "$here/fuzz_real.py" "$out/typedC" --from 1000 --count 1000 --semantics C \
-  --jobs 8 > "$out/typedC.log" 2>&1 || true
-
-grep -h -A3 "^optimizer discrepancies\|^model/real" "$out"/*.log "$out"/probes/report.json 2>/dev/null || true
+grep -h -A6 "^=== builtin\|^optimizer discrepancies\|^model/real" "$out"/*.log 2>/dev/null || true

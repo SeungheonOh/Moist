@@ -1,7 +1,7 @@
 """Differential test of the MIR optimizer on the plutus-core 1.65 CEK machine.
 
   python3 -I Test/MIR/FuzzReal/fuzz_real.py OUTDIR [--from N] [--count N]
-      [--inputs N] [--depth N] [--model-all] [--jobs N] [--semantics E]
+      [--inputs N] [--depth N] [--model-all] [--jobs N] [--semantics E,C]
 
 1. `lake exe fuzz_real` writes the programs, their variants and the Lean
    model's runs (see Test/MIR/FuzzReal/Run.lean);
@@ -27,6 +27,11 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.a
 HARNESS = os.environ.get('CROSS_BENCH', (
     '/Users/sho/fun/plinth-plutarch-comparison/dist-newstyle/build/aarch64-osx/'
     'ghc-9.6.6/plinth-plutarch-paper-code-0.1.0.0/x/cross-bench/opt/build/cross-bench/cross-bench'))
+
+
+# The budget of every run (Limits in Run.lean): running out is divergence.
+CPU_LIMIT = 10000000000
+MEM_LIMIT = 100000000
 
 
 def run_batch(jobs_path, out_path, shards, semantics):
@@ -57,7 +62,8 @@ def run_batch(jobs_path, out_path, shards, semantics):
         if not part:
             return ''
         text = ''.join(definitions) + ''.join(''.join(block) for block in part)
-        result = subprocess.run([HARNESS, 'batch', '--semantics', semantics],
+        result = subprocess.run([HARNESS, 'batch', '--semantics', semantics,
+                                 '--cpu', str(CPU_LIMIT), '--mem', str(MEM_LIMIT)],
                                 input=text, capture_output=True, text=True)
         if result.returncode != 0:
             raise RuntimeError('cross-bench batch failed: ' + result.stderr[-2000:])
@@ -82,7 +88,7 @@ def load_results(path):
     return results
 
 
-def load_model(directory):
+def load_model(directory, values_name='model-values.real.tsv'):
     model = {}
     with open(os.path.join(directory, 'model.tsv')) as f:
         for line in f:
@@ -91,7 +97,7 @@ def load_model(directory):
             job, outcome, cpu, mem, traces = fields[:5]
             model[job] = (outcome, int(cpu), int(mem), traces)
     values = {}
-    path = os.path.join(directory, 'model-values.real.tsv')
+    path = os.path.join(directory, values_name)
     if os.path.exists(path):
         for job, (outcome, _, _, result, _) in load_results(path).items():
             values[job] = result if outcome == 'OK' else 'unrenderable(%s:%s)' % (outcome, result)
@@ -126,9 +132,10 @@ def coverage(directory):
     return programs, changed, stage_changed
 
 
-def compare(directory, show=12, results_name='results.tsv', quiet=False):
+def compare(directory, show=12, results_name='results.tsv', quiet=False,
+            values_name='model-values.real.tsv', report_name='report.json'):
     real = load_results(os.path.join(directory, results_name))
-    model, model_values = load_model(directory)
+    model, model_values = load_model(directory, values_name)
     findings = collections.defaultdict(list)
     fidelity = collections.defaultdict(list)
     stats = collections.Counter()
@@ -208,7 +215,7 @@ def compare(directory, show=12, results_name='results.tsv', quiet=False):
               'fidelity': {'%s %s' % k: v for k, v in fidelity.items()}}
     if quiet:
         return report
-    with open(os.path.join(directory, 'report.json'), 'w') as f:
+    with open(os.path.join(directory, report_name), 'w') as f:
         json.dump(report, f, indent=1)
     print('programs %d, inputs %d, variant comparisons %d (%d with a term identical to base), '
           'model comparisons %d' % (programs, stats['inputs'], stats['comparisons'],
@@ -226,9 +233,9 @@ def compare(directory, show=12, results_name='results.tsv', quiet=False):
     return report
 
 
-def negative_control(directory):
+def negative_control(directory, results_name='results.tsv'):
     """Perturb copies of real results and check that `compare` reports them."""
-    real_path = os.path.join(directory, 'results.tsv')
+    real_path = os.path.join(directory, results_name)
     lines = open(real_path).read().splitlines()
     by_job = {line.split('\t')[0]: k for k, line in enumerate(lines)}
     flipped = {}
@@ -266,6 +273,26 @@ def negative_control(directory):
     print('negative control: a perturbed value and a perturbed failure were both detected')
 
 
+def evaluate_and_compare(out, semantics, jobs, run=True):
+    """Evaluate the jobs on the real machine under each builtin semantics variant
+    (comma-separated, e.g. "E,C") and compare. Returns True when the optimizer
+    variants agree with the unoptimized lowering under every variant."""
+    clean = True
+    for index, variant in enumerate(semantics.split(',')):
+        results = 'results.%s.tsv' % variant
+        values = 'model-values.real.%s.tsv' % variant
+        if run:
+            run_batch(os.path.join(out, 'jobs.tsv'), os.path.join(out, results), jobs, variant)
+            run_batch(os.path.join(out, 'model-values.tsv'), os.path.join(out, values), jobs, variant)
+        print('=== builtin semantics variant %s' % variant)
+        if index == 0:
+            negative_control(out, results)
+        report = compare(out, results_name=results, values_name=values,
+                         report_name='report.%s.json' % variant)
+        clean = clean and not report['findings']
+    return clean
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('outdir')
@@ -279,7 +306,8 @@ def main():
     parser.add_argument('--probes', action='store_true',
                         help='the fixed machine-semantics probes (Test/MIR/FuzzReal/Probes.lean)')
     parser.add_argument('--jobs', type=int, default=8)
-    parser.add_argument('--semantics', default='E')
+    parser.add_argument('--semantics', default='E,C',
+                        help='builtin semantics variants of the real machine, comma-separated')
     parser.add_argument('--compare-only', action='store_true')
     args = parser.parse_args()
     out = os.path.abspath(args.outdir)
@@ -293,12 +321,7 @@ def main():
         if args.probes:
             command.append('--probes')
         subprocess.run(command, check=True, cwd=ROOT)
-        run_batch(os.path.join(out, 'jobs.tsv'), os.path.join(out, 'results.tsv'), args.jobs,
-                  args.semantics)
-        run_batch(os.path.join(out, 'model-values.tsv'), os.path.join(out, 'model-values.real.tsv'),
-                  args.jobs, args.semantics)
-    negative_control(out)
-    report = compare(out)
+    clean = evaluate_and_compare(out, args.semantics, args.jobs, not args.compare_only)
     programs, changed, stage_changed = coverage(out)
     with open(os.path.join(out, 'coverage.json'), 'w') as f:
         json.dump({'programs': programs, 'differs-from-base': changed,
@@ -307,7 +330,7 @@ def main():
         programs, ', '.join('%s %d' % (k[5:], v) for k, v in sorted(stage_changed.items()))))
     print('passes alone changing the term: %s' % ', '.join(
         '%s %d' % (k[6:], v) for k, v in sorted(changed.items()) if k.startswith('alone/')))
-    sys.exit(1 if report['findings'] else 0)
+    sys.exit(0 if clean else 1)
 
 
 if __name__ == '__main__':

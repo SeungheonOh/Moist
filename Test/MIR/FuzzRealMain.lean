@@ -37,6 +37,8 @@ def main (arguments : List String) : IO UInt32 := do
         IO.println s!"  {name}: {(← IO.monoMsNow) - started} ms, {size / 2} bytes"
         (← IO.getStdout).flush
     return 0
+  unless encoderBlsTagsCorrect do
+    IO.eprintln "warning: Moist.Plutus.Encode writes non-plutus-core flat tags for BLS hashToGroup/compress/uncompress; jobs are encoded with plutus-core's tags"
   let sink ← openSink directory
   let mut jobs := 0
   if arguments.contains "--probes" then

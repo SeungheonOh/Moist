@@ -29,7 +29,44 @@ namespace Test.MIR.FuzzReal
 open Moist.MIR
 open Moist.Plutus.Term
 
+/-- plutus-core's flat tag of the BLS12-381 builtins whose order differs
+    from the declaration order of `BuiltinFun`. -/
+def referenceBlsTag : BuiltinFun → Option Nat
+  | .Bls12_381_G1_compress => some 58 | .Bls12_381_G1_uncompress => some 59
+  | .Bls12_381_G1_hashToGroup => some 60 | .Bls12_381_G2_compress => some 65
+  | .Bls12_381_G2_uncompress => some 66 | .Bls12_381_G2_hashToGroup => some 67
+  | _ => none
+
+def blsBuiltins : List BuiltinFun :=
+  [.Bls12_381_G1_compress, .Bls12_381_G1_uncompress, .Bls12_381_G1_hashToGroup,
+   .Bls12_381_G2_compress, .Bls12_381_G2_uncompress, .Bls12_381_G2_hashToGroup]
+
+/-- Whether `Moist.Plutus.Encode` writes plutus-core's tags for those builtins.
+    At c2a37d2 it does not (hashToGroup/compress/uncompress are permuted), which
+    would make every BLS job test a different program than the model runs. -/
+def encoderBlsTagsCorrect : Bool :=
+  blsBuiltins.all fun b => referenceBlsTag b == some (Moist.Plutus.Encode.builtinFunTag b)
+
+/-- The builtin the encoder must be given to write plutus-core's tag for `b`. -/
+def encoderBuiltin (b : BuiltinFun) : BuiltinFun :=
+  if encoderBlsTagsCorrect then b else
+  match referenceBlsTag b with
+  | some tag => (blsBuiltins.find? fun c => Moist.Plutus.Encode.builtinFunTag c == tag).getD b
+  | none => b
+
+partial def remapBuiltins : Term → Term
+  | .Builtin b => .Builtin (encoderBuiltin b)
+  | .Lam n body => .Lam n (remapBuiltins body)
+  | .Apply f x => .Apply (remapBuiltins f) (remapBuiltins x)
+  | .Force e => .Force (remapBuiltins e)
+  | .Delay e => .Delay (remapBuiltins e)
+  | .Constr tag fields => .Constr tag (fields.map remapBuiltins)
+  | .Case s alts => .Case (remapBuiltins s) (alts.map remapBuiltins)
+  | t => t
+
+/-- Flat hex of a program, with plutus-core's builtin tags. -/
 def flatHex (term : Term) : String :=
+  let term := if encoderBlsTagsCorrect then term else remapBuiltins term
   (Moist.Plutus.Encode.encode_program (.Program (.Version 1 1 0) term)).toHexString
 
 def lowerPass (transform : Expr → Expr) : Expr → Except String Term :=
@@ -153,9 +190,11 @@ structure Sink where
   modelValues : IO.FS.Handle
   manifest : IO.FS.Handle
 
+/-- Budget of every run, on the model and on the real machine (`fuzz_real.py`
+    passes the same numbers to `cross-bench batch`): running out is divergence. -/
 structure Limits where
-  cpu : Int := 100000000000
-  mem : Int := 1000000000
+  cpu : Int := 10000000000
+  mem : Int := 100000000
 
 def applyArguments (term : Term) (arguments : List Term) : Term :=
   arguments.foldl .Apply term

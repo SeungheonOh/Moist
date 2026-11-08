@@ -45,7 +45,7 @@ def main():
     parser.add_argument('--max-depth', type=int, default=3)
     parser.add_argument('--data', default='/Users/sho/fun/cross-bench-data')
     parser.add_argument('--jobs', type=int, default=8)
-    parser.add_argument('--semantics', default='E')
+    parser.add_argument('--semantics', default='E,C')
     parser.add_argument('--model-all', action='store_true')
     parser.add_argument('--compare-only', action='store_true')
     parser.add_argument('--mutants', type=int, default=0,
@@ -69,13 +69,8 @@ def main():
         command += ['--mutants', str(args.mutants), '--sample', str(args.sample),
                     '--seed', str(args.seed), '--model-every', str(args.model_every)]
         subprocess.run(command, check=True, cwd=fuzz_real.ROOT)
-        fuzz_real.run_batch(os.path.join(out, 'jobs.tsv'), os.path.join(out, 'results.tsv'),
-                            args.jobs, args.semantics)
-        fuzz_real.run_batch(os.path.join(out, 'model-values.tsv'),
-                            os.path.join(out, 'model-values.real.tsv'), args.jobs, args.semantics)
-    fuzz_real.negative_control(out)
-    report = fuzz_real.compare(out)
-    sys.exit(1 if report['findings'] else 0)
+    clean = fuzz_real.evaluate_and_compare(out, args.semantics, args.jobs, not args.compare_only)
+    sys.exit(0 if clean else 1)
 
 
 if __name__ == '__main__':

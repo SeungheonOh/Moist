@@ -32,6 +32,8 @@ structure GenState where
   traces : Bool := true
   /-- Whether an expression may occasionally have the wrong type. -/
   confused : Bool := false
+  /-- Whether the program uses hashes, signatures, BLS12-381 and Value builtins. -/
+  crypto : Bool := false
 
 abbrev Gen := StateM GenState
 
@@ -88,6 +90,10 @@ inductive Ty where
   | tuple (first second : Ty)
   | opt (value : Ty)
   | fn (argument result : Ty)
+  | value
+  | g1
+  | g2
+  | ml
   deriving Repr, BEq, Inhabited
 
 abbrev Env := List (VarId × Ty)
@@ -132,7 +138,7 @@ def genInt : Gen Int := do
             (1, do return Int.ofNat (← rand 300) - 150)]
 
 def genBytes : Gen ByteArray := do
-  let length ← pick [0, 1, 1, 2, 3, 4, 28, 32]
+  let length ← pick [0, 1, 1, 2, 3, 4, 28, 32, 32, 48, 64, 96]
   let palette ← pick [[0], [0, 1], [0xaa, 0xbb, 1, 2], [7]]
   let bytes ← (List.range length).mapM fun _ => do return (← pick palette).toUInt8
   return ⟨bytes.toArray⟩
@@ -293,9 +299,23 @@ def fnVars (env : Env) (result : Ty) : List (VarId × Ty) :=
     | _ => none
 
 def simpleTy : Gen Ty := do
+  let crypto := (← get).crypto
   weighted [(4, pure .int), (3, pure .bool), (1, pure .bytes),
             (1, pure (.data .any)), (1, pure (.list .int)), (1, pure (.tuple .int .bool)),
-            (1, pure (.opt .int))]
+            (1, pure (.opt .int)), (if crypto then 1 else 0, pure .value),
+            (if crypto then 1 else 0, pure .g1), (if crypto then 1 else 0, pure .g2)]
+
+def valueType : BuiltinType := .AtomicType .TypeValue
+
+/-- Well-formed Value literals: ascending keys, nonempty inner maps, nonzero quantities. -/
+def valueLiterals : List (List (ByteArray × List (ByteArray × Int))) :=
+  [[], [(⟨#[1]⟩, [(⟨#[]⟩, 5)])],
+   [(⟨#[]⟩, [(⟨#[]⟩, 1000000)]), (⟨#[1]⟩, [(⟨#[0xaa]⟩, 1), (⟨#[0xbb]⟩, -3)])],
+   [(⟨#[1]⟩, [(⟨#[0xaa]⟩, 2)]), (⟨#[2]⟩, [(⟨#[]⟩, 7)])]]
+
+def currencyPool : List ByteArray := [⟨#[]⟩, ⟨#[1]⟩, ⟨#[2]⟩, ⟨(List.replicate 28 (0x11 : UInt8)).toArray⟩]
+def tokenPool : List ByteArray := [⟨#[]⟩, ⟨#[0xaa]⟩, ⟨#[0xbb]⟩]
+def dstE : Expr := bytesE "BLS_DST".toUTF8
 
 def messages : List String := ["a", "b", "check", "loop", "field"]
 
@@ -327,6 +347,14 @@ partial def leaf (ty : Ty) (env : Env) : Gen Expr := do
       return .App (.Builtin (← pick [.AddInteger, .MultiplyInteger, .SubtractInteger])) (intE (← genInt))
     let x ← binder env "x"
     return .Lam x (← leaf r (extend env x a))
+  | .value => return lit (.Value (← pick valueLiterals)) valueType
+  | .g1 => return app2 .Bls12_381_G1_hashToGroup (bytesE (← genBytes)) dstE
+  | .g2 => return app2 .Bls12_381_G2_hashToGroup (bytesE (← genBytes)) dstE
+  | .ml =>
+    let p ← genBytes
+    let q ← genBytes
+    return app2 .Bls12_381_millerLoop (app2 .Bls12_381_G1_hashToGroup (bytesE p) dstE)
+      (app2 .Bls12_381_G2_hashToGroup (bytesE q) dstE)
 
 /-- An expression of type `ty`. -/
 partial def gen (ty : Ty) (depth : Nat) (env : Env) : Gen Expr := do
@@ -362,8 +390,33 @@ partial def gen (ty : Ty) (depth : Nat) (env : Env) : Gen Expr := do
     (if hasData then 1 else 0, recordGetter ty d env),
     (1, counterLoop ty d env)]
 
-/-- Operations producing a specific type. -/
+/-- Operations producing a specific type, including the crypto and Value
+    builtins in programs that use them. -/
 partial def typed (ty : Ty) (d : Nat) (env : Env) : Gen Expr := do
+  if !(← get).crypto then return ← typedCore ty d env
+  match ty with
+  | .int => weighted [(6, typedCore ty d env),
+      (1, do return apps (.Builtin .LookupCoin) [bytesE (← pick currencyPool), bytesE (← pick tokenPool), ← gen .value d env]),
+      (1, do return app2 .ByteStringToInteger (boolE (← chance 50)) (← gen .bytes d env)),
+      (1, do return app1 .CountSetBits (← gen .bytes d env))]
+  | .bool => weighted [(6, typedCore ty d env),
+      (1, do return app2 .ValueContains (← gen .value d env) (← gen .value d env)),
+      (1, do return app2 .Bls12_381_G1_equal (← gen .g1 d env) (← gen .g1 d env)),
+      (1, do return app2 .Bls12_381_G2_equal (← gen .g2 d env) (← gen .g2 d env)),
+      (1, do return app2 .Bls12_381_finalVerify (← gen .ml d env) (← gen .ml d env)),
+      (1, do return apps (.Builtin (← pick [.VerifyEd25519Signature, .VerifyEcdsaSecp256k1Signature,
+          .VerifySchnorrSecp256k1Signature])) [← gen .bytes d env, ← gen .bytes d env, ← gen .bytes d env])]
+  | .bytes => weighted [(4, typedCore ty d env),
+      (2, do return app1 (← pick [.Sha2_256, .Sha3_256, .Blake2b_256, .Blake2b_224, .Keccak_256,
+          .Ripemd_160]) (← gen .bytes d env)),
+      (1, do return app1 .Bls12_381_G1_compress (← gen .g1 d env)),
+      (1, do return app1 .Bls12_381_G2_compress (← gen .g2 d env)),
+      (1, do return apps (.Builtin .IntegerToByteString) [boolE (← chance 50), intE (← pick [0, 4, 8]), ← gen .int d env])]
+  | .data shape => weighted [(6, typedCore ty d env),
+      (1, do return app1 .ValueData (← gen .value d env))]
+  | _ => typedCore ty d env
+
+partial def typedCore (ty : Ty) (d : Nat) (env : Env) : Gen Expr := do
   match ty with
   | .int => weighted [
       (4, do
@@ -430,6 +483,27 @@ partial def typed (ty : Ty) (d : Nat) (env : Env) : Gen Expr := do
   | .fn a r =>
     let x ← binder env "x"
     return .Lam x (← gen r d (extend env x a))
+  | .value => weighted [
+      (2, do return apps (.Builtin .InsertCoin) [bytesE (← pick currencyPool), bytesE (← pick tokenPool),
+          ← gen .int d env, ← gen .value d env]),
+      (2, do return app2 .UnionValue (← gen .value d env) (← gen .value d env)),
+      (1, do return app2 .ScaleValue (← gen .int d env) (← gen .value d env)),
+      (1, do return app1 .UnValueData (← gen (.data .any) d env))]
+  | .g1 => weighted [
+      (2, do return app2 .Bls12_381_G1_add (← gen .g1 d env) (← gen .g1 d env)),
+      (1, do return app1 .Bls12_381_G1_neg (← gen .g1 d env)),
+      (2, do return app2 .Bls12_381_G1_scalarMul (← gen .int d env) (← gen .g1 d env)),
+      (1, do return app1 .Bls12_381_G1_uncompress (← gen .bytes d env)),
+      (2, do return app2 .Bls12_381_G1_hashToGroup (← gen .bytes d env) dstE)]
+  | .g2 => weighted [
+      (2, do return app2 .Bls12_381_G2_add (← gen .g2 d env) (← gen .g2 d env)),
+      (1, do return app1 .Bls12_381_G2_neg (← gen .g2 d env)),
+      (2, do return app2 .Bls12_381_G2_scalarMul (← gen .int d env) (← gen .g2 d env)),
+      (1, do return app1 .Bls12_381_G2_uncompress (← gen .bytes d env)),
+      (2, do return app2 .Bls12_381_G2_hashToGroup (← gen .bytes d env) dstE)]
+  | .ml => weighted [
+      (2, do return app2 .Bls12_381_millerLoop (← gen .g1 d env) (← gen .g2 d env)),
+      (1, do return app2 .Bls12_381_mulMlResult (← gen .ml d env) (← gen .ml d env))]
 
 /-- `let x = e in body`, with `x` usable (possibly several times) in `body`. -/
 partial def letShare (ty : Ty) (d : Nat) (env : Env) : Gen Expr := do
@@ -871,7 +945,8 @@ def Program.expr (program : Program) : Expr :=
 def genProgram (depth : Nat) : Gen Program := do
   let traces ← chance 40
   let confused ← chance 25
-  modify fun s => { s with traces, confused }
+  let crypto ← chance 40
+  modify fun s => { s with traces, confused, crypto }
   let count ← weighted [(3, pure 1), (3, pure 2), (1, pure 3)]
   let params ← (List.range count).mapM fun index => do
     let shape ← genShape 2
@@ -883,6 +958,7 @@ def genProgram (depth : Nat) : Gen Program := do
     | _ => return { var := v, ty := .data shape, shape := shape : Param }
   let env : Env := params.reverse.map fun p => (p.var, p.ty)
   let result ← weighted [(4, pure Ty.int), (3, pure .bool), (3, pure .unit),
+    (if crypto then 1 else 0, pure .value),
     (1, pure (.data .any)), (1, pure (.list .int)), (1, pure (.tuple .int .bool)),
     (1, pure (.opt .int)), (1, pure (.fn .int .int)), (1, pure .bytes)]
   -- decode the Data parameters first, as validators do

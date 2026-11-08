@@ -55,6 +55,8 @@ def main (arguments : List String) : IO UInt32 := do
   let sample := option "--sample" 40
   let seed := option "--seed" 1
   let modelEvery := option "--model-every" 1
+  unless encoderBlsTagsCorrect do
+    IO.eprintln "warning: Moist.Plutus.Encode writes non-plutus-core flat tags for BLS hashToGroup/compress/uncompress; jobs are encoded with plutus-core's tags"
   let sink ← openSink outDirectory
   let exported := Validators.exported
   let mut total := 0
