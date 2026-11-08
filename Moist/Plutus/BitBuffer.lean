@@ -11,36 +11,22 @@ def bitsOfNatBE (width value : Nat) : List Bool :=
     let bitIndex := width - 1 - idx
     Nat.testBit value bitIndex
 
+/-- Exactly `count` little-endian base-128 digits of `value` (higher digits are zero). Splits
+the number in halves, so large numbers take quasi-linear rather than quadratic time. -/
+partial def base128DigitsN (value count : Nat) : List Nat :=
+  if count ≤ 64 then
+    (List.range count).map fun index => (value >>> (7 * index)) % 128
+  else
+    let low := count / 2
+    let shift := 7 * low
+    base128DigitsN (value % (1 <<< shift)) low ++ base128DigitsN (value >>> shift) (count - low)
+
 /--
 Decompose a natural number into base-128 digits (least significant digit first).
 The resulting list is never empty (`0` encodes as `[0]`).
 -/
 def base128Digits (n : Nat) : List Nat :=
-  if n = 0 then
-    [0]
-  else
-    let rec loop (value : Nat) (acc : List Nat) : List Nat :=
-      let digit := value % 128
-      let next := value / 128
-      let acc := digit :: acc
-      if next = 0 then
-        acc
-      else
-        loop next acc
-    (loop n []).reverse
-
-/--
-Split a list into the prefix (everything except the last element) together with
-the final element.  This function is only used with lists that are known to be
-nonempty.
--/
-def splitInitLast (xs : List Nat) : List Nat × Nat :=
-  match xs with
-  | [] => ([], 0)
-  | [x] => ([], x)
-  | x :: rest =>
-      let (init, last) := splitInitLast rest
-      (x :: init, last)
+  if n = 0 then [0] else base128DigitsN n ((Nat.log2 n + 7) / 7)
 
 /-- Zig-zag encoding for signed integers (Definition 3.4.5). -/
 def zigZag : Int → Nat
@@ -123,21 +109,30 @@ def toBitString (buf : BitBuffer) : String :=
   let chars := buf.bits.toList.map fun b => if b then '1' else '0'
   String.mk chars
 
-/- Pack a list of bits (big-endian within each byte) into bytes. The input
-   list is assumed to have length multiple of 8; callers should `pad` first if
-   necessary. -/
-partial def packToBytes : List Bool → List UInt8
-  | [] => []
-  | bits =>
-    let (chunk, rest) := bits.splitAt 8
-    let n := chunk.foldl (fun acc b => acc * 2 + (if b then 1 else 0)) 0
-    n.toUInt8 :: packToBytes rest
+/-- Pack bits (big-endian within each byte) into bytes, 8 at a time. A trailing partial group (callers
+`pad` first, so there is none in practice) becomes the value of its bits. Runs in constant stack. -/
+def packBits (bits : Array Bool) : Array UInt8 := Id.run do
+  let mut out : Array UInt8 := Array.mkEmpty ((bits.size + 7) / 8)
+  let mut current : Nat := 0
+  let mut count : Nat := 0
+  for bit in bits do
+    current := current * 2 + (if bit then 1 else 0)
+    count := count + 1
+    if count == 8 then
+      out := out.push current.toUInt8
+      current := 0
+      count := 0
+  if count != 0 then
+    out := out.push current.toUInt8
+  return out
 
-/-- Convert a `BitBuffer` into a `List UInt8` by padding to a byte boundary and
-    packing each consecutive 8 bits into a `UInt8`. -/
+/-- Pack a list of bits (big-endian within each byte) into bytes. -/
+def packToBytes (bits : List Bool) : List UInt8 :=
+  (packBits bits.toArray).toList
+
+/-- Convert a `BitBuffer` into a `List UInt8` by packing each consecutive 8 bits into a `UInt8`. -/
 def toByteList (buf : BitBuffer) : List UInt8 :=
-  --let padded := BitBuffer.pad buf
-  packToBytes buf.bits.toList
+  (packBits buf.bits).toList
 
 /-- Convert a nibble (0..15) to its lowercase hexadecimal `Char`. -/
 def nibbleToHexChar : Nat → Char

@@ -231,6 +231,32 @@ def tests : TestTree := suite "acceptance" do
       checkEq s!"flat tag of {repr builtin}" (Moist.Plutus.Encode.builtinFunTag builtin) tag
     checkEq "decoder covers every builtin" table.length 101
     checkEq "decoder tags are distinct" (table.map (·.1)).eraseDups.length table.length
+  test "base128_digits_match_digit_by_digit_division" do
+    let rec slow (value : Nat) (fuel : Nat) : List Nat :=
+      match fuel with
+      | 0 => []
+      | fuel + 1 => if value < 128 then [value] else (value % 128) :: slow (value / 128) fuel
+    let samples : List Nat := [0, 1, 127, 128, 129, 16383, 16384, 2 ^ 64 - 1, 2 ^ 64, 2 ^ 448 - 1,
+      2 ^ 448, 2 ^ 449 + 12345, 3 ^ 500, 2 ^ 4096 - 7, 2 ^ 4096, 5 ^ 3000 + 1]
+    for value in samples do
+      checkEq s!"base-128 digits of a {Nat.log2 value + 1}-bit number"
+        (Moist.Plutus.base128Digits value) (slow value 2000)
+  test "huge_integer_constants_encode" do
+    let big : Int := Int.ofNat (Nat.shiftLeft 1 600000) + 12345
+    let program : Program := .Program (.Version 1 1 0) (.Constant (.Integer big, .AtomicType .TypeInteger))
+    let bytes := program.encode.toByteList.length
+    -- 600001-bit zig-zag value: 85715 seven-bit groups of 8 flat bits each, plus framing
+    check s!"a 600000-bit constant encodes ({bytes} bytes)" (bytes > 85715 && bytes < 85730)
+  test "large_constants_pack_into_bytes" do
+    let bytes : ByteArray := ⟨Array.replicate 1000000 (0xa5 : UInt8)⟩
+    let program : Program := .Program (.Version 1 1 0) (.Constant (.ByteString bytes, .AtomicType .TypeByteString))
+    let packed := program.encode.toByteList
+    -- one-byte length prefix per 255-byte chunk, a terminator, version and framing
+    check s!"a 1 MB bytestring constant encodes ({packed.length} bytes)"
+      (packed.length > 1000000 + 3921 && packed.length < 1000000 + 3940)
+    checkEq "bits pack big-endian" (Moist.Plutus.BitBuffer.packToBytes
+      [true, false, true, false, false, true, false, true, false, false, false, false, false, false, false, true])
+      [0xa5, 0x01]
   test "constant_annotation_does_not_change_flat" do
     let program (annotation : BuiltinType) : Program :=
       .Program (.Version 1 1 0) (.Constant (.Integer 7, annotation))
