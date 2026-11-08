@@ -11,23 +11,22 @@ def bitsOfNatBE (width value : Nat) : List Bool :=
     let bitIndex := width - 1 - idx
     Nat.testBit value bitIndex
 
+/-- Exactly `count` little-endian base-128 digits of `value` (higher digits are zero). Splits
+the number in halves, so large numbers take quasi-linear rather than quadratic time. -/
+partial def base128DigitsN (value count : Nat) : List Nat :=
+  if count ≤ 64 then
+    (List.range count).map fun index => (value >>> (7 * index)) % 128
+  else
+    let low := count / 2
+    let shift := 7 * low
+    base128DigitsN (value % (1 <<< shift)) low ++ base128DigitsN (value >>> shift) (count - low)
+
 /--
 Decompose a natural number into base-128 digits (least significant digit first).
 The resulting list is never empty (`0` encodes as `[0]`).
 -/
 def base128Digits (n : Nat) : List Nat :=
-  if n = 0 then
-    [0]
-  else
-    let rec loop (value : Nat) (acc : List Nat) : List Nat :=
-      let digit := value % 128
-      let next := value / 128
-      let acc := digit :: acc
-      if next = 0 then
-        acc
-      else
-        loop next acc
-    (loop n []).reverse
+  if n = 0 then [0] else base128DigitsN n ((Nat.log2 n + 7) / 7)
 
 /--
 Split a list into the prefix (everything except the last element) together with
