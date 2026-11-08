@@ -24,6 +24,7 @@ open Moist.MIR Moist.MIR.Advanced
 open Moist.Verified Moist.Verified.Equivalence Moist.Verified.Contextual
 open Moist.Verified.BetaValueRefines
 
+omit sv in
 theorem beq_false_symm {a b : VarId} (h : (a == b) = false) : (b == a) = false := by
   cases hc : (b == a)
   · rfl
@@ -34,6 +35,7 @@ theorem beq_false_symm {a b : VarId} (h : (a == b) = false) : (b == a) = false :
 /-- The de Bruijn renaming that skips the third binder. -/
 def skipThird : Nat → Nat := liftRename (liftRename (shiftRename 1))
 
+omit sv in
 theorem is0Preserving_skipThird : FundamentalRefines.Is0Preserving skipThird := by
   refine ⟨rfl, fun n hn => ?_⟩
   match n, hn with
@@ -66,6 +68,7 @@ theorem lowerTotalExpr_skipThird {env : List VarId} {x f s : VarId} {e : Expr}
       rw [envLookupT_cons_neq s z env hsz]
       cases envLookupT env z <;> simp [shiftRename]
 
+omit sv in
 theorem shiftBisimEnv_of_lookup {σ : Nat → Nat} {ρ₁ ρ₂ : CekEnv} :
     ∀ d, (∀ n, 0 < n → n ≤ d → ∃ w, ρ₁.lookup n = some w ∧ ρ₂.lookup (σ n) = some w ∧
       ValueWellFormed w) → ShiftBisimEnv σ d ρ₁ ρ₂
@@ -96,6 +99,7 @@ theorem obsRefines_skipThird {d : Nat} {ρ : CekEnv} {π : Stack} {t : Term} {v 
 
 /-! ## Unboxing a binding -/
 
+omit sv in
 theorem lowerTotalExpr_unboxed {env : List VarId} {r : Expr} {f s : VarId} {B : Expr}
     {tr tB : Term} (hr : lowerTotalExpr env r = some tr)
     (hB : lowerTotalExpr (s :: f :: env) B = some tB) :
@@ -265,6 +269,7 @@ not mention.
 /-- The de Bruijn renaming that skips the second and third binders. -/
 def skipTwo : Nat → Nat := liftRename (fun n => shiftRename 1 (shiftRename 1 n))
 
+omit sv in
 theorem is0Preserving_skipTwo : FundamentalRefines.Is0Preserving skipTwo := by
   refine ⟨rfl, fun n hn => ?_⟩
   match n, hn with

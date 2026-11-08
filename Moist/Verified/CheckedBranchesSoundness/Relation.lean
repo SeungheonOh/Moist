@@ -1,6 +1,8 @@
 import Moist.Verified.CheckedBranchesSoundness.Builtins
 import Moist.MIR.Optimize.Advanced.CheckedBranches
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Refinement under non-empty list facts
 
 `CheckedRel Γ N e e'` is `FactRel` with an additional set `N` of names known
@@ -37,6 +39,7 @@ def CheckedRel (Γ : List (VarId × Expr)) (N : List VarId) (e e' : Expr) : Prop
 
 /-! ## List facts under binders -/
 
+omit sv in
 theorem NamesBound.cons {N env : List VarId} (h : NamesBound N env) (x : VarId) :
     NamesBound N (x :: env) := by
   intro y hy
@@ -45,6 +48,7 @@ theorem NamesBound.cons {N env : List VarId} (h : NamesBound N env) (x : VarId) 
   · rfl
   · simpa using h y hy
 
+omit sv in
 theorem NamesBound.fresh {N env : List VarId} {x : VarId} (h : NamesBound N env)
     (hx : (envLookupT env x).isNone = true) : ∀ y, N.contains y = true → (x == y) = false := by
   intro y hy
@@ -55,6 +59,7 @@ theorem NamesBound.fresh {N env : List VarId} {x : VarId} (h : NamesBound N env)
     simp [Option.isSome_iff_ne_none, Option.isNone_iff_eq_none] at hb hx
     exact absurd hx hb
 
+omit sv in
 theorem NamesBound.add {N env : List VarId} {l : VarId} (h : NamesBound N env)
     (hl : (envLookupT env l).isSome = true) : NamesBound (l :: N) env := by
   intro y hy
@@ -63,12 +68,15 @@ theorem NamesBound.add {N env : List VarId} {l : VarId} (h : NamesBound N env)
   · rw [envLookupT_congr hy]; exact hl
   · exact h y hy
 
+omit sv in
 theorem NamesBound.nil (env : List VarId) : NamesBound [] env := by
   intro y hy; simp at hy
 
+omit sv in
 theorem NonemptyHold.nil (env : List VarId) (ρ : CekEnv) : NonemptyHold [] env ρ := by
   intro y hy; simp at hy
 
+omit sv in
 theorem NonemptyHold.extend {N env : List VarId} {ρ : CekEnv} {x : VarId} (w : CekValue)
     (h : NonemptyHold N env ρ) (hb : NamesBound N env) (hx : (envLookupT env x).isNone = true) :
     NonemptyHold N (x :: env) (ρ.extend w) := by
@@ -80,6 +88,7 @@ theorem NonemptyHold.extend {N env : List VarId} {ρ : CekEnv} {x : VarId} (w : 
     rw [hl'] at hl; simp at hl; subst hl
     exact h y hy i' hl'
 
+omit sv in
 /-- A list fact for a name bound in the current environment. -/
 theorem NonemptyHold.add {N env : List VarId} {ρ : CekEnv} {l : VarId} (h : NonemptyHold N env ρ)
     (hl : ∀ i, envLookupT env l = some i → ∃ v, ρ.lookup (i + 1) = some v ∧ NonemptyList v) :
@@ -90,6 +99,7 @@ theorem NonemptyHold.add {N env : List VarId} {ρ : CekEnv} {l : VarId} (h : Non
   · rw [envLookupT_congr hy] at hi; exact hl i hi
   · exact h y hy i hi
 
+omit sv in
 /-- A new binder holding a non-empty list. -/
 theorem NonemptyHold.push {N env : List VarId} {ρ : CekEnv} {x : VarId} {w : CekValue}
     (h : NonemptyHold N env ρ) (hb : NamesBound N env) (hx : (envLookupT env x).isNone = true)
@@ -327,6 +337,7 @@ theorem CheckedRel.fix_lam {Γ : List (VarId × Expr)} {N : List VarId} {f x : V
 def AliasStep (N N' : List VarId) (x : VarId) (rf : Expr) : Prop :=
   N' = N ∨ (N' = x :: N ∧ ∃ o, rf = .Var o ∧ N.contains o = true)
 
+omit sv in
 theorem aliasFacts_step (N : List VarId) (x : VarId) (r : Expr) :
     AliasStep N (aliasFacts N x r) x r := by
   unfold aliasFacts

@@ -144,18 +144,13 @@ theorem lookupAVal_none : ∀ {L : List (VarId × AVal)} {x : VarId},
 /-! ## Builtins -/
 
 theorem evalBuiltin_fstPair {w v : CekValue} (h : evalBuiltin .FstPair [w] = some v) :
-    (∃ c d, w = .VCon (.Pair (c, d)) ∧ v = .VCon c) ∨
-    (∃ a b, w = .VCon (.PairData (a, b)) ∧ v = .VCon (.Data a)) := by
+    ∃ c d, w = .VCon (.Pair (c, d)) ∧ v = .VCon c := by
   obtain ⟨c, r, rfl, hc, rfl⟩ := evalBuiltin_single (by decide) h
   cases c with
   | Pair p =>
     obtain ⟨a, b⟩ := p
     cases hc
-    exact .inl ⟨_, _, rfl, rfl⟩
-  | PairData p =>
-    obtain ⟨a, b⟩ := p
-    cases hc
-    exact .inr ⟨_, _, rfl, rfl⟩
+    exact ⟨_, _, rfl, rfl⟩
   | _ => cases hc
 
 theorem evalBuiltin_eqInt {k : Int} {a v : CekValue}
@@ -286,6 +281,7 @@ theorem dispatch_pair (alts : List Term) (a b : Const) :
       if alts.length > 1 then none else alts[0]?.map fun t => (t, [.VCon a, .VCon b]) := by
   simp [dispatch, constToTagAndFields]
 
+omit sv in
 theorem dispatch_mem {alts : List Term} {w : CekValue} {a : Term} {fs : List CekValue}
     (h : dispatch alts w = some (a, fs)) : a ∈ alts := by
   cases w with
@@ -988,23 +984,16 @@ theorem aeval_sound_at (Γ : List (VarId × Expr)) (H : List (VarId × AVal)) (f
                 rcases htail with ⟨_, hrest', _⟩ | ⟨_, hev⟩
                 · simp [ExpectedArgs.tail] at hrest'
                 · have hpair := ha wa hwa
-                  rcases evalBuiltin_fstPair hev with ⟨c, d, rfl, rfl⟩ | ⟨x, y, rfl, rfl⟩
-                  · cases i with
-                    | exact n =>
-                      obtain ⟨d', hd'⟩ := hpair
-                      cases hd'
-                      rfl
-                    | notIn s =>
-                      obtain ⟨n, d', hd', hn⟩ := hpair
-                      cases hd'
-                      exact ⟨n, rfl, hn⟩
-                  · cases i with
-                    | exact n =>
-                      obtain ⟨d', hd'⟩ := hpair
-                      cases hd'
-                    | notIn s =>
-                      obtain ⟨n, d', hd', hn⟩ := hpair
-                      cases hd'
+                  obtain ⟨c, d, rfl, rfl⟩ := evalBuiltin_fstPair hev
+                  cases i with
+                  | exact n =>
+                    obtain ⟨d', hd'⟩ := hpair
+                    cases hd'
+                    rfl
+                  | notIn s =>
+                    obtain ⟨n, d', hd', hn⟩ := hpair
+                    cases hd'
+                    exact ⟨n, rfl, hn⟩
             · rw [heq]
               obtain ⟨a0, rfl, ha0⟩ := hf wf hwf
               have hwk : wa = .VCon (.Integer k) := ha wa hwa

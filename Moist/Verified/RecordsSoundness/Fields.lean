@@ -17,6 +17,7 @@ open Moist.CEK Moist.Plutus.Term
 open Moist.MIR Moist.MIR.Advanced
 open Moist.Verified Moist.Verified.Equivalence
 
+omit sv in
 theorem lamsT_add : ∀ (a b : Nat) (t : Term), lamsT (a + b) t = lamsT a (lamsT b t)
   | 0, b, t => by simp [lamsT]
   | a + 1, b, t => by
@@ -36,6 +37,7 @@ theorem step_case_single {alt : Term} {ρ : CekEnv} {π : Stack} {w : CekValue} 
     simp only [this]
     rfl
 
+omit sv in
 theorem getElem?_reverse_lt {fields : List CekValue} {index : Nat} (h : index < fields.length) :
     ∃ u, fields.reverse[index]? = some u := by
   cases hu : fields.reverse[index]? with

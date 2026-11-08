@@ -16,16 +16,19 @@ open Moist.CEK Moist.Plutus.Term
 open Moist.MIR Moist.MIR.Advanced
 open Moist.Verified Moist.Verified.Equivalence Moist.Verified.BetaValueRefines
 
+omit sv in
 theorem lambdas_eq_lams : ∀ (binders : List VarId) (body : Expr), lambdas binders body = lams binders body
   | [], _ => rfl
   | x :: xs, body => by simp only [lambdas, lams, lambdas_eq_lams xs body]
 
+omit sv in
 theorem lower_lambdas {binders : List VarId} {body : Expr} {env : List VarId} {t : Term}
     (h : lowerTotalExpr env (lambdas binders body) = some t) :
     ∃ tb, lowerTotalExpr (binders.reverse ++ env) body = some tb ∧ t = lamsT binders.length tb := by
   rw [lambdas_eq_lams] at h
   exact lower_lams binders body env t h
 
+omit sv in
 theorem lowerTotalExpr_lambdas : ∀ (binders : List VarId) (body : Expr) (env : List VarId),
     lowerTotalExpr env (lambdas binders body) =
       (lowerTotalExpr (binders.reverse ++ env) body).map (lamsT binders.length)
@@ -37,12 +40,14 @@ theorem lowerTotalExpr_lambdas : ∀ (binders : List VarId) (body : Expr) (env :
       List.reverse_cons, List.append_assoc, List.singleton_append, List.length_cons]
     cases lowerTotalExpr (xs.reverse ++ x :: env) body <;> rfl
 
+omit sv in
 theorem fresh_lambdas {binders : List VarId} {body : Expr} {env : List VarId}
     (h : freshIn env (lambdas binders body) = true) (hd : EnvDistinct env) :
     freshIn (binders.reverse ++ env) body = true ∧ EnvDistinct (binders.reverse ++ env) := by
   rw [lambdas_eq_lams] at h
   exact fresh_lams binders body env h hd
 
+omit sv in
 theorem freshIn_lambdas : ∀ (binders : List VarId) (body : Expr) (env : List VarId),
     freshIn env (lambdas binders body) = true ↔
       (∀ j x, binders[j]? = some x → (envLookupT ((binders.take j).reverse ++ env) x).isNone = true) ∧
@@ -84,6 +89,7 @@ theorem reaches_telescope (fields : List CekValue) (π : Stack) (ρ : CekEnv) (t
       (.compute π (extendAll ρ fields) t) :=
   ⟨_, steps_telescope fields π ρ t⟩
 
+omit sv in
 theorem extendAll_length : ∀ (ρ : CekEnv) (vals : List CekValue),
     (extendAll ρ vals).length = ρ.length + vals.length
   | ρ, [] => by simp [extendAll]
@@ -91,6 +97,7 @@ theorem extendAll_length : ∀ (ρ : CekEnv) (vals : List CekValue),
     simp only [extendAll, extendAll_length (ρ.extend v) vs, List.length_cons]
     simp [CekEnv.extend, CekEnv.length]; omega
 
+omit sv in
 theorem envWellFormed_extendAll : ∀ (d : Nat) {ρ : CekEnv} (vals : List CekValue),
     EnvWellFormed d ρ → d ≤ ρ.length → ValueListWellFormed vals →
       EnvWellFormed (d + vals.length) (extendAll ρ vals)
@@ -101,6 +108,7 @@ theorem envWellFormed_extendAll : ∀ (d : Nat) {ρ : CekEnv} (vals : List CekVa
     exact envWellFormed_extendAll (d + 1) vs (envWellFormed_extend d h hlen hv)
       (by simp [CekEnv.extend, CekEnv.length]; omega) hvs
 
+omit sv in
 /-- The binder `x` of a telescope over as many fields as binders holds its field. -/
 theorem lookup_field {binders : List VarId} {x : VarId} {field index : Nat} {ρ : CekEnv}
     {fields : List CekValue} (hlen : fields.length = binders.length)

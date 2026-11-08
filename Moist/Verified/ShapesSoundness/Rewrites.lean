@@ -39,6 +39,7 @@ theorem FactRel.trans {G : VarId → Prop} {P : List VarId → CekEnv → Expr �
   obtain ⟨t'', hl'', r₂⟩ := h₂ env t' hG hd (hfr env hG hf) hk hsc hl'
   exact ⟨t'', hl'', r₁.trans r₂⟩
 
+omit sv in
 theorem wellSized_of_wellFormed {d : Nat} {ρ : CekEnv} (h : EnvWellFormed d ρ) :
     Semantics.WellSizedEnv d ρ := by
   intro n hn hle
@@ -47,6 +48,7 @@ theorem wellSized_of_wellFormed {d : Nat} {ρ : CekEnv} (h : EnvWellFormed d ρ)
 
 def litBool (value : Bool) : Expr := .Lit (.Bool value, .AtomicType .TypeBool)
 
+omit sv in
 theorem lowerTotalExpr_litBool (env : List VarId) (value : Bool) :
     lowerTotalExpr env (litBool value) = some (.Constant (.Bool value, .AtomicType .TypeBool)) :=
   lowerTotalExpr_lit env _ _
@@ -77,6 +79,7 @@ theorem branch_facts {Γ : List (VarId × Expr)} {b : VarId} {env : List VarId} 
   FactsHold.push_bool hfacts (fun j hj => by rw [hi] at hj; cases hj; exact hc)
     (fun env ρ => PF_litBool env ρ c)
 
+omit sv in
 theorem branch_keys {Γ : List (VarId × Expr)} {b : VarId} {env : List VarId} {i : Nat} {c : Bool}
     (hk : KeysBound Γ env) (hi : envLookupT env b = some i) : KeysBound ((b, litBool c) :: Γ) env := by
   intro entry hmem
@@ -84,6 +87,7 @@ theorem branch_keys {Γ : List (VarId × Expr)} {b : VarId} {env : List VarId} {
   · simp [hi]
   · exact hk entry hmem
 
+omit sv in
 theorem branch_scoped {Γ : List (VarId × Expr)} {b : VarId} {env : List VarId} {c : Bool}
     (hs : FactsScoped Γ env) : FactsScoped ((b, litBool c) :: Γ) env := by
   intro y entry i hf hl
@@ -96,6 +100,7 @@ theorem branch_scoped {Γ : List (VarId × Expr)} {b : VarId} {env : List VarId}
     simp only [hby] at hf
     exact hs y entry i hf hl
 
+omit sv in
 theorem lowerTotalExpr_case_var {env : List VarId} {b : VarId} {first second : Expr} {t : Term}
     (h : lowerTotalExpr env (.Case (.Var b) [first, second]) = some t) :
     ∃ i tf ts, envLookupT env b = some i ∧ lowerTotalExpr env first = some tf ∧
@@ -215,6 +220,7 @@ theorem ite_case_factRel {G : VarId → Prop} {Γ : List (VarId × Expr)} {cond 
       · exact reaches_trans (reaches_of_steps 1 rfl) (halts_on_stack hvt π)
     exact obsRefines_of_reaches hsrc htgt (obsRefines_refl _)
 
+omit sv in
 theorem mapM_delayBody : ∀ {alts bodies : List Expr}, alts.mapM delayBody = some bodies →
     alts = bodies.map .Delay
   | [], bodies, h => by simp at h; subst h; rfl
@@ -233,6 +239,7 @@ theorem mapM_delayBody : ∀ {alts bodies : List Expr}, alts.mapM delayBody = so
           subst ha; rfl
         rw [this, mapM_delayBody has]; rfl
 
+omit sv in
 theorem lowerTotalExprList_map_delay (env : List VarId) : ∀ (bodies : List Expr),
     MIR.lowerTotalExprList env (bodies.map .Delay) =
       (MIR.lowerTotalExprList env bodies).map (·.map .Delay)
@@ -404,7 +411,7 @@ theorem roundTrip_ListData : RoundTrip .ListData .UnListData := by
   cases c <;> (try cases hc)
   rename_i d
   cases d <;> cases hc
-  rfl
+  exact evalBuiltin_listData_dataList _
 
 theorem roundTrip_MapData : RoundTrip .MapData .UnMapData := by
   intro vo wc h
@@ -412,7 +419,7 @@ theorem roundTrip_MapData : RoundTrip .MapData .UnMapData := by
   cases c <;> (try cases hc)
   rename_i d
   cases d <;> cases hc
-  rfl
+  exact evalBuiltin_mapData_pairDataList _
 
 theorem roundTrip_factRel {G : VarId → Prop} {Γ : List (VarId × Expr)} {outer inner : BuiltinFun}
     {c o : VarId} (hres : resolveHead 64 Γ (.Var c) = .App (.Builtin inner) (.Var o))

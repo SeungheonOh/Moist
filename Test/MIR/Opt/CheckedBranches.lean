@@ -39,11 +39,11 @@ private def inputs : List Expr :=
    .Constr 0 [],.Constr 1 [],.Constr 0 [intLit 3,intLit 4],
    .Delay (intLit 3),.Lam temporary (.Var temporary)] ++
   [[],[Moist.Plutus.Data.I 3],[.I 3,.I 4]].map
-    (fun fields => .Lit (.ConstDataList fields,.TypeOperator (.TypeList (.AtomicType .TypeData)))) ++
+    (fun fields => .Lit (.dataList fields,.TypeOperator (.TypeList (.AtomicType .TypeData)))) ++
   [[],[Const.Integer 3],[.Integer 3,.Integer 4]].map
-    (fun fields => .Lit (.ConstList fields,.TypeOperator (.TypeList (.AtomicType .TypeInteger)))) ++
+    (fun fields => .Lit (.ConstList (.AtomicType .TypeInteger) fields,.TypeOperator (.TypeList (.AtomicType .TypeInteger)))) ++
   [[],[(Moist.Plutus.Data.I 3,Moist.Plutus.Data.I 4)]].map
-    (fun fields => .Lit (.ConstPairDataList fields,.TypeOperator (.TypeList
+    (fun fields => .Lit (.pairDataList fields,.TypeOperator (.TypeList
       (.TypeOperator (.TypePair (.AtomicType .TypeData) (.AtomicType .TypeData))))))
 
 private def requireTerm (result : Except String Term) : IO Term :=
@@ -153,14 +153,14 @@ def tests : TestTree := suite "checked-branches" do
         (.App (.App (.Builtin .AddInteger) (.App (.Builtin .UnIData) (.Var headBinder)))
           (.App (.Var recursive) (.Var tailBinder))))))
     let lists := (List.range 33).map fun count => Expr.Lit
-      (.ConstDataList ((List.range count).map fun number => .I (Int.ofNat number)),
+      (.dataList ((List.range count).map fun number => .I (Int.ofNat number)),
         .TypeOperator (.TypeList (.AtomicType .TypeData)))
     compare "recursive sum" worker (inputs ++ lists)
   test "delays_partial_selectors_and_divergence" do
     let forever := Expr.Fix recursive (.Lam temporary (.App (.Var recursive) (.Var temporary)))
     let diverging := Expr.App forever (intLit 0)
-    let emptyList := Expr.Lit (.ConstDataList [],.TypeOperator (.TypeList (.AtomicType .TypeData)))
-    let nonemptyList := Expr.Lit (.ConstDataList [.I 3],.TypeOperator (.TypeList (.AtomicType .TypeData)))
+    let emptyList := Expr.Lit (.dataList [],.TypeOperator (.TypeList (.AtomicType .TypeData)))
+    let nonemptyList := Expr.Lit (.dataList [.I 3],.TypeOperator (.TypeList (.AtomicType .TypeData)))
     compare "unselected divergence" (.Lam input (choose (.Var input) (intLit 7) diverging)) [emptyList]
     compare "discarded delayed selector" (.Lam input (.Let [(temporary,
       .App (.App (.App (.Force (.Force (.Builtin .ChooseList))) (.Var input))

@@ -90,7 +90,7 @@ def tests : TestTree := suite "low-sharing" do
   test "bindings that slow a successful path are rejected" do
     -- The empty branch reads a head once; a binding above both branches
     -- would cost four steps there and save one.
-    let script := onList nineHeads (headOf (.Lit (.ConstDataList [.I 1], Advanced.dataListType)))
+    let script := onList nineHeads (headOf (.Lit (.dataList [.I 1], Advanced.dataListType)))
     let shared := Advanced.shareLow {} script
     check "unchanged" (alphaEq shared script)
     let unguarded := Advanced.shareLow { guardPaths := false } script
@@ -125,7 +125,7 @@ def tests : TestTree := suite "low-sharing" do
 
   test "default compilation shares only when no successful run is slower" do
     for script in [onList nineHeads (intLit 0),
-        onList nineHeads (headOf (.Lit (.ConstDataList [.I 1], Advanced.dataListType)))] do
+        onList nineHeads (headOf (.Lit (.dataList [.I 1], Advanced.dataListType)))] do
       let compiled ← requireTerm (compileOptimized script)
       let reference ← requireTerm (compileOptimized script 1000 5000 { shareLow := false })
       compareRuns "compiled" (liftUPLC reference) (liftUPLC compiled) true

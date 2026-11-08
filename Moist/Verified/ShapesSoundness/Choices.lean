@@ -70,6 +70,7 @@ theorem binds_attach_map (f : Expr → Expr) (bs : List (VarId × Expr × Bool))
     simp only [List.attach_cons, List.map_cons, List.map_map]
     congr 1
 
+omit sv in
 theorem replaceListProjections_let (l h t : VarId) (bs : List (VarId × Expr × Bool)) (body : Expr) :
     replaceListProjections l h t (.Let bs body) =
       .Let (bs.map fun (y, rhs, er) => (y, replaceListProjections l h t rhs, er))
@@ -86,11 +87,13 @@ theorem exprSizeBinds_cons' (b : VarId × Expr × Bool) (rest : List (VarId × E
     exprSizeBinds (b :: rest) = exprSize b.2.1 + exprSizeBinds rest := by
   obtain ⟨x, r, er⟩ := b; simp [exprSizeBinds]
 
+omit sv in
 theorem let_rest_lt (b : VarId × Expr × Bool) (rest : List (VarId × Expr × Bool)) (body : Expr) :
     exprSize (.Let rest body) < exprSize (.Let (b :: rest) body) := by
   have := exprSize_pos b.2.1
   simp only [exprSize, exprSizeBinds_cons']; omega
 
+omit sv in
 theorem let_rhs_lt (b : VarId × Expr × Bool) (rest : List (VarId × Expr × Bool)) (body : Expr) :
     exprSize b.2.1 < exprSize (.Let (b :: rest) body) := by
   simp only [exprSize, exprSizeBinds_cons']; omega
@@ -247,6 +250,7 @@ theorem envLookupT_mem {env : List VarId} {x : VarId} {i : Nat} (h : envLookupT 
       | none => rw [hl] at h; cases h
       | some j => obtain ⟨y, hy, hyx⟩ := ih hl; exact ⟨y, .tail _ hy, hyx⟩
 
+omit sv in
 theorem lookup_none_of_not_G {G : VarId → Prop} {env : List VarId} {x : VarId}
     (hG : ∀ y ∈ env, G y) (hx : ∀ y, (y == x) = true → ¬ G y) : envLookupT env x = none := by
   cases hl : envLookupT env x with
@@ -287,28 +291,20 @@ theorem lowerTotalExpr_case2_some {env : List VarId} {s ne em : Expr} {t : Term}
 
 theorem choice_case_cons {ρ : CekEnv} {π : Stack} {n : Nat} {vl : CekValue} {b e : Term}
     (hvl : ρ.lookup n = some vl) :
-    ∀ hv tv, (∃ c cs, vl = .VCon (.ConstList (c :: cs)) ∧ hv = .VCon c ∧ tv = .VCon (.ConstList cs)) ∨
-      (∃ d ds, vl = .VCon (.ConstDataList (d :: ds)) ∧ hv = .VCon (.Data d) ∧
-        tv = .VCon (.ConstDataList ds)) ∨
-      (∃ p ps, vl = .VCon (.ConstPairDataList (p :: ps)) ∧ hv = .VCon (.PairData p) ∧
-        tv = .VCon (.ConstPairDataList ps)) →
+    ∀ hv tv, (∃ ty c cs, vl = .VCon (.ConstList ty (c :: cs)) ∧ hv = .VCon c ∧
+      tv = .VCon (.ConstList ty cs)) →
     Reaches (.compute π ρ (.Case (.Var n) [.Lam 0 (.Lam 0 b), e]))
       (.compute π ((ρ.extend hv).extend tv) b) := by
   intro hv tv h
-  rcases h with ⟨c, cs, rfl, rfl, rfl⟩ | ⟨d, ds, rfl, rfl, rfl⟩ | ⟨p, ps, rfl, rfl, rfl⟩
-  · exact ⟨7, by simp [steps, step, hvl, constToTagAndFields, CekEnv.extend]⟩
-  · exact ⟨7, by simp [steps, step, hvl, constToTagAndFields, CekEnv.extend]⟩
-  · exact ⟨7, by simp [steps, step, hvl, constToTagAndFields, CekEnv.extend]⟩
+  obtain ⟨ty, c, cs, rfl, rfl, rfl⟩ := h
+  exact ⟨7, by simp [steps, step, hvl, constToTagAndFields, CekEnv.extend]⟩
 
 theorem choice_case_nil {ρ : CekEnv} {π : Stack} {n : Nat} {vl : CekValue} {a e : Term}
     (hvl : ρ.lookup n = some vl)
-    (hnil : vl = .VCon (.ConstList []) ∨ vl = .VCon (.ConstDataList []) ∨
-      vl = .VCon (.ConstPairDataList [])) :
+    (hnil : ∃ ty, vl = .VCon (.ConstList ty [])) :
     Reaches (.compute π ρ (.Case (.Var n) [a, e])) (.compute π ρ e) := by
-  rcases hnil with rfl | rfl | rfl
-  · exact ⟨3, by simp [steps, step, hvl, constToTagAndFields]⟩
-  · exact ⟨3, by simp [steps, step, hvl, constToTagAndFields]⟩
-  · exact ⟨3, by simp [steps, step, hvl, constToTagAndFields]⟩
+  obtain ⟨ty, rfl⟩ := hnil
+  exact ⟨3, by simp [steps, step, hvl, constToTagAndFields]⟩
 
 theorem forced_builtin_halts (ρ : CekEnv) (b : BuiltinFun) {rest : ExpectedArgs}
     (hb : expectedArgs b = .more .argQ rest) :
@@ -411,25 +407,20 @@ theorem choice_factRel {G : VarId → Prop} {Γ : List (VarId × Expr)} {s f' ne
       (by rw [lowerTotalExpr_var, hil]; rfl) (halts_var_of_lookup hvl)
   have hfnull := resolveHead_forced_halts 64 Γ f' hnull rfl hF hd htf'
   have nonempty : ∀ hv tv : CekValue,
-      ((∃ c cs, vl = .VCon (.ConstList (c :: cs)) ∧ hv = .VCon c ∧ tv = .VCon (.ConstList cs)) ∨
-        (∃ d ds, vl = .VCon (.ConstDataList (d :: ds)) ∧ hv = .VCon (.Data d) ∧
-          tv = .VCon (.ConstDataList ds)) ∨
-        (∃ p ps, vl = .VCon (.ConstPairDataList (p :: ps)) ∧ hv = .VCon (.PairData p) ∧
-          tv = .VCon (.ConstPairDataList ps))) →
+      (∃ ty c cs, vl = .VCon (.ConstList ty (c :: cs)) ∧ hv = .VCon c ∧
+        tv = .VCon (.ConstList ty cs)) →
       ObsRefines (.compute π ρ (.Case (.Apply tf' (.Var (il + 1))) [tne', tem']))
         (.compute π ρ (.Case (.Var (il + 1)) [.Lam 0 (.Lam 0 tX), tem'])) := by
     intro hv tv hshape
     have hnull_eval : evalBuiltin .NullList [vl] = some (.VCon (.Bool false)) := by
-      rcases hshape with ⟨c, cs, rfl, rfl, rfl⟩ | ⟨d, ds, rfl, rfl, rfl⟩ | ⟨p, ps, rfl, rfl, rfl⟩ <;> rfl
+      obtain ⟨ty, c, cs, rfl, rfl, rfl⟩ := hshape; rfl
     have hhead_eval : evalBuiltin .HeadList [vl] = some hv := by
-      rcases hshape with ⟨c, cs, rfl, rfl, rfl⟩ | ⟨d, ds, rfl, rfl, rfl⟩ | ⟨p, ps, rfl, rfl, rfl⟩ <;> rfl
+      obtain ⟨ty, c, cs, rfl, rfl, rfl⟩ := hshape; rfl
     have htail_eval : evalBuiltin .TailList [vl] = some tv := by
-      rcases hshape with ⟨c, cs, rfl, rfl, rfl⟩ | ⟨d, ds, rfl, rfl, rfl⟩ | ⟨p, ps, rfl, rfl, rfl⟩ <;> rfl
+      obtain ⟨ty, c, cs, rfl, rfl, rfl⟩ := hshape; rfl
     have hvcon : ValueWellFormed hv ∧ ValueWellFormed tv := by
-      rcases hshape with ⟨c, cs, rfl, rfl, rfl⟩ | ⟨d, ds, rfl, rfl, rfl⟩ | ⟨p, ps, rfl, rfl, rfl⟩
-      · exact ⟨.vcon _, .vcon _⟩
-      · exact ⟨.vcon _, .vcon _⟩
-      · exact ⟨.vcon _, .vcon _⟩
+      obtain ⟨ty, c, cs, rfl, rfl, rfl⟩ := hshape
+      exact ⟨.vcon _, .vcon _⟩
     have hscrut := builtin_app_halts hfnull hvl hnull_eval
     have hhead_halts : Halts ρ (.Apply (.Force (.Builtin .HeadList)) (.Var (il + 1))) hv :=
       builtin_app_halts (forced_builtin_halts ρ .HeadList rfl) hvl hhead_eval
@@ -453,30 +444,14 @@ theorem choice_factRel {G : VarId → Prop} {Γ : List (VarId × Expr)} {s f' ne
   cases vl with
   | VCon c =>
     cases c with
-    | ConstList xs =>
+    | ConstList ty xs =>
       cases xs with
-      | nil =>
-        have hscrut := builtin_app_halts hfnull hvl (show evalBuiltin .NullList [.VCon (.ConstList [])] =
-          some (.VCon (.Bool true)) from rfl)
-        exact obsRefines_of_reaches (case_bool_steps hscrut) (choice_case_nil hvl (.inl rfl))
-          (obsRefines_refl _)
-      | cons c cs => exact nonempty _ _ (.inl ⟨c, cs, rfl, rfl, rfl⟩)
-    | ConstDataList xs =>
-      cases xs with
-      | nil =>
-        have hscrut := builtin_app_halts hfnull hvl (show evalBuiltin .NullList [.VCon (.ConstDataList [])] =
-          some (.VCon (.Bool true)) from rfl)
-        exact obsRefines_of_reaches (case_bool_steps hscrut) (choice_case_nil hvl (.inr (.inl rfl)))
-          (obsRefines_refl _)
-      | cons d ds => exact nonempty _ _ (.inr (.inl ⟨d, ds, rfl, rfl, rfl⟩))
-    | ConstPairDataList ps =>
-      cases ps with
       | nil =>
         have hscrut := builtin_app_halts hfnull hvl (show evalBuiltin .NullList
-          [.VCon (.ConstPairDataList [])] = some (.VCon (.Bool true)) from rfl)
-        exact obsRefines_of_reaches (case_bool_steps hscrut) (choice_case_nil hvl (.inr (.inr rfl)))
+          [.VCon (.ConstList ty [])] = some (.VCon (.Bool true)) from rfl)
+        exact obsRefines_of_reaches (case_bool_steps hscrut) (choice_case_nil hvl ⟨ty, rfl⟩)
           (obsRefines_refl _)
-      | cons p ps => exact nonempty _ _ (.inr (.inr ⟨p, ps, rfl, rfl, rfl⟩))
+      | cons c cs => exact nonempty _ _ ⟨ty, c, cs, rfl, rfl, rfl⟩
     | _ => exact absurd hlist id
   | _ => exact absurd hlist id
 
@@ -519,6 +494,7 @@ theorem freshInLet_map (f : Expr → Expr) :
     rw [hbs (y, r, er) (.head _), freshInLet_map f rest body (y :: avoid)
       (fun b hb => hbs b (.tail _ hb)) hbody]
 
+omit sv in
 theorem freshIn_replaceListProjections (l h t : VarId) (X : Expr) :
     ∀ avoid, freshIn avoid (replaceListProjections l h t X) = freshIn avoid X := by
   intro avoid

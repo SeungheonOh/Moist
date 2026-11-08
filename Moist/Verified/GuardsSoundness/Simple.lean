@@ -17,6 +17,7 @@ open Moist.Verified.KnownLists
 
 /-! ## Lowered lists -/
 
+omit sv in
 theorem lowerList_get {env : List VarId} :
     ∀ {es : List Expr} {ts : List Term}, MIR.lowerTotalExprList env es = some ts →
       ∀ n : Nat, (∃ e t, es[n]? = some e ∧ ts[n]? = some t ∧ lowerTotalExpr env e = some t) ∨
@@ -31,6 +32,7 @@ theorem lowerList_get {env : List VarId} :
     | zero => exact .inl ⟨e, _, rfl, rfl, he⟩
     | succ n => simpa using lowerList_get hes n
 
+omit sv in
 theorem lowerList_len {env : List VarId} :
     ∀ {es : List Expr} {ts : List Term}, MIR.lowerTotalExprList env es = some ts → ts.length = es.length
   | [], ts, h => by rw [MIR.lowerTotalExprList_nil] at h; cases h; rfl
@@ -45,6 +47,7 @@ theorem lowerList_len {env : List VarId} :
         rw [ha, has] at h; cases h
         simp [lowerList_len has]
 
+omit sv in
 /-- The source element lowered to a target element. -/
 theorem lowerList_elem {env : List VarId} {es : List Expr} {ts : List Term}
     (h : MIR.lowerTotalExprList env es = some ts) {i : Nat} {t : Term} (ht : ts[i]? = some t) :
@@ -53,6 +56,7 @@ theorem lowerList_elem {env : List VarId} {es : List Expr} {ts : List Term}
   · rw [ht] at ht'; cases ht'; exact ⟨e, he, hl⟩
   · rw [ht] at hn; cases hn
 
+omit sv in
 theorem freshInList_get {avoid : List VarId} {es : List Expr} (h : freshInList avoid es = true)
     {i : Nat} {e : Expr} (he : es[i]? = some e) : freshIn avoid e = true :=
   freshInList_iff.mp h e (List.mem_of_getElem? he)

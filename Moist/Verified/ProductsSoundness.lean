@@ -31,6 +31,7 @@ theorem listRel_weaken {G G' : VarId → Prop} {P : List VarId → CekEnv → Ex
   | _ :: _, [], h => absurd h id
   | _ :: _, _ :: _, h => ⟨h.1.weaken hGG, listRel_weaken hGG h.2⟩
 
+omit sv in
 theorem genSafe_mono {n m : Nat} (h : n ≤ m) : ∀ y, GenSafe n y → GenSafe m y :=
   fun _ hy => hy.elim (fun h' => .inl (by omega)) .inr
 

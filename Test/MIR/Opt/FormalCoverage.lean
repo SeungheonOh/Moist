@@ -174,9 +174,9 @@ def tests : TestTree := suite "formal-coverage" do
     let tail := sourceVar 9922
     let datum := BuiltinType.AtomicType .TypeData
     let literalLists : List (Const × BuiltinType) :=
-      [(.ConstList [.Integer 7], .TypeOperator (.TypeList (.AtomicType .TypeInteger))),
-       (.ConstDataList [.I 7], .TypeOperator (.TypeList datum)),
-       (.ConstPairDataList [(.I 7, .I 8)], .TypeOperator (.TypeList (.TypeOperator (.TypePair datum datum))))]
+      [(.ConstList (.AtomicType .TypeInteger) [.Integer 7], .TypeOperator (.TypeList (.AtomicType .TypeInteger))),
+       (.dataList [.I 7], .TypeOperator (.TypeList datum)),
+       (.pairDataList [(.I 7, .I 8)], .TypeOperator (.TypeList (.TypeOperator (.TypePair datum datum))))]
     for literal in literalLists do
       check "runtime list representations remain eligible" (Advanced.knownList 1 [] (.Lit literal))
       let expression := Expr.Let [(list, .Lit literal, false),
@@ -186,7 +186,7 @@ def tests : TestTree := suite "formal-coverage" do
 
   test "data_folding_preserves_reference_list_representation" do
     let dataType := BuiltinType.AtomicType .TypeData
-    let empty := Expr.Lit (.ConstList [],.TypeOperator (.TypeList dataType))
+    let empty := Expr.Lit (.ConstList dataType [],.TypeOperator (.TypeList dataType))
     let constructed := Expr.App (.App (.Force (.Builtin .MkCons))
       (.Lit (.Data (.I 3),dataType))) empty
     let consumed := Expr.App (.App (.Force (.Builtin .MkCons)) (intLit 7)) constructed
@@ -199,7 +199,7 @@ def tests : TestTree := suite "formal-coverage" do
     let dataType := BuiltinType.AtomicType .TypeData
     let annotation := BuiltinType.TypeOperator (.TypeList dataType)
     for fields in [[], [Moist.Plutus.Data.I 5]] do
-      for representation in [Const.ConstList (fields.map Const.Data), .ConstDataList fields] do
+      for representation in [Const.ConstList dataType (fields.map Const.Data), .dataList fields] do
         let constructed := Expr.App (.App (.Force (.Builtin .MkCons))
           (.Lit (.Data (.I 3),dataType))) (.Lit (representation,annotation))
         for head in [intLit 7, .Lit (.Data (.I 7),dataType)] do
@@ -212,15 +212,15 @@ def tests : TestTree := suite "formal-coverage" do
     let annotation := BuiltinType.TypeOperator (.TypeList dataType)
     for fields in [[], [Moist.Plutus.Data.I 5], [.I 5, .B ByteArray.empty]] do
       let constructed := Expr.App (.App (.Force (.Builtin .MkCons))
-        (.Lit (.Data (.I 3),dataType))) (.Lit (.ConstList (fields.map Const.Data),annotation))
+        (.Lit (.Data (.I 3),dataType))) (.Lit (.ConstList dataType (fields.map Const.Data),annotation))
       let folded := Advanced.foldDataConstructors constructed
       check "folding retains the generic list" (folded ==
-        .Lit (.ConstList ((Moist.Plutus.Data.I 3 :: fields).map Const.Data),annotation))
+        .Lit (.ConstList dataType ((Moist.Plutus.Data.I 3 :: fields).map Const.Data),annotation))
       let encodedGeneric := Moist.Plutus.Encode.encode_program
         (.Program (.Version 1 1 0) (.Constant
-          (.ConstList ((Moist.Plutus.Data.I 3 :: fields).map Const.Data),annotation)))
+          (.ConstList dataType ((Moist.Plutus.Data.I 3 :: fields).map Const.Data),annotation)))
       let encodedSpecialized := Moist.Plutus.Encode.encode_program
-        (.Program (.Version 1 1 0) (.Constant (.ConstDataList (.I 3 :: fields),annotation)))
+        (.Program (.Version 1 1 0) (.Constant (.dataList (.I 3 :: fields),annotation)))
       check "representation repair changes no Flat bytes"
         (encodedGeneric.toByteList == encodedSpecialized.toByteList)
 

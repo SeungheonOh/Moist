@@ -35,20 +35,24 @@ theorem FactRel.assertE' {G : VarId → Prop} {P : List VarId → CekEnv → Exp
   unfold Advanced.assertE iteE
   exact .force (.app (.app (.app (FactRel.refl _ _ _ _) h) (FactRel.refl _ _ _ _)) (FactRel.refl _ _ _ _))
 
+omit sv in
 theorem listRel_of_forall {R : Expr → Expr → Prop} {g : Expr → Expr} :
     ∀ {es : List Expr}, (∀ e ∈ es, R e (g e)) → ListRel R es (es.map g)
   | [], _ => trivial
   | e :: _, h => ⟨h e (.head _), listRel_of_forall fun e' he' => h e' (.tail _ he')⟩
 
+omit sv in
 theorem listRel_map_map {R : Expr → Expr → Prop} {f g : Expr → Expr} :
     ∀ {es : List Expr}, (∀ e ∈ es, R (f e) (g e)) → ListRel R (es.map f) (es.map g)
   | [], _ => trivial
   | e :: _, h => ⟨h e (.head _), listRel_map_map fun e' he' => h e' (.tail _ he')⟩
 
+omit sv in
 theorem listRel_refl {R : Expr → Expr → Prop} (hR : ∀ e, R e e) : ∀ (es : List Expr), ListRel R es es
   | [] => trivial
   | e :: es => ⟨hR e, listRel_refl hR es⟩
 
+omit sv in
 theorem lowerList_map_assert {env : List VarId} {u : Const × BuiltinType} :
     ∀ {es : List Expr} {ts : List Term}, MIR.lowerTotalExprList env es = some ts →
       MIR.lowerTotalExprList env (es.map (Advanced.assertE u)) = some (ts.map (assertT · u))
@@ -66,6 +70,7 @@ theorem lowerList_map_assert {env : List VarId} {u : Const × BuiltinType} :
         rw [List.map_cons, MIR.lowerTotalExprList_cons, lower_assertE he, lowerList_map_assert hes]
         rfl
 
+omit sv in
 theorem freshInList_map_assert {avoid : List VarId} {u : Const × BuiltinType} {es : List Expr}
     (h : freshInList avoid es = true) : freshInList avoid (es.map (Advanced.assertE u)) = true := by
   rw [freshInList_iff] at h ⊢
@@ -87,6 +92,7 @@ theorem kind_of_facts {Γ : List (VarId × Expr)} {env : List VarId} {ρ : CekEn
   have h0 := scrutineeKind_sound (c := ⟨Γ, [], []⟩) (inv_of_facts henv hlen hF) hd hts hw
   simpa only using h0
 
+omit sv in
 theorem tagFields_nullary {k : Kind} (hk : k = .bool ∨ k = .int) {w : CekValue} (hkv : KindV k w)
     {i : Nat} {fs : List CekValue} (ht : tagFields w = some (i, fs)) : fs = [] := by
   rcases hk with rfl | rfl
@@ -98,6 +104,7 @@ theorem tagFields_nullary {k : Kind} (hk : k = .bool ∨ k = .int) {w : CekValue
     · simp at ht; exact ht.2
     · simp at ht
 
+omit sv in
 theorem tagFields_list {w : CekValue} (hkv : ListValue w) {i : Nat} {fs : List CekValue}
     (ht : tagFields w = some (i, fs)) : (i = 0 ∧ fs.length = 2) ∨ (i = 1 ∧ fs = []) := by
   cases w with
@@ -108,6 +115,7 @@ theorem tagFields_list {w : CekValue} (hkv : ListValue w) {i : Nat} {fs : List C
       cases l <;> simp [tagFields, constToTagAndFields] at ht <;> obtain ⟨rfl, rfl⟩ := ht <;> simp
   | _ => simp [ListValue] at hkv
 
+omit sv in
 theorem tagFields_pair {w : CekValue} (hkv : PairValue w) {i : Nat} {fs : List CekValue}
     (ht : tagFields w = some (i, fs)) : i = 0 ∧ fs.length = 2 := by
   obtain ⟨n, xs, rfl⟩ := hkv
@@ -121,6 +129,7 @@ theorem pf_push : ∀ (env : List VarId) (ρ : CekEnv) (r : Expr) (v : CekValue)
     (∀ y ∈ env, AnyName y) → EnvDistinct env → freshIn env r = true → Produces env ρ r v → PF env ρ r v :=
   fun _ _ _ _ _ _ hf hp => ⟨hp, hf⟩
 
+omit sv in
 theorem lower_case_of {env : List VarId} {s : Expr} {alts : List Expr} {ts : Term} {talts : List Term}
     (hs : lowerTotalExpr env s = some ts) (ha : MIR.lowerTotalExprList env alts = some talts) :
     lowerTotalExpr env (.Case s alts) = some (.Case ts talts) := by

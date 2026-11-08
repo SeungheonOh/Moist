@@ -82,6 +82,7 @@ def rotRename : Nat → Nat
   | 3 => 1
   | n + 4 => n + 4
 
+omit sv in
 theorem is0preserving_rotRename : FundamentalRefines.Is0Preserving rotRename := by
   refine ⟨rfl, fun n hn => ?_⟩
   match n, hn with
@@ -90,10 +91,12 @@ theorem is0preserving_rotRename : FundamentalRefines.Is0Preserving rotRename := 
   | 3, _ => decide
   | n + 4, _ => simp [rotRename]
 
+omit sv in
 theorem envLookupT_cons_self {a x : VarId} (h : (a == x) = true) (env : List VarId) :
     envLookupT (a :: env) x = some 0 := by
   simp only [envLookupT, envLookupT.go, h, if_true]
 
+omit sv in
 theorem lookupShift_rot {f t x : VarId} (hft : (f == t) = false) (hfx : (f == x) = false)
     (htx : (t == x) = false) (Γ : List VarId) :
     LookupShift rotRename (f :: t :: x :: Γ) (x :: f :: t :: Γ) := by
@@ -124,14 +127,17 @@ theorem lookupShift_rot {f t x : VarId} (hft : (f == t) = false) (hfx : (f == x)
       tr _ _ _ hfz (by rw [Moist.Verified.InlineSoundness.Rename.beq_comm]; exact htz)
     rw [hft] at this; cases this
 
+omit sv in
 theorem lowerTotalExpr_rot {f t x : VarId} (hft : (f == t) = false) (hfx : (f == x) = false)
     (htx : (t == x) = false) (Γ : List VarId) (e : Expr) :
     lowerTotalExpr (x :: f :: t :: Γ) e = (lowerTotalExpr (f :: t :: x :: Γ) e).map (renameTerm rotRename) :=
   lowerTotalExpr_lookupShift e (lookupShift_rot hft hfx htx Γ)
 
+omit sv in
 theorem lookup_extend_three (ρ : CekEnv) (a b c : CekValue) (n : Nat) :
     (((ρ.extend a).extend b).extend c).lookup (n + 4) = ρ.lookup (n + 1) := rfl
 
+omit sv in
 theorem shiftBisimEnv_rot {ρ : CekEnv} {vr vn vc : CekValue} (hvr : ValueWellFormed vr)
     (hvn : ValueWellFormed vn) (hvc : ValueWellFormed vc) :
     ∀ {k : Nat}, EnvWellFormed k ρ →
@@ -146,11 +152,13 @@ theorem shiftBisimEnv_rot {ρ : CekEnv} {vr vn vc : CekValue} (hvr : ValueWellFo
           rw [lookup_extend_three]; exact hl)
       (shiftBisimValue_refl_id u hu)
 
+omit sv in
 /-- The shift bisimulation preserves constants. -/
 theorem shiftBisim_vcon {c : Const} {w : CekValue} (h : ShiftBisimValue (.VCon c) w) :
     w = .VCon c := by
   cases h; rfl
 
+omit sv in
 theorem closedAt_rot {d : Nat} {t : Term} (h : closedAt (d + 3) t = true) :
     closedAt (d + 3) (renameTerm rotRename t) = true :=
   closedAt_rename _ t (d + 3) (d + 3) h fun n hn => by
@@ -161,6 +169,7 @@ theorem closedAt_rot {d : Nat} {t : Term} (h : closedAt (d + 3) t = true) :
     | 3 => simp [rotRename]
     | n + 4 => simp [rotRename]; omega
 
+omit sv in
 theorem closedAt_shift1 {d : Nat} {t : Term} (h : closedAt d t = true) :
     closedAt (d + 1) (renameTerm (shiftRename 1) t) = true :=
   Moist.Verified.closedAt_renameTerm_shiftRename t d 1 (Nat.le_refl 1) (by omega) h

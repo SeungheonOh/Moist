@@ -31,12 +31,12 @@ def inputs : List Expr :=
   ([Moist.Plutus.Data.I 0, .I 3, .B ⟨#[]⟩, .List [], .List [.I 3],
     .List [.I 3, .B ⟨#[1]⟩], .Map [], .Map [(.I 0, .I 1)],
     .Constr 0 [], .Constr 1 [.I 3]].map datum) ++
-  [Expr.Lit (.ConstList [], .TypeOperator (.TypeList (.AtomicType .TypeInteger))),
-   .Lit (.ConstList [.Integer 3, .Integer 4], .TypeOperator (.TypeList (.AtomicType .TypeInteger))),
-   .Lit (.ConstDataList [], Advanced.dataListType),
-   .Lit (.ConstDataList [.I 3, .I 4], Advanced.dataListType),
-   .Lit (.PairData (.I 3, .I 4), .TypeOperator (.TypePair (.AtomicType .TypeData) (.AtomicType .TypeData))),
-   .Lit (.ConstPairDataList [(.I 3, .I 4)], .TypeOperator (.TypeList
+  [Expr.Lit (.ConstList (.AtomicType .TypeInteger) [], .TypeOperator (.TypeList (.AtomicType .TypeInteger))),
+   .Lit (.ConstList (.AtomicType .TypeInteger) [.Integer 3, .Integer 4], .TypeOperator (.TypeList (.AtomicType .TypeInteger))),
+   .Lit (.dataList [], Advanced.dataListType),
+   .Lit (.dataList [.I 3, .I 4], Advanced.dataListType),
+   .Lit (.pairData (.I 3, .I 4), .TypeOperator (.TypePair (.AtomicType .TypeData) (.AtomicType .TypeData))),
+   .Lit (.pairDataList [(.I 3, .I 4)], .TypeOperator (.TypeList
      (.TypeOperator (.TypePair (.AtomicType .TypeData) (.AtomicType .TypeData)))))]
 
 def transformations : List (String × (Expr → Expr)) :=

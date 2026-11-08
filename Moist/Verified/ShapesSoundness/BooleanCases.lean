@@ -25,10 +25,12 @@ open Moist.Verified.BetaValueRefines
 
 /-! ## Small alternatives -/
 
+omit sv in
 theorem smallAlternative_freshIn {a : Expr} (h : smallAlternative a = true) (env : List VarId) :
     freshIn env a = true := by
   cases a <;> simp_all [smallAlternative, freshIn]
 
+omit sv in
 theorem freshInList_small : ∀ {outer : List Expr}, (∀ a ∈ outer, smallAlternative a = true) →
     ∀ env, freshInList env outer = true
   | [], _, _ => by simp [freshInList]
@@ -37,6 +39,7 @@ theorem freshInList_small : ∀ {outer : List Expr}, (∀ a ∈ outer, smallAlte
     exact ⟨smallAlternative_freshIn (h a (.head _)) env,
       freshInList_small (fun b hb => h b (.tail _ hb)) env⟩
 
+omit sv in
 theorem walkBinder_genSafe {base : Nat} {x : VarId} (h : walkBinder base x = true) : GenSafe base x := by
   unfold walkBinder at h
   cases hx : x.origin with
@@ -45,6 +48,7 @@ theorem walkBinder_genSafe {base : Nat} {x : VarId} (h : walkBinder base x = tru
 
 /-! ## Lowering of mapped alternatives -/
 
+omit sv in
 theorem lowerTotalExprList_map_case (env : List VarId) (outer : List Expr) (touter : List Term)
     (houter : MIR.lowerTotalExprList env outer = some touter) :
     ∀ (alts : List Expr) (talts : List Term), MIR.lowerTotalExprList env alts = some talts →
@@ -66,6 +70,7 @@ theorem lowerTotalExprList_map_case (env : List VarId) (outer : List Expr) (tout
           lowerTotalExprList_map_case env outer touter houter as tas has]
         rfl
 
+omit sv in
 theorem listRel_map_of {α : Type} {R : α → α → Prop} {f g : α → α} (h : ∀ a, R (f a) (g a)) :
     ∀ (xs : List α), ListRel R (xs.map f) (xs.map g)
   | [] => trivial
@@ -194,12 +199,14 @@ open Moist.Verified Moist.Verified.Equivalence
 
 /-! ## Moving a case into a Boolean case tree -/
 
+omit sv in
 theorem case_let_cons_lower (outer : List Expr) (b : VarId × Expr × Bool)
     (rest : List (VarId × Expr × Bool)) (body : Expr) (env : List VarId) :
     lowerTotalExpr env (.Case (.Let (b :: rest) body) outer) =
       lowerTotalExpr env (.Case (.Let [b] (.Let rest body)) outer) := by
   rw [MIR.lowerTotalExpr_case_of_list, MIR.lowerTotalExpr_case_of_list, lowerTotalExpr_let_cons]
 
+omit sv in
 theorem case_let_cons_fresh (outer : List Expr) (b : VarId × Expr × Bool)
     (rest : List (VarId × Expr × Bool)) (body : Expr) (avoid : List VarId) :
     freshIn avoid (.Case (.Let (b :: rest) body) outer) =
@@ -207,14 +214,17 @@ theorem case_let_cons_fresh (outer : List Expr) (b : VarId × Expr × Bool)
   obtain ⟨x, r, er⟩ := b
   simp only [freshIn, freshInLet]
 
+omit sv in
 theorem case_let_nil_lower (outer : List Expr) (body : Expr) (env : List VarId) :
     lowerTotalExpr env (.Case (.Let [] body) outer) = lowerTotalExpr env (.Case body outer) := by
   rw [MIR.lowerTotalExpr_case_of_list, MIR.lowerTotalExpr_case_of_list, lowerTotalExpr_let_nil]
 
+omit sv in
 theorem case_let_nil_fresh (outer : List Expr) (body : Expr) (avoid : List VarId) :
     freshIn avoid (.Case (.Let [] body) outer) = freshIn avoid (.Case body outer) := by
   simp only [freshIn, freshInLet]
 
+omit sv in
 theorem pushBooleanCase_fresh (base : Nat) :
     ∀ (fuel : Nat) (Γ : List (VarId × Expr)) (s : Expr) (outer : List Expr) (env : List VarId),
       (∀ a ∈ outer, smallAlternative a = true) → freshIn env (.Case s outer) = true →
@@ -321,6 +331,7 @@ theorem booleanCaseRewrite_factRel (useShapes : Bool) (base : Nat) (Γ : List (V
       · exact FactRel.refl _ _ _ _
     · exact FactRel.refl _ _ _ _
 
+omit sv in
 theorem booleanCaseRewrite_fresh (useShapes : Bool) (base : Nat) (Γ : List (VarId × Expr)) {x : Expr}
     {env : List VarId} (hx : freshIn env x = true) :
     freshIn env (booleanCaseRewrite useShapes base Γ x) = true := by

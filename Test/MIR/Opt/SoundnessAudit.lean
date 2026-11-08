@@ -136,8 +136,8 @@ def tests : TestTree := suite "soundness-audit" do
   test "constant_case_branch_counts" do
     let listType := BuiltinType.TypeOperator (.TypeList (.AtomicType .TypeInteger))
     let dataListType := BuiltinType.TypeOperator (.TypeList (.AtomicType .TypeData))
-    let values := [Expr.Lit (.ConstList [],listType),.Lit (.ConstList [.Integer 3],listType),
-      .Lit (.ConstDataList [],dataListType),.Lit (.ConstDataList [.I 3],dataListType)]
+    let values := [Expr.Lit (.ConstList (.AtomicType .TypeInteger) [],listType),.Lit (.ConstList (.AtomicType .TypeInteger) [.Integer 3],listType),
+      .Lit (.dataList [],dataListType),.Lit (.dataList [.I 3],dataListType)]
     for (value,index) in values.zipIdx do
       for count in List.range 5 do
         let alternatives := [Expr.Lam saved (.Lam duplicate (intLit 7)),intLit 8,
@@ -158,7 +158,7 @@ def tests : TestTree := suite "soundness-audit" do
         ⟨Array.replicate 1025 0x61⟩].zipIdx do
       compare s!"utf8/{index}" (.App (.Builtin .DecodeUtf8)
         (.Lit (.ByteString bytes,.AtomicType .TypeByteString)))
-    let fields := Expr.Lit (.ConstDataList [.I 3],.TypeOperator (.TypeList (.AtomicType .TypeData)))
+    let fields := Expr.Lit (.dataList [.I 3],.TypeOperator (.TypeList (.AtomicType .TypeData)))
     for tag in [Int.negSucc 0,0,6,7,127,128,2 ^ 64 - 1,2 ^ 64] do
       let constructed := Expr.App (.App (.Builtin .ConstrData) (intLit tag)) fields
       compare s!"data-tag/{tag}" (.Let [(saved,constructed,false)] (intLit 7))

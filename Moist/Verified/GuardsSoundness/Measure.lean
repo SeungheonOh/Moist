@@ -33,14 +33,17 @@ def ModeV : VMode → CekValue → Prop
   | .bool, v => ∃ b, v = .VCon (.Bool b)
   | .constrs ks, v => ∃ tag fs, v = .VConstr tag fs ∧ ∀ k, ks[tag]? = some k → fs.length = k
 
+omit sv in
 theorem modeV_term (v : CekValue) : ModeV .term v := trivial
 
+omit sv in
 theorem ModeV.inert : ∀ {m : VMode} {v : CekValue}, m ≠ .term → ModeV m v → InertV v
   | .term, _, h, _ => absurd rfl h
   | .inert, _, _, h => h
   | .bool, _, _, ⟨_, h⟩ => by subst h; trivial
   | .constrs _, _, _, ⟨_, _, h, _⟩ => by subst h; trivial
 
+omit sv in
 theorem VMode.covers_sound : ∀ {got want : VMode}, got.covers want = true →
     ∀ {v : CekValue}, ModeV got v → ModeV want v
   | _, .term, _, _, _ => trivial
@@ -55,12 +58,14 @@ theorem VMode.covers_sound : ∀ {got want : VMode}, got.covers want = true →
   | .inert, .bool, h, _, _ | .inert, .constrs _, h, _, _ | .bool, .constrs _, h, _, _
   | .constrs _, .bool, h, _, _ => by simp [VMode.covers] at h
 
+omit sv in
 theorem VMode.applied_ne_term : ∀ (m : VMode), m.applied ≠ .term
   | .term => by simp [VMode.applied]
   | .inert => by simp [VMode.applied]
   | .bool => by simp [VMode.applied]
   | .constrs _ => by simp [VMode.applied]
 
+omit sv in
 theorem VMode.applied_sound : ∀ {m : VMode} {v : CekValue}, ModeV m.applied v → ModeV m v
   | .term, _, _ => trivial
   | .inert, _, h => h
@@ -123,6 +128,7 @@ mutual
 end
 end
 
+omit sv in
 theorem vsize_le_list : ∀ {fs : List CekValue} {f : CekValue}, f ∈ fs → vsize f ≤ vsizeList fs
   | [], _, h => by cases h
   | g :: gs, f, h => by
@@ -130,27 +136,12 @@ theorem vsize_le_list : ∀ {fs : List CekValue} {f : CekValue}, f ∈ fs → vs
     · simp only [vsizeList]; omega
     · have := vsize_le_list h; simp only [vsizeList]; omega
 
+omit sv in
 theorem constToTagAndFields_smaller {c : Const} {tag n : Nat} {fs : List CekValue}
     (h : constToTagAndFields c = some (tag, n, fs)) : ∀ f ∈ fs, vsize f < vsize (.VCon c) := by
   intro f hf
   cases c with
-  | ConstList l =>
-    cases l with
-    | nil => simp [constToTagAndFields] at h; obtain ⟨_, _, rfl⟩ := h; cases hf
-    | cons a t =>
-      simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at h
-      obtain ⟨_, _, rfl⟩ := h
-      simp only [List.mem_cons, List.not_mem_nil, or_false] at hf
-      rcases hf with rfl | rfl <;> simp [vsize] <;> omega
-  | ConstDataList l =>
-    cases l with
-    | nil => simp [constToTagAndFields] at h; obtain ⟨_, _, rfl⟩ := h; cases hf
-    | cons a t =>
-      simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at h
-      obtain ⟨_, _, rfl⟩ := h
-      simp only [List.mem_cons, List.not_mem_nil, or_false] at hf
-      rcases hf with rfl | rfl <;> simp [vsize] <;> omega
-  | ConstPairDataList l =>
+  | ConstList _ l =>
     cases l with
     | nil => simp [constToTagAndFields] at h; obtain ⟨_, _, rfl⟩ := h; cases hf
     | cons a t =>
@@ -159,12 +150,6 @@ theorem constToTagAndFields_smaller {c : Const} {tag n : Nat} {fs : List CekValu
       simp only [List.mem_cons, List.not_mem_nil, or_false] at hf
       rcases hf with rfl | rfl <;> simp [vsize] <;> omega
   | Pair p =>
-    obtain ⟨a, b⟩ := p
-    simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at h
-    obtain ⟨_, _, rfl⟩ := h
-    simp only [List.mem_cons, List.not_mem_nil, or_false] at hf
-    rcases hf with rfl | rfl <;> simp [vsize] <;> omega
-  | PairData p =>
     obtain ⟨a, b⟩ := p
     simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at h
     obtain ⟨_, _, rfl⟩ := h
@@ -180,6 +165,7 @@ theorem constToTagAndFields_smaller {c : Const} {tag n : Nat} {fs : List CekValu
     · cases h
   | _ => simp [constToTagAndFields] at h
 
+omit sv in
 /-- Every field a case dispatch passes is smaller than the scrutinee. -/
 theorem dispatch_smaller {alts : List Term} {w : CekValue} {alt : Term} {fs : List CekValue}
     (h : dispatch alts w = some (alt, fs)) : ∀ f ∈ fs, vsize f < vsize w := by

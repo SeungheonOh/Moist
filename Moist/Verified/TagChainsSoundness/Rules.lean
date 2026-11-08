@@ -50,6 +50,7 @@ theorem FactRel.post {Γ : List (VarId × Expr)} {e e' e'' : Expr}
 
 /-! ## Bound tags -/
 
+omit sv in
 /-- The variable of a resolved partial application is bound. -/
 theorem resolveHead_app2_var_bound :
     ∀ (n : Nat) (Γ : List (VarId × Expr)) (e : Expr) {g Y : Expr} {l : VarId} {env : List VarId},
@@ -99,6 +100,7 @@ theorem resolveHead_app2_var_bound :
     | Lit _ | Error | Lam _ _ | Fix _ _ | Delay _ | Constr _ _ | Case _ _ | Let _ _ | Builtin _ =>
       simp only [resolveHead] at hres; cases hres
 
+omit sv in
 theorem resolvedTagTest_bound {Γ : List (VarId × Expr)} {s : Expr} {t : VarId} {c : Int}
     {env : List VarId} (h : resolvedTagTest Γ s = some (t, c)) (hs : FactsScoped Γ env)
     (hd : EnvDistinct env) (hlow : (lowerTotalExpr env s).isSome = true) :
@@ -182,6 +184,7 @@ def placeTerm (alts : List Term) (index : Nat) (alt : Term) : List Term :=
   if index < alts.length then alts.set index alt
   else alts ++ List.replicate (index - alts.length) .Error ++ [alt]
 
+omit sv in
 theorem lowerTotalExprList_append (env : List VarId) :
     ∀ {xs ys : List Expr} {txs tys : List Term}, MIR.lowerTotalExprList env xs = some txs →
       MIR.lowerTotalExprList env ys = some tys →
@@ -200,6 +203,7 @@ theorem lowerTotalExprList_append (env : List VarId) :
         rw [List.cons_append, MIR.lowerTotalExprList_cons, h₁, lowerTotalExprList_append env h₂ hy]
         rfl
 
+omit sv in
 theorem lowerTotalExprList_errors (env : List VarId) :
     ∀ n, MIR.lowerTotalExprList env (errorAlternatives n) = some (List.replicate n .Error)
   | 0 => MIR.lowerTotalExprList_nil env
@@ -210,6 +214,7 @@ theorem lowerTotalExprList_errors (env : List VarId) :
     simp only [errorAlternatives] at this
     rw [this]; rfl
 
+omit sv in
 theorem lowerTotalExprList_set (env : List VarId) :
     ∀ {xs : List Expr} {txs : List Term} {a : Expr} {ta : Term} (i : Nat),
       MIR.lowerTotalExprList env xs = some txs → lowerTotalExpr env a = some ta →
@@ -234,6 +239,7 @@ theorem lowerTotalExprList_set (env : List VarId) :
           simp only [List.set_cons_succ]
           rw [MIR.lowerTotalExprList_cons, h₁, lowerTotalExprList_set env i h₂ ha]; rfl
 
+omit sv in
 theorem lowerTotalExprList_length {env : List VarId} :
     ∀ {xs : List Expr} {txs : List Term}, MIR.lowerTotalExprList env xs = some txs →
       txs.length = xs.length
@@ -249,6 +255,7 @@ theorem lowerTotalExprList_length {env : List VarId} :
         rw [h₁, h₂] at hx; cases hx
         simp [lowerTotalExprList_length h₂]
 
+omit sv in
 theorem lowerTotalExprList_place {env : List VarId} {xs : List Expr} {txs : List Term}
     {a : Expr} {ta : Term} (i : Nat) (hx : MIR.lowerTotalExprList env xs = some txs)
     (ha : lowerTotalExpr env a = some ta) :
@@ -261,6 +268,7 @@ theorem lowerTotalExprList_place {env : List VarId} {xs : List Expr} {txs : List
       (lowerTotalExprList_errors env _)) ?_
     rw [MIR.lowerTotalExprList_cons, ha, MIR.lowerTotalExprList_nil]; rfl
 
+omit sv in
 /-- The placed alternative is selected for its index; every other index
     selects the same alternative as before, or a padding `error` where
     there was none. -/
@@ -363,6 +371,7 @@ theorem tag_case_obs {ρ : CekEnv} {π : Stack} {ts tX tO tM : Term} {c : Nat}
       rw [hnone] at h
       exact obsRefines_trans h (obsRefines_error_compute π ρ)
 
+omit sv in
 theorem lowerTotalExpr_case_subject {env : List VarId} {subject : Expr} {tX : Term}
     {alts : List Expr} {talts : List Term} (hX : lowerTotalExpr env subject = some tX)
     (halts : MIR.lowerTotalExprList env alts = some talts) :
@@ -412,15 +421,23 @@ theorem integerCaseRule_rewrites {Γ : List (VarId × Expr)} {scrutinee otherwis
 
 /-! ## Ranges of failing tests -/
 
-theorem evalBuiltin_lessThanEqualsInteger (x y : Int) :
+theorem evalBuiltin_lessThanEqualsInteger (x y : Int) (bx : x.natAbs < 2 ^ 64)
+    (byy : y.natAbs < 2 ^ 64) :
     evalBuiltin .LessThanEqualsInteger [.VCon (.Integer y), .VCon (.Integer x)] =
-      some (.VCon (.Bool (decide (x ≤ y)))) := rfl
+      some (.VCon (.Bool (decide (x ≤ y)))) := by
+  rw [show [CekValue.VCon (.Integer y), .VCon (.Integer x)] =
+    [Const.Integer y, .Integer x].map CekValue.VCon from rfl, evalBuiltin_consts _ _ rfl]
+  have ox := cIntegerOk_of_natAbs_lt sv x bx
+  have oy := cIntegerOk_of_natAbs_lt sv y byy
+  change (if (cIntegerOk sv x && cIntegerOk sv y) = true then some (Const.Bool (decide (x ≤ y)))
+    else none).map CekValue.VCon = _
+  rw [ox, oy]; rfl
 
 theorem lessEqual_halts {ρ : CekEnv} {tx ty : Term} {x y : Int} (hx : Halts ρ tx (.VCon (.Integer x)))
-    (hy : Halts ρ ty (.VCon (.Integer y))) :
+    (hy : Halts ρ ty (.VCon (.Integer y))) (bx : x.natAbs < 2 ^ 64) (byy : y.natAbs < 2 ^ 64) :
     Halts ρ (.Apply (.Apply (.Builtin .LessThanEqualsInteger) tx) ty) (.VCon (.Bool (decide (x ≤ y)))) :=
   halts_apply_intro (halts_apply_intro ⟨2, rfl⟩ hx (builtin_partial_reaches rfl rfl)) hy
-    (builtin_final_reaches rfl rfl (evalBuiltin_lessThanEqualsInteger x y))
+    (builtin_final_reaches rfl rfl (evalBuiltin_lessThanEqualsInteger x y bx byy))
 
 theorem case_bool_halts {ρ : CekEnv} {s a₀ a₁ : Term} {b : Bool} {v : CekValue}
     (hs : Halts ρ s (.VCon (.Bool b))) (ha : Halts ρ (if b then a₁ else a₀) v) :
@@ -436,13 +453,14 @@ def rangeTerm (j : Nat) (low high : Int) (ty₁ ty₂ ty₃ : BuiltinType) (tD :
     [tD, .Error]
 
 theorem rangeTerm_reaches {ρ : CekEnv} {π : Stack} {j : Nat} {n low high : Int}
-    {ty₁ ty₂ ty₃ : BuiltinType} {tD : Term} (hn : ρ.lookup j = some (.VCon (.Integer n))) :
+    {ty₁ ty₂ ty₃ : BuiltinType} {tD : Term} (hn : ρ.lookup j = some (.VCon (.Integer n)))
+    (bn : n.natAbs < 2 ^ 64) (blow : low.natAbs < 2 ^ 64) (bhigh : high.natAbs < 2 ^ 64) :
     (low ≤ n ∧ n ≤ high → Reaches (.compute π ρ (rangeTerm j low high ty₁ ty₂ ty₃ tD)) .error) ∧
     (¬ (low ≤ n ∧ n ≤ high) →
       Reaches (.compute π ρ (rangeTerm j low high ty₁ ty₂ ty₃ tD)) (.compute π ρ tD)) := by
   have hvar := halts_var_of_lookup hn
-  have hlow := lessEqual_halts (halts_constant_of (.Integer low) ty₁) hvar
-  have hhigh := lessEqual_halts hvar (halts_constant_of (.Integer high) ty₃)
+  have hlow := lessEqual_halts (halts_constant_of (.Integer low) ty₁) hvar blow bn
+  have hhigh := lessEqual_halts hvar (halts_constant_of (.Integer high) ty₃) bn bhigh
   have inner : Halts ρ (.Case (.Apply (.Apply (.Builtin .LessThanEqualsInteger)
       (.Constant (.Integer low, ty₁))) (.Var j)) [.Constant (.Bool false, ty₂),
       .Apply (.Apply (.Builtin .LessThanEqualsInteger) (.Var j)) (.Constant (.Integer high, ty₃))])
@@ -467,6 +485,7 @@ theorem rangeTerm_reaches {ρ : CekEnv} {π : Stack} {j : Nat} {n low high : Int
     rw [this] at outer
     exact outer
 
+omit sv in
 theorem lowerTotalExpr_lessEqual (env : List VarId) (x y : Expr) :
     lowerTotalExpr env (lessEqualInteger x y) =
       (do let tx ← lowerTotalExpr env x
@@ -476,6 +495,7 @@ theorem lowerTotalExpr_lessEqual (env : List VarId) (x y : Expr) :
   rw [MIR.lowerTotalExpr_app, MIR.lowerTotalExpr_app, lowerTotalExpr_builtin]
   cases lowerTotalExpr env x <;> cases lowerTotalExpr env y <;> rfl
 
+omit sv in
 theorem lowerTotalExpr_rangeCase {env : List VarId} {t : VarId} {i : Nat} {low high : Int}
     {D : Expr} {tD : Term} (hi : envLookupT env t = some i) (hD : lowerTotalExpr env D = some tD) :
     lowerTotalExpr env (rangeCase t low high D) =
@@ -497,6 +517,7 @@ def rangeExpr (first second : VarId) (low high : Int) (ty₁ ty₂ ty₃ : Built
        .App (.App (.Builtin .LessThanEqualsInteger) (.Var second)) (.Lit (.Integer high, ty₃))])
     [D, .Error]
 
+omit sv in
 theorem lowerTotalExpr_rangeExpr {env : List VarId} {first second : VarId} {i : Nat}
     {low high : Int} {ty₁ ty₂ ty₃ : BuiltinType} {D : Expr}
     (h₁ : envLookupT env first = some i) (h₂ : envLookupT env second = some i) :
@@ -515,11 +536,13 @@ theorem lowerTotalExpr_rangeExpr {env : List VarId} {first second : VarId} {i : 
     rw [MIR.lowerTotalExprList_cons, lowerTotalExpr_error, MIR.lowerTotalExprList_nil]
     rfl
 
+omit sv in
 theorem rangeCase_eq (t : VarId) (low high : Int) (D : Expr) :
     rangeCase t low high D =
       rangeExpr t t low high (.AtomicType .TypeInteger) (.AtomicType .TypeBool)
         (.AtomicType .TypeInteger) D := rfl
 
+omit sv in
 theorem rangeOf_some {t : VarId} {e : Expr} {low high : Int} {D : Expr}
     (h : rangeOf t e = some (low, high, D)) :
     ∃ first second ty₁ ty₂ ty₃, (first == t) = true ∧ (second == t) = true ∧
@@ -591,6 +614,7 @@ theorem errorSpine_sound (Γ : List (VarId × Expr)) (t : VarId) (e : Expr) {env
 termination_by exprSize e
 decreasing_by subst_vars; simp only [exprSize, exprSizeList]; omega
 
+omit sv in
 theorem foldl_min_le : ∀ (vs : List Int) (a : Int),
     vs.foldl min a ≤ a ∧ ∀ x ∈ vs, vs.foldl min a ≤ x
   | [], a => ⟨Int.le_refl a, by simp⟩
@@ -602,6 +626,7 @@ theorem foldl_min_le : ∀ (vs : List Int) (a : Int),
     · omega
     · exact h₂ x hx
 
+omit sv in
 theorem le_foldl_max : ∀ (vs : List Int) (a : Int),
     a ≤ vs.foldl max a ∧ ∀ x ∈ vs, x ≤ vs.foldl max a
   | [], a => ⟨Int.le_refl a, by simp⟩
@@ -613,6 +638,7 @@ theorem le_foldl_max : ∀ (vs : List Int) (a : Int),
     · omega
     · exact h₂ x hx
 
+omit sv in
 theorem coversRange_mem {values : List Int} {low high n : Int} (h : coversRange values low high = true)
     (h₁ : low ≤ n) (h₂ : n ≤ high) : n ∈ values := by
   unfold coversRange at h
@@ -621,13 +647,25 @@ theorem coversRange_mem {values : List Int} {low high n : Int} (h : coversRange 
   rw [show low + ((n - low).toNat : Int) = n by omega] at hm
   simpa using hm
 
+omit sv in
 theorem int_min_cases (a b : Int) : min a b ≤ a ∧ min a b ≤ b ∧ (min a b = a ∨ min a b = b) := by
   refine ⟨Int.min_le_left a b, Int.min_le_right a b, ?_⟩
   rw [Int.min_def]; split <;> simp
 
+omit sv in
 theorem int_max_cases (a b : Int) : a ≤ max a b ∧ b ≤ max a b ∧ (max a b = a ∨ max a b = b) := by
   refine ⟨Int.le_max_left a b, Int.le_max_right a b, ?_⟩
   rw [Int.max_def]; split <;> simp
+
+omit sv in
+theorem natAbs_min_lt {a b : Int} {k : Nat} (ha : a.natAbs < k) (hb : b.natAbs < k) :
+    (min a b).natAbs < k := by
+  rw [Int.min_def]; split <;> assumption
+
+omit sv in
+theorem natAbs_max_lt {a b : Int} {k : Nat} (ha : a.natAbs < k) (hb : b.natAbs < k) :
+    (max a b).natAbs < k := by
+  rw [Int.max_def]; split <;> assumption
 
 theorem rangeRule_rewrites {Γ : List (VarId × Expr)} {scrutinee otherwise out : Expr}
     {t : VarId} {c : Int} (htest : resolvedTagTest Γ scrutinee = some (t, c))
@@ -645,11 +683,23 @@ theorem rangeRule_rewrites {Γ : List (VarId × Expr)} {scrutinee otherwise out 
     exact ⟨n, hn, hv⟩
   unfold rangeRule at hrule
   split at hrule
+  · cases hrule
+  rename_i hguard
+  have hguard' : boundedInteger 64 Γ (.Var t) = true ∧ c.natAbs < 2 ^ 64 := by
+    simpa using hguard
+  have bounded : ∀ ρ n, FactsHold Produces Γ env ρ → ρ.lookup (i + 1) = some (.VCon (.Integer n)) →
+      n.natAbs < 2 ^ 64 := by
+    intro ρ n hF hn
+    obtain ⟨m, hm, hb⟩ := boundedInteger_sound (P := Produces) (fun _ _ _ _ h => h) 64 Γ (.Var t)
+      hguard'.1 hF hd (by rw [lowerTotalExpr_var, hi]; rfl) (halts_var_of_lookup hn)
+    cases hm; exact hb
+  split at hrule
   · rename_i low high D hrange
     split at hrule
     · rename_i hcond
       cases hrule
       simp only [Bool.and_eq_true, decide_eq_true_eq] at hcond
+      obtain ⟨⟨⟨hc₁, hc₂⟩, blow⟩, bhigh⟩ := hcond
       obtain ⟨first, second, ty₁, ty₂, ty₃, hf, hs', rfl⟩ := rangeOf_some hrange
       rw [lowerTotalExpr_rangeExpr (by rw [envLookupT_congr hf, hi])
         (by rw [envLookupT_congr hs', hi])] at htO
@@ -660,13 +710,15 @@ theorem rangeRule_rewrites {Γ : List (VarId × Expr)} {scrutinee otherwise out 
         refine ⟨_, by rw [rangeCase_eq, lowerTotalExpr_rangeExpr hi hi, hD]; rfl, ?_⟩
         intro ρ π henv _ _ hF
         obtain ⟨n, hn, hv⟩ := value ρ hF henv
+        have bn := bounded ρ n hF hn
         have step := case_bool_steps (π := π) (a₀ := rangeTerm (i + 1) low high ty₁ ty₂ ty₃ tD)
           (a₁ := .Error) hv
         obtain ⟨hin, hout⟩ := rangeTerm_reaches (π := π) (low := low) (high := high)
-          (ty₁ := ty₁) (ty₂ := ty₂) (ty₃ := ty₃) (tD := tD) hn
+          (ty₁ := ty₁) (ty₂ := ty₂) (ty₃ := ty₃) (tD := tD) hn bn blow bhigh
         obtain ⟨hin', hout'⟩ := rangeTerm_reaches (π := π) (low := min low c) (high := max high c)
           (ty₁ := .AtomicType .TypeInteger) (ty₂ := .AtomicType .TypeBool)
-          (ty₃ := .AtomicType .TypeInteger) (tD := tD) hn
+          (ty₃ := .AtomicType .TypeInteger) (tD := tD) hn bn (natAbs_min_lt blow hguard'.2)
+          (natAbs_max_lt bhigh hguard'.2)
         have hmin := int_min_cases low c
         have hmax := int_max_cases high c
         generalize min low c = low' at hin' hout' hmin ⊢
@@ -688,18 +740,19 @@ theorem rangeRule_rewrites {Γ : List (VarId × Expr)} {scrutinee otherwise out 
     · rename_i hcond
       cases hrule
       simp only [Bool.and_eq_true, decide_eq_true_eq] at hcond
-      obtain ⟨hwide, hcover⟩ := hcond
+      obtain ⟨⟨⟨hwide, hcover⟩, blow⟩, bhigh⟩ := hcond
       obtain ⟨tD, htD, hsem⟩ := errorSpine_sound Γ t otherwise hd hs hi htO
       refine ⟨_, lowerTotalExpr_rangeCase hi htD, ?_⟩
       intro ρ π henv _ _ hF
       obtain ⟨n, hn, hv⟩ := value ρ hF henv
+      have bn := bounded ρ n hF hn
       obtain ⟨hin, hout⟩ := hsem ρ π n hF henv hn
       have step := case_bool_steps (π := π) (a₀ := tO) (a₁ := .Error) hv
       obtain ⟨hin', hout'⟩ := rangeTerm_reaches (π := π)
         (low := (errorSpine Γ t otherwise).1.foldl min c)
         (high := (errorSpine Γ t otherwise).1.foldl max c)
         (ty₁ := .AtomicType .TypeInteger) (ty₂ := .AtomicType .TypeBool)
-        (ty₃ := .AtomicType .TypeInteger) (tD := tD) hn
+        (ty₃ := .AtomicType .TypeInteger) (tD := tD) hn bn blow bhigh
       have hmin := foldl_min_le (errorSpine Γ t otherwise).1 c
       have hmax := le_foldl_max (errorSpine Γ t otherwise).1 c
       by_cases hnc : n = c

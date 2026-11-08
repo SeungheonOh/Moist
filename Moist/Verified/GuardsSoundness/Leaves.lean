@@ -14,6 +14,7 @@ open Moist.Verified.ShapeFacts
 open Moist.Verified.FailFast
 open Moist.Verified.KnownLists
 
+omit sv in
 theorem KindV.inert : ∀ {k : Kind} {w : CekValue}, k ≠ .unknown → KindV k w → InertV w
   | .bool, _, _, ⟨_, h⟩ => by subst h; trivial
   | .int, _, _, ⟨_, h⟩ => by subst h; trivial

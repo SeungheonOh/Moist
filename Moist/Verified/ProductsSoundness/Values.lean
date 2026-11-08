@@ -20,10 +20,10 @@ open Moist.Verified Moist.Verified.Equivalence
 
 /-- A builtin pair constant. -/
 def ProductValue (v : CekValue) : Prop :=
-  (∃ a b, v = .VCon (.Pair (a, b))) ∨ (∃ a b, v = .VCon (.PairData (a, b)))
+  ∃ a b, v = .VCon (.Pair (a, b))
 
 theorem mkPairData_const {c₁ c₂ r : Const} (h : evalBuiltinConst .MkPairData [c₁, c₂] = some r) :
-    ∃ a b, r = .PairData (a, b) := by
+    ∃ a b, r = .Pair (a, b) := by
   cases c₁ <;> cases c₂ <;> (try cases h) <;> exact ⟨_, _, rfl⟩
 
 theorem mkPairData_result {vs : List CekValue} {v : CekValue} (hlen : vs.length = 2)
@@ -39,7 +39,7 @@ theorem mkPairData_result {vs : List CekValue} {v : CekValue} (hlen : vs.length 
     | some r =>
       rw [hc] at h; cases h
       obtain ⟨a, b, rfl⟩ := mkPairData_const hc
-      exact .inr ⟨_, _, rfl⟩
+      exact ⟨_, _, rfl⟩
 
 /-- Resolved pair producers return pairs. -/
 theorem resolveHead_product :
@@ -61,7 +61,7 @@ theorem resolveHead_product :
     · have hstate := resolveHead_protocol produces_hP k Γ f (by rw [hf]; rfl) hfacts hd htf hwf
       obtain ⟨args, hlen, heval⟩ := saturated_apply hstate rest
       obtain ⟨i, fields, rfl⟩ := unConstrData_result hlen heval
-      exact .inl ⟨_, _, rfl⟩
+      exact ⟨_, _, rfl⟩
     · have hstate := resolveHead_protocol produces_hP k Γ f (by rw [hf]; rfl) hfacts hd htf hwf
       obtain ⟨args, hlen, heval⟩ := saturated_apply hstate rest
       exact mkPairData_result hlen heval
@@ -124,10 +124,8 @@ theorem product_components {v : CekValue} (h : ProductValue v) :
         Reaches (.ret (.caseScrutinee [.Lam 0 (.Lam 0 body)] ρ :: π) v)
           (.compute π ((ρ.extend (.VCon a)).extend (.VCon b)) body)) ∧
       evalBuiltin .FstPair [v] = some (.VCon a) ∧ evalBuiltin .SndPair [v] = some (.VCon b) := by
-  rcases h with ⟨a, b, rfl⟩ | ⟨a, b, rfl⟩
-  · exact ⟨a, b, fun π ρ body => ⟨5, by simp [steps, step, constToTagAndFields, CekEnv.extend]⟩,
-      rfl, rfl⟩
-  · exact ⟨.Data a, .Data b,
-      fun π ρ body => ⟨5, by simp [steps, step, constToTagAndFields, CekEnv.extend]⟩, rfl, rfl⟩
+  obtain ⟨a, b, rfl⟩ := h
+  exact ⟨a, b, fun π ρ body => ⟨5, by simp [steps, step, constToTagAndFields, CekEnv.extend]⟩,
+    rfl, rfl⟩
 
 end Moist.Verified.ShapeFacts

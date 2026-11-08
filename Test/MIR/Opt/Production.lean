@@ -257,10 +257,10 @@ def tests : TestTree := suite "production" do
   test "typed_data_constructors_and_empty_lists" do
     let listType : BuiltinType := .TypeOperator (.TypeList (.AtomicType .TypeData))
     for fields in [[], [.Data (.I 0)], [.Data (.List [])]] do
-      let literal := Expr.Lit (.ConstList fields, listType)
+      let literal := Expr.Lit (.ConstList (.AtomicType .TypeData) fields, listType)
       observeProfiles "data/list" (.App (.Builtin .ListData) literal)
       observeProfiles "data/constr" (.App (.App (.Builtin .ConstrData) (intLit 0)) literal)
-    let wrongList := Expr.Lit (.ConstList [], .TypeOperator (.TypeList (.AtomicType .TypeInteger)))
+    let wrongList := Expr.Lit (.ConstList (.AtomicType .TypeInteger) [], .TypeOperator (.TypeList (.AtomicType .TypeInteger)))
     check "folding retains the empty list element type"
       (alphaEq (Advanced.foldDataConstructors (.App (.Builtin .ListData) wrongList))
         (.App (.Builtin .ListData) wrongList))
@@ -287,15 +287,15 @@ def tests : TestTree := suite "production" do
     let integerListType : BuiltinType := .TypeOperator (.TypeList integerType)
     let nestedListType : BuiltinType := .TypeOperator (.TypeList integerListType)
     let tail := Expr.Lam first (.Lam second (.Var second))
-    let list := Expr.Lit (.ConstList [.Integer 1, .Integer 2], integerListType)
+    let list := Expr.Lit (.ConstList integerType [.Integer 1, .Integer 2], integerListType)
     observeProfiles "integer list tail" (.Case list [tail, .Error])
-    let singleton := Expr.Lit (.ConstList [.Integer 1], integerListType)
+    let singleton := Expr.Lit (.ConstList integerType [.Integer 1], integerListType)
     observeProfiles "empty integer list tail" (.Case singleton [tail, .Error])
-    let nested := Expr.Lit (.ConstList [.ConstList []], nestedListType)
+    let nested := Expr.Lit (.ConstList integerListType [.ConstList integerType []], nestedListType)
     observeProfiles "nested empty integer list" (.Case nested
       [.Lam first (.Lam second (.Var first)), .Error])
     let pairType : BuiltinType := .TypeOperator (.TypePair integerType integerListType)
-    let pair := Expr.Lit (.Pair (.Integer 1, .ConstList []), pairType)
+    let pair := Expr.Lit (.Pair (.Integer 1, .ConstList integerType []), pairType)
     observeProfiles "pair empty integer list" (.Case pair [tail])
   test "trace_matches_actual_optimizer" do
     for seed in List.range 64 do

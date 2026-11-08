@@ -1,5 +1,7 @@
 import Moist.Verified.GuardsSoundness.Units
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Freshness under more names -/
 
 namespace Moist.Verified.Guards
@@ -12,11 +14,13 @@ theorem freshIn_mono {l₁ l₂ : List VarId} (h : ∀ y, (envLookupT l₂ y).is
     {e : Expr} (he : freshIn l₁ e = true) : freshIn l₂ e = true :=
   freshIn_avoids e he fun y hy => .inl (h y hy)
 
+omit sv in
 theorem lookup_append_isSome {pre env : List VarId} {y : VarId} :
     (envLookupT (pre ++ env) y).isSome = ((envLookupT pre y).isSome || (envLookupT env y).isSome) := by
   rw [envLookupT_append]
   cases envLookupT pre y <;> simp
 
+omit sv in
 theorem lookup_isNone_of_contains {l : List VarId} {x : VarId} (h : l.contains x = false) :
     (envLookupT l x).isNone = true := by
   induction l with
@@ -32,6 +36,7 @@ theorem lookup_isNone_of_contains {l : List VarId} {x : VarId} (h : l.contains x
     simp only [hyx, Bool.false_eq_true, if_false, Option.isNone_map]
     exact ih h.2
 
+omit sv in
 theorem flatten_contains_false {ls : List (List VarId)} {y : VarId} :
     ls.flatten.contains y = false ↔ ∀ l ∈ ls, l.contains y = false := by
   induction ls with
@@ -62,6 +67,7 @@ theorem cons_swap_lookup (x y : VarId) (avoid : List VarId) :
   · exact .inl h
   · exact .inr (.inr h)
 
+omit sv in
 theorem binds_attach_map (bs : List (VarId × Expr × Bool)) :
     (bs.attach.map fun ⟨(y, r, _), _⟩ => y :: bindersOf r) = bs.map fun (y, r, _) => y :: bindersOf r := by
   induction bs with

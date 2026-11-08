@@ -25,7 +25,6 @@ theorem simplify_refines (e : Expr) : MIRCtxRefines e (Advanced.simplify e) := b
     (mirCtxRefines_trans (constantFold_refines _)
       (mirCtxRefines_trans (foldDataConstructors_refines _)
         (mirCtxRefines_trans (specializeDataChecks_refines _)
-          (mirCtxRefines_trans (insertKeyBytes_refines _)
-            (mirCtxRefines_trans (shapeDCE_refines _) (caseTagChains_refines _))))))
+          (mirCtxRefines_trans (shapeDCE_refines _) (caseTagChains_refines _)))))
 
 end Moist.Verified.MIR

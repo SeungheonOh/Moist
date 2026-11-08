@@ -26,6 +26,7 @@ theorem PF_push : ∀ env ρ rhs v, Produces env ρ rhs v → freshIn env rhs = 
 
 /-! ## Identifiers -/
 
+omit sv in
 theorem maxUidExpr_lambdas_binder : ∀ (binders : List VarId) (body : Expr) (x : VarId), x ∈ binders →
     x.uid ≤ maxUidExpr (lambdas binders body)
   | [], _, _, h => by cases h
@@ -35,6 +36,7 @@ theorem maxUidExpr_lambdas_binder : ∀ (binders : List VarId) (body : Expr) (x 
     · omega
     · have := maxUidExpr_lambdas_binder ys body x h; omega
 
+omit sv in
 theorem maxUidExpr_lambdas_body : ∀ (binders : List VarId) (body : Expr),
     maxUidExpr body ≤ maxUidExpr (lambdas binders body)
   | [], _ => by simp [lambdas]
@@ -42,6 +44,7 @@ theorem maxUidExpr_lambdas_body : ∀ (binders : List VarId) (body : Expr),
     simp only [lambdas, maxUidExpr]
     have := maxUidExpr_lambdas_body ys body; omega
 
+omit sv in
 theorem maxUidExpr_replaceReads (record : VarId) (fields : List VarId) (M : Nat)
     (hM : ∀ y ∈ fields, y.uid ≤ M) (X : Expr) :
     maxUidExpr (replaceReads record fields X) ≤ max (maxUidExpr X) M := by
@@ -125,6 +128,7 @@ theorem AltsRel.weaken {G G' : VarId → Prop} {Γ : List (VarId × Expr)} {scru
 
 /-! ## The walk -/
 
+omit sv in
 theorem splitsAt_lam (x : VarId) (inner : Expr) (candidate : VarId × Nat) :
     splitsAt (.Lam x inner) candidate = false := by
   unfold splitsAt
@@ -132,6 +136,7 @@ theorem splitsAt_lam (x : VarId) (inner : Expr) (candidate : VarId × Nat) :
   apply Nat.lt_of_le_of_lt (List.length_filter_le _ _)
   simp
 
+omit sv in
 /-- The walk never unpacks at a lambda: its reads all lie in its body. -/
 theorem recordWalk_lam (Γ : List (VarId × Expr)) (candidates : List (VarId × Nat)) (x : VarId)
     (inner : Expr) (next : Nat) :

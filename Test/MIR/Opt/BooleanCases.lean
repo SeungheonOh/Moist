@@ -30,7 +30,7 @@ private def booleanConsumer (condition : Expr) : Expr :=
     (.Delay (trace "yes" (intLit 11)))) (.Delay (trace "no" (intLit 22))))
 
 private def integerList (values : List Int) : Expr :=
-  .Lit (.ConstList (values.map .Integer),.TypeOperator (.TypeList (.AtomicType .TypeInteger)))
+  .Lit (.ConstList (.AtomicType .TypeInteger) (values.map .Integer),.TypeOperator (.TypeList (.AtomicType .TypeInteger)))
 
 private def lowerChecked (expression : Expr) : IO Term :=
   match lowerExpr expression with

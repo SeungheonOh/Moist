@@ -434,6 +434,7 @@ theorem packApplications_recursive_eq (minimum : Nat) (expression : Expr) :
     intro child smaller
     exact packApplicationsFuel_irrel minimum child fuel (exprSize child) (by omega) (Nat.le_refl _)
 
+omit sv in
 theorem packApplications_unique (minimum : Nat) (candidate : Expr → Expr)
     (equation : ∀ expression, candidate expression = packApplicationsStep minimum candidate expression)
     (expression : Expr) : packApplications minimum expression = candidate expression := by

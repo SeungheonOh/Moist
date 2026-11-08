@@ -41,6 +41,7 @@ theorem scrutineeKind_sound {c : TCtx} {env : List VarId} {ρ : CekEnv} {s : Exp
   · exact constructorPair_sound pf_produces _ _ _ (by assumption) hρ.facts hd hs hw
   · trivial
 
+omit sv in
 theorem dispatch_vcon {talts : List Term} {c : Const} {alt : Term} {fs : List CekValue}
     {tag n : Nat} {gs : List CekValue} (hc : constToTagAndFields c = some (tag, n, gs))
     (h : dispatch talts (.VCon c) = some (alt, fs)) : talts[tag]? = some alt ∧ gs = fs := by
@@ -61,6 +62,7 @@ theorem nullList_arg {u r : CekValue} (h : evalBuiltin .NullList [u] = some r) :
   obtain ⟨c, r', rfl, hc, _⟩ := evalBuiltin_single (by decide) h
   cases c <;> (try cases hc) <;> trivial
 
+omit sv in
 /-- A selected alternative carries the number of fields its tag announces. -/
 theorem dispatch_kind {k : Kind} {w : CekValue} (hk : KindV k w) {talts : List Term} {alt : Term}
     {fs : List CekValue} (hlen : ∀ ks, k = .constrs ks → ks.length = talts.length)
@@ -102,15 +104,9 @@ theorem dispatch_kind {k : Kind} {w : CekValue} (hk : KindV k w) {talts : List T
     cases w with
     | VCon c =>
       cases c <;> simp only [KindV, ListValue] at hk
-      · rename_i l; cases l
-        · exact known _ 1 2 [] rfl rfl rfl trivial
-        · exact known _ 0 2 _ rfl rfl rfl ⟨_, _, rfl, trivial⟩
-      · rename_i l; cases l
-        · exact known _ 1 2 [] rfl rfl rfl trivial
-        · exact known _ 0 2 _ rfl rfl rfl ⟨_, _, rfl, trivial⟩
-      · rename_i l; cases l
-        · exact known _ 1 2 [] rfl rfl rfl trivial
-        · exact known _ 0 2 _ rfl rfl rfl ⟨_, _, rfl, trivial⟩
+      rename_i l; cases l
+      · exact known _ 1 2 [] rfl rfl rfl trivial
+      · exact known _ 0 2 _ rfl rfl rfl ⟨_, _, rfl, trivial⟩
     | _ => simp [KindV, ListValue] at hk
   | pair =>
     obtain ⟨i, gs, rfl⟩ := hk

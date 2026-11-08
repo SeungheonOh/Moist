@@ -21,6 +21,7 @@ open Moist.MIR Moist.MIR.Advanced
 open Moist.Verified Moist.Verified.Equivalence Moist.Verified.ShapeFacts
 open Moist.Verified.BetaValueRefines Moist.Verified.Contextual
 
+omit sv in
 theorem shiftBisimEnv_extend {d : Nat} {ρ : CekEnv} (w : CekValue) :
     EnvWellFormed d ρ → ShiftBisimEnv (shiftRename 1) d ρ (ρ.extend w)
   | .zero => .zero
@@ -30,6 +31,7 @@ theorem shiftBisimEnv_extend {d : Nat} {ρ : CekEnv} (w : CekValue) :
     rw [shiftRename_ge (by omega)]
     exact hl
 
+omit sv in
 theorem freeVarsList_not_contains {x : VarId} :
     ∀ {es : List Expr}, (freeVarsList es).contains x = false →
       ∀ e ∈ es, (freeVars e).contains x = false

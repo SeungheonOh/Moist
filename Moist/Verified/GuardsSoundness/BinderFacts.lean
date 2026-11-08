@@ -21,6 +21,7 @@ open Moist.Verified.ShapeFacts
 open Moist.Verified.FailFast
 open Moist.Verified.KnownLists
 
+omit sv in
 /-- Two binders recorded with right-hand sides of the environment below both. -/
 theorem FactsHold.push2 {P : List VarId → CekEnv → Expr → CekValue → Prop}
     {Γ : List (VarId × Expr)} {env : List VarId} {ρ : CekEnv} {h t : VarId} {r₁ r₂ : Expr}
@@ -111,6 +112,7 @@ def tagFields : CekValue → Option (Nat × List CekValue)
   | .VCon c => (constToTagAndFields c).map fun r => (r.1, r.2.2)
   | _ => none
 
+omit sv in
 theorem dispatch_same {talts talts' : List Term} (hl : talts.length = talts'.length) (w : CekValue) :
     (dispatch talts w = none ∧ dispatch talts' w = none) ∨
       ∃ i fs a a', tagFields w = some (i, fs) ∧ talts[i]? = some a ∧ talts'[i]? = some a' ∧
@@ -142,6 +144,7 @@ theorem dispatch_same {talts talts' : List Term} (hl : talts.length = talts'.len
   | VDelay _ _ => exact .inl ⟨rfl, rfl⟩
   | VBuiltin _ _ _ => exact .inl ⟨rfl, rfl⟩
 
+omit sv in
 /-- The first constructor of a list or a decoded constructor carries two fields. -/
 theorem tag0_two {k : Kind} (hk : k = .list ∨ k = .pair) {w : CekValue} (hkv : KindV k w)
     {fs : List CekValue} (ht : tagFields w = some (0, fs)) : fs.length = 2 := by
@@ -157,6 +160,7 @@ theorem tag0_two {k : Kind} (hk : k = .list ∨ k = .pair) {w : CekValue} (hkv :
     simp [tagFields, constToTagAndFields] at ht
     subst ht; rfl
 
+omit sv in
 theorem FactsScoped.push2 {Γ : List (VarId × Expr)} {env : List VarId} {h t : VarId} {r₁ r₂ : Expr}
     (hs : FactsScoped Γ env) (h₁ : (lowerTotalExpr env r₁).isSome = true)
     (h₂ : (lowerTotalExpr env r₂).isSome = true) :
@@ -187,6 +191,7 @@ theorem FactsScoped.push2 {Γ : List (VarId × Expr)} {env : List VarId} {h t : 
         obtain ⟨k, hik, hk, hsc⟩ := hs y entry i' hf hl'
         exact ⟨k + 2, by omega, by simp; omega, by simpa using hsc⟩
 
+omit sv in
 theorem KeysBound.push2 {Γ : List (VarId × Expr)} {env : List VarId} {h t : VarId} {r₁ r₂ : Expr}
     (hk : KeysBound Γ env) : KeysBound ((t, r₂) :: (h, r₁) :: Γ) (t :: h :: env) := by
   intro entry hmem
@@ -199,11 +204,13 @@ theorem KeysBound.push2 {Γ : List (VarId × Expr)} {env : List VarId} {h t : Va
     · simp [envLookupT_cons, varId_beq_self]
   · exact (hk.cons h).cons t entry hmem
 
+omit sv in
 theorem lower_proj1 {env : List VarId} {s : Expr} {ts : Term} (b : BuiltinFun)
     (hs : lowerTotalExpr env s = some ts) :
     lowerTotalExpr env (.App (.Force (.Builtin b)) s) = some (.Apply (.Force (.Builtin b)) ts) := by
   rw [MIR.lowerTotalExpr_app, MIR.lowerTotalExpr_force, lowerTotalExpr_builtin, hs]; rfl
 
+omit sv in
 theorem lower_proj2 {env : List VarId} {s : Expr} {ts : Term} (b : BuiltinFun)
     (hs : lowerTotalExpr env s = some ts) :
     lowerTotalExpr env (.App (.Force (.Force (.Builtin b))) s) =

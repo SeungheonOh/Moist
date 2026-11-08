@@ -22,6 +22,7 @@ open Moist.Verified.FailFast
 
 /-! ## Syntax -/
 
+omit sv in
 theorem lowerTotalExpr_nestLets_congr :
     ∀ (bs : List (VarId × Expr × Bool)) {E E' : Expr},
       (∀ env, lowerTotalExpr env E = lowerTotalExpr env E') →
@@ -32,12 +33,14 @@ theorem lowerTotalExpr_nestLets_congr :
     rw [lowerTotalExpr_let_single, lowerTotalExpr_let_single,
       lowerTotalExpr_nestLets_congr bs h (x :: env)]
 
+omit sv in
 theorem nestLets_append (bs cs : List (VarId × Expr × Bool)) (E : Expr) :
     nestLets (bs ++ cs) E = nestLets bs (nestLets cs E) := by
   induction bs with
   | nil => rfl
   | cons b bs ih => simp [nestLets, ih]
 
+omit sv in
 theorem bindingsBefore_spec : ∀ (e : Expr) (acc : List (VarId × Expr × Bool))
     {bs : List (VarId × Expr × Bool)} {inner : Expr},
     bindingsBefore e acc = some (bs, inner) →
@@ -68,6 +71,7 @@ decreasing_by
   all_goals simp_wf
   all_goals omega
 
+omit sv in
 theorem pairCaseView_some {e e₂ B : Expr} {t f : VarId} (h : pairCaseView e = some (e₂, t, f, B)) :
     e = .Case (.App (.Builtin .UnConstrData) e₂) [.Lam t (.Lam f B)] := by
   unfold pairCaseView at h
@@ -157,11 +161,13 @@ theorem sinkAll_lowering {e₂ B : Expr} {t f : VarId}
 
 /-! ## The guard -/
 
+omit sv in
 theorem valIn_congr {env : List VarId} {ρ : CekEnv} {x y : VarId} {v : CekValue} (h : (x == y) = true)
     (hy : ValIn env ρ y v) : ValIn env ρ x v := by
   obtain ⟨i, hi, hl⟩ := hy
   exact ⟨i, by rw [envLookupT_congr h env]; exact hi, hl⟩
 
+omit sv in
 theorem gAllVars_of_varsAmong {P : VarId → Prop} {p q : VarId}
     (hcongr : ∀ x y, (x == y) = true → P y → P x) (hp : P p) (hq : P q) :
     ∀ (N : Nat) (T : GuardTree), sizeOf T < N → T.varsAmong p q = true → gAllVars P T
@@ -185,6 +191,7 @@ theorem gAllVars_of_varsAmong {P : VarId → Prop} {p q : VarId}
         simp only [GuardTree.split.sizeOf_spec] at hsize; omega
     exact this ts fun _ h => h
 
+omit sv in
 theorem toExpr_lowers {p q : VarId} (env : List VarId)
     (hp : (envLookupT env p).isSome = true) (hq : (envLookupT env q).isSome = true) :
     ∀ (N : Nat) (T : GuardTree), sizeOf T < N → T.varsAmong p q = true →
@@ -244,9 +251,11 @@ theorem factRefines_guard {d : Nat} {F : CekEnv → Prop} {tG tM : Term}
     exact reaches_trans (reaches_of_steps 1 rfl) (reaches_trans (halts_on_stack hw _)
       (reaches_of_steps 1 rfl))
 
+omit sv in
 theorem not_true' {b : Bool} (h : (!b) = true) : b = false := by
   cases b <;> simp_all
 
+omit sv in
 theorem beq_false_symm' {a b : VarId} (h : (a == b) = false) : (b == a) = false := by
   rw [Moist.Verified.InlineSoundness.Rename.beq_comm]; exact h
 

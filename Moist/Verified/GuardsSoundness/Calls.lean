@@ -16,6 +16,7 @@ open Moist.Verified.KnownLists
 
 /-! ## Application spines -/
 
+omit sv in
 theorem appSpine_app (f a : Expr) : appSpine (.App f a) = ((appSpine f).1, (appSpine f).2 ++ [a]) := rfl
 
 theorem appSpine_lower : ∀ (e : Expr) {env : List VarId} {t : Term}, lowerTotalExpr env e = some t →
@@ -53,6 +54,7 @@ where
           rw [List.cons_append, MIR.lowerTotalExprList_cons, he, lowerList_append hes ha]
           rfl
 
+omit sv in
 theorem appSpine_fresh : ∀ (e : Expr) {env : List VarId}, freshIn env e = true →
     freshIn env (appSpine e).1 = true ∧ ∀ a ∈ (appSpine e).2, freshIn env a = true
   | .App f a, env, h => by
@@ -84,6 +86,7 @@ theorem call_ends {ρ : CekEnv}
 
 def lamChain (bs : List VarId) (tb : Term) : Term := (bs.map fun _ => ()).foldr (fun _ acc => .Lam 0 acc) tb
 
+omit sv in
 theorem lamChain_cons (b : VarId) (bs : List VarId) (tb : Term) :
     lamChain (b :: bs) tb = .Lam 0 (lamChain bs tb) := rfl
 

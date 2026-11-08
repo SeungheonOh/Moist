@@ -35,6 +35,7 @@ theorem beq_of_varKey {x y : VarId} (h : varKey x = varKey y) : (x == y) = true 
   simp only [varKey, Prod.mk.injEq] at h
   rw [VarId.beq_true_iff]; exact ⟨h.1, h.2⟩
 
+omit sv in
 theorem varId_beq_trans {x y z : VarId} (h₁ : (x == y) = true) (h₂ : (y == z) = true) :
     (x == z) = true := beq_of_varKey ((varKey_eq h₁).trans (varKey_eq h₂))
 
@@ -114,6 +115,7 @@ omit sv in
 theorem filter_mem {α : Type} {p : α → Bool} {l : List α} : ∀ x ∈ l.filter p, x ∈ l :=
   fun _ hx => (List.mem_filter.mp hx).1
 
+omit sv in
 theorem contains_congr {xs : List VarId} {x y : VarId} (h : (x == y) = true) :
     xs.contains x = xs.contains y := by
   induction xs with
@@ -141,6 +143,7 @@ theorem envLookupT_none_iff {l : List VarId} {y : VarId} :
       simp only [Option.map_eq_none_iff, ih, List.mem_cons, forall_eq_or_imp]
       simp [hz]
 
+omit sv in
 theorem envLookupT_none_of_contains {l : List VarId} {y : VarId} (h : l.contains y = false) :
     envLookupT l y = none := by
   rw [envLookupT_none_iff]
@@ -183,12 +186,14 @@ theorem dropEnv_extendAll : ∀ (ρ : CekEnv) (vals : List CekValue),
     rw [← dropEnv_add, dropEnv_extendAll (ρ.extend v) vs]
     rfl
 
+omit sv in
 theorem lookup_extendAll (ρ : CekEnv) (vals : List CekValue) (n : Nat) (hn : 0 < n) :
     (extendAll ρ vals).lookup (n + vals.length) = ρ.lookup n := by
   have := dropEnv_lookup vals.length (extendAll ρ vals) n hn
   rw [dropEnv_extendAll] at this
   exact this.symm
 
+omit sv in
 theorem lookup_extendAll_lt : ∀ (ρ : CekEnv) (vals : List CekValue) (j : Nat), j < vals.length →
     (extendAll ρ vals).lookup (j + 1) = vals.reverse[j]?
   | ρ, [], j, h => by simp at h
@@ -247,6 +252,7 @@ theorem FactsHold.mono_suffix {P Q : List VarId → CekEnv → Expr → CekValue
   obtain ⟨v, k, hik, hk, hv, hp⟩ := h x entry i hf hl
   exact ⟨v, k, hik, hk, hv, hPQ k _ _ _ hk hp⟩
 
+omit sv in
 /-- Binding values for several names whose facts are the expressions that
     produced the values in the outer environment. -/
 theorem FactsHold.bind {P : List VarId → CekEnv → Expr → CekValue → Prop}
@@ -294,6 +300,7 @@ theorem FactsHold.bind {P : List VarId → CekEnv → Expr → CekValue → Prop
       · rw [← List.drop_drop, List.drop_left, ← dropEnv_add, hdrop]
         exact hp
 
+omit sv in
 /-- Binding names that carry no facts. -/
 theorem FactsHold.append_fresh {P : List VarId → CekEnv → Expr → CekValue → Prop}
     {Γ₀ : List (VarId × Expr)} {env : List VarId} {ρ ρ' : CekEnv} (qs : List VarId)
@@ -337,6 +344,7 @@ theorem SummariesHold.append {S : List (VarId × Nat)} {env : List VarId} {ρ ρ
     rw [hdrop] at this
     rw [this, ← hw]; congr 1; omega
 
+omit sv in
 theorem WithinBudget.append {S : List (VarId × Nat)} {env : List VarId} {β : Budget} {n : Nat}
     (qs : List VarId) (h : WithinBudget S env β n)
     (hnames : ∀ entry ∈ S, envLookupT qs entry.1 = none) :
@@ -738,6 +746,7 @@ theorem let_case {fuel : Nat} (ih : ResultSound fuel) (S' : List (VarId × Nat))
 
 /-! ## Applied lambda telescopes -/
 
+omit sv in
 theorem envLookupT_reverse_none {ps : List VarId} {y : VarId} (h : ps.contains y = false) :
     envLookupT ps.reverse y = none := by
   rw [envLookupT_none_iff]
@@ -935,6 +944,7 @@ theorem alternative_case {fuel : Nat} (ih : ResultSound fuel) (Γ : List (VarId 
 
 /-! ## Recursive functions -/
 
+omit sv in
 theorem EnvDistinct.append_lookup_none : ∀ {l : List VarId} {y : VarId} {rest : List VarId},
     EnvDistinct (l ++ y :: rest) → envLookupT l y = none
   | [], _, _, _ => rfl

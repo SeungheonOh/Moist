@@ -1,5 +1,7 @@
 import Moist.Verified.ProductsSoundness.Values
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Replacing pair projections
 
 Inside the scope of fresh binders recorded as holding `fstPair x` and
@@ -87,6 +89,7 @@ theorem resolvedProjection_factRel {G : VarId → Prop} {Γ : List (VarId × Exp
   exact obsRefines_of_reaches (halts_on_stack hsrc' π) (halts_on_stack (halts_var_of_lookup hvh) π)
     (obsRefines_refl _)
 
+omit sv in
 theorem projectionKind_some {Γ : List (VarId × Expr)} {fn : Expr} {k : Bool}
     (h : projectionKind Γ fn = some k) :
     resolveHead 64 Γ fn = .Force (.Force (.Builtin (if k then .FstPair else .SndPair))) := by
@@ -96,6 +99,7 @@ theorem projectionKind_some {Γ : List (VarId × Expr)} {fn : Expr} {k : Bool}
   · rename_i heq; cases h; exact heq
   · cases h
 
+omit sv in
 theorem projectsBinder_true {Γ : List (VarId × Expr)} {x : VarId} {fn a : Expr}
     (h : projectsBinder Γ x fn a = true) :
     ∃ o k, a = .Var o ∧ (o == x) = true ∧ projectionKind Γ fn = some k := by
@@ -107,6 +111,7 @@ theorem projectsBinder_true {Γ : List (VarId × Expr)} {x : VarId} {fn a : Expr
     exact ⟨o, k, rfl, hox, hk⟩
   · cases h
 
+omit sv in
 theorem lowerTotalExpr_consLet (env : List VarId) (binding : VarId × Expr × Bool) (e : Expr) :
     lowerTotalExpr env (consLet binding e) = lowerTotalExpr env (.Let [binding] e) := by
   unfold consLet
@@ -114,6 +119,7 @@ theorem lowerTotalExpr_consLet (env : List VarId) (binding : VarId × Expr × Bo
   · exact lowerTotalExpr_let_cons env _ _ _
   · rfl
 
+omit sv in
 theorem freshIn_consLet (avoid : List VarId) (binding : VarId × Expr × Bool) (e : Expr) :
     freshIn avoid (consLet binding e) = freshIn avoid (.Let [binding] e) := by
   unfold consLet
@@ -121,6 +127,7 @@ theorem freshIn_consLet (avoid : List VarId) (binding : VarId × Expr × Bool) (
   · exact freshIn_let_cons avoid _ _ _
   · rfl
 
+omit sv in
 theorem freeVars_consLet (binding : VarId × Expr × Bool) (e : Expr) :
     freeVars (consLet binding e) = freeVars (.Let [binding] e) := by
   obtain ⟨y, r, er⟩ := binding
@@ -130,6 +137,7 @@ theorem freeVars_consLet (binding : VarId × Expr × Bool) (e : Expr) :
     simp only [freeVars, freeVarsLet]
   · rfl
 
+omit sv in
 theorem maxUidExpr_consLet (binding : VarId × Expr × Bool) (e : Expr) :
     maxUidExpr (consLet binding e) = maxUidExpr (.Let [binding] e) := by
   obtain ⟨y, r, er⟩ := binding
@@ -228,6 +236,7 @@ decreasing_by
     | (subst_vars; simp only [exprSize, exprSizeBinds]; omega)
     | (subst_vars; have := exprSize_lt_of_mem (by assumption); simp only [exprSize]; omega)
 
+omit sv in
 theorem freshInList_map_of {avoid : List VarId} {g : Expr → Expr} :
     ∀ (xs : List Expr), freshInList avoid xs = true →
       (∀ y ∈ xs, freshIn avoid y = true → freshIn avoid (g y) = true) →
@@ -237,6 +246,7 @@ theorem freshInList_map_of {avoid : List VarId} {g : Expr → Expr} :
     simp only [freshInList, List.map_cons, Bool.and_eq_true] at hxs ⊢
     exact ⟨h y (.head _) hxs.1, freshInList_map_of ys hxs.2 fun z hz => h z (.tail _ hz)⟩
 
+omit sv in
 theorem freshIn_replaceProjections (Γ : List (VarId × Expr)) (x f s : VarId) (X : Expr) :
     ∀ avoid, freshIn avoid X = true → freshIn avoid (replaceProjections Γ x f s X) = true := by
   intro avoid hX
@@ -288,6 +298,7 @@ decreasing_by
 
 /-! ## Identifiers after replacement -/
 
+omit sv in
 theorem maxUidExprList_map_le (M : Nat) (g : Expr → Expr) :
     ∀ (xs : List Expr), (∀ y ∈ xs, maxUidExpr (g y) ≤ max (maxUidExpr y) M) →
       maxUidExprList (xs.map g) ≤ max (maxUidExprList xs) M
@@ -298,6 +309,7 @@ theorem maxUidExprList_map_le (M : Nat) (g : Expr → Expr) :
     simp only [List.map_cons, maxUidExprList]
     omega
 
+omit sv in
 theorem maxUidExprBinds_map_le (M : Nat) (g : Expr → Expr) :
     ∀ (bs : List (VarId × Expr × Bool)), (∀ b ∈ bs, maxUidExpr (g b.2.1) ≤ max (maxUidExpr b.2.1) M) →
       maxUidExprBinds (bs.map fun (y, rhs, er) => (y, g rhs, er)) ≤ max (maxUidExprBinds bs) M
@@ -308,6 +320,7 @@ theorem maxUidExprBinds_map_le (M : Nat) (g : Expr → Expr) :
     simp only [List.map_cons, maxUidExprBinds] at hy hbs ⊢
     omega
 
+omit sv in
 theorem maxUidExpr_replaceProjections (Γ : List (VarId × Expr)) (x f s : VarId) (X : Expr) :
     maxUidExpr (replaceProjections Γ x f s X) ≤ max (maxUidExpr X) (max f.uid s.uid) := by
   unfold replaceProjections
@@ -359,6 +372,7 @@ decreasing_by
 
 /-! ## The replaced binder is no longer free -/
 
+omit sv in
 theorem freeVarsList_not_contains {x : VarId} :
     ∀ (es : List Expr), (∀ e ∈ es, (freeVars e).contains x = false) →
       (freeVarsList es).contains x = false
@@ -368,6 +382,7 @@ theorem freeVarsList_not_contains {x : VarId} :
     exact VarSet.union_not_contains_fwd _ _ _ (h e (.head _))
       (freeVarsList_not_contains es fun e' he' => h e' (.tail _ he'))
 
+omit sv in
 theorem freeVarsLet_not_contains {x : VarId} {body : Expr}
     (hbody : (freeVars body).contains x = false) :
     ∀ (bs : List (VarId × Expr × Bool)), (∀ b ∈ bs, (freeVars b.2.1).contains x = false) →
@@ -379,18 +394,21 @@ theorem freeVarsLet_not_contains {x : VarId} {body : Expr}
       (VarSet.erase_not_contains_fwd _ _ _
         (freeVarsLet_not_contains hbody bs fun b hb => h b (.tail _ hb)))
 
+omit sv in
 theorem all_attach_true {p : Expr → Bool} {xs : List Expr}
     (h : (xs.attach.all fun ⟨y, _⟩ => p y) = true) : ∀ y ∈ xs, p y = true := by
   intro y hy
   rw [List.all_eq_true] at h
   exact h ⟨y, hy⟩ (List.mem_attach _ _)
 
+omit sv in
 theorem all_attach_binds_true {p : Expr → Bool} {bs : List (VarId × Expr × Bool)}
     (h : (bs.attach.all fun ⟨(_, rhs, _), _⟩ => p rhs) = true) : ∀ b ∈ bs, p b.2.1 = true := by
   intro b hb
   rw [List.all_eq_true] at h
   exact h ⟨b, hb⟩ (List.mem_attach _ _)
 
+omit sv in
 theorem replaceProjections_not_free (Γ : List (VarId × Expr)) (x f s : VarId) (hf : (f == x) = false)
     (hs : (s == x) = false) (X : Expr) (h : projectionOnly Γ x X = true) :
     (freeVars (replaceProjections Γ x f s X)).contains x = false := by

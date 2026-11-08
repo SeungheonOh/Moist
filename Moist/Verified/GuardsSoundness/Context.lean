@@ -1,5 +1,7 @@
 import Moist.Verified.GuardsSoundness.Measure
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # The invariant of the termination analysis
 
 `Inv c env ρ` is what the analysis assumes about the environment: it is
@@ -32,6 +34,7 @@ theorem PF.produces {env : List VarId} {ρ : CekEnv} {rhs : Expr} {v : CekValue}
 def BoundValue (env : List VarId) (ρ : CekEnv) (x : VarId) (Q : CekValue → Prop) : Prop :=
   ∀ i, envLookupT env x = some i → ∃ w, ρ.lookup (i + 1) = some w ∧ Q w
 
+omit sv in
 theorem BoundValue.extend {env : List VarId} {ρ : CekEnv} {x y : VarId} {Q : CekValue → Prop}
     (h : BoundValue env ρ y Q) (hxy : (x == y) = false) (w : CekValue) :
     BoundValue (x :: env) (ρ.extend w) y Q := by
@@ -44,6 +47,7 @@ theorem BoundValue.extend {env : List VarId} {ρ : CekEnv} {x y : VarId} {Q : Ce
     obtain ⟨u, hu, hq⟩ := h j hl
     exact ⟨u, by simpa [CekEnv.extend, CekEnv.lookup] using hu, hq⟩
 
+omit sv in
 theorem BoundValue.self {env : List VarId} {ρ : CekEnv} {x y : VarId} {Q : CekValue → Prop}
     {w : CekValue} (hxy : (x == y) = true) (hw : Q w) : BoundValue (x :: env) (ρ.extend w) y Q := by
   intro i hi
@@ -51,12 +55,14 @@ theorem BoundValue.self {env : List VarId} {ρ : CekEnv} {x y : VarId} {Q : CekV
   cases hi
   exact ⟨w, rfl, hw⟩
 
+omit sv in
 theorem BoundValue.mono {env : List VarId} {ρ : CekEnv} {x : VarId} {Q R : CekValue → Prop}
     (h : BoundValue env ρ x Q) (hQR : ∀ w, Q w → R w) : BoundValue env ρ x R := by
   intro i hi
   obtain ⟨w, hw, hq⟩ := h i hi
   exact ⟨w, hw, hQR w hq⟩
 
+omit sv in
 theorem BoundValue.drop {env : List VarId} {ρ : CekEnv} {x : VarId} {Q : CekValue → Prop}
     (h : BoundValue env ρ x Q) (hd : EnvDistinct env) (j : Nat) :
     BoundValue (env.drop j) (dropEnv j ρ) x Q := by
@@ -86,6 +92,7 @@ structure Inv (c : TCtx) (env : List VarId) (ρ : CekEnv) : Prop where
   lists : ListsHold c.lists env ρ
   roles : ∀ r ∈ c.roles, RoleHolds env ρ r
 
+omit sv in
 theorem small_beq {L : List VarId} {x y : VarId} (h : L.contains y = true) (hx : L.contains x = false) :
     (x == y) = false := by
   cases hxy : (x == y)
@@ -102,6 +109,7 @@ where
     show (x.origin == z.origin && x.uid == z.uid) = (y.origin == z.origin && y.uid == z.uid)
     rw [h.1, h.2]
 
+omit sv in
 theorem fresh_facts {c : TCtx} {x : VarId} (h : c.fresh x = true) :
     c.facts.find? (fun e => e.1 == x) = none := by
   unfold TCtx.fresh at h
@@ -112,11 +120,13 @@ theorem fresh_facts {c : TCtx} {x : VarId} (h : c.fresh x = true) :
   simp only [List.any_eq_false, Bool.not_eq_true] at hf
   simpa using hf e he
 
+omit sv in
 theorem fresh_lists {c : TCtx} {x : VarId} (h : c.fresh x = true) : c.lists.contains x = false := by
   unfold TCtx.fresh at h
   simp only [Bool.and_eq_true, Bool.not_eq_true'] at h
   exact h.1.2
 
+omit sv in
 theorem fresh_roles {c : TCtx} {x : VarId} (h : c.fresh x = true) :
     ∀ r ∈ c.roles, (r.fn == x) = false ∧ (r.base == x) = false ∧ r.small.contains x = false := by
   unfold TCtx.fresh at h
@@ -126,6 +136,7 @@ theorem fresh_roles {c : TCtx} {x : VarId} (h : c.fresh x = true) :
   simp only [Bool.and_eq_true, Bool.not_eq_true'] at this
   exact ⟨this.1.1, this.1.2, this.2⟩
 
+omit sv in
 theorem ListsHold.extend' {L env : List VarId} {ρ : CekEnv} {x : VarId} (h : ListsHold L env ρ)
     (hx : L.contains x = false) (w : CekValue) : ListsHold L (x :: env) (ρ.extend w) := by
   intro y hy i hi

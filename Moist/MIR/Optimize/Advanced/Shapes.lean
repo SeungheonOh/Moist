@@ -354,59 +354,11 @@ def checkedRoundTrip (environment : List (VarId × Expr)) : Expr → Option Expr
     | _ => none
   | _ => none
 
-/-! ## Data comparisons against known `B` values -/
-
-def zeroByte : ByteArray := ⟨#[0]⟩
+/-! ## `chooseData` applications -/
 
 def chooseDataApp (scrutinee constrCase mapCase listCase intCase bytesCase : Expr) : Expr :=
   .App (.App (.App (.App (.App (.App (.Force (.Builtin .ChooseData)) scrutinee) constrCase)
     mapCase) listCase) intCase) bytesCase
-
-/-- `equalsData (Var x) (B k)` given `k` and a `B` value `other` whose bytes
-    differ from `k`. -/
-def bytesComparison (bytes other : Expr) (x : VarId) : Expr :=
-  .App (.App (.Builtin .EqualsByteString) bytes)
-    (.App (.Builtin .UnBData) (chooseDataApp (.Var x) other other other other (.Var x)))
-
-/-- A binder whose facts make it the `B` value of `#00 ++ k`, where
-    `k = unBData d`: returns `(k, other)`. -/
-def otherKeyFor (environment : List (VarId × Expr)) (d : VarId) (other : VarId) : Option (VarId × VarId) :=
-  match resolveHead 64 environment (.Var other) with
-  | .App (.Builtin .BData) (.Var bytes) =>
-    match resolveHead 64 environment (.Var bytes) with
-    | .App (.App (.Builtin .AppendByteString) (.Lit (.ByteString prefixBytes, _))) (.Var key) =>
-      if prefixBytes.size != 0 then
-        match resolveHead 64 environment (.Var key) with
-        | .App (.Builtin .UnBData) (.Var source) => if source == d then some (key, other) else none
-        | _ => none
-      else none
-    | _ => none
-  | _ => none
-
-def keyBytesFact (environment : List (VarId × Expr)) (d : VarId) : Option (VarId × VarId) :=
-  environment.findSome? fun entry => otherKeyFor environment d entry.1
-
-/-- The operands of an `equalsData` application, whose partial application
-    may be bound to a variable. -/
-def equalsDataOperands (environment : List (VarId × Expr)) : Expr → Option (Expr × Expr)
-  | .App function argument =>
-    match resolveHead 64 environment function with
-    | .App (.Builtin .EqualsData) first => some (first, argument)
-    | _ => none
-  | _ => none
-
-/-- `equalsData` between two variables, one of them known to be `B k` with key
-    facts. -/
-def dataComparison (environment : List (VarId × Expr)) (expression : Expr) : Option Expr :=
-  match equalsDataOperands environment expression with
-  | some (.Var a, .Var b) =>
-    match keyBytesFact environment a with
-    | some (key, other) => some (bytesComparison (.Var key) (.Var other) b)
-    | none =>
-      match keyBytesFact environment b with
-      | some (key, other) => some (bytesComparison (.Var key) (.Var other) a)
-      | none => none
-  | _ => none
 
 def integerConstant (value : Int) : Expr :=
   .Lit (.Integer value, .AtomicType .TypeInteger)
@@ -474,8 +426,6 @@ def checkedRewrite (useShapes : Bool) (base : Nat) (environment : List (VarId ×
     (checkedRoundTrip environment result).getD result else result
   let result := if useShapes then
     (integerIdentity base environment result).getD result else result
-  let result := if useShapes then
-    (dataComparison environment result).getD result else result
   match result with
   | .App (.App (.App (.Force (.Builtin .IfThenElse)) condition) whenTrue) whenFalse =>
     if knownBoolean 64 environment condition && isPure whenTrue && isPure whenFalse then

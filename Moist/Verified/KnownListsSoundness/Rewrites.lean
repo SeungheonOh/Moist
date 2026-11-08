@@ -129,6 +129,7 @@ theorem consAlt_facts {Γ : List (VarId × Expr)} {L env : List VarId} {ρ : Cek
   refine ⟨(h₁.extend tl (hn.cons h) ht hnt).1, ?_⟩
   exact h₁.2.push (hn.cons h) ht htl
 
+omit sv in
 theorem consAlt_env {env : List VarId} {ρ : CekEnv} {c : Const} {tl : CekValue}
     (henv : EnvWellFormed env.length ρ) (hlen : env.length ≤ ρ.length) (htl : ListValue tl) :
     EnvWellFormed (env.length + 2) ((ρ.extend (.VCon c)).extend tl) ∧
@@ -150,6 +151,7 @@ theorem consAlt_steps (π : Stack) (ρ : CekEnv) (hv tv : CekValue) (b : Term) :
       .compute π ((ρ.extend hv).extend tv) b := by
   cases hv <;> cases tv <;> rfl
 
+omit sv in
 theorem lowerTotalExpr_consAlt {env : List VarId} {h t : VarId} {C : Expr} {tA : Term}
     (hA : lowerTotalExpr env (.Lam h (.Lam t C)) = some tA) :
     ∃ tC, lowerTotalExpr (t :: h :: env) C = some tC ∧ tA = .Lam 0 (.Lam 0 tC) := by
@@ -157,6 +159,7 @@ theorem lowerTotalExpr_consAlt {env : List VarId} {h t : VarId} {C : Expr} {tA :
   obtain ⟨tC, htC, rfl⟩ := lowerTotalExpr_lam_some htX
   exact ⟨tC, htC, rfl⟩
 
+omit sv in
 theorem lowerTotalExpr_consAlt_of {env : List VarId} {h t : VarId} {C : Expr} {tC : Term}
     (htC : lowerTotalExpr (t :: h :: env) C = some tC) :
     lowerTotalExpr env (.Lam h (.Lam t C)) = some (.Lam 0 (.Lam 0 tC)) := by
@@ -179,6 +182,7 @@ theorem consAlt_rel {Γ : List (VarId × Expr)} {L : List VarId} {h t : VarId} {
 
 theorem reaches_self (s : State) : Reaches s s := ⟨0, rfl⟩
 
+omit sv in
 theorem lowerList_length {env : List VarId} :
     ∀ {es : List Expr} {ts : List Term}, MIR.lowerTotalExprList env es = some ts →
       ts.length = es.length
@@ -215,17 +219,13 @@ theorem listShape {v : CekValue} (hv : ListValue v) :
     obtain ⟨c', rfl⟩ := listValue_vcon hv
     have := hd [] .nil [.Error]
     cases c' with
-    | ConstList xs => cases xs <;> simp_all [step, constToTagAndFields, nullResult]
-    | ConstDataList xs => cases xs <;> simp_all [step, constToTagAndFields, nullResult]
-    | ConstPairDataList xs => cases xs <;> simp_all [step, constToTagAndFields, nullResult]
+    | ConstList _ xs => cases xs <;> simp_all [step, constToTagAndFields, nullResult]
     | _ => exact absurd hv id
   · refine .inr ⟨?_, hd⟩
     obtain ⟨c', rfl⟩ := listValue_vcon hv
     have := hd [] .nil [.Error, .Error]
     cases c' with
-    | ConstList xs => cases xs <;> simp_all [step, constToTagAndFields, nullResult]
-    | ConstDataList xs => cases xs <;> simp_all [step, constToTagAndFields, nullResult]
-    | ConstPairDataList xs => cases xs <;> simp_all [step, constToTagAndFields, nullResult]
+    | ConstList _ xs => cases xs <;> simp_all [step, constToTagAndFields, nullResult]
     | _ => exact absurd hv id
 
 theorem KnownRel.listCase {Γ : List (VarId × Expr)} {L : List VarId} {l h t : VarId}
@@ -375,7 +375,7 @@ theorem pair_dispatch {v : CekValue} (hv : PairValue v) :
           | some alt => .compute ([Frame.applyArg (.VCon c), Frame.applyArg tl] ++ π) ρ alt
           | none => .error := by
   obtain ⟨i, fields, rfl⟩ := hv
-  refine ⟨.Integer i, .VCon (.ConstDataList fields), trivial, fun π ρ alts => ?_⟩
+  refine ⟨.Integer i, .VCon (.dataList fields), trivial, fun π ρ alts => ?_⟩
   cases e : alts[0]? <;> simp [step, constToTagAndFields, e]
 
 /-- The second binder of a `case` on the result of `unConstrData` holds the

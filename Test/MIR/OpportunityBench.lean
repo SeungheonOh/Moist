@@ -214,10 +214,10 @@ def validateNativeBuiltins : IO Unit := do
   let first := sourceVar 9200
   let second := sourceVar 9201
   let nativeDataCases :=
-    [Expr.App (.App (.Builtin .ConstrData) (intLit (-1))) (.Lit (.ConstList [], listType)),
+    [Expr.App (.App (.Builtin .ConstrData) (intLit (-1))) (.Lit (.ConstList dataType [], listType)),
      .App (.App (.Builtin .ConstrData) (intLit 0))
-       (.Lit (.ConstList [.Data (.I 42)], listType)),
-     .App (.App (.Force (.Builtin .MkCons)) (intLit 3)) (.Lit (.ConstList [], listType)),
+       (.Lit (.ConstList dataType [.Data (.I 42)], listType)),
+     .App (.App (.Force (.Builtin .MkCons)) (intLit 3)) (.Lit (.ConstList dataType [], listType)),
      .App (.Builtin .BData) (boolLit true),
      .Let [(first, .App (.Builtin .UnConstrData) (boolLit true), false),
        (second, .App (.Force (.Force (.Builtin .FstPair))) (.Var first), false)]

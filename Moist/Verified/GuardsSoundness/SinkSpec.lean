@@ -13,12 +13,14 @@ open Moist.Verified.BetaValueRefines
 open Moist.Verified.ShapeFacts
 open Moist.Verified.FailFast
 
+omit sv in
 theorem lamChain_eq_lamN : ∀ (bs : List VarId) (tb : Term), lamChain bs tb = lamN bs.length tb
   | [], _ => rfl
   | _ :: bs, tb => by
     show Term.Lam 0 (lamChain bs tb) = Term.Lam 0 (lamN bs.length tb)
     rw [lamChain_eq_lamN bs tb]
 
+omit sv in
 theorem lower_lams_of {bs : List VarId} {e : Expr} {env : List VarId} {tb : Term}
     (h : lowerTotalExpr (bs.reverse ++ env) e = some tb) :
     lowerTotalExpr env (Advanced.lams bs e) = some (lamN bs.length tb) := by
@@ -39,6 +41,7 @@ theorem lower_lams_iff (bs : List VarId) (e : Expr) (env : List VarId) :
       obtain ⟨tb, htb, _⟩ := lower_lams bs e h'
       rw [h] at htb; cases htb
 
+omit sv in
 theorem isErrorExpr_eq' {a : Expr} (h : isErrorExpr a = true) : a = .Error := by
   cases a <;> simp_all [isErrorExpr]
 
@@ -66,6 +69,7 @@ theorem exactError_lower {kind : Kind} {i : Nat} {a : Expr} (h : exactError kind
     exact ⟨bs.length, fun env => lower_lams_of (by rw [lowerTotalExpr_error]),
       fun m' hm => by rw [hn] at hm; cases hm⟩
 
+omit sv in
 theorem continuing_spec {kind : Kind} {before : List Expr} {alt : Expr} {bs : List VarId} {body : Expr}
     (h : continuing kind before alt = some (bs, body)) :
     alt = Advanced.lams bs body ∧ kind.fields before.length = some bs.length ∧
@@ -79,6 +83,7 @@ theorem continuing_spec {kind : Kind} {before : List Expr} {alt : Expr} {bs : Li
   · rename_i hl; cases h; exact ⟨rfl, by simp [Kind.fields, hl], by simp⟩
   · cases h
 
+omit sv in
 theorem lowerList_append {env : List VarId} :
     ∀ (xs ys : List Expr), MIR.lowerTotalExprList env (xs ++ ys) =
       (MIR.lowerTotalExprList env xs).bind fun txs => (MIR.lowerTotalExprList env ys).map (txs ++ ·)

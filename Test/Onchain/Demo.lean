@@ -99,7 +99,7 @@ def findUPLC := compile_fvt! findInputByOutRef
 -- ∀ ref, find [] ref = None
 #blaster (unfold-depth: 200) (timeout: 30)
   [∀ (txId : ByteString) (idx : Int),
-    exec (app findUPLC [.Const (.ConstDataList []), .Const (.Data (mkRef txId idx))]) 300 =
+    exec (app findUPLC [.Const (.dataList []), .Const (.Data (mkRef txId idx))]) 300 =
     .Halt (.VConstr 0 [])]
 
 -- ∀ ref, find [ref] ref = Some(ref)
@@ -107,7 +107,7 @@ def findUPLC := compile_fvt! findInputByOutRef
   [∀ (txId : ByteString) (idx : Int),
     let ref   := mkRef txId idx
     let input := mkInput txId idx
-    exec (app findUPLC [.Const (.ConstDataList [input]), .Const (.Data ref)]) 500 =
+    exec (app findUPLC [.Const (.dataList [input]), .Const (.Data ref)]) 500 =
     .Halt (.VConstr 1 [.VCon (.Data input)])]
 
 -- ∀ ref₁ ≠ ref₂, find [input₂] ref₁ = None
@@ -115,7 +115,7 @@ def findUPLC := compile_fvt! findInputByOutRef
 #blaster (unfold-depth: 300) (timeout: 60)
   [∀ (id1 : ByteString) (i1 : Int) (id2 : ByteString) (i2 : Int),
     mkRef id1 i1 ≠ mkRef id2 i2 →
-    exec (app findUPLC [.Const (.ConstDataList [mkInput id2 i2]), .Const (.Data (mkRef id1 i1))]) 500 =
+    exec (app findUPLC [.Const (.dataList [mkInput id2 i2]), .Const (.Data (mkRef id1 i1))]) 500 =
     .Halt (.VConstr 0 [])]
 
 

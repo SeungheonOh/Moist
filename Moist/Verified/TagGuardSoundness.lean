@@ -65,6 +65,7 @@ theorem pairGuard_post {Γ : List (VarId × Expr)} {e₁ body guarded : Expr} {t
       MIR.lowerTotalExpr_lam, htg]
     rfl
 
+omit sv in
 theorem pairCaseView_some' {e e₁ body : Expr} {t f : VarId}
     (h : pairCaseView e = some (e₁, t, f, body)) :
     e = .Case (.App (.Builtin .UnConstrData) e₁) [.Lam t (.Lam f body)] :=

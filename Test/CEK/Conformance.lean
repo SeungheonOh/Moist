@@ -59,9 +59,14 @@ def testCategory (root path : System.FilePath) : String :=
     | [] => "root" | parts => "/".intercalate parts
   else "unknown"
 
-/-- Use large budget for conformance tests (effectively unlimited for test programs). -/
-def testCpuLimit : Int := 10000000000
-def testMemLimit : Int := 14000000
+/-- The reference runs conformance tests unrestricted (counting mode), so the limits are
+beyond any reachable cost. -/
+def testCpuLimit : Int := 2 ^ 80
+def testMemLimit : Int := 2 ^ 80
+
+/-- The reference accumulates costs in `SatInt` (saturating `Int64`); since every cost is
+non-negative, the saturated total is the true total capped at `maxBound`. -/
+def saturate (n : Int) : Int := min n (2 ^ 63 - 1)
 
 def runTest (root testDir : System.FilePath) : IO TestResult := do
   let name := testName testDir
@@ -123,6 +128,7 @@ where
     match expected with
     | none => (true, "")
     | some (eCpu, eMem) =>
+      let actual : ExBudget := ⟨saturate actual.cpu, saturate actual.mem⟩
       if actual.cpu == eCpu && actual.mem == eMem then (true, "")
       else
         (false, s!"budget: got cpu={actual.cpu} mem={actual.mem}, expected cpu={eCpu} mem={eMem}")

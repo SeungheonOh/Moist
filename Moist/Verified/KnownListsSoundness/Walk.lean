@@ -1,5 +1,7 @@
 import Moist.Verified.KnownListsSoundness.FixApp
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # The known-list walk
 
 Every node of `knownListWalk` keeps its shape (congruence), fuses a
@@ -17,6 +19,7 @@ open Moist.Verified Moist.Verified.Equivalence Moist.Verified.ShapeFacts
 
 /-! ## Recursive applications -/
 
+omit sv in
 theorem fixApplication_eq : ∀ (e : Expr) (acc : List Expr) {f x : VarId} {body : Expr}
     {args : List Expr}, fixApplication e acc = some (f, x, body, args) →
       Advanced.applyAll e acc = Advanced.applyAll (.Fix f (.Lam x body)) args
@@ -39,6 +42,7 @@ theorem fixApplication_eq : ∀ (e : Expr) (acc : List Expr) {f x : VarId} {body
   | .Fix _ (.Constr _ _), _, _, _, _, _, h | .Fix _ (.Case _ _), _, _, _, _, _, h
   | .Fix _ (.Let _ _), _, _, _, _, _, h => by simp [fixApplication] at h
 
+omit sv in
 theorem fixApplication_args_ne : ∀ (e : Expr) (acc : List Expr) {f x : VarId} {body : Expr}
     {args : List Expr}, fixApplication e acc = some (f, x, body, args) → args ≠ []
   | .App g a, acc, f, x, body, args, h => by
@@ -62,6 +66,7 @@ theorem fixApplication_args_ne : ∀ (e : Expr) (acc : List Expr) {f x : VarId} 
   | .Fix _ (.Constr _ _), _, _, _, _, _, h | .Fix _ (.Case _ _), _, _, _, _, _, h
   | .Fix _ (.Let _ _), _, _, _, _, _, h => by simp [fixApplication] at h
 
+omit sv in
 theorem stable_spec (lists : List VarId) (f : VarId) (params : List VarId) (body : Expr) :
     ∀ (fuel : Nat) (ps : List Nat),
       listPositions.stable lists f params body fuel ps = [] ∨
@@ -84,6 +89,7 @@ theorem stable_spec (lists : List VarId) (f : VarId) (params : List VarId) (body
         · refine .inr ⟨fun p hp => ?_, hcheck⟩
           exact (List.mem_filter.mp (hsub p hp)).1
 
+omit sv in
 theorem listPositions_spec {env : List (VarId × Expr)} {lists : List VarId} {f : VarId}
     {params : List VarId} {args : List Expr} {body : Expr}
     (hne : listPositions env lists f params args body ≠ []) :
@@ -107,6 +113,7 @@ theorem listPositions_spec {env : List (VarId × Expr)} {lists : List VarId} {f 
       | none => simp
       | some a => intro hk; exact ⟨a, rfl, by simpa using hk⟩
 
+omit sv in
 theorem letStable_spec (env : List (VarId × Expr)) (lists : List VarId) (g f : VarId)
     (params : List VarId) (inner scope : Expr) :
     ∀ (fuel : Nat) (ps : List Nat),
@@ -129,6 +136,7 @@ theorem letStable_spec (env : List (VarId × Expr)) (lists : List VarId) (g f : 
         · exact .inl rfl
       · exact letStable_spec env lists g f params inner scope fuel _
 
+omit sv in
 theorem letFixPositions_spec {env : List (VarId × Expr)} {lists : List VarId} {g f : VarId}
     {params : List VarId} {inner scope : Expr}
     (hne : letFixPositions env lists g f params inner scope ≠ []) :
@@ -142,18 +150,21 @@ theorem letFixPositions_spec {env : List (VarId × Expr)} {lists : List VarId} {
   · exact absurd h hne
   · exact h
 
+omit sv in
 theorem beq_congr_right {x y : VarId} (hxy : (x == y) = true) (z : VarId) :
     (z == x) = (z == y) := by
   obtain ⟨ho, hu⟩ := (VarId.beq_true_iff x y).mp hxy
   show (z.origin == x.origin && z.uid == x.uid) = (z.origin == y.origin && z.uid == y.uid)
   rw [ho, hu]
 
+omit sv in
 theorem beq_congr_left {x y : VarId} (hxy : (x == y) = true) (z : VarId) :
     (x == z) = (y == z) := by
   obtain ⟨ho, hu⟩ := (VarId.beq_true_iff x y).mp hxy
   show (x.origin == z.origin && x.uid == z.uid) = (y.origin == z.origin && y.uid == z.uid)
   rw [ho, hu]
 
+omit sv in
 theorem listKnown_congr {Γ : List (VarId × Expr)} {L : List VarId} {x y : VarId}
     (hxy : (x == y) = true) : listKnown Γ L (.Var x) = listKnown Γ L (.Var y) := by
   have hc : L.contains x = L.contains y := by
@@ -164,6 +175,7 @@ theorem listKnown_congr {Γ : List (VarId × Expr)} {L : List VarId} {x y : VarI
   show (L.contains x || _) = (L.contains y || _)
   rw [hc, hf]
 
+omit sv in
 theorem environmentLists_known {Γ : List (VarId × Expr)} {L : List VarId} {y : VarId}
     (h : (environmentLists Γ L ++ L).contains y = true) : listKnown Γ L (.Var y) = true := by
   obtain ⟨y', hy', hyy'⟩ := List.contains_iff_exists_mem_beq.mp h
@@ -177,6 +189,7 @@ theorem environmentLists_known {Γ : List (VarId × Expr)} {L : List VarId} {y :
   · show (L.contains y' || _) = true
     rw [List.contains_iff_exists_mem_beq.mpr ⟨y', hy', varId_beq_self y'⟩]; rfl
 
+omit sv in
 theorem beq_nullList {x : Expr} (h : (x == Expr.Force (.Builtin .NullList)) = true) :
     x = .Force (.Builtin .NullList) := by
   cases x with
@@ -188,6 +201,7 @@ theorem beq_nullList {x : Expr} (h : (x == Expr.Force (.Builtin .NullList)) = tr
     | _ => cases h
   | _ => cases h
 
+omit sv in
 theorem listedParameters_nil (params : List VarId) : listedParameters params [] = [] := rfl
 
 theorem knownListWalk_rel (e : Expr) (Γ : List (VarId × Expr)) (L : List VarId) :

@@ -151,6 +151,12 @@ private def haskellDiv (a b : Int) : Int :=
 private def haskellMod (a b : Int) : Int :=
   a - b * haskellDiv a b
 
+theorem haskellDiv_one (x : Int) : haskellDiv x 1 = x := by
+  simp [haskellDiv]
+
+theorem haskellMod_one (x : Int) : haskellMod x 1 = 0 := by
+  simp [haskellMod, haskellDiv_one]
+
 /-! ### ByteString Helpers -/
 
 /-- Lexicographic less-than for ByteArrays. -/
@@ -870,6 +876,22 @@ theorem evalBuiltin_consts [SemVariant] (b : BuiltinFun) (cs : List Const)
   rw [hp]
   simp only [extractConsts_map]
   cases evalBuiltinConst b cs <;> rfl
+
+theorem evalBuiltin_listData_dataList [SemVariant] (ds : List Data) :
+    evalBuiltin .ListData [.VCon (.dataList ds)] = some (.VCon (.Data (.List ds))) := by
+  rw [show [CekValue.VCon (.dataList ds)] = [Const.dataList ds].map CekValue.VCon from rfl,
+    evalBuiltin_consts _ _ rfl]
+  change ((constListToData (ds.map Const.Data)).bind
+    (fun values => some (Const.Data (.List values)))).map CekValue.VCon = _
+  rw [constListToData_map]; rfl
+
+theorem evalBuiltin_mapData_pairDataList [SemVariant] (ps : List (Data × Data)) :
+    evalBuiltin .MapData [.VCon (.pairDataList ps)] = some (.VCon (.Data (.Map ps))) := by
+  rw [show [CekValue.VCon (.pairDataList ps)] = [Const.pairDataList ps].map CekValue.VCon from rfl,
+    evalBuiltin_consts _ _ rfl]
+  change ((constListToPairData (ps.map Const.pairData)).bind
+    (fun values => some (Const.Data (.Map values)))).map CekValue.VCon = _
+  rw [constListToPairData_map]; rfl
 
 /-- A guarded builtin arm that succeeded produced its guarded result. -/
 theorem eq_of_ite_some {α : Type} {p : Prop} {inst : Decidable p} {a c : α}

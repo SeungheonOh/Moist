@@ -1,6 +1,8 @@
 import Moist.Verified.CheckedBranchesSoundness.Branches
 import Moist.Verified.CheckedBranchesSoundness.Lowering
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # The checked branch walk
 
 Every node either keeps its shape (congruence), fuses a head/tail pair of a
@@ -15,6 +17,7 @@ open Moist.CEK Moist.Plutus.Term
 open Moist.MIR Moist.MIR.Advanced
 open Moist.Verified
 
+omit sv in
 theorem beq_force_nullList' {x : Expr} (h : (x == Expr.Force (.Builtin .NullList)) = true) :
     x = .Force (.Builtin .NullList) := by
   cases x with
@@ -26,6 +29,7 @@ theorem beq_force_nullList' {x : Expr} (h : (x == Expr.Force (.Builtin .NullList
     | _ => cases h
   | _ => cases h
 
+omit sv in
 theorem headTailList_some {Γ : List (VarId × Expr)} {N : List VarId} {hr tr : Expr} {l : VarId}
     (h : headTailList Γ N hr tr = some l) :
     ∃ l', resolveHead 64 Γ hr = .App (.Force (.Builtin .HeadList)) (.Var l) ∧
@@ -50,6 +54,7 @@ theorem CheckedRel.of_flatten {Γ : List (VarId × Expr)} {N : List VarId}
   · intro env; rw [← flattenBindings_lower bs body env, hflat]
   · intro avoid; rw [← flattenBindings_fresh bs body avoid, hflat]
 
+omit sv in
 theorem flatten_one_nil_lt {bs : List (VarId × Expr × Bool)} {body inner r : Expr} {x : VarId}
     {er : Bool} (hf : flattenBindings bs body = ([(x, r, er)], inner)) :
     exprSize (.Let [] inner) < exprSize (.Let bs body) := by

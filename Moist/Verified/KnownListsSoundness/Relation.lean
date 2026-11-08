@@ -1,6 +1,8 @@
 import Moist.Verified.CheckedBranchesSoundness.Relation
 import Moist.MIR.Optimize.Advanced.KnownLists
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Refinement under list facts
 
 `KnownRel Γ L e e'` is `FactRel` with an additional set `L` of names known to
@@ -33,9 +35,11 @@ def KnownRel (Γ : List (VarId × Expr)) (L : List VarId) (e e' : Expr) : Prop :
 
 /-! ## List facts under binders -/
 
+omit sv in
 theorem ListsHold.nil (env : List VarId) (ρ : CekEnv) : ListsHold [] env ρ := by
   intro y hy; simp at hy
 
+omit sv in
 theorem ListsHold.extend {L env : List VarId} {ρ : CekEnv} {x : VarId} (w : CekValue)
     (h : ListsHold L env ρ) (hb : NamesBound L env) (hx : (envLookupT env x).isNone = true) :
     ListsHold L (x :: env) (ρ.extend w) := by
@@ -47,6 +51,7 @@ theorem ListsHold.extend {L env : List VarId} {ρ : CekEnv} {x : VarId} (w : Cek
     rw [hl'] at hl; simp at hl; subst hl
     exact h y hy i' hl'
 
+omit sv in
 /-- A list fact for a name bound in the current environment. -/
 theorem ListsHold.add {L env : List VarId} {ρ : CekEnv} {l : VarId} (h : ListsHold L env ρ)
     (hl : ∀ i, envLookupT env l = some i → ∃ v, ρ.lookup (i + 1) = some v ∧ ListValue v) :
@@ -57,6 +62,7 @@ theorem ListsHold.add {L env : List VarId} {ρ : CekEnv} {l : VarId} (h : ListsH
   · rw [envLookupT_congr hy] at hi; exact hl i hi
   · exact h y hy i hi
 
+omit sv in
 /-- A new binder holding a list. -/
 theorem ListsHold.push {L env : List VarId} {ρ : CekEnv} {x : VarId} {w : CekValue}
     (h : ListsHold L env ρ) (hb : NamesBound L env) (hx : (envLookupT env x).isNone = true)
@@ -67,6 +73,7 @@ theorem ListsHold.push {L env : List VarId} {ρ : CekEnv} {x : VarId} {w : CekVa
   cases hi
   exact ⟨w, rfl, hw⟩
 
+omit sv in
 /-- List facts survive moving to an older suffix of a distinct environment. -/
 theorem ListsHold.drop {L env : List VarId} {ρ : CekEnv} (h : ListsHold L env ρ)
     (hd : EnvDistinct env) (j : Nat) : ListsHold L (env.drop j) (dropEnv j ρ) := by
@@ -76,6 +83,7 @@ theorem ListsHold.drop {L env : List VarId} {ρ : CekEnv} (h : ListsHold L env �
   refine ⟨v, ?_, hlv⟩
   rw [dropEnv_lookup j ρ _ (by omega), show i + 1 + j = i + j + 1 by omega]; exact hv
 
+omit sv in
 theorem ListsHold.append {L L' env : List VarId} {ρ : CekEnv} (h : ListsHold L env ρ)
     (h' : ListsHold L' env ρ) : ListsHold (L' ++ L) env ρ := by
   intro y hy i hi
