@@ -31,10 +31,10 @@ def ℰ_list (ℰ_elem : Encoder α) : Encoder (List α)
 /-- Encode natural numbers as described in Section 3.3.3 (`ℰ_ℕ`). -/
 -- Encode natural numbers as described in Section 3.3.3 (ℰ_ℕ).
 def ℰ_ℕ : Encoder Nat := fun buf value =>
+  -- `List.dropLast` and `List.getLast!` run in constant stack, so huge constants encode safely.
   let digits := base128Digits value
-  let (rest, last) := splitInitLast digits
-  let buf := ℰ_list (fun buf digit => ℰ_n buf (7, digit)) buf rest
-  ℰ_n buf (7, last)
+  let buf := ℰ_list (fun buf digit => ℰ_n buf (7, digit)) buf digits.dropLast
+  ℰ_n buf (7, digits.getLast!)
 
 /-- Encode signed integers via zig-zag and `ℰ_ℕ` (Section 3.3.4, `ℰ_ℤ`). -/
 -- Encode signed integers via zig-zag and ℰ_ℕ (Section 3.3.4, ℰ_ℤ).

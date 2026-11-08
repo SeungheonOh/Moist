@@ -28,19 +28,6 @@ The resulting list is never empty (`0` encodes as `[0]`).
 def base128Digits (n : Nat) : List Nat :=
   if n = 0 then [0] else base128DigitsN n ((Nat.log2 n + 7) / 7)
 
-/--
-Split a list into the prefix (everything except the last element) together with
-the final element.  This function is only used with lists that are known to be
-nonempty.
--/
-def splitInitLast (xs : List Nat) : List Nat × Nat :=
-  match xs with
-  | [] => ([], 0)
-  | [x] => ([], x)
-  | x :: rest =>
-      let (init, last) := splitInitLast rest
-      (x :: init, last)
-
 /-- Zig-zag encoding for signed integers (Definition 3.4.5). -/
 def zigZag : Int → Nat
   | .ofNat n => 2 * n

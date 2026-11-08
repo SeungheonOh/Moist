@@ -241,6 +241,12 @@ def tests : TestTree := suite "acceptance" do
     for value in samples do
       checkEq s!"base-128 digits of a {Nat.log2 value + 1}-bit number"
         (Moist.Plutus.base128Digits value) (slow value 2000)
+  test "huge_integer_constants_encode" do
+    let big : Int := Int.ofNat (Nat.shiftLeft 1 600000) + 12345
+    let program : Program := .Program (.Version 1 1 0) (.Constant (.Integer big, .AtomicType .TypeInteger))
+    let bytes := program.encode.toByteList.length
+    -- 600001-bit zig-zag value: 85715 seven-bit groups of 8 flat bits each, plus framing
+    check s!"a 600000-bit constant encodes ({bytes} bytes)" (bytes > 85715 && bytes < 85730)
   test "constant_annotation_does_not_change_flat" do
     let program (annotation : BuiltinType) : Program :=
       .Program (.Version 1 1 0) (.Constant (.Integer 7, annotation))
