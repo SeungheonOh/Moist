@@ -202,9 +202,10 @@ mutual
     | .Pair (a1, a2), .Pair (b1, b2) => constEq a1 b1 && constEq a2 b2
     | .Data a, .Data b => dataEq a b
     | .ConstArray ta a, .ConstArray tb b => builtinTypeEq ta tb && constEqList a b
-    | .Bls12_381_G1_element, .Bls12_381_G1_element => true
-    | .Bls12_381_G2_element, .Bls12_381_G2_element => true
-    | .Bls12_381_MlResult, .Bls12_381_MlResult => true
+    | .Bls12_381_G1_element a, .Bls12_381_G1_element b => a == b
+    | .Bls12_381_G2_element a, .Bls12_381_G2_element b => a == b
+    | .Bls12_381_MlResult a, .Bls12_381_MlResult b => a == b
+    | .Value a, .Value b => decide (a = b)
     | _, _ => false
 
   /-- Pointwise `constEq`; `false` when the lengths differ. -/

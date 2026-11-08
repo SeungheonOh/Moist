@@ -163,9 +163,14 @@ mutual
     | .ConstList _ xs => fmtConstList xs
     | .Pair p => fmtConstPair p
     | .ConstArray _ xs => fmtConstList xs
-    | .Bls12_381_G1_element => "<G1>"
-    | .Bls12_381_G2_element => "<G2>"
-    | .Bls12_381_MlResult => "<MlResult>"
+    | .Bls12_381_G1_element bs => "0x" ++ (fmtByteString bs).drop 1
+    | .Bls12_381_G2_element bs => "0x" ++ (fmtByteString bs).drop 1
+    | .Bls12_381_MlResult _ => "<MlResult>"
+    | .Value entries =>
+      "[" ++ String.intercalate ", " (entries.map fun (currency, tokens) =>
+        "(" ++ fmtByteString currency ++ ", [" ++ String.intercalate ", "
+          (tokens.map fun (token, amount) => "(" ++ fmtByteString token ++ ", " ++ toString amount ++ ")")
+          ++ "])") ++ "]"
 end
 
 /-- Generate a readable variable name from a counter.

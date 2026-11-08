@@ -128,9 +128,10 @@ mutual
       · rw [data_eq_of_dataEq h]
       · simp only [Bool.and_eq_true] at h
         rw [builtinType_eq_of_builtinTypeEq h.1, constList_eq_of_constEqList h.2]
-      · rfl
-      · rfl
-      · rfl
+      · rw [byteString_eq_of_beq h]
+      · rw [byteString_eq_of_beq h]
+      · rw [byteString_eq_of_beq h]
+      · rw [of_decide_eq_true h]
 
   theorem constList_eq_of_constEqList : ∀ {a b : List Const}, constEqList a b = true → a = b
     | [], [], _ => rfl

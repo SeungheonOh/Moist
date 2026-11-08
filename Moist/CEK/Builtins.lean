@@ -1,7 +1,9 @@
 import Moist.CEK.Value
 import Moist.CEK.SemVariant
+import Moist.CEK.OpaqueBuiltins
 import Moist.Plutus.Types
 import Moist.Plutus.DecidableEq
+import Moist.Plutus.Value
 
 namespace Moist.CEK
 
@@ -501,6 +503,27 @@ end Serialise
 /-- `serialiseData`. -/
 def serialiseData (d : Data) : ByteArray := ByteArray.mk (Serialise.data d).toArray
 
+/-! ### Helpers for the uninterpreted (crypto) and `Value` builtins -/
+
+/-- The integers of a list constant (`multiScalarMul` scalars). -/
+def constListInts : List Const → Option (List Int)
+  | [] => some []
+  | .Integer i :: rest => return i :: (← constListInts rest)
+  | _ => none
+
+/-- The G1 points of a list constant. -/
+def constListG1 : List Const → Option (List ByteString)
+  | [] => some []
+  | .Bls12_381_G1_element p :: rest => return p :: (← constListG1 rest)
+  | _ => none
+
+/-- The G2 points of a list constant. -/
+def constListG2 : List Const → Option (List ByteString)
+  | [] => some []
+  | .Bls12_381_G2_element p :: rest => return p :: (← constListG2 rest)
+  | _ => none
+
+
 /-! ## Two-Stage Builtin Evaluation
 
 Stage 1: `evalBuiltinConst` — pure computation on `List Const`, returns `Option Const`.
@@ -702,6 +725,82 @@ def evalBuiltinConst [sv : SemVariant] (b : BuiltinFun) (args : List Const) : Op
       match modInverse b m with
       | some bInv => some (.Integer (modPow bInv (-e) m))
       | none => none
+
+  -- Hashes and signature verification: uninterpreted (see `Moist.CEK.Opaque`)
+  | .Sha2_256, [.ByteString bs] => (Opaque.hash .sha2_256 bs).map .ByteString
+  | .Sha3_256, [.ByteString bs] => (Opaque.hash .sha3_256 bs).map .ByteString
+  | .Blake2b_224, [.ByteString bs] => (Opaque.hash .blake2b_224 bs).map .ByteString
+  | .Blake2b_256, [.ByteString bs] => (Opaque.hash .blake2b_256 bs).map .ByteString
+  | .Keccak_256, [.ByteString bs] => (Opaque.hash .keccak_256 bs).map .ByteString
+  | .Ripemd_160, [.ByteString bs] => (Opaque.hash .ripemd_160 bs).map .ByteString
+  | .VerifyEd25519Signature, [.ByteString sig, .ByteString msg, .ByteString pk] =>
+    (Opaque.verifySignature .ed25519 pk msg sig).map .Bool
+  | .VerifyEcdsaSecp256k1Signature, [.ByteString sig, .ByteString msg, .ByteString pk] =>
+    (Opaque.verifySignature .ecdsaSecp256k1 pk msg sig).map .Bool
+  | .VerifySchnorrSecp256k1Signature, [.ByteString sig, .ByteString msg, .ByteString pk] =>
+    (Opaque.verifySignature .schnorrSecp256k1 pk msg sig).map .Bool
+
+  -- BLS12-381: uninterpreted (see `Moist.CEK.Opaque`)
+  | .Bls12_381_G1_add, [.Bls12_381_G1_element q, .Bls12_381_G1_element p] =>
+    (Opaque.blsAdd .g1 p q).map .Bls12_381_G1_element
+  | .Bls12_381_G1_neg, [.Bls12_381_G1_element p] =>
+    (Opaque.blsNeg .g1 p).map .Bls12_381_G1_element
+  | .Bls12_381_G1_scalarMul, [.Bls12_381_G1_element p, .Integer k] =>
+    (Opaque.blsScalarMul .g1 k p).map .Bls12_381_G1_element
+  | .Bls12_381_G1_equal, [.Bls12_381_G1_element q, .Bls12_381_G1_element p] =>
+    (Opaque.blsEqual .g1 p q).map .Bool
+  | .Bls12_381_G1_hashToGroup, [.ByteString dst, .ByteString msg] =>
+    (Opaque.blsHashToGroup .g1 msg dst).map .Bls12_381_G1_element
+  | .Bls12_381_G1_compress, [.Bls12_381_G1_element p] =>
+    (Opaque.blsCompress .g1 p).map .ByteString
+  | .Bls12_381_G1_uncompress, [.ByteString bs] =>
+    (Opaque.blsUncompress .g1 bs).map .Bls12_381_G1_element
+  | .Bls12_381_G1_multiScalarMul, [.ConstList pointType points, .ConstList scalarType scalars] => do
+    if !(decide (scalarType = .AtomicType .TypeInteger) &&
+        decide (pointType = .AtomicType .TypeBls12_381_G1_element)) then none
+    let ss ← constListInts scalars
+    let ps ← constListG1 points
+    (Opaque.blsMultiScalarMul .g1 ss ps).map .Bls12_381_G1_element
+  | .Bls12_381_G2_add, [.Bls12_381_G2_element q, .Bls12_381_G2_element p] =>
+    (Opaque.blsAdd .g2 p q).map .Bls12_381_G2_element
+  | .Bls12_381_G2_neg, [.Bls12_381_G2_element p] =>
+    (Opaque.blsNeg .g2 p).map .Bls12_381_G2_element
+  | .Bls12_381_G2_scalarMul, [.Bls12_381_G2_element p, .Integer k] =>
+    (Opaque.blsScalarMul .g2 k p).map .Bls12_381_G2_element
+  | .Bls12_381_G2_equal, [.Bls12_381_G2_element q, .Bls12_381_G2_element p] =>
+    (Opaque.blsEqual .g2 p q).map .Bool
+  | .Bls12_381_G2_hashToGroup, [.ByteString dst, .ByteString msg] =>
+    (Opaque.blsHashToGroup .g2 msg dst).map .Bls12_381_G2_element
+  | .Bls12_381_G2_compress, [.Bls12_381_G2_element p] =>
+    (Opaque.blsCompress .g2 p).map .ByteString
+  | .Bls12_381_G2_uncompress, [.ByteString bs] =>
+    (Opaque.blsUncompress .g2 bs).map .Bls12_381_G2_element
+  | .Bls12_381_G2_multiScalarMul, [.ConstList pointType points, .ConstList scalarType scalars] => do
+    if !(decide (scalarType = .AtomicType .TypeInteger) &&
+        decide (pointType = .AtomicType .TypeBls12_381_G2_element)) then none
+    let ss ← constListInts scalars
+    let ps ← constListG2 points
+    (Opaque.blsMultiScalarMul .g2 ss ps).map .Bls12_381_G2_element
+  | .Bls12_381_millerLoop, [.Bls12_381_G2_element q, .Bls12_381_G1_element p] =>
+    (Opaque.millerLoop p q).map .Bls12_381_MlResult
+  | .Bls12_381_mulMlResult, [.Bls12_381_MlResult b, .Bls12_381_MlResult a] =>
+    (Opaque.mulMlResult a b).map .Bls12_381_MlResult
+  | .Bls12_381_finalVerify, [.Bls12_381_MlResult b, .Bls12_381_MlResult a] =>
+    (Opaque.finalVerify a b).map .Bool
+
+  -- Value (faithful, see `Moist.Plutus.Value`)
+  | .InsertCoin, [.Value v, .Integer amount, .ByteString token, .ByteString currency] =>
+    (Moist.Plutus.Value.insertCoin currency token amount v).map .Value
+  | .LookupCoin, [.Value v, .ByteString token, .ByteString currency] =>
+    some (.Integer (Moist.Plutus.Value.lookupCoin currency token v))
+  | .UnionValue, [.Value b, .Value a] =>
+    (Moist.Plutus.Value.unionValue a b).map .Value
+  | .ValueContains, [.Value b, .Value a] =>
+    (Moist.Plutus.Value.valueContains a b).map .Bool
+  | .ValueData, [.Value v] => (Moist.Plutus.Value.valueData v).map .Data
+  | .UnValueData, [.Data d] => (Moist.Plutus.Value.unValueData d).map .Value
+  | .ScaleValue, [.Value v, .Integer factor] =>
+    (Moist.Plutus.Value.scaleValue factor v).map .Value
 
   -- Fallthrough
   | _, _ => none

@@ -199,9 +199,10 @@ where
     | .ConstList _ l => l.length
     | .ConstArray _ l => l.length
     | .Pair _ => 1
-    | .Bls12_381_G1_element => 18
-    | .Bls12_381_G2_element => 36
-    | .Bls12_381_MlResult => 72
+    | .Bls12_381_G1_element _ => 18
+    | .Bls12_381_G2_element _ => 36
+    | .Bls12_381_MlResult _ => 72
+    | .Value entries => Moist.Plutus.Value.totalSize entries
 
 /-! ## Builtin Costing
 
@@ -242,6 +243,34 @@ private def cQuad (c0 c1 c2 : Int) (n : Nat) : Int :=
 private def argIntVal (args : List CekValue) (i : Nat) : Int :=
   match (args.reverse)[i]? with
   | some (.VCon (.Integer n)) => n
+  | _ => 0
+
+/-- The `Value` payload of an argument (in application order). -/
+private def argValue (args : List CekValue) (i : Nat) : Moist.Plutus.Value.Entries :=
+  match (args.reverse)[i]? with
+  | some (.VCon (.Value v)) => v
+  | _ => []
+
+/-- `ValueTotalSize` of an argument (in application order). -/
+private def argValueTotal (args : List CekValue) (i : Nat) : Nat :=
+  Moist.Plutus.Value.totalSize (argValue args i)
+
+/-- `ValueMaxDepth`: `log2 outer + 1` plus `log2 maxInner + 1` (each 0 when empty). -/
+private def argValueDepth (args : List CekValue) (i : Nat) : Nat :=
+  let v := argValue args i
+  let logSize (n : Nat) := if n > 0 then Nat.log2 n + 1 else 0
+  logSize v.length + logSize (Moist.Plutus.Value.maxInnerSize v)
+
+/-- `DataNodeCount`: the number of nodes of a `Data` argument. -/
+private partial def dataNodeCount : Data → Nat
+  | .Constr _ fields => 1 + fields.foldl (fun acc d => acc + dataNodeCount d) 0
+  | .Map pairs => 1 + pairs.foldl (fun acc (k, v) => acc + dataNodeCount k + dataNodeCount v) 0
+  | .List items => 1 + items.foldl (fun acc d => acc + dataNodeCount d) 0
+  | .I _ | .B _ => 1
+
+private def argDataNodes (args : List CekValue) (i : Nat) : Nat :=
+  match (args.reverse)[i]? with
+  | some (.VCon (.Data d)) => dataNodeCount d
   | _ => 0
 
 def builtinCost (b : BuiltinFun) (args : List CekValue) : ExBudget :=
@@ -329,13 +358,17 @@ where
     | .IndexArray => 232010
     | .LengthOfArray => 231883
     | .ListToArray => cLin 1000 24838 s0
-    | .InsertCoin => cLin 356924 18413 s0
-    | .LookupCoin => cLin 219951 9444 s2
-    | .ScaleValue => cLin 1000 277577 s1
-    | .UnionValue => 1000
-    | .ValueContains => 213283
-    | .ValueData => cLin 1000 38159 s0
-    | .UnValueData => cQuad 1000 95933 1 s0
+    | .InsertCoin => cLin 356924 18413 (argValueDepth args 3)
+    | .LookupCoin => cLin 219951 9444 (argValueDepth args 2)
+    | .ScaleValue => cLin 1000 277577 (argValueTotal args 1)
+    | .UnionValue =>
+      let x := Int.ofNat (argValueTotal args 0); let y := Int.ofNat (argValueTotal args 1)
+      1000 + 172116 * x + 183150 * y + 6 * x * y
+    | .ValueContains =>
+      let x := argValueTotal args 0; let y := argValueTotal args 1
+      if x < y then 213283 else 618401 + 1998 * Int.ofNat x + 28258 * Int.ofNat y
+    | .ValueData => cLin 1000 38159 (argValueTotal args 0)
+    | .UnValueData => cQuad 1000 95933 1 (argDataNodes args 0)
 
   memCost (b : BuiltinFun) (args : List CekValue) (sz : List Nat) (s0 s1 s2 : Nat) : Int := match b with
     | .AddInteger | .SubtractInteger => cMaxSz 1 1 sz
@@ -394,13 +427,13 @@ where
     | .IndexArray => 32
     | .LengthOfArray => 10
     | .ListToArray => cLin 7 1 s0
-    | .InsertCoin => cLin 45 21 s0
+    | .InsertCoin => cLin 45 21 (argValueDepth args 3)
     | .LookupCoin => 1
-    | .ScaleValue => cLin 12 21 s1
-    | .UnionValue => cAddSz 24 21 sz
+    | .ScaleValue => cLin 12 21 (argValueTotal args 1)
+    | .UnionValue => cLin 24 21 (argValueTotal args 0 + argValueTotal args 1)
     | .ValueContains => 1
-    | .ValueData => cLin 2 22 s0
-    | .UnValueData => cLin 1 11 s0
+    | .ValueData => cLin 2 22 (argValueTotal args 0)
+    | .UnValueData => cLin 1 11 (argDataNodes args 0)
 
 /-! ## Cost of the Next Step
 

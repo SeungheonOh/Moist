@@ -102,6 +102,9 @@ theorem booleanBuiltin_result {b : BuiltinFun} (hb : booleanBuiltin b = true)
     | (cases x <;> (try cases hc) <;> exact ⟨_, rfl⟩)
     | (cases x <;> (try cases hc) <;> cases y <;> (try cases hc) <;>
         first | exact ⟨_, rfl⟩ | (obtain rfl := eq_of_ite_some hc; exact ⟨_, rfl⟩))
+    | -- signature checks: the (uninterpreted) verifier returns a `Bool` when it succeeds
+      (cases x <;> (try cases hc) <;> cases y <;> (try cases hc) <;> cases z <;> (try cases hc) <;>
+        (obtain ⟨_, _, rfl⟩ := Option.map_eq_some_iff.mp hc; exact ⟨_, rfl⟩))
 
 /-- The integer-valued builtins accepted by `knownInteger`. -/
 def integerBuiltin : BuiltinFun → Bool

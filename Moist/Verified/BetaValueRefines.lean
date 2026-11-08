@@ -791,6 +791,7 @@ theorem vcon_fields_of_constToTagAndFields :
   | Bls12_381_G1_element => simp [constToTagAndFields] at hc
   | Bls12_381_G2_element => simp [constToTagAndFields] at hc
   | Bls12_381_MlResult => simp [constToTagAndFields] at hc
+  | Value => simp [constToTagAndFields] at hc
 
 --------------------------------------------------------------------------------
 -- 11. StackRefK reflexivity
@@ -1620,6 +1621,7 @@ theorem shiftBisimValueList_constToTagAndFields_refl :
   | Bls12_381_G1_element => simp [constToTagAndFields] at hc
   | Bls12_381_G2_element => simp [constToTagAndFields] at hc
   | Bls12_381_MlResult => simp [constToTagAndFields] at hc
+  | Value => simp [constToTagAndFields] at hc
 
 --------------------------------------------------------------------------------
 -- 18. Stepping preserves the shift bisimulation
