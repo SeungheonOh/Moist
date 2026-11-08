@@ -225,6 +225,12 @@ def tests : TestTree := suite "acceptance" do
     for (name, script) in generatedScripts do
       count := count + (← checkScript name script (protocolInputs ++ [.Error]))
     IO.println s!"{count} generated closure comparisons with post-optimization arguments."
+  test "builtin_flat_tags_round_trip" do
+    let table := Moist.Plutus.Decode.Internal.builtinTable
+    for (tag, builtin) in table do
+      checkEq s!"flat tag of {repr builtin}" (Moist.Plutus.Encode.builtinFunTag builtin) tag
+    checkEq "decoder covers every builtin" table.length 101
+    checkEq "decoder tags are distinct" (table.map (·.1)).eraseDups.length table.length
   test "all_builtin_partial_protocols_preserve_acceptance" do
     let mut count := 0
     for (name, script) in protocolScripts do
