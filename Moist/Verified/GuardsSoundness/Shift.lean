@@ -1,6 +1,8 @@
 import Moist.Verified.GuardsSoundness.PushRel
 import Moist.Verified.MIR.Hoist
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Shifting a term below a block of unused binders -/
 
 namespace Moist.Verified.Guards
@@ -17,6 +19,7 @@ def shiftN : Nat → Term → Term
   | 0, t => t
   | n + 1, t => shiftN n (renameTerm (shiftRename 1) t)
 
+omit sv in
 theorem lower_prepend_all : ∀ (bs : List VarId) (env : List VarId) (e : Expr),
     (∀ b ∈ bs, (freeVars e).contains b = false) →
     lowerTotalExpr (bs.reverse ++ env) e = (lowerTotalExpr env e).map (shiftN bs.length)
@@ -27,6 +30,7 @@ theorem lower_prepend_all : ∀ (bs : List VarId) (env : List VarId) (e : Expr),
       Moist.Verified.MIR.lowerTotalExpr_prepend_unused env b e (h b (.head _))]
     cases lowerTotalExpr env e <;> rfl
 
+omit sv in
 theorem closedAt_shiftN : ∀ (n : Nat) {d : Nat} {t : Term}, closedAt d t = true →
     closedAt (d + n) (shiftN n t) = true
   | 0, _, _, h => h
@@ -35,6 +39,7 @@ theorem closedAt_shiftN : ∀ (n : Nat) {d : Nat} {t : Term}, closedAt d t = tru
       Moist.Verified.closedAt_renameTerm_shiftRename t d 1 (Nat.le_refl 1) (by omega) h
     simpa [Nat.add_assoc, Nat.add_comm 1 n] using closedAt_shiftN n h1
 
+omit sv in
 theorem extendAll_wf : ∀ (fs : List CekValue) {d : Nat} {ρ : CekEnv}, EnvWellFormed d ρ → d ≤ ρ.length →
     ValueListWellFormed fs →
     EnvWellFormed (d + fs.length) (extendAll ρ fs) ∧ d + fs.length ≤ (extendAll ρ fs).length

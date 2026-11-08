@@ -4,6 +4,8 @@ import Moist.Verified.DeadLet
 import Moist.Verified.FundamentalRefines
 import Moist.MIR.ANF
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # CEK-level glue for the MIR rewrite primitives
 
 Step-shifting for `ObsRefinesK` and `StackRefK` augmentations by a single

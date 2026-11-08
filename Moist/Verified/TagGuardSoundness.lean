@@ -2,6 +2,8 @@ import Moist.Verified.TagGuardSoundness.PairGuard
 import Moist.Verified.FailFastSoundness
 import Moist.Verified.HygieneSoundness
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Soundness of constructor-tag prechecks
 
 `tagGuards_refines`: for every MIR expression `e`, `e ⊑Ctxᴹ tagGuards e`.
@@ -63,6 +65,7 @@ theorem pairGuard_post {Γ : List (VarId × Expr)} {e₁ body guarded : Expr} {t
       MIR.lowerTotalExpr_lam, htg]
     rfl
 
+omit sv in
 theorem pairCaseView_some' {e e₁ body : Expr} {t f : VarId}
     (h : pairCaseView e = some (e₁, t, f, body)) :
     e = .Case (.App (.Builtin .UnConstrData) e₁) [.Lam t (.Lam f body)] :=

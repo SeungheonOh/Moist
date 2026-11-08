@@ -3,6 +3,8 @@ import Moist.Verified.ShapeFacts.Evaluation
 import Moist.Verified.InlineSoundness.SubstRefinesExt
 import Moist.MIR.LowerTotal
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Recursive functions called on lists
 
 The lowered fixed point `fixLamWrapUplc tB` evaluates to a closure over the
@@ -68,16 +70,19 @@ def extendAll (σ : CekEnv) : List CekValue → CekEnv
   | [] => σ
   | a :: as => extendAll (σ.extend a) as
 
+omit sv in
 theorem extendAll_append (σ : CekEnv) (as bs : List CekValue) :
     extendAll σ (as ++ bs) = extendAll (extendAll σ as) bs := by
   induction as generalizing σ with
   | nil => rfl
   | cons a as ih => exact ih (σ.extend a)
 
+omit sv in
 theorem extendAll_snoc (σ : CekEnv) (as : List CekValue) (a : CekValue) :
     extendAll σ (as ++ [a]) = (extendAll σ as).extend a := by
   rw [extendAll_append]; rfl
 
+omit sv in
 theorem extendAll_length (σ : CekEnv) (as : List CekValue) :
     (extendAll σ as).length = σ.length + as.length := by
   induction as generalizing σ with
@@ -85,6 +90,7 @@ theorem extendAll_length (σ : CekEnv) (as : List CekValue) :
   | cons a as ih =>
     simp only [extendAll, ih, List.length_cons, CekEnv.extend, CekEnv.length]; omega
 
+omit sv in
 theorem extendAll_lookup_high (σ : CekEnv) : ∀ (as : List CekValue) (n : Nat), as.length < n →
     (extendAll σ as).lookup n = σ.lookup (n - as.length)
   | [], n, _ => by simp [extendAll]
@@ -96,6 +102,7 @@ theorem extendAll_lookup_high (σ : CekEnv) : ∀ (as : List CekValue) (n : Nat)
     rw [show n - as.length = (n - (as.length + 1)) + 1 by omega]
     exact lookup_extend_succ σ a _ (by omega)
 
+omit sv in
 theorem extendAll_lookup_low (σ : CekEnv) :
     ∀ (as : List CekValue) (n : Nat), 0 < n → n ≤ as.length →
       (extendAll σ as).lookup n = as[as.length - n]?
@@ -112,6 +119,7 @@ theorem extendAll_lookup_low (σ : CekEnv) :
       rw [extendAll_lookup_high _ as (as.length + 1) (by omega)]
       simp [extendAll, CekEnv.extend, CekEnv.lookup]
 
+omit sv in
 theorem extendAll_wellFormed {d : Nat} {σ : CekEnv} (hσ : EnvWellFormed d σ) (hlen : d ≤ σ.length) :
     ∀ (as : List CekValue), (∀ a ∈ as, ValueWellFormed a) →
       EnvWellFormed (d + as.length) (extendAll σ as)
@@ -124,8 +132,10 @@ theorem extendAll_wellFormed {d : Nat} {σ : CekEnv} (hσ : EnvWellFormed d σ) 
 
 /-! ## Well-formedness of the fixed point -/
 
+omit sv in
 theorem selfApp_closed : closedAt 2 selfApp = true := by simp [closedAt, selfApp]
 
+omit sv in
 theorem selfVal_wf {d : Nat} {ρ : CekEnv} {tB : Term} (hρ : EnvWellFormed d ρ) (hlen : d ≤ ρ.length)
     (htB : closedAt (d + 3) tB = true) : ValueWellFormed (selfVal tB ρ) := by
   refine .vlam hρ hlen ?_
@@ -133,6 +143,7 @@ theorem selfVal_wf {d : Nat} {ρ : CekEnv} {tB : Term} (hρ : EnvWellFormed d ρ
   simp only [closedAt, selfApp, Bool.and_eq_true, decide_eq_true_eq, h3]
   exact ⟨trivial, ⟨by omega, by omega⟩, by omega⟩
 
+omit sv in
 theorem fixEnv_wf {d : Nat} {ρ : CekEnv} {tB : Term} (hρ : EnvWellFormed d ρ) (hlen : d ≤ ρ.length)
     (htB : closedAt (d + 3) tB = true) :
     EnvWellFormed (d + 2) (fixEnv tB ρ) ∧ d + 2 ≤ (fixEnv tB ρ).length ∧
@@ -147,17 +158,20 @@ theorem fixEnv_wf {d : Nat} {ρ : CekEnv} {tB : Term} (hρ : EnvWellFormed d ρ)
   refine ⟨envWellFormed_extend (d + 1) h₁ hlen₁ hr, ?_, hr⟩
   simp [fixEnv, CekEnv.extend, CekEnv.length]; omega
 
+omit sv in
 theorem fixVal_wf {d : Nat} {ρ : CekEnv} {tB : Term} (hρ : EnvWellFormed d ρ) (hlen : d ≤ ρ.length)
     (htB : closedAt (d + 3) tB = true) : ValueWellFormed (fixVal tB ρ) := by
   obtain ⟨h₁, h₂, _⟩ := fixEnv_wf hρ hlen htB
   exact .vlam h₁ h₂ (by simpa [Nat.add_assoc] using htB)
 
+omit sv in
 theorem closedAt_lams : ∀ (n D : Nat) (T : Term), closedAt D (lams n T) = closedAt (D + n) T
   | 0, D, T => rfl
   | n + 1, D, T => by
     simp only [lams, closedAt]
     rw [closedAt_lams n (D + 1) T, show D + 1 + n = D + (n + 1) by omega]
 
+omit sv in
 theorem listRel_snoc {R : α → α → Prop} {xs ys : List α} {x y : α} (h : ListRel R xs ys)
     (hxy : R x y) : ListRel R (xs ++ [x]) (ys ++ [y]) :=
   listRel_append h ⟨hxy, trivial⟩
@@ -168,6 +182,7 @@ theorem listRel_valueRel_refl (k : Nat) :
   | a :: as, h => ⟨valueRel_refl k a (h a (.head _)),
       listRel_valueRel_refl k as fun b hb => h b (.tail _ hb)⟩
 
+omit sv in
 theorem listRel_length' {R : α → α → Prop} :
     ∀ {xs ys : List α}, ListRel R xs ys → xs.length = ys.length
   | [], [], _ => rfl
@@ -175,10 +190,12 @@ theorem listRel_length' {R : α → α → Prop} :
   | _ :: _, [], h => absurd h id
   | _ :: _, _ :: _, h => by simp [listRel_length' h.2]
 
+omit sv in
 theorem getElem?_snoc_of_lt {xs : List α} {x : α} {p : Nat} (h : p < xs.length) :
     (xs ++ [x])[p]? = xs[p]? := by
   rw [List.getElem?_append_left h]
 
+omit sv in
 theorem getElem?_snoc_last {xs : List α} {x : α} : (xs ++ [x])[xs.length]? = some x := by
   simp
 
@@ -204,6 +221,7 @@ def Applies (tB T : Term) (G : CekValue) (as : List CekValue) (r : Nat) : Prop :
 
 variable {P m Ls tB₁ tB₂ T₁ T₂ ρ}
 
+omit sv in
 theorem lists_snoc {as : List CekValue} {a : CekValue} {r : Nat}
     (hlen : as.length = m - r)
     (hlist : ∀ p ∈ P, ∀ b, as[p]? = some b → ListValue b) (ha : m - r ∈ P → ListValue a) :
@@ -219,6 +237,7 @@ theorem lists_snoc {as : List CekValue} {a : CekValue} {r : Nat}
         rw [List.getElem?_eq_none]; simp; omega
       rw [this] at hb; cases hb
 
+omit sv in
 theorem wf_snoc {as : List CekValue} {a : CekValue} (h : ∀ b ∈ as, ValueWellFormed b)
     (ha : ValueWellFormed a) : ∀ b ∈ as ++ [a], ValueWellFormed b := by
   intro b hb
@@ -226,6 +245,7 @@ theorem wf_snoc {as : List CekValue} {a : CekValue} (h : ∀ b ∈ as, ValueWell
   · exact h b hb
   · simp at hb; subst hb; exact ha
 
+omit sv in
 theorem fixEnv_lookup_outer (tB : Term) (n : Nat) (hn : 0 < n) :
     (fixEnv tB ρ).lookup (n + 2) = ρ.lookup n := by
   rw [show n + 2 = (n + 1) + 1 by omega, fixEnv, lookup_extend_succ _ _ _ (by omega),
@@ -247,14 +267,17 @@ variable {d : Nat} (hρ : EnvWellFormed d ρ) (hlen : d ≤ ρ.length)
 include hρ hlen hT₁ hT₂ hB₁ hB₂ hm
 
 omit hρ hlen hT₂ hB₂ in
+omit sv in
 theorem tB_closed₁ : closedAt (d + 3) tB₁ = true := by
   rw [hB₁, closedAt_lams, show d + 3 + (m - 1) = d + 2 + m by omega]; exact hT₁
 
 omit hρ hlen hT₁ hB₁ in
+omit sv in
 theorem tB_closed₂ : closedAt (d + 3) tB₂ = true := by
   rw [hB₂, closedAt_lams, show d + 3 + (m - 1) = d + 2 + m by omega]; exact hT₂
 
 omit hT₁ hT₂ hB₁ hB₂ hm in
+omit sv in
 theorem prefixEnv_wf {tB : Term} (htB : closedAt (d + 3) tB = true) {as : List CekValue}
     (hw : ∀ a ∈ as, ValueWellFormed a) :
     EnvWellFormed (d + 2 + as.length) (extendAll (fixEnv tB ρ) as) ∧
@@ -395,6 +418,7 @@ theorem knot (hcalls : Calls P m (m + 1) [m + 2] Ls T₁)
     (hbody as₂ hlen₂ hw₂ hlist₂ π₂ hπ.2.1)
 
 omit hT₁ hT₂ hB₁ hB₂ hm in
+omit sv in
 theorem argFrames_wf {as : List Term} (hclosed : ∀ a ∈ as, closedAt d a = true) {π : Stack}
     (hπ : StackWellFormed π) : StackWellFormed (as.map (fun a => Frame.arg a ρ) ++ π) := by
   induction as with

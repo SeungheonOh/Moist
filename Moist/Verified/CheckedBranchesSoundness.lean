@@ -1,6 +1,8 @@
 import Moist.Verified.CheckedBranchesSoundness.Lowering
 import Moist.Verified.CheckedBranchesSoundness.Walk
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Checked list branches
 
 `optimizeCheckedBranches` first lowers fully forced delayed `chooseList`

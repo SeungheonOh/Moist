@@ -1,6 +1,8 @@
 import Moist.Verified.CaseMerge.Facts
 import Moist.Verified.FundamentalRefinesWF
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Compatibility lemmas for the guarded logical relation
 
 One lemma per term former (`eval_lam`, `eval_apply`, ...), the reflexive
@@ -91,6 +93,7 @@ theorem eval_case {k : Nat} {ρ₁ ρ₂ : CekEnv} {s₁ s₂ : Term} {alts₁ a
         (listRel_mono (fun _ _ h => eval_mono (by omega) h) ha))
       (W.compute hst₁) (W.compute hst₂) hπ) hst₁ hst₂
 
+omit sv in
 theorem listRel_getElem? {α : Type} {R : α → α → Prop} :
     ∀ {xs ys : List α}, ListRel R xs ys → ∀ {n : Nat} {x y : α},
       xs[n]? = some x → ys[n]? = some y → R x y
@@ -102,6 +105,7 @@ theorem listRel_getElem? {α : Type} {R : α → α → Prop} :
   | [], _ :: _, h, _, _, _, _, _ => absurd h id
   | _ :: _, [], h, _, _, _, _, _ => absurd h id
 
+omit sv in
 theorem listRel_length {α : Type} {R : α → α → Prop} :
     ∀ {xs ys : List α}, ListRel R xs ys → xs.length = ys.length
   | [], [], _ => rfl

@@ -2,6 +2,8 @@ import Moist.Verified.ShapeFacts.Total
 import Moist.Verified.ShapesSoundness.Choices
 import Moist.MIR.Optimize.Advanced.TagChains
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Tag tests under facts
 
 A resolved tag test `resolvedTagTest Γ s = some (t, c)` resolves, through the recorded
@@ -32,6 +34,7 @@ theorem halts_var_drop {env : List VarId} {ρ : CekEnv} {k : Nat} {x : VarId} {t
   rw [dropEnv_lookup k ρ _ (by omega)] at h
   rw [show i + k + 1 = i + 1 + k by omega]; exact h
 
+omit sv in
 theorem envWellFormed_drop {env : List VarId} {ρ : CekEnv} (henv : EnvWellFormed env.length ρ)
     (k : Nat) : EnvWellFormed (env.drop k).length (dropEnv k ρ) := by
   have := envWellFormed_dropEnv henv k
@@ -176,6 +179,7 @@ theorem evalBuiltin_equalsInteger (x y : Int) :
     evalBuiltin .EqualsInteger [.VCon (.Integer y), .VCon (.Integer x)] =
       some (.VCon (.Bool (x == y))) := rfl
 
+omit sv in
 theorem int_beq_comm (a b : Int) : (a == b) = (b == a) := by
   rw [Bool.eq_iff_iff]; simp only [beq_iff_eq]; exact eq_comm
 
@@ -229,6 +233,7 @@ theorem resolvedTagTest_sound {Γ : List (VarId × Expr)} {s : Expr} {t : VarId}
 
 /-! ## Bindings that return -/
 
+omit sv in
 theorem binary_of_comparison {b : BuiltinFun}
     (h : (b == .EqualsInteger || b == .LessThanInteger || b == .LessThanEqualsInteger) = true) :
     Binary b := by

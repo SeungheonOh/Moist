@@ -2,6 +2,8 @@ import Moist.Verified.ShapeFacts.Relation
 import Moist.Verified.MIR.AlphaEqBool
 import Moist.MIR.Optimize.Advanced.Shapes
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Fact environments
 
 A fact environment `Γ : List (VarId × Expr)` records, for some binders, the
@@ -33,11 +35,14 @@ def dropEnv : Nat → CekEnv → CekEnv
   | _ + 1, .nil => .nil
   | k + 1, .cons _ ρ => dropEnv k ρ
 
+omit sv in
 @[simp] theorem dropEnv_zero (ρ : CekEnv) : dropEnv 0 ρ = ρ := rfl
 
+omit sv in
 @[simp] theorem dropEnv_extend (k : Nat) (ρ : CekEnv) (v : CekValue) :
     dropEnv (k + 1) (ρ.extend v) = dropEnv k ρ := rfl
 
+omit sv in
 theorem dropEnv_add : ∀ (j k : Nat) (ρ : CekEnv), dropEnv k (dropEnv j ρ) = dropEnv (j + k) ρ
   | 0, k, ρ => by simp
   | j + 1, k, .nil => by
@@ -46,6 +51,7 @@ theorem dropEnv_add : ∀ (j k : Nat) (ρ : CekEnv), dropEnv k (dropEnv j ρ) = 
     rw [show j + 1 + k = (j + k) + 1 by omega]
     exact dropEnv_add j k ρ
 
+omit sv in
 theorem dropEnv_lookup : ∀ (k : Nat) (ρ : CekEnv) (n : Nat), 0 < n →
     (dropEnv k ρ).lookup n = ρ.lookup (n + k)
   | 0, ρ, n, _ => rfl
@@ -60,6 +66,7 @@ theorem dropEnv_lookup : ∀ (k : Nat) (ρ : CekEnv) (n : Nat), 0 < n →
     match n + k, (show n + k ≠ 0 by omega) with
     | m + 1, _ => rfl
 
+omit sv in
 theorem dropEnv_length : ∀ (k : Nat) (ρ : CekEnv), (dropEnv k ρ).length = ρ.length - k
   | 0, _ => rfl
   | k + 1, .nil => by simp [dropEnv, CekEnv.length]
@@ -67,6 +74,7 @@ theorem dropEnv_length : ∀ (k : Nat) (ρ : CekEnv), (dropEnv k ρ).length = ρ
     simp only [dropEnv, dropEnv_length k ρ, CekEnv.length]
     omega
 
+omit sv in
 theorem envWellFormed_dropEnv {d : Nat} {ρ : CekEnv} (h : EnvWellFormed d ρ)
     (k : Nat) : EnvWellFormed (d - k) (dropEnv k ρ) := by
   induction d with
@@ -87,22 +95,27 @@ def EnvDistinct : List VarId → Prop
   | [] => True
   | x :: env => envLookupT env x = none ∧ EnvDistinct env
 
+omit sv in
 theorem envLookupT_congr {x y : VarId} (h : (x == y) = true) (env : List VarId) :
     envLookupT env x = envLookupT env y := by
   simp only [envLookupT]; exact MIR.envLookupT_go_congr h env 0
 
+omit sv in
 theorem varId_beq_symm {x y : VarId} (h : (x == y) = true) : (y == x) = true := by
   rw [VarId.beq_true_iff] at h ⊢; exact ⟨h.1.symm, h.2.symm⟩
 
+omit sv in
 theorem varId_beq_self (x : VarId) : (x == x) = true := by
   rw [VarId.beq_true_iff]; exact ⟨rfl, rfl⟩
 
+omit sv in
 theorem envLookupT_cons (x y : VarId) (env : List VarId) :
     envLookupT (x :: env) y = if (x == y) = true then some 0 else (envLookupT env y).map (· + 1) := by
   split
   · rename_i h; exact MIR.envLookupT_cons_of_beq h env
   · rename_i h; exact envLookupT_cons_neq x y env (by simpa using h)
 
+omit sv in
 theorem EnvDistinct.drop_lookup :
     ∀ {env : List VarId} (j : Nat) {y : VarId} {i : Nat}, EnvDistinct env →
       envLookupT (env.drop j) y = some i → envLookupT env y = some (i + j)
@@ -119,11 +132,13 @@ theorem EnvDistinct.drop_lookup :
       cases this
     · rw [ih]; simp; omega
 
+omit sv in
 theorem EnvDistinct.drop : ∀ {env : List VarId} (j : Nat), EnvDistinct env → EnvDistinct (env.drop j)
   | env, 0, h => by simpa using h
   | [], _ + 1, _ => trivial
   | _ :: env, j + 1, h => by simpa using EnvDistinct.drop j h.2
 
+omit sv in
 theorem envLookupT_drop_of_ge :
     ∀ {env : List VarId} (j : Nat) {y : VarId} {i : Nat},
       envLookupT env y = some i → j ≤ i → envLookupT (env.drop j) y = some (i - j)
@@ -153,10 +168,12 @@ def FactsHold (P : List VarId → CekEnv → Expr → CekValue → Prop)
     ∃ v k, i < k ∧ k ≤ env.length ∧ ρ.lookup (i + 1) = some v ∧
       P (env.drop k) (dropEnv k ρ) entry.2 v
 
+omit sv in
 theorem FactsHold.nil (P : List VarId → CekEnv → Expr → CekValue → Prop) (env : List VarId)
     (ρ : CekEnv) : FactsHold P [] env ρ := by
   intro x entry i h; simp at h
 
+omit sv in
 theorem FactsHold.mono {P Q : List VarId → CekEnv → Expr → CekValue → Prop}
     {Γ : List (VarId × Expr)} {env : List VarId} {ρ : CekEnv}
     (h : FactsHold P Γ env ρ) (hPQ : ∀ env ρ rhs v, P env ρ rhs v → Q env ρ rhs v) :
@@ -165,6 +182,7 @@ theorem FactsHold.mono {P Q : List VarId → CekEnv → Expr → CekValue → Pr
   obtain ⟨v, k, hik, hk, hv, hp⟩ := h x entry i hf hl
   exact ⟨v, k, hik, hk, hv, hPQ _ _ _ _ hp⟩
 
+omit sv in
 /-- A new binder, recorded together with the right-hand side that produced
     its value. -/
 theorem FactsHold.push {P : List VarId → CekEnv → Expr → CekValue → Prop}
@@ -188,6 +206,7 @@ theorem FactsHold.push {P : List VarId → CekEnv → Expr → CekValue → Prop
       obtain ⟨v, k, hik, hk, hv, hp⟩ := h y entry i' hf hl'
       exact ⟨v, k + 1, by omega, by simp; omega, hv, by simpa using hp⟩
 
+omit sv in
 /-- A new binder without a fact. -/
 theorem FactsHold.extend {P : List VarId → CekEnv → Expr → CekValue → Prop}
     {Γ : List (VarId × Expr)} {env : List VarId} {ρ : CekEnv} {x : VarId} (w : CekValue)
@@ -210,6 +229,7 @@ theorem FactsHold.extend {P : List VarId → CekEnv → Expr → CekValue → Pr
       obtain ⟨v, k, hik, hk, hv, hp⟩ := h y entry i' hf hl'
       exact ⟨v, k + 1, by omega, by simp; omega, hv, by simpa using hp⟩
 
+omit sv in
 /-- Facts survive moving to an older suffix of a distinct environment. -/
 theorem FactsHold.drop {P : List VarId → CekEnv → Expr → CekValue → Prop}
     {Γ : List (VarId × Expr)} {env : List VarId} {ρ : CekEnv}
@@ -222,6 +242,7 @@ theorem FactsHold.drop {P : List VarId → CekEnv → Expr → CekValue → Prop
   · rw [dropEnv_lookup j ρ _ (by omega), show i + 1 + j = i + j + 1 by omega]; exact hv
   · rw [List.drop_drop, dropEnv_add, show j + (k - j) = k by omega]; exact hp
 
+omit sv in
 theorem find?_filter_key (keep : VarId → Bool) (congr : ∀ x y, (x == y) = true → keep x = keep y)
     (y : VarId) : ∀ (Γ : List (VarId × Expr)) {entry : VarId × Expr},
       (Γ.filter fun e => keep e.1).find? (fun e => e.1 == y) = some entry →
@@ -249,6 +270,7 @@ theorem find?_filter_key (keep : VarId → Bool) (congr : ∀ x y, (x == y) = tr
         cases this
       · exact rest
 
+omit sv in
 /-- Removing every fact about some binders. -/
 theorem FactsHold.filter {P : List VarId → CekEnv → Expr → CekValue → Prop}
     {Γ : List (VarId × Expr)} {env : List VarId} {ρ : CekEnv}
@@ -258,6 +280,7 @@ theorem FactsHold.filter {P : List VarId → CekEnv → Expr → CekValue → Pr
   intro y entry i hf hl
   exact h y entry i (find?_filter_key keep congr y Γ hf) hl
 
+omit sv in
 /-- A Boolean fact for a binder whose value is the given Boolean. -/
 theorem FactsHold.push_bool {P : List VarId → CekEnv → Expr → CekValue → Prop}
     {Γ : List (VarId × Expr)} {env : List VarId} {ρ : CekEnv} {b : VarId} {value : Bool}

@@ -1,5 +1,7 @@
 import Moist.Verified.CaseMerge.Lower
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Constructor facts at run time
 
 `FactsHold Γ env ρ`: every variable recorded in `Γ` is bound in `ρ` to a
@@ -104,6 +106,7 @@ theorem factValue_shift {env : List VarId} {ρ : CekEnv} {info : KnownCtor} {v :
     (w : CekValue) : FactValue (x :: env) (ρ.extend w) info v :=
   let ⟨vs, hs, hl⟩ := h; ⟨vs, hs, listRel2_atomEval_shift hl hx⟩
 
+omit sv in
 theorem beq_symm_false {a b : VarId} (h : (a == b) = false) : (b == a) = false := by
   rw [VarId.beq_false_iff] at h ⊢
   rcases h with h | h
@@ -121,17 +124,20 @@ theorem factsHold_cons {Γ Γ' : KnownCtors} {env : List VarId} {ρ : CekEnv} {x
   · rw [envLookupT_cons_neq x p.1 env (beq_symm_false hk), hi]; rfl
   · rw [BetaValueRefines.extend_lookup_succ ρ w (i + 1) (by omega)]; exact hv
 
+omit sv in
 theorem filterKnown_sub' {x : VarId} {Γ : KnownCtors} :
     ∀ p ∈ filterKnown x Γ, p ∈ Γ ∧ (p.1 == x) = false ∧
       (freeVarsList p.2.fields).contains x = false :=
   fun _ hp => mem_filterKnown.mp hp
 
+omit sv in
 theorem fresh_sub' {Γ : KnownCtors} {s : VarId} (hs : s.uid > maxUidKnown Γ) :
     ∀ p ∈ Γ, p ∈ Γ ∧ (p.1 == s) = false ∧ (freeVarsList p.2.fields).contains s = false :=
   fun p hp => ⟨hp, fresh_known hs p hp⟩
 
 /-! ## Simple expressions -/
 
+omit sv in
 theorem simple_of_known {Γ : KnownCtors} {F : Expr} {info : KnownCtor}
     (h : knownConstructor Γ F = some info) : Simple F := by
   rcases knownConstructor_cases h with ⟨y, rfl, -⟩ | ⟨tag, fs, rfl, -, hat⟩ | ⟨c, ty, rfl, -⟩
@@ -238,6 +244,7 @@ theorem steps_constr_returns {tag : Nat} {ρ : CekEnv} :
 
 /-! ## Shapes of simple results -/
 
+omit sv in
 theorem foldl_app_simple {a : Expr} :
     ∀ {args : List Expr}, Simple (args.foldl Expr.App a) → args = [] ∧ Simple a
   | [], h => ⟨rfl, h⟩
@@ -247,6 +254,7 @@ theorem foldl_app_simple {a : Expr} :
     · simp [Expr.isAtom] at h
     · cases h
 
+omit sv in
 theorem selectAlternative_simple {tag cc : Nat} {fields alts : List Expr}
     (h : Simple (selectAlternative tag cc fields alts)) :
     (cc > 0 && alts.length > cc) = false ∧ fields = [] ∧
@@ -268,6 +276,7 @@ theorem selectAlternative_simple {tag cc : Nat} {fields alts : List Expr}
       obtain ⟨rfl, hs⟩ := foldl_app_simple h
       exact ⟨rfl, a, rfl, rfl, hs⟩
 
+omit sv in
 theorem caseFieldBindings_nil {next : Nat} :
     ∀ {fields : List Expr} {args : List Expr},
       caseFieldBindings next fields = ([], args) → args = fields
@@ -285,6 +294,7 @@ theorem caseFieldBindings_nil {next : Nat} :
       rw [caseFieldBindings_nonatom fs hf] at h
       simp at h
 
+omit sv in
 theorem reduce_simple {tag : Nat} {fields alts : List Expr}
     (h : Simple (reduceConstructorCase tag fields alts)) :
     fields = [] ∧ ∃ a, alts[tag]? = some a ∧ reduceConstructorCase tag fields alts = a ∧ Simple a := by

@@ -1,6 +1,8 @@
 import Moist.Verified.ShapeFacts.Lift
 import Moist.Verified.MIR
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # From fact refinement to contextual refinement
 
 With no recorded facts, `FactRel` on a well-scoped program yields
@@ -18,6 +20,7 @@ open Moist.Verified Moist.Verified.MIR Moist.Verified.Contextual
 
 /-! ## Free variables of lowered expressions -/
 
+omit sv in
 theorem varSet_contains_congr (s : VarSet) {x y : VarId} (h : (x == y) = true) :
     s.contains x = s.contains y := by
   simp only [VarSet.contains]
@@ -26,6 +29,7 @@ theorem varSet_contains_congr (s : VarSet) {x y : VarId} (h : (x == y) = true) :
   show (a.origin == x.origin && a.uid == x.uid) = (a.origin == y.origin && a.uid == y.uid)
   rw [h1.1, h1.2]
 
+omit sv in
 theorem varSet_contains_of_erase {s : VarSet} {y v : VarId} (h : (s.erase y).contains v = true) :
     s.contains v = true ∧ (y == v) = false := by
   constructor
@@ -36,6 +40,7 @@ theorem varSet_contains_of_erase {s : VarSet} {y v : VarId} (h : (s.erase y).con
     · rfl
     · rw [← varSet_contains_congr _ hyv, VarSet.contains_erase_self] at h; cases h
 
+omit sv in
 theorem varSet_contains_union {s₁ s₂ : VarSet} {v : VarId} (h : (s₁.union s₂).contains v = true) :
     s₁.contains v = true ∨ s₂.contains v = true := by
   cases h₁ : s₁.contains v
@@ -48,6 +53,7 @@ theorem varSet_contains_union {s₁ s₂ : VarSet} {v : VarId} (h : (s₁.union 
 def AgreeOn (s : VarSet) (env₁ env₂ : List VarId) : Prop :=
   ∀ v, s.contains v = true → envLookupT env₁ v = envLookupT env₂ v
 
+omit sv in
 theorem AgreeOn.cons {s : VarSet} {env₁ env₂ : List VarId} (y : VarId)
     (h : AgreeOn (s.erase y) env₁ env₂) : AgreeOn s (y :: env₁) (y :: env₂) := by
   intro v hv
@@ -57,6 +63,7 @@ theorem AgreeOn.cons {s : VarSet} {env₁ env₂ : List VarId} (y : VarId)
   · rename_i hyv
     rw [h v (VarSet.contains_erase_ne s y v (by simpa using hyv) hv)]
 
+omit sv in
 theorem AgreeOn.mono {s t : VarSet} {env₁ env₂ : List VarId} (h : AgreeOn s env₁ env₂)
     (hst : ∀ v, t.contains v = true → s.contains v = true) : AgreeOn t env₁ env₂ :=
   fun v hv => h v (hst v hv)
@@ -227,6 +234,7 @@ end
 
 /-! ## Truncating the environment of a closed lowering -/
 
+omit sv in
 theorem envLookupT_take {env : List VarId} {x : VarId} {i k : Nat} (h : envLookupT env x = some i)
     (hik : i < k) : envLookupT (env.take k) x = some i := by
   induction env generalizing i k with
@@ -340,6 +348,7 @@ mutual
   termination_by sizeOf binds + sizeOf body
 end
 
+omit sv in
 theorem envLookupT_append_of_some {env more : List VarId} {x : VarId} {i : Nat}
     (h : envLookupT env x = some i) : envLookupT (env ++ more) x = some i := by
   induction env generalizing i with
@@ -374,15 +383,18 @@ def canonEnv (keep : VarId → Bool) (D : Nat) : List VarId → List VarId → N
     (if keep y && (envLookupT seen y).isNone then y else ⟨D + i, .source, ""⟩) ::
       canonEnv keep D (y :: seen) ys (i + 1)
 
+omit sv in
 theorem canonEnv_length (keep : VarId → Bool) (D : Nat) :
     ∀ (seen env : List VarId) (i : Nat), (canonEnv keep D seen env i).length = env.length
   | _, [], _ => rfl
   | seen, y :: ys, i => by simp [canonEnv, canonEnv_length keep D (y :: seen) ys (i + 1)]
 
+omit sv in
 theorem keep_congr_of {keep : VarId → Bool}
     (hkeep : ∀ x y, (x == y) = true → keep x = keep y) {x y : VarId} (h : (x == y) = true) :
     keep x = keep y := hkeep x y h
 
+omit sv in
 /-- Names found in a canonical environment are kept names not seen before, or
     fresh names. -/
 theorem canonEnv_found (keep : VarId → Bool) (D : Nat)
@@ -423,6 +435,7 @@ theorem canonEnv_found (keep : VarId → Bool) (D : Nat)
         simp at this; omega
       · exact rest (by simpa using h)
 
+omit sv in
 /-- A name of a canonical environment with a large identifier is a fresh name. -/
 theorem canonEnv_source (keep : VarId → Bool) (D : Nat) :
     ∀ (seen env : List VarId) (i : Nat) (y : VarId), y ∈ canonEnv keep D seen env i →
@@ -437,6 +450,7 @@ theorem canonEnv_source (keep : VarId → Bool) (D : Nat) :
       · exact .inl (hG _ rfl)
     · exact canonEnv_source keep D (z :: seen) zs (i + 1) y hy hD G hG
 
+omit sv in
 theorem canonEnv_distinct (keep : VarId → Bool) (D : Nat)
     (hkeep : ∀ x y, (x == y) = true → keep x = keep y) (hD : ∀ y, keep y = true → y.uid < D) :
     ∀ (seen env : List VarId) (i : Nat), EnvDistinct (canonEnv keep D seen env i)
@@ -459,6 +473,7 @@ theorem canonEnv_distinct (keep : VarId → Bool) (D : Nat)
         · have := hD _ hk; simp at this; omega
         · simp at hu; omega
 
+omit sv in
 theorem canonEnv_lookup (keep : VarId → Bool) (D : Nat)
     (hkeep : ∀ x y, (x == y) = true → keep x = keep y) (hD : ∀ y, keep y = true → y.uid < D) :
     ∀ (seen env : List VarId) (i : Nat) (y : VarId), keep y = true → envLookupT seen y = none →
@@ -486,6 +501,7 @@ theorem canonEnv_lookup (keep : VarId → Bool) (D : Nat)
 def AvoidOK (seen fv : VarSet) (bound : Nat) (avoid : List VarId) : Prop :=
   ∀ y, (envLookupT avoid y).isSome = true → seen.contains y = true ∨ fv.contains y = true ∨ bound < y.uid
 
+omit sv in
 theorem AvoidOK.mono {seen seen' fv : VarSet} {b b' : Nat} {avoid : List VarId}
     (h : AvoidOK seen fv b avoid) (hs : ∀ y, seen.contains y = true → seen'.contains y = true)
     (hb : b' ≤ b) : AvoidOK seen' fv b' avoid := by
@@ -495,6 +511,7 @@ theorem AvoidOK.mono {seen seen' fv : VarSet} {b b' : Nat} {avoid : List VarId}
   · exact .inr (.inl h)
   · exact .inr (.inr (by omega))
 
+omit sv in
 theorem AvoidOK.cons {seen fv : VarSet} {b : Nat} {avoid : List VarId} (x : VarId)
     (h : AvoidOK seen fv b avoid) : AvoidOK (seen.insert x) fv b (x :: avoid) := by
   intro y hy
@@ -507,6 +524,7 @@ theorem AvoidOK.cons {seen fv : VarSet} {b : Nat} {avoid : List VarId} (x : VarI
     · exact .inr (.inl h)
     · exact .inr (.inr h)
 
+omit sv in
 theorem AvoidOK.not_mem {seen fv : VarSet} {b : Nat} {avoid : List VarId} {x : VarId}
     (h : AvoidOK seen fv b avoid) (hseen : seen.contains x = false) (hfv : fv.contains x = false)
     (hb : x.uid ≤ b) : (envLookupT avoid x).isNone = true := by
@@ -648,6 +666,7 @@ theorem freshIn_of_wellScoped {e : Expr} (h : wellScoped e = true) {avoid : List
     · exact .inr (.inl h)
     · exact .inr (.inr h)
 
+omit sv in
 theorem freeVars_uid_lt {e : Expr} {y : VarId} (h : (freeVars e).contains y = true) :
     y.uid ≤ maxUidExpr e := by
   apply Classical.byContradiction

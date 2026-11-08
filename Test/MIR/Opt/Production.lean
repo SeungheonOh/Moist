@@ -146,15 +146,22 @@ def tests : TestTree := suite "production" do
       observeRuntimeInputs "unvalidated arithmetic" raw inputs
       let script := Expr.Lam input (.Let
         [(checked, .App (.Builtin .UnIData) (.Var input), false)] (operation (.Var checked)))
-      check s!"checked identity changes/{repr builtin}/{reversed}"
-        (!alphaEq (Advanced.shapeDCE script) script)
+      -- `unIData` integers are unbounded; under semantics variant E the arithmetic fails
+      -- beyond ±2^262143, so the identity is not applied.
+      check s!"unbounded identity kept/{repr builtin}/{reversed}"
+        (alphaEq (Advanced.shapeDCE script) script)
       observeRuntimeInputs "checked arithmetic" script inputs
+      let bounded := Expr.Lam input (.Let [(checked, intLit 12345, false)] (operation (.Var checked)))
+      check s!"bounded identity changes/{repr builtin}/{reversed}"
+        (!alphaEq (Advanced.shapeDCE bounded) bounded)
+      observeRuntimeInputs "bounded arithmetic" bounded inputs
     for builtin in [BuiltinFun.SubtractInteger, .EqualsInteger,
         .LessThanInteger, .LessThanEqualsInteger] do
       let script := Expr.Lam input (.Let
         [(checked, .App (.Builtin .UnIData) (.Var input), false)]
         (.App (.App (.Builtin builtin) (.Var checked)) (.Var checked)))
-      check "checked self comparison changes" (!alphaEq (Advanced.shapeDCE script) script)
+      check s!"checked self comparison/{repr builtin}"
+        ((builtin == .EqualsInteger) == !alphaEq (Advanced.shapeDCE script) script)
       observeRuntimeInputs "self comparison" script inputs
   test "checked_data_round_trips_runtime_inputs" do
     let input := sourceVar 110
@@ -180,7 +187,8 @@ def tests : TestTree := suite "production" do
       (traceExpression "first" (.Var input))) (traceExpression "second" (intLit 1))
     for (builtin, literal) in [(BuiltinFun.MultiplyInteger, 0), (.RemainderInteger, 1), (.ModInteger, 1)] do
       let script := Expr.Lam input (.App (.App (.Builtin builtin) producing) (intLit literal))
-      check "annihilator changes" (!alphaEq (Advanced.shapeDCE script) script)
+      -- The absorbed operand is an unbounded integer: kept under semantics variant E.
+      check "annihilator kept" (alphaEq (Advanced.shapeDCE script) script)
       observeRuntimeInputs "strict annihilator" script
         (dataInputs ++ [traceExpression "input" (intLit 2), .Error])
   test "checked_value_facts_respect_shadowing" do
@@ -218,10 +226,9 @@ def tests : TestTree := suite "production" do
       (alphaEq (Advanced.shapeDCE raw) raw)
     observeRuntimeInputs "unvalidated branch facts" raw dataInputs
   test "checked_optimizations_reduce_runtime_cost" do
-    let names := ["synthetic/checked-arithmetic", "synthetic/checked-data-round-trip",
-      "synthetic/repeated-boolean-case"]
+    let names := ["synthetic/checked-data-round-trip", "synthetic/repeated-boolean-case"]
     let fixtures := OpportunityBench.fixtures.filter (fun fixture => names.contains fixture.name)
-    checkEq "all cost fixtures are present" fixtures.length 3
+    checkEq "all cost fixtures are present" fixtures.length 2
     let evaluate := fun term => do
       match ← Moist.Plutus.Eval.evalTerm term
           Moist.Plutus.Eval.defaultCpuBudget Moist.Plutus.Eval.defaultMemBudget with
@@ -257,10 +264,10 @@ def tests : TestTree := suite "production" do
   test "typed_data_constructors_and_empty_lists" do
     let listType : BuiltinType := .TypeOperator (.TypeList (.AtomicType .TypeData))
     for fields in [[], [.Data (.I 0)], [.Data (.List [])]] do
-      let literal := Expr.Lit (.ConstList fields, listType)
+      let literal := Expr.Lit (.ConstList (.AtomicType .TypeData) fields, listType)
       observeProfiles "data/list" (.App (.Builtin .ListData) literal)
       observeProfiles "data/constr" (.App (.App (.Builtin .ConstrData) (intLit 0)) literal)
-    let wrongList := Expr.Lit (.ConstList [], .TypeOperator (.TypeList (.AtomicType .TypeInteger)))
+    let wrongList := Expr.Lit (.ConstList (.AtomicType .TypeInteger) [], .TypeOperator (.TypeList (.AtomicType .TypeInteger)))
     check "folding retains the empty list element type"
       (alphaEq (Advanced.foldDataConstructors (.App (.Builtin .ListData) wrongList))
         (.App (.Builtin .ListData) wrongList))
@@ -287,15 +294,15 @@ def tests : TestTree := suite "production" do
     let integerListType : BuiltinType := .TypeOperator (.TypeList integerType)
     let nestedListType : BuiltinType := .TypeOperator (.TypeList integerListType)
     let tail := Expr.Lam first (.Lam second (.Var second))
-    let list := Expr.Lit (.ConstList [.Integer 1, .Integer 2], integerListType)
+    let list := Expr.Lit (.ConstList integerType [.Integer 1, .Integer 2], integerListType)
     observeProfiles "integer list tail" (.Case list [tail, .Error])
-    let singleton := Expr.Lit (.ConstList [.Integer 1], integerListType)
+    let singleton := Expr.Lit (.ConstList integerType [.Integer 1], integerListType)
     observeProfiles "empty integer list tail" (.Case singleton [tail, .Error])
-    let nested := Expr.Lit (.ConstList [.ConstList []], nestedListType)
+    let nested := Expr.Lit (.ConstList integerListType [.ConstList integerType []], nestedListType)
     observeProfiles "nested empty integer list" (.Case nested
       [.Lam first (.Lam second (.Var first)), .Error])
     let pairType : BuiltinType := .TypeOperator (.TypePair integerType integerListType)
-    let pair := Expr.Lit (.Pair (.Integer 1, .ConstList []), pairType)
+    let pair := Expr.Lit (.Pair (.Integer 1, .ConstList integerType []), pairType)
     observeProfiles "pair empty integer list" (.Case pair [tail])
   test "trace_matches_actual_optimizer" do
     for seed in List.range 64 do

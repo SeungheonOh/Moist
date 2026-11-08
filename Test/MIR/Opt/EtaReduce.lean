@@ -98,12 +98,12 @@ def tests : TestTree := suite "etaReduce" do
   -- `alphaEq` is false on array literals, so an unreduced lambda must not be
   -- compared with itself to decide whether to revisit it.
   test "eta_array_literal_body" do
-    let array := Expr.Lit (.ConstArray [.Integer 1],
+    let array := Expr.Lit (.ConstArray (.AtomicType .TypeInteger) [.Integer 1],
       .TypeOperator (.TypeList (.AtomicType .TypeInteger)))
     let (r, ch) := etaReduce (.Lam x array)
     check "eta_array_literal_body_unchanged" (!ch)
     check "eta_array_literal_body_shape" (match r with
-      | .Lam _ (.Lit (.ConstArray [.Integer 1], _)) => true
+      | .Lam _ (.Lit (.ConstArray _ [.Integer 1], _)) => true
       | _ => false)
 
 end Test.MIR.Opt.EtaReduce

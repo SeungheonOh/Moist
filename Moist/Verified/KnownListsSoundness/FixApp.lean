@@ -1,6 +1,8 @@
 import Moist.Verified.KnownListsSoundness.Lowering
 import Moist.Verified.KnownListsSoundness.Knot
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Recursive functions applied to known lists
 
 `KnownRel.fixApp`: when every call of a recursive function — the external
@@ -20,6 +22,7 @@ open Moist.Verified.ShapeFacts
 
 /-! ## Application spines and lambda chains -/
 
+omit sv in
 theorem lowerTotalExpr_applyAll_some {env : List VarId} :
     ∀ {f : Expr} {args : List Expr} {t : Term}, lowerTotalExpr env (applyAll f args) = some t →
       ∃ tf targs, lowerTotalExpr env f = some tf ∧ MIR.lowerTotalExprList env args = some targs ∧
@@ -31,6 +34,7 @@ theorem lowerTotalExpr_applyAll_some {env : List VarId} :
     refine ⟨tf, ta :: targs, htf, ?_, rfl⟩
     rw [MIR.lowerTotalExprList_cons, hta, has]; rfl
 
+omit sv in
 theorem lowerTotalExpr_applyAll_of {env : List VarId} :
     ∀ {f : Expr} {args : List Expr} {tf : Term} {targs : List Term},
       lowerTotalExpr env f = some tf → MIR.lowerTotalExprList env args = some targs →
@@ -49,6 +53,7 @@ theorem lowerTotalExpr_applyAll_of {env : List VarId} :
         exact lowerTotalExpr_applyAll_of (f := .App f a) (targs := tas)
           (by rw [MIR.lowerTotalExpr_app, hf, ha]; rfl) has'
 
+omit sv in
 theorem freshIn_applyAll (avoid : List VarId) :
     ∀ (f : Expr) (args : List Expr),
       freshIn avoid (applyAll f args) = (freshIn avoid f && freshInList avoid args)
@@ -72,6 +77,7 @@ theorem KnownRel.lambdaWrap {Γ : List (VarId × Expr)} {L : List VarId} :
   | [], _, _, h => h
   | _ :: xs, _, _, h => (KnownRel.lambdaWrap xs h).lam
 
+omit sv in
 theorem lowerTotalExpr_lambdaWrap :
     ∀ (xs : List VarId) (env : List VarId) (e : Expr),
       lowerTotalExpr env (Advanced.lambdaWrap xs e) =
@@ -84,6 +90,7 @@ theorem lowerTotalExpr_lambdaWrap :
     simp only [List.reverse_cons, List.append_assoc, List.singleton_append, List.length_cons]
     cases lowerTotalExpr (xs.reverse ++ x :: env) e <;> rfl
 
+omit sv in
 theorem lambdaChain_wrap : ∀ (e : Expr),
     Advanced.lambdaWrap (lambdaChain e).1 (lambdaChain e).2 = e
   | .Lam x b => by
@@ -92,6 +99,7 @@ theorem lambdaChain_wrap : ∀ (e : Expr),
   | .Var _ | .Lit _ | .Builtin _ | .Error | .Fix _ _ | .App _ _ | .Force _ | .Delay _
   | .Constr _ _ | .Case _ _ | .Let _ _ => rfl
 
+omit sv in
 theorem listCallsOK_lambdaWrap {f : VarId} {m : Nat} {P : List Nat} {names : List VarId} :
     ∀ (xs : List VarId) (e : Expr),
       listCallsOK f m P names (Advanced.lambdaWrap xs e) = listCallsOK f m P names e
@@ -136,6 +144,7 @@ theorem enter_lambdaWrap {Γ : List (VarId × Expr)} {L : List VarId} :
 
 /-! ## Lookups in the environment of the body -/
 
+omit sv in
 theorem envLookupT_of_getElem : ∀ {env : List VarId} {i : Nat} {y : VarId}, EnvDistinct env →
     env[i]? = some y → envLookupT env y = some i
   | [], i, y, _, h => by simp at h
@@ -152,6 +161,7 @@ theorem envLookupT_of_getElem : ∀ {env : List VarId} {i : Nat} {y : VarId}, En
         rw [envLookupT_congr hc, ih] at this; cases this
     rw [envLookupT_cons_neq z y env hzy, ih]; rfl
 
+omit sv in
 theorem envLookupT_shift_many (y : VarId) (rest : List VarId) :
     ∀ (xs : List VarId), (∀ x ∈ xs, (x == y) = false) →
       envLookupT (xs.reverse ++ rest) y = (envLookupT rest y).map (· + xs.length)
@@ -162,6 +172,7 @@ theorem envLookupT_shift_many (y : VarId) (rest : List VarId) :
       envLookupT_cons_neq x y rest (h x (.head _))]
     cases envLookupT rest y <;> simp; omega
 
+omit sv in
 theorem param_lookup {xs rest : List VarId} {p : Nat} {y : VarId} (hd : EnvDistinct (xs.reverse ++ rest))
     (hp : xs[p]? = some y) : envLookupT (xs.reverse ++ rest) y = some (xs.length - 1 - p) := by
   have hplt : p < xs.length := by
@@ -172,12 +183,14 @@ theorem param_lookup {xs rest : List VarId} {p : Nat} {y : VarId} (hd : EnvDisti
   rw [List.getElem?_append_left (by simp; omega), List.getElem?_reverse (by omega)]
   rw [show xs.length - 1 - (xs.length - 1 - p) = p by omega]; exact hp
 
+omit sv in
 theorem mem_listedParameters {params : List VarId} {P : List Nat} {y : VarId}
     (h : y ∈ listedParameters params P) : ∃ p ∈ P, params[p]? = some y := by
   simp only [listedParameters, List.mem_filterMap] at h
   obtain ⟨p, hp, hy⟩ := h
   exact ⟨p, hp, hy⟩
 
+omit sv in
 theorem lowerList_get {env : List VarId} :
     ∀ {es : List Expr} {ts : List Term} {p : Nat} {a : Expr},
       MIR.lowerTotalExprList env es = some ts → es[p]? = some a →
@@ -228,6 +241,7 @@ theorem freshIn_insert {f s : VarId} {env : List VarId} {e : Expr}
       omega
     · left; simpa using hz
 
+omit sv in
 theorem closedAtList_of_mem {d : Nat} : ∀ {ts : List Term} {t : Term}, closedAtList d ts = true →
     t ∈ ts → closedAt d t = true
   | [], _, _, h => by cases h
@@ -490,6 +504,7 @@ theorem KnownRel.fixApp {Γ : List (VarId × Expr)} {L : List VarId} {f : VarId}
 
 /-! ## Let-bound recursive functions -/
 
+omit sv in
 theorem listKnown_bound {Γ : List (VarId × Expr)} {L env : List VarId} {y : VarId}
     (h : listKnown Γ L (.Var y) = true) (hk : KeysBound Γ env) (hn : NamesBound L env) :
     (envLookupT env y).isSome = true := by

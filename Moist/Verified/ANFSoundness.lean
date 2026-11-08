@@ -1,6 +1,8 @@
 import Moist.Verified.MIR.Primitives
 import Moist.Verified.MIR.AlphaRenameSoundness
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # ANF normalization soundness
 
 `anfNormalize_refines`: the pipeline alpha-rename → `anfNormalizeCore` →
@@ -19,11 +21,13 @@ open Moist.Verified.Equivalence (ListRel)
 
 /-! ## `anfAtom` -/
 
+omit sv in
 theorem anfAtom_eq (e : Expr) (s : FreshState) :
     anfAtom e s = if e.isAtom then ((e, []), s)
       else ((.Var ⟨s.next, .gen, "anf"⟩, [(⟨s.next, .gen, "anf"⟩, e, false)]), ⟨s.next + 1⟩) := by
   unfold anfAtom; split <;> rfl
 
+omit sv in
 theorem anfAtom_isAtom (e : Expr) (s : FreshState) : (anfAtom e s).1.1.isAtom = true := by
   rw [anfAtom_eq]; split <;> simp_all [Expr.isAtom]
 
@@ -33,11 +37,13 @@ theorem anfAtom_refines (e : Expr) (s : FreshState) :
   · exact mirCtxRefines_refl _
   · exact mirCtxRefines_atomize e _
 
+omit sv in
 theorem anfAtom_fresh (e : Expr) (s : FreshState) (h : maxUidExpr e < s.next) :
     s.next ≤ (anfAtom e s).2.next ∧ maxUidExpr (anfAtom e s).1.1 < (anfAtom e s).2.next ∧
       maxUidExprBinds (anfAtom e s).1.2 < (anfAtom e s).2.next := by
   rw [anfAtom_eq]; split <;> simp [maxUidExpr, maxUidExprBinds] <;> omega
 
+omit sv in
 /-- The names `anfAtom` binds are fresh for anything below `s.next`. -/
 theorem anfAtom_binds_fresh {e : Expr} {s : FreshState} {y : Expr}
     (hy : maxUidExpr y < s.next) : ∀ b ∈ (anfAtom e s).1.2, (freeVars y).contains b.1 = false := by
@@ -47,6 +53,7 @@ theorem anfAtom_binds_fresh {e : Expr} {s : FreshState} {y : Expr}
     rintro _ rfl
     exact maxUidExpr_fresh y _ hy
 
+omit sv in
 theorem maxUidExpr_wrapLet_lt {bs : List (VarId × Expr × Bool)} {body : Expr} {n : Nat}
     (hbs : maxUidExprBinds bs < n) (hbody : maxUidExpr body < n) :
     maxUidExpr (wrapLet bs body) < n := by
@@ -54,6 +61,7 @@ theorem maxUidExpr_wrapLet_lt {bs : List (VarId × Expr × Bool)} {body : Expr} 
   | nil => exact hbody
   | cons _ _ => simp only [wrapLet, maxUidExpr]; omega
 
+omit sv in
 theorem maxUidExprList_lt_of_mem {es : List Expr} {n : Nat} (h : maxUidExprList es < n) :
     ∀ e ∈ es, maxUidExpr e < n := fun _ he =>
   Nat.lt_of_le_of_lt (maxUidExpr_le_maxUidExprList_of_mem he) h
@@ -111,11 +119,13 @@ theorem anfAtomList_spec (tag : Nat) :
 section
 variable (s : FreshState)
 
+omit sv in
 private theorem anfNormalizeCore_force_eq (e : Expr) : anfNormalizeCore (.Force e) s =
     let r := anfNormalizeCore e s
     let a := anfAtom r.1 r.2
     (wrapLet a.1.2 (.Force a.1.1), a.2) := rfl
 
+omit sv in
 private theorem anfNormalizeCore_app_eq (f x : Expr) : anfNormalizeCore (.App f x) s =
     let r₁ := anfNormalizeCore f s
     let r₂ := anfNormalizeCore x r₁.2
@@ -123,6 +133,7 @@ private theorem anfNormalizeCore_app_eq (f x : Expr) : anfNormalizeCore (.App f 
     let a₂ := anfAtom r₂.1 a₁.2
     (wrapLet (a₁.1.2 ++ a₂.1.2) (.App a₁.1.1 a₂.1.1), a₂.2) := rfl
 
+omit sv in
 private theorem anfNormalizeCore_case_eq (scrut : Expr) (alts : List Expr) :
     anfNormalizeCore (.Case scrut alts) s =
     let r := anfNormalizeCore scrut s
@@ -130,12 +141,14 @@ private theorem anfNormalizeCore_case_eq (scrut : Expr) (alts : List Expr) :
     let l := anfNormalizeListCore alts a.2
     (wrapLet a.1.2 (.Case a.1.1 l.1), l.2) := rfl
 
+omit sv in
 private theorem anfNormalizeCore_constr_eq (tag : Nat) (args : List Expr) :
     anfNormalizeCore (.Constr tag args) s =
     let l := anfNormalizeListCore args s
     let a := anfAtomList l.1 l.2
     (wrapLet a.1.2 (.Constr tag a.1.1), a.2) := rfl
 
+omit sv in
 private theorem anfNormalizeCore_let_eq (binds : List (VarId × Expr × Bool)) (body : Expr) :
     anfNormalizeCore (.Let binds body) s =
     let r := anfNormalizeBindsCore binds s

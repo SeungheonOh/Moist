@@ -1,6 +1,8 @@
 import Moist.Verified.MIR.Hoist
 import Moist.Verified.InlineSoundness.Totality
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Floating a total `let` out of a non-strict position
 
 A `let` whose right-hand side is a `TotalTerm` (it returns a value in every
@@ -83,6 +85,7 @@ def swapRename : Nat → Nat
   | 2 => 1
   | n + 3 => n + 3
 
+omit sv in
 theorem is0preserving_swapRename : Is0Preserving swapRename := by
   refine ⟨rfl, fun n hn => ?_⟩
   match n, hn with
@@ -154,6 +157,7 @@ theorem openRefines_floatLam {d : Nat} {P B : Term} (hP : TotalTerm P)
 
 /-! ## Floating out of a case alternative -/
 
+omit sv in
 theorem listRel_getElem? {R : Term → Term → Prop} :
     ∀ {xs ys : List Term}, ListRel R xs ys →
       xs.length = ys.length ∧
@@ -167,6 +171,7 @@ theorem listRel_getElem? {R : Term → Term → Prop} :
     | zero => simp at ha hb; subst ha; subst hb; exact hxy
     | succ n => exact hn n a b (by simpa using ha) (by simpa using hb)
 
+omit sv in
 theorem listRel_append {R : Term → Term → Prop} :
     ∀ {xs ys xs' ys' : List Term}, ListRel R xs ys → ListRel R xs' ys' →
       ListRel R (xs ++ xs') (ys ++ ys')
@@ -287,18 +292,22 @@ open Moist.Verified.Contextual (CtxRefines Context fill ctxRefines_trans ctxRefi
 open Moist.Verified.MIR (ctxRefines_of_openRefines HoistFrame openRefines_hoist IsValueTerm)
 open Moist.MIR (fixLamWrapUplc)
 
+omit sv in
 private theorem closedAt_shift_inv {k : Nat} {t : Term}
     (h : closedAt (k + 1) (renameTerm (shiftRename 1) t) = true) : closedAt k t = true :=
   Moist.Verified.closedAt_renameTerm_shiftRename_inv t k 1 (Nat.le_refl 1) (by omega) h
 
+omit sv in
 private theorem closedAt_shift {k : Nat} {t : Term} (h : closedAt k t = true) :
     closedAt (k + 1) (renameTerm (shiftRename 1) t) = true :=
   Moist.Verified.closedAt_renameTerm_shiftRename t k 1 (Nat.le_refl 1) (by omega) h
 
+omit sv in
 private theorem closedAtList_shift {k : Nat} {ts : List Term} (h : closedAtList k ts = true) :
     closedAtList (k + 1) (renameTermList (shiftRename 1) ts) = true :=
   Moist.Verified.closedAtList_renameTermList_shiftRename ts k 1 (Nat.le_refl 1) (by omega) h
 
+omit sv in
 theorem closedAt_swap {k : Nat} {t : Term} (h : closedAt (k + 2) t = true) :
     closedAt (k + 2) (renameTerm swapRename t) = true :=
   Moist.Verified.BetaValueRefines.closedAt_rename swapRename t (k + 2) (k + 2) h fun n hn => by
@@ -343,6 +352,7 @@ def rotRename (B : Term) : Term :=
   renameTerm (liftRename (liftRename swapRename))
     (renameTerm (liftRename swapRename) (renameTerm swapRename B))
 
+omit sv in
 private theorem total_shift {P : Term} (hP : TotalTerm P) :
     TotalTerm (renameTerm (shiftRename 1) P) :=
   hP.rename _ fun n hn => by rw [Moist.Verified.shiftRename_ge hn]; omega

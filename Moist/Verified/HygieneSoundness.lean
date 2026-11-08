@@ -1,10 +1,13 @@
 import Moist.Verified.MIR.AlphaEq
 import Moist.Verified.InlineSoundness
 
+variable [sv : Moist.CEK.SemVariant]
+
 namespace Moist.Verified.MIR
 
 open Moist.MIR Moist.Plutus.Term
 
+omit sv in
 theorem lowerTotalExpr_fix_lam_shift (environment : List VarId) (recursive parameter : VarId) (body : Expr) :
     lowerTotalExpr environment (.Fix recursive (.Lam parameter body)) =
       (lowerTotalExpr (parameter :: recursive :: environment) body).map
@@ -26,6 +29,7 @@ theorem lowerTotalExpr_fix_lam_shift (environment : List VarId) (recursive param
     dsimp only [fresh] at extended
     simp only [lowerTotalExpr, lowered, extended, Option.map_some]
 
+omit sv in
 theorem lowerTotalExpr_let_cons_eq (environment : List VarId) (binder : VarId) (rhs : Expr)
     (erased : Bool) (bindings : List (VarId × Expr × Bool)) (body : Expr) :
     lowerTotalExpr environment (.Let ((binder, rhs, erased) :: bindings) body) = (do
@@ -37,6 +41,7 @@ theorem lowerTotalExpr_let_cons_eq (environment : List VarId) (binder : VarId) (
 
 namespace AlphaEq
 
+omit sv in
 mutual
   theorem lowerTotalExpr_eq {leftEnv rightEnv : List VarId} {left right : Expr}
       (related : AlphaEq leftEnv rightEnv left right) :
@@ -98,12 +103,14 @@ def LookupMatches (bound : Nat) (substitutions : List (VarId × VarId))
   ∀ identifier, identifier.uid < bound →
     envLookupT source identifier = envLookupT target (substLookup substitutions identifier)
 
+omit sv in
 theorem RangeBelow.mono {bound first second : Nat} {substitutions : List (VarId × VarId)}
     (range : RangeBelow bound first substitutions) (increases : first ≤ second) :
     RangeBelow bound second substitutions := by
   intro identifier bounded
   exact Nat.lt_of_lt_of_le (range identifier bounded) increases
 
+omit sv in
 theorem RangeBelow.extend {bound next : Nat} {substitutions : List (VarId × VarId)}
     (range : RangeBelow bound next substitutions) (old fresh : VarId) (freshUid : fresh.uid = next) :
     RangeBelow bound (next + 1) ((old, fresh) :: substitutions) := by
@@ -113,6 +120,7 @@ theorem RangeBelow.extend {bound next : Nat} {substitutions : List (VarId × Var
   · omega
   · have previous := range identifier bounded; omega
 
+omit sv in
 theorem LookupMatches.extend {bound next : Nat} {substitutions : List (VarId × VarId)}
     {source target : List VarId} (lookups : LookupMatches bound substitutions source target)
     (range : RangeBelow bound next substitutions) (old fresh : VarId) (freshUid : fresh.uid = next) :
@@ -131,6 +139,7 @@ theorem LookupMatches.extend {bound next : Nat} {substitutions : List (VarId × 
       exact .inr (by have smaller := range identifier bounded; omega)
     rw [envLookupT_cons_neq _ _ _ different', envLookupT_cons_neq _ _ _ freshDifferent, lookups identifier bounded]
 
+omit sv in
 mutual
   theorem freshenBinders_correct (bound : Nat) (expression : Expr) (substitutions : List (VarId × VarId))
       (state : FreshState) (source target : List VarId) (bounded : maxUidExpr expression < bound)
@@ -231,6 +240,7 @@ mutual
   decreasing_by all_goals subst_vars <;> simp_wf <;> omega
 end
 
+omit sv in
 theorem uniqueOptimizationBinders_lower (environment : List VarId) (expression : Expr) :
     lowerTotalExpr environment (uniqueOptimizationBinders expression) = lowerTotalExpr environment expression := by
   unfold uniqueOptimizationBinders

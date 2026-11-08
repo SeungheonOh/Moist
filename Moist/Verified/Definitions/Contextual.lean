@@ -4,6 +4,8 @@ import Moist.Plutus.Term
 import Moist.Verified.Definitions
 import Moist.Verified.ClosedAt
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Contextual-tower definitions
 
 * `ObsRefines` — observational refinement of closed CEK states.

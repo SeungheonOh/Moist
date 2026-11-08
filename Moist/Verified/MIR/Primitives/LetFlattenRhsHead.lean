@@ -1,5 +1,7 @@
 import Moist.Verified.MIR.Hoist
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Flattening `let`-valued bindings
 
 `flattenLetBinds` turns `let x = (let ibs in e) in …` into

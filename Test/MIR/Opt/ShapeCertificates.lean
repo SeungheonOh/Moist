@@ -1,5 +1,8 @@
 import Moist.Verified.ShapesSoundness
 
+/-- Tests evaluate under semantics variant E (the conformance-suite variant). -/
+private local instance testSemVariant : Moist.CEK.SemVariant := .E
+
 /-! # Generated binder capture in shape-checked dead code elimination
 
 When the branches of a case on a known Boolean agree and the scrutinee may

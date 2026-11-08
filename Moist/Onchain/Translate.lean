@@ -75,18 +75,14 @@ private partial def leanTypeToBuiltinType (e : Lean.Expr) : MetaM (Option Builti
 /-- Emit an empty list constant with the correct element type. -/
 private def emptyListLit (elemType : BuiltinType) : MIR.Expr :=
   let listType := BuiltinType.TypeOperator (.TypeList elemType)
-  match elemType with
-  | .AtomicType .TypeData => .Lit (.ConstDataList [], listType)
-  | _ => .Lit (.ConstList [], listType)
+  .Lit (.ConstList elemType [], listType)
 
 /-- Try to fold List.cons into a constant list node.
     Returns `some folded` if both head and tail are constants. -/
 private def foldListCons (head tail : MIR.Expr) : Option MIR.Expr :=
   match head, tail with
-  | .Lit (.Data d, _), .Lit (.ConstDataList ds, ty) =>
-    some (.Lit (.ConstDataList (d :: ds), ty))
-  | .Lit (hc, _), .Lit (.ConstList cs, ty) =>
-    some (.Lit (.ConstList (hc :: cs), ty))
+  | .Lit (hc, hty), .Lit (.ConstList ety cs, ty) =>
+    if hty == ety then some (.Lit (.ConstList ety (hc :: cs), ty)) else none
   | _, _ => none
 
 structure TranslateState where
@@ -255,7 +251,7 @@ private def getCtorFieldTypesWithArgs (env : Environment) (ctorName : Name) (num
 
 /-- Build a Data list from field values: mkCons f0 (mkCons f1 ... []) -/
 private def mkDataList (fields : List MIR.Expr) : MIR.Expr :=
-  fields.foldr (init := .Lit (.ConstDataList [], .TypeOperator (.TypeList (.AtomicType .TypeData))))
+  fields.foldr (init := .Lit (.ConstList (.AtomicType .TypeData) [], .TypeOperator (.TypeList (.AtomicType .TypeData))))
     fun f acc => .App (.App (mkBuiltin .MkCons) f) acc
 
 /-- Reduce a single projection by whnf-ing only the struct part. -/
@@ -366,7 +362,7 @@ private partial def encodeToData (codec : DataCodec) (val : MIR.Expr) : Translat
       let tailExpr := MIR.Expr.App (mkBuiltin .TailList) (.Var xs)
       let recurse := MIR.Expr.App (.Var mapF) tailExpr
       let cons := MIR.Expr.App (.App (mkBuiltin .MkCons) encodedHead) recurse
-      let nil := MIR.Expr.Lit (.ConstDataList [], .TypeOperator (.TypeList (.AtomicType .TypeData)))
+      let nil := MIR.Expr.Lit (.ConstList (.AtomicType .TypeData) [], .TypeOperator (.TypeList (.AtomicType .TypeData)))
       let consH ← freshVarId "enc_cons"
       let nilH ← freshVarId "enc_nil"
       let mapBody := MIR.Expr.Let [(consH, .Delay cons, false), (nilH, .Delay nil, false)]
@@ -1507,7 +1503,7 @@ mutual
             -- Data encoding: constrData tag []
             pure (.App (.App (mkBuiltin .ConstrData)
               (.Lit (.Integer cval.cidx, .AtomicType .TypeInteger)))
-              (.Lit (.ConstDataList [], .TypeOperator (.TypeList (.AtomicType .TypeData)))))
+              (.Lit (.ConstList (.AtomicType .TypeData) [], .TypeOperator (.TypeList (.AtomicType .TypeData)))))
         else
           -- Check if this is an inductive type name (should have been erased as a type)
           if let some (.inductInfo _) := env.find? name then

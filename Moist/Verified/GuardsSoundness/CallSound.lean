@@ -1,5 +1,7 @@
 import Moist.Verified.GuardsSoundness.Fix
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Soundness of `callOK` -/
 
 namespace Moist.Verified.Guards
@@ -12,6 +14,7 @@ open Moist.Verified.ShapeFacts
 open Moist.Verified.FailFast
 open Moist.Verified.KnownLists
 
+omit sv in
 theorem fixOK_spec {rec : Chk} {c : TCtx} {roles : List Role} {v : VMode} {f p : VarId} {body : Expr}
     {args : List Expr} (h : fixOK rec c roles v f p body args = true) :
     (p :: (lamSpine body).1).length = args.length ∧ c.fresh f = true ∧
@@ -38,6 +41,7 @@ theorem fixOK_spec {rec : Chk} {c : TCtx} {roles : List Role} {v : VMode} {f p :
 def listPreds (k : Nat) (positions : List Nat) : List (CekValue → Prop) :=
   (List.range k).map fun i w => positions.contains i = true → ListValue w
 
+omit sv in
 theorem listPreds_get {k : Nat} {positions : List Nat} {i : Nat} {P : CekValue → Prop}
     (h : (listPreds k positions)[i]? = some P) :
     i < k ∧ P = fun w => positions.contains i = true → ListValue w := by
@@ -105,6 +109,7 @@ theorem knownList_arg {c : TCtx} {env : List VarId} {ρ : CekEnv} (hρ : Inv c e
     (hta : lowerTotalExpr env a = some ta) {w : CekValue} (hw : Halts ρ ta w) : ListValue w :=
   knownListValue_sound _ _ _ _ h hρ.produces hρ.lists hd hta hw
 
+omit sv in
 theorem VMode.covers_refl : ∀ (m : VMode), m.covers m = true
   | .term => rfl
   | .inert => rfl
@@ -121,6 +126,7 @@ theorem Inv.dropRoles {c : TCtx} {env : List VarId} {ρ : CekEnv} (h : Inv c env
   lists := ListsHold.drop h.lists hd k
   roles := fun _ hr => by cases hr
 
+omit sv in
 theorem fresh_noRoles {c : TCtx} {x : VarId} (h : c.fresh x = true) :
     ({ c with roles := [] } : TCtx).fresh x = true := fresh_restrict (fun _ hr => by cases hr) h
 

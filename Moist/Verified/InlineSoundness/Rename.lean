@@ -1,6 +1,8 @@
 import Moist.Verified.MIR
 import Moist.MIR.Optimize.Inline
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Lowering is insensitive to fresh renaming
 
 `lowerTotalExpr` maps names to de Bruijn indices, so it only depends on how
@@ -19,15 +21,18 @@ open Moist.Verified.MIR (lowerTotalExprList lowerTotalExprList_nil lowerTotalExp
 
 /-! ## Structural lowering equations -/
 
+omit sv in
 theorem lowerTotalExpr_var (env : List VarId) (x : VarId) :
     lowerTotalExpr env (.Var x) = (envLookupT env x).map (fun i => .Var (i + 1)) := by
   simp only [lowerTotalExpr, expandFix, lowerTotal]
   cases envLookupT env x <;> rfl
 
+omit sv in
 theorem lowerTotalExpr_let_nil (env : List VarId) (body : Expr) :
     lowerTotalExpr env (.Let [] body) = lowerTotalExpr env body := by
   simp only [lowerTotalExpr, expandFix, expandFixBinds, lowerTotal, lowerTotalLet]
 
+omit sv in
 theorem lowerTotalExpr_let_cons (env : List VarId) (x : VarId) (rhs : Expr) (er : Bool)
     (rest : List (VarId × Expr × Bool)) (body : Expr) :
     lowerTotalExpr env (.Let ((x, rhs, er) :: rest) body) = (do
@@ -37,12 +42,14 @@ theorem lowerTotalExpr_let_cons (env : List VarId) (x : VarId) (rhs : Expr) (er 
   simp only [lowerTotalExpr, expandFix, expandFixBinds, lowerTotal, lowerTotalLet,
     Option.bind_eq_bind]
 
+omit sv in
 theorem lowerTotalExpr_fix_nonlam (env : List VarId) (f : VarId) (body : Expr)
     (h : ∀ x inner, body ≠ .Lam x inner) : lowerTotalExpr env (.Fix f body) = none := by
   cases body with
   | Lam x inner => exact absurd rfl (h x inner)
   | _ => simp [lowerTotalExpr, expandFix, lowerTotal]
 
+omit sv in
 /-- A recursive lambda lowers through its body under any name for the
     self-application binder that is fresh for the body. -/
 theorem lowerTotalExpr_fix_lam (env : List VarId) (f x : VarId) (inner : Expr)
@@ -53,6 +60,7 @@ theorem lowerTotalExpr_fix_lam (env : List VarId) (f x : VarId) (inner : Expr)
 
 /-! ## Environment agreement -/
 
+omit sv in
 private theorem lookup_cons_agree {l₁ l₂ : List VarId} {z : VarId} (y : VarId)
     (h : envLookupT l₁ z = envLookupT l₂ z) :
     envLookupT (y :: l₁) z = envLookupT (y :: l₂) z := by
@@ -60,6 +68,7 @@ private theorem lookup_cons_agree {l₁ l₂ : List VarId} {z : VarId} (y : VarI
   | true => simp [envLookupT, envLookupT.go, hyz]
   | false => rw [envLookupT_cons_neq y z l₁ hyz, envLookupT_cons_neq y z l₂ hyz, h]
 
+omit sv in
 /-- Lookups that skip the two candidates for one position agree. -/
 theorem lookup_middle_agree (ys : List VarId) (a b z : VarId) (Q : List VarId)
     (ha : (a == z) = false) (hb : (b == z) = false) :
@@ -68,16 +77,19 @@ theorem lookup_middle_agree (ys : List VarId) (a b z : VarId) (Q : List VarId)
   | nil => simp only [List.nil_append]; rw [envLookupT_cons_neq a z Q ha, envLookupT_cons_neq b z Q hb]
   | cons y ys ih => exact lookup_cons_agree y ih
 
+omit sv in
 theorem maxUid_let_cons (x : VarId) (rhs : Expr) (er : Bool)
     (rest : List (VarId × Expr × Bool)) (body : Expr) :
     maxUidExpr (.Let ((x, rhs, er) :: rest) body) =
       max x.uid (max (maxUidExpr rhs) (maxUidExpr (.Let rest body))) := by
   simp only [maxUidExpr, maxUidExprBinds]; omega
 
+omit sv in
 theorem maxUid_list_cons (e : Expr) (es : List Expr) :
     maxUidExprList (e :: es) = max (maxUidExpr e) (maxUidExprList es) := by
   simp only [maxUidExprList]
 
+omit sv in
 mutual
   /-- Lowering only depends on how the environment resolves the variables of
       the expression. -/
@@ -142,9 +154,11 @@ end
 
 /-! ## Fresh renaming -/
 
+omit sv in
 theorem beq_false_of_uid {a b : VarId} (h : a.uid ≠ b.uid) : (a == b) = false :=
   (VarId.beq_false_iff a b).mpr (.inr h)
 
+omit sv in
 theorem beq_comm {a b : VarId} : (a == b) = (b == a) := by
   cases h : (a == b) <;> cases h' : (b == a) <;> try rfl
   · have := (VarId.beq_true_iff b a).mp h'
@@ -152,12 +166,14 @@ theorem beq_comm {a b : VarId} : (a == b) = (b == a) := by
   · have := (VarId.beq_true_iff a b).mp h
     rw [(VarId.beq_true_iff b a).mpr ⟨this.1.symm, this.2.symm⟩] at h'; cases h'
 
+omit sv in
 theorem beq_false_of_beq {a b c : VarId} (hab : (a == b) = true) (hac : (a == c) = false) :
     (b == c) = false := by
   cases h : (b == c)
   · rfl
   · rw [VarId.beq_trans a b c hab h] at hac; cases hac
 
+omit sv in
 /-- The middle binder resolves every name equal to it. -/
 theorem lookup_at_middle (ys : List VarId) (a z : VarId) (Q : List VarId)
     (haz : (a == z) = true) (hys : ∀ y ∈ ys, (y == z) = false) :
@@ -169,6 +185,7 @@ theorem lookup_at_middle (ys : List VarId) (a z : VarId) (Q : List VarId)
       ih fun y' hy' => hys y' (.tail _ hy')]
     rfl
 
+omit sv in
 /-- Under a binder equal to the renamed name, both environments agree. -/
 private theorem shadow_agree (ys Q : List VarId) (x x' y z : VarId) (hyx : (y == x) = true)
     (hz : z.uid < x'.uid) :
@@ -180,11 +197,13 @@ private theorem shadow_agree (ys Q : List VarId) (x x' y z : VarId) (hyx : (y ==
       lookup_middle_agree ys x' x z Q (beq_false_of_uid (by omega))
         (beq_false_of_beq hyx hyz)]
 
+omit sv in
 private theorem rename_let (x x' : VarId) (binds : List (VarId × Expr × Bool)) (body : Expr) :
     rename x x' (.Let binds body) =
       .Let (renameLet x x' binds body).1 (renameLet x x' binds body).2 := by
   simp only [rename]
 
+omit sv in
 private theorem renameLet_cons (x x' y : VarId) (rhs : Expr) (er : Bool)
     (rest : List (VarId × Expr × Bool)) (body : Expr) :
     renameLet x x' ((y, rhs, er) :: rest) body =
@@ -193,6 +212,7 @@ private theorem renameLet_cons (x x' y : VarId) (rhs : Expr) (er : Bool)
         (renameLet x x' rest body).2) := by
   rw [renameLet]
 
+omit sv in
 mutual
   /-- Renaming `x` to a name `x'` that is fresh for the expression and is not
       shadowed by `ys` leaves the lowering unchanged. -/

@@ -1,5 +1,7 @@
 import Moist.Verified.GuardsSoundness.PushFresh
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Moving the consumer `if _ then u else error` one layer inwards
 
 `assertT tx u` is the lowering of `force (ifThenElse x (delay u) (delay error))`.
@@ -23,6 +25,7 @@ def iteFrames (ρ : CekEnv) (u : Const × BuiltinType) : Stack :=
   [.funV (.VBuiltin .IfThenElse [] (.more .argV (.more .argV (.one .argV)))),
     .arg (.Delay (.Constant u)) ρ, .arg (.Delay .Error) ρ, .force]
 
+omit sv in
 theorem lower_assertE {env : List VarId} {x : Expr} {tx : Term} {u : Const × BuiltinType}
     (h : lowerTotalExpr env x = some tx) : lowerTotalExpr env (assertE u x) = some (assertT tx u) := by
   obtain ⟨c, ty⟩ := u
@@ -30,6 +33,7 @@ theorem lower_assertE {env : List VarId} {x : Expr} {tx : Term} {u : Const × Bu
     lowerTotalExpr_builtin, lowerTotalExpr_lit, lowerTotalExpr_error, h]
   rfl
 
+omit sv in
 theorem lower_assertE_inv {env : List VarId} {x : Expr} {t : Term} {u : Const × BuiltinType}
     (h : lowerTotalExpr env (assertE u x) = some t) :
     ∃ tx, lowerTotalExpr env x = some tx ∧ t = assertT tx u := by

@@ -1,5 +1,7 @@
 import Moist.Verified.RecordsSoundness.Binders
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Unpacking a record once
 
 When the recorded shape of `record` is constructor `0` with `n` fields,
@@ -26,6 +28,7 @@ variable {P : List VarId → CekEnv → Expr → CekValue → Prop}
 
 /-! ## Freshness and lowering after new binders -/
 
+omit sv in
 theorem freshInList_map_of_each {avoid : List VarId} (f : Expr → Expr) :
     ∀ (xs : List Expr), (∀ x ∈ xs, freshIn avoid x = true → freshIn avoid (f x) = true) →
       freshInList avoid xs = true → freshInList avoid (xs.map f) = true
@@ -34,6 +37,7 @@ theorem freshInList_map_of_each {avoid : List VarId} (f : Expr → Expr) :
     simp only [freshInList, Bool.and_eq_true, List.map_cons] at hx ⊢
     exact ⟨h x (.head _) hx.1, freshInList_map_of_each f xs (fun y hy => h y (.tail _ hy)) hx.2⟩
 
+omit sv in
 theorem freshInLet_map_of (f : Expr → Expr) :
     ∀ (bs : List (VarId × Expr × Bool)) (body : Expr) (avoid : List VarId),
       (∀ b ∈ bs, ∀ avoid, freshIn avoid b.2.1 = true → freshIn avoid (f b.2.1) = true) →
@@ -47,6 +51,7 @@ theorem freshInLet_map_of (f : Expr → Expr) :
     exact ⟨⟨hbs (y, r, er) (.head _) avoid h.1.1, h.1.2⟩,
       freshInLet_map_of f rest body (y :: avoid) (fun b hb => hbs b (.tail _ hb)) hbody h.2⟩
 
+omit sv in
 theorem freshIn_replaceReads (record : VarId) (fields : List VarId) (X : Expr) :
     ∀ avoid, freshIn avoid X = true → freshIn avoid (replaceReads record fields X) = true := by
   intro avoid h
@@ -99,6 +104,7 @@ theorem freshIn_append_big {env : List VarId} {X : Expr} (hX : freshIn env X = t
     rw [List.cons_append]
     exact freshIn_cons_of_big (freshIn_append_big hX ys fun z hz => h z (.tail _ hz)) (h y (.head _))
 
+omit sv in
 theorem lowerTotalExpr_append_unused {env : List VarId} {e : Expr} {t : Term}
     (ht : lowerTotalExpr env e = some t) :
     ∀ (names : List VarId), (∀ y ∈ names, (freeVars e).contains y = false) →
@@ -111,11 +117,13 @@ theorem lowerTotalExpr_append_unused {env : List VarId} {e : Expr} {t : Term}
 
 /-! ## The field facts -/
 
+omit sv in
 theorem fieldFacts_eq (record : VarId) (fields : List VarId) :
     fieldFacts record fields =
       fields.reverse.zip (fields.reverse.map (fieldProjection record fields)) := by
   rw [fieldFacts, zip_map_self]
 
+omit sv in
 theorem freshIn_fieldProjection {env : List VarId} {record y : VarId} {fields : List VarId}
     (hdistinct : NamesDistinct fields) (hout : ∀ z ∈ fields, envLookupT env z = none) (hy : y ∈ fields) :
     freshIn env (fieldProjection record fields y) = true := by
@@ -125,6 +133,7 @@ theorem freshIn_fieldProjection {env : List VarId} {record y : VarId} {fields : 
   unfold fieldProjection
   simp [freshIn, freshInList, h1, h2]
 
+omit sv in
 theorem fieldFacts_find {record : VarId} {fields : List VarId} (hdistinct : NamesDistinct fields)
     (Γ : List (VarId × Expr)) {y : VarId} (hy : y ∈ fields) :
     ∃ entry, (fieldFacts record fields ++ Γ).find? (fun e => e.1 == y) = some entry ∧

@@ -1,15 +1,18 @@
 import Moist.MIR.Optimize.Advanced.Shapes
 import Moist.Verified.ContinuationRefinement
 
+variable [sv : Moist.CEK.SemVariant]
+
 namespace Moist.Verified.ListShape
 
 open Moist.MIR Moist.MIR.Advanced Moist.CEK Moist.Plutus.Term
 open Moist.Verified.Equivalence
 
 def ListValue : CekValue → Prop
-  | .VCon (.ConstList _) | .VCon (.ConstDataList _) | .VCon (.ConstPairDataList _) => True
+  | .VCon (.ConstList _ _) => True
   | _ => False
 
+omit sv in
 theorem knownList_literal (fuel : Nat) (facts : List (VarId × Expr)) (literal : Const × BuiltinType)
     (accepted : knownList fuel facts (.Lit literal) = true) : ListValue (.VCon literal.1) := by
   cases fuel with

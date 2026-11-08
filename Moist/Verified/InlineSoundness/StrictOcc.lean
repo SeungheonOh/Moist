@@ -4,6 +4,8 @@ import Moist.Verified.FundamentalRefines
 import Moist.Verified.BetaValueRefines
 import Moist.Verified.StepWellFormed
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Same-environment beta reduction for a halting right-hand side
 
 `same_env_beta_of_halts`: if `rhs` halts from the empty stack, the redex
@@ -110,6 +112,7 @@ it just decrements variable indices above `pos`. This matches
 def unshiftRename (pos : Nat) (n : Nat) : Nat :=
   if n > pos then n - 1 else n
 
+omit sv in
 theorem unshiftRename_ge1 {pos n : Nat} (hpos : pos ≥ 1) (hn : n ≥ 1) :
     unshiftRename pos n ≥ 1 := by
   simp only [unshiftRename]
@@ -117,6 +120,7 @@ theorem unshiftRename_ge1 {pos n : Nat} (hpos : pos ≥ 1) (hn : n ≥ 1) :
   · omega
   · exact hn
 
+omit sv in
 theorem liftRename_unshiftRename {pos : Nat} (hpos : pos ≥ 1) :
     liftRename (unshiftRename pos) = unshiftRename (pos + 1) := by
   funext n
@@ -135,6 +139,7 @@ theorem liftRename_unshiftRename {pos : Nat} (hpos : pos ≥ 1) :
 
 /-! ## Key bridge: substTerm on FreeOf terms equals renameTerm -/
 
+omit sv in
 mutual
   theorem freeOf_substTerm_eq_renameTerm {pos : Nat} {t : Term} {r : Term}
       (hpos : pos ≥ 1) (hfree : freeOf pos t = true) :
@@ -206,6 +211,7 @@ end
 
 `renameTerm (shiftRename pos) (substTerm pos r t) = t` when `freeOf pos t`. -/
 
+omit sv in
 mutual
   theorem freeOf_shift_substTerm {pos : Nat} {t : Term} {r : Term}
       (hpos : pos ≥ 1) (hfree : freeOf pos t = true) :
@@ -415,6 +421,7 @@ open Moist.CEK (State CekEnv CekValue Stack Frame step)
 open Moist.Verified.Equivalence (Reaches steps)
 open Moist.Verified.Equivalence (steps_trans steps_error steps_halt)
 
+omit sv in
 private theorem closedAtList_elem' {d : Nat} {ts : List Term}
     (h : Moist.Verified.closedAtList d ts = true) {idx : Nat} (hidx : idx < ts.length) :
     Moist.Verified.closedAt d (ts[idx]'hidx) = true := by
@@ -429,12 +436,15 @@ private theorem closedAtList_elem' {d : Nat} {ts : List Term}
 def multiShift (K : Nat) : Nat → Nat :=
   fun n => if n = 0 then 0 else n + K
 
+omit sv in
 theorem multiShift_zero (n : Nat) : multiShift 0 n = n := by
   simp only [multiShift]; split <;> omega
 
+omit sv in
 theorem multiShift_id : multiShift 0 = id := by
   funext n; simp [multiShift_zero]
 
+omit sv in
 theorem multiShift_succ (K n : Nat) :
     multiShift (K + 1) n = Moist.Verified.shiftRename 1 (multiShift K n) := by
   simp only [multiShift]
@@ -447,6 +457,7 @@ theorem multiShift_succ (K n : Nat) :
 
 /- Renaming composition helpers -/
 
+omit sv in
 /-- Liftings of 0-preserving functions commute with composition. -/
 theorem liftRename_comp_of_0preserving
     {σ₁ σ₂ : Nat → Nat}
@@ -469,6 +480,7 @@ theorem liftRename_comp_of_0preserving
     rw [hm]
     rfl
 
+omit sv in
 /- Renaming composition: `renameTerm` commutes with function composition,
     when the inner rename is 0-preserving. -/
 mutual
@@ -517,6 +529,7 @@ mutual
   termination_by sizeOf ts
 end
 
+omit sv in
 theorem is0preserving_multiShift (K : Nat) :
     Moist.Verified.FundamentalRefines.Is0Preserving (multiShift K) := by
   refine ⟨?_, ?_⟩
@@ -527,10 +540,12 @@ theorem is0preserving_multiShift (K : Nat) :
     · omega
     · omega
 
+omit sv in
 theorem renameTerm_multiShift_zero (t : Term) :
     Moist.Verified.renameTerm (multiShift 0) t = t := by
   rw [multiShift_id]; exact Moist.Verified.renameTerm_id t
 
+omit sv in
 /-- `iterShift K t = renameTerm (multiShift K) t` by induction on K, using
     composition of shiftRename with multiShift. -/
 theorem iterShift_eq_renameTerm_multiShift (K : Nat) (t : Term) :
@@ -547,6 +562,7 @@ theorem iterShift_eq_renameTerm_multiShift (K : Nat) (t : Term) :
     funext n
     exact (multiShift_succ m n).symm
 
+omit sv in
 /-- `ShiftBisimEnv (multiShift K) d ρ ρ_K` for any WF `ρ` and any extension
     `ρ_K` whose top `K`-shifted positions match `ρ`'s. Proven by induction on
     the depth `d` using `shiftBisimValue_refl_id` at each value. -/

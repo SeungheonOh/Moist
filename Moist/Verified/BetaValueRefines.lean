@@ -5,6 +5,8 @@ import Moist.Verified.RenameBase
 import Moist.Verified.StepLift
 import Moist.Verified.FundamentalRefines
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Infrastructure for UPLC beta reduction
 
 * Closedness under renaming and substitution (`closedAt_rename`,
@@ -34,12 +36,14 @@ open Moist.Verified.Contextual.SoundnessRefines
 -- file) do not need to reach into that module's private namespace.
 --------------------------------------------------------------------------------
 
+omit sv in
 /-- The new top of an `extend`ed env at position 1. -/
 theorem extend_lookup_one (ρ : CekEnv) (v : CekValue) :
     (ρ.extend v).lookup 1 = some v := by
   show (CekEnv.cons v ρ).lookup 1 = some v
   rfl
 
+omit sv in
 /-- `extend` shifts every positive position up by 1: `(ρ.extend v).lookup
     (m + 1) = ρ.lookup m` for `m ≥ 1`. -/
 theorem extend_lookup_succ (ρ : CekEnv) (v : CekValue) (m : Nat)
@@ -58,6 +62,7 @@ theorem extend_lookup_succ (ρ : CekEnv) (v : CekValue) (m : Nat)
 -- which preserves the "≤" respect property.
 --------------------------------------------------------------------------------
 
+omit sv in
 /-- Lifting preserves a bound-respecting renaming. -/
 private theorem liftRename_preserves_bound {σ : Nat → Nat} {d d' : Nat}
     (h_σ : ∀ n, n ≤ d → σ n ≤ d') :
@@ -72,6 +77,7 @@ private theorem liftRename_preserves_bound {σ : Nat → Nat} {d d' : Nat}
     have := h_σ (k + 1) this
     omega
 
+omit sv in
 mutual
 
 /-- Closedness is preserved under renaming, provided the renaming respects
@@ -134,6 +140,7 @@ end
 -- typing" lemma for our open-semantics β-reduction.
 --------------------------------------------------------------------------------
 
+omit sv in
 mutual
 
 /-- Closedness is preserved under UPLC open substitution. -/
@@ -402,11 +409,14 @@ def iterShift : Nat → Term → Term
   | 0, t => t
   | n + 1, t => renameTerm (shiftRename 1) (iterShift n t)
 
+omit sv in
 theorem iterShift_zero (t : Term) : iterShift 0 t = t := rfl
 
+omit sv in
 theorem iterShift_succ (n : Nat) (t : Term) :
     iterShift (n + 1) t = renameTerm (shiftRename 1) (iterShift n t) := rfl
 
+omit sv in
 theorem iterShift_shift (n : Nat) (t : Term) :
     iterShift n (renameTerm (shiftRename 1) t) = iterShift (n + 1) t := by
   induction n with
@@ -520,6 +530,7 @@ inductive StackWellFormed : Stack → Prop
 -- 7. Env well-formedness helpers
 --------------------------------------------------------------------------------
 
+omit sv in
 /-- Narrow a well-formedness depth down to a smaller one. -/
 theorem envWellFormed_narrow : ∀ (k : Nat) {k' : Nat} {ρ : CekEnv},
     EnvWellFormed k ρ → k' ≤ k → EnvWellFormed k' ρ := by
@@ -538,6 +549,7 @@ theorem envWellFormed_narrow : ∀ (k : Nat) {k' : Nat} {ρ : CekEnv},
       | succ h_rest _ _ _ =>
         exact ih h_rest (by omega)
 
+omit sv in
 /-- Lookups within a well-formed env return well-formed values. -/
 theorem envWellFormed_lookup : ∀ (k : Nat) {ρ : CekEnv},
     EnvWellFormed k ρ → ∀ {n : Nat}, 0 < n → n ≤ k →
@@ -553,6 +565,7 @@ theorem envWellFormed_lookup : ∀ (k : Nat) {ρ : CekEnv},
       · subst h_eq; exact ⟨_, hl, h_v⟩
       · exact ih h_rest hm (by omega)
 
+omit sv in
 /-- Extending a well-formed env at depth `k` with a well-formed value
     yields a well-formed env at depth `k + 1`. -/
 theorem envWellFormed_extend : ∀ (k : Nat) {ρ : CekEnv} {v : CekValue},
@@ -715,6 +728,7 @@ theorem listRel_valueRefinesK_refl (k : Nat) {vs : List CekValue}
 -- 10. Closedness-of-list inversions
 --------------------------------------------------------------------------------
 
+omit sv in
 /-- Closedness is inherited by every element of a closed list. -/
 theorem closedAt_of_mem : ∀ {d : Nat} {ts : List Term} {t : Term},
     closedAtList d ts = true → t ∈ ts → closedAt d t = true
@@ -725,6 +739,7 @@ theorem closedAt_of_mem : ∀ {d : Nat} {ts : List Term} {t : Term},
     | head => exact hc.1
     | tail _ h => exact closedAt_of_mem hc.2 h
 
+omit sv in
 /-- Fields produced by `constToTagAndFields` are always VCon values. -/
 theorem vcon_fields_of_constToTagAndFields :
     ∀ {c : Const} {tag numCtors : Nat} {fs : List CekValue},
@@ -748,7 +763,7 @@ theorem vcon_fields_of_constToTagAndFields :
     · simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
       obtain ⟨_, _, hfs⟩ := hc; subst hfs; cases hmem
   | Data _ => simp [constToTagAndFields] at hc
-  | ConstList l =>
+  | ConstList _ l =>
     cases l with
     | nil =>
       simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
@@ -760,37 +775,9 @@ theorem vcon_fields_of_constToTagAndFields :
       | head => exact ⟨h, rfl⟩
       | tail _ h2 =>
         cases h2 with
-        | head => exact ⟨.ConstList t, rfl⟩
+        | head => exact ⟨.ConstList _ t, rfl⟩
         | tail _ h3 => cases h3
-  | ConstDataList l =>
-    cases l with
-    | nil =>
-      simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
-      obtain ⟨_, _, hfs⟩ := hc; subst hfs; cases hmem
-    | cons h t =>
-      simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
-      obtain ⟨_, _, hfs⟩ := hc; subst hfs
-      cases hmem with
-      | head => exact ⟨.Data h, rfl⟩
-      | tail _ h2 =>
-        cases h2 with
-        | head => exact ⟨.ConstDataList t, rfl⟩
-        | tail _ h3 => cases h3
-  | ConstPairDataList l =>
-    cases l with
-    | nil =>
-      simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
-      obtain ⟨_, _, hfs⟩ := hc; subst hfs; cases hmem
-    | cons h t =>
-      simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
-      obtain ⟨_, _, hfs⟩ := hc; subst hfs
-      cases hmem with
-      | head => exact ⟨.PairData h, rfl⟩
-      | tail _ h2 =>
-        cases h2 with
-        | head => exact ⟨.ConstPairDataList t, rfl⟩
-        | tail _ h3 => cases h3
-  | ConstArray _ => simp [constToTagAndFields] at hc
+  | ConstArray _ _ => simp [constToTagAndFields] at hc
   | Pair p =>
     obtain ⟨a, b⟩ := p
     simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
@@ -800,16 +787,6 @@ theorem vcon_fields_of_constToTagAndFields :
     | tail _ h2 =>
       cases h2 with
       | head => exact ⟨b, rfl⟩
-      | tail _ h3 => cases h3
-  | PairData p =>
-    obtain ⟨a, b⟩ := p
-    simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
-    obtain ⟨_, _, hfs⟩ := hc; subst hfs
-    cases hmem with
-    | head => exact ⟨.Data a, rfl⟩
-    | tail _ h2 =>
-      cases h2 with
-      | head => exact ⟨.Data b, rfl⟩
       | tail _ h3 => cases h3
   | Bls12_381_G1_element => simp [constToTagAndFields] at hc
   | Bls12_381_G2_element => simp [constToTagAndFields] at hc
@@ -1278,6 +1255,7 @@ theorem substEnvRef_above_pos {pos k d : Nat} {v_rhs : CekValue}
   | none, some _ => rw [hρ₁, hρ₂] at hcase; exact hcase.elim
   | none, none => rw [hρ₁, hρ₂] at hcase; exact hcase.elim
 
+omit sv in
 /-- `substTermList`'s `getElem` distributes through the element access. -/
 theorem substTermList_getElem (pos : Nat) (r : Term) (ts : List Term) (i : Nat)
     (hi : i < ts.length) :
@@ -1295,6 +1273,7 @@ theorem substTermList_getElem (pos : Nat) (r : Term) (ts : List Term) (i : Nat)
 
 -- 15. Shifting preserves closedness.
 
+omit sv in
 /-- Closedness lift: if `t` is closed at depth `d`, then `shift t` is
     closed at depth `d + 1`. -/
 theorem closedAt_shift {d : Nat} {t : Moist.Plutus.Term.Term}
@@ -1424,6 +1403,7 @@ end
 -- 17. Shift bisimulation helpers
 --------------------------------------------------------------------------------
 
+omit sv in
 /-- Narrow a `ShiftBisimEnv` down to a smaller depth. -/
 theorem shiftBisimEnv_narrow : ∀ (σ : Nat → Nat) (d : Nat) {d' : Nat}
     {ρ₁ ρ₂ : CekEnv}, ShiftBisimEnv σ d ρ₁ ρ₂ → d' ≤ d → ShiftBisimEnv σ d' ρ₁ ρ₂ := by
@@ -1441,6 +1421,7 @@ theorem shiftBisimEnv_narrow : ∀ (σ : Nat → Nat) (d : Nat) {d' : Nat}
     · cases h with
       | succ h_rest _ _ _ => exact ih h_rest (by omega)
 
+omit sv in
 /-- Lookup within a `ShiftBisimEnv σ d` returns a matching `ShiftBisimValue`
     pair at positions `(n, σ n)`. -/
 theorem shiftBisimEnv_lookup : ∀ (σ : Nat → Nat) (d : Nat) {ρ₁ ρ₂ : CekEnv},
@@ -1458,6 +1439,7 @@ theorem shiftBisimEnv_lookup : ∀ (σ : Nat → Nat) (d : Nat) {ρ₁ ρ₂ : C
       · subst h_eq; exact ⟨_, _, hl₁, hl₂, h_v⟩
       · exact ih h_rest hm (by omega)
 
+omit sv in
 /-- Extending two `ShiftBisimEnv σ d`-related envs with a related pair
     gives a `ShiftBisimEnv (liftRename σ) (d+1)`-related pair. Mirrors
     `renameEnvRefR_extend`. -/
@@ -1495,16 +1477,19 @@ theorem shiftBisimEnv_extend : ∀ {σ : Nat → Nat} (h_σ : Is0Preserving σ)
           extend_lookup_succ ρ₂ v_new₂ (σ (n + 1)) hσ_ge
         rw [heq]; exact hl₂
 
+omit sv in
 /-- Reverse inversion for `VCon` on RHS. -/
 theorem shiftBisimValue_vcon_inv_right : ∀ {c : Moist.Plutus.Term.Const} {v : CekValue},
     ShiftBisimValue v (.VCon c) → v = .VCon c
   | _, _, h => by cases h; rfl
 
+omit sv in
 /-- Inversion for `ShiftBisimValue` on `VCon`. -/
 theorem shiftBisimValue_vcon_inv : ∀ {c : Moist.Plutus.Term.Const} {v : CekValue},
     ShiftBisimValue (.VCon c) v → v = .VCon c
   | _, _, h => by cases h; rfl
 
+omit sv in
 /-- `ShiftBisimValueList` is closed under `append`. -/
 theorem shiftBisimValueList_append : ∀ (xs₁ : List CekValue)
     {xs₂ ys₁ ys₂ : List CekValue},
@@ -1516,6 +1501,7 @@ theorem shiftBisimValueList_append : ∀ (xs₁ : List CekValue)
     | cons hv hrest =>
       exact ShiftBisimValueList.cons hv (shiftBisimValueList_append rest hrest hys)
 
+omit sv in
 /-- `List.reverse` preserves `ShiftBisimValueList`. -/
 theorem shiftBisimValueList_reverse : ∀ (xs₁ : List CekValue)
     {xs₂ : List CekValue},
@@ -1529,6 +1515,7 @@ theorem shiftBisimValueList_reverse : ∀ (xs₁ : List CekValue)
       exact shiftBisimValueList_append _ (shiftBisimValueList_reverse rest hrest)
               (ShiftBisimValueList.cons hv ShiftBisimValueList.nil)
 
+omit sv in
 /-- Mapping `Frame.applyArg` + prepending preserves stack relation. -/
 theorem shiftBisimValueList_to_applyArg_stack : ∀ (fs₁ : List CekValue)
     {fs₂ : List CekValue} {π₁ π₂ : Stack},
@@ -1541,6 +1528,7 @@ theorem shiftBisimValueList_to_applyArg_stack : ∀ (fs₁ : List CekValue)
       exact ShiftBisimStack.cons (ShiftBisimFrame.applyArg hv)
               (shiftBisimValueList_to_applyArg_stack rest hrest hπ)
 
+omit sv in
 /-- `closedAtList d alts → alts[n]? = some alt → closedAt d alt`. -/
 theorem shiftBisim_closedAtList_get : ∀ (d : Nat) (alts : List Moist.Plutus.Term.Term)
     (n : Nat) (alt : Moist.Plutus.Term.Term),
@@ -1558,6 +1546,7 @@ theorem shiftBisim_closedAtList_get : ∀ (d : Nat) (alts : List Moist.Plutus.Te
     simp only [closedAtList, Bool.and_eq_true] at h_cl
     exact shiftBisim_closedAtList_get d rest n alt h_cl.2 h_get
 
+omit sv in
 /-- `extractConsts` yields the same output on `ShiftBisimValueList`-related
     lists. Our ShiftBisimValue.vcon forces literal equality. -/
 private theorem shiftBisimValueList_listRel : ∀ {args₁ args₂ : List CekValue},
@@ -1580,6 +1569,7 @@ private theorem shiftBisimState_evalBuiltin {b : BuiltinFun} {args₁ args₂ : 
   | some r => exact .ret r hπ
   | none => exact .error
 
+omit sv in
 theorem shiftBisimValueList_constToTagAndFields_refl :
     ∀ {c : Const} {tag numCtors : Nat} {fs : List CekValue},
       constToTagAndFields c = some (tag, numCtors, fs) → ShiftBisimValueList fs fs := by
@@ -1606,33 +1596,7 @@ theorem shiftBisimValueList_constToTagAndFields_refl :
       obtain ⟨_, _, hfs⟩ := hc
       subst hfs
       exact ShiftBisimValueList.nil
-  | ConstList l =>
-    cases l with
-    | nil =>
-      simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
-      obtain ⟨_, _, hfs⟩ := hc
-      subst hfs
-      exact ShiftBisimValueList.nil
-    | cons head tail =>
-      simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
-      obtain ⟨_, _, hfs⟩ := hc
-      subst hfs
-      exact ShiftBisimValueList.cons (ShiftBisimValue.vcon _)
-              (ShiftBisimValueList.cons (ShiftBisimValue.vcon _) ShiftBisimValueList.nil)
-  | ConstDataList l =>
-    cases l with
-    | nil =>
-      simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
-      obtain ⟨_, _, hfs⟩ := hc
-      subst hfs
-      exact ShiftBisimValueList.nil
-    | cons head tail =>
-      simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
-      obtain ⟨_, _, hfs⟩ := hc
-      subst hfs
-      exact ShiftBisimValueList.cons (ShiftBisimValue.vcon _)
-              (ShiftBisimValueList.cons (ShiftBisimValue.vcon _) ShiftBisimValueList.nil)
-  | ConstPairDataList l =>
+  | ConstList _ l =>
     cases l with
     | nil =>
       simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
@@ -1652,15 +1616,8 @@ theorem shiftBisimValueList_constToTagAndFields_refl :
     subst hfs
     exact ShiftBisimValueList.cons (ShiftBisimValue.vcon _)
             (ShiftBisimValueList.cons (ShiftBisimValue.vcon _) ShiftBisimValueList.nil)
-  | PairData p =>
-    obtain ⟨a, b⟩ := p
-    simp only [constToTagAndFields, Option.some.injEq, Prod.mk.injEq] at hc
-    obtain ⟨_, _, hfs⟩ := hc
-    subst hfs
-    exact ShiftBisimValueList.cons (ShiftBisimValue.vcon _)
-            (ShiftBisimValueList.cons (ShiftBisimValue.vcon _) ShiftBisimValueList.nil)
   | Data _ => simp [constToTagAndFields] at hc
-  | ConstArray _ => simp [constToTagAndFields] at hc
+  | ConstArray _ _ => simp [constToTagAndFields] at hc
   | Bls12_381_G1_element => simp [constToTagAndFields] at hc
   | Bls12_381_G2_element => simp [constToTagAndFields] at hc
   | Bls12_381_MlResult => simp [constToTagAndFields] at hc
@@ -1996,6 +1953,7 @@ theorem shiftBisimState_steps_preserves : ∀ (n : Nat) {s₁ s₂ : State},
     show ShiftBisimState (steps m (step s₁)) (steps m (step s₂))
     exact ih (shiftBisimState_step_preserves h)
 
+omit sv in
 /-- Ret inversion: `ShiftBisimState (ret π v) s` forces s = ret π' v' with relations. -/
 theorem shiftBisimState_ret_inv : ∀ {π : Stack} {v : CekValue} {s : State},
     ShiftBisimState (.ret π v) s →
@@ -2009,6 +1967,7 @@ theorem shiftBisimState_ret_inv : ∀ {π : Stack} {v : CekValue} {s : State},
 section ShiftBisimRefl
 open Moist.Verified.FundamentalRefines (is0preserving_id)
 
+omit sv in
 mutual
 
 theorem shiftBisimValue_refl_id_aux : ∀ {v : CekValue}
@@ -2048,6 +2007,7 @@ theorem shiftBisimEnv_refl_id_aux : ∀ {d : Nat} {ρ : CekEnv}
 
 end
 
+omit sv in
 /-- Public alias. -/
 theorem shiftBisimValue_refl_id : ∀ (v : CekValue),
     ValueWellFormed v → ShiftBisimValue v v := fun _ h => shiftBisimValue_refl_id_aux h

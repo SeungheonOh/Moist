@@ -4,6 +4,8 @@ import Moist.Verified.HygieneSoundness
 import Moist.Verified.PreLowerSoundness
 import Moist.MIR.Optimize.Advanced.Products
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Soundness of fail-fast reordering
 
 `failFast_refines`: for every MIR expression `e`, `e ⊑Ctxᴹ failFast e`.
@@ -29,6 +31,7 @@ def SinkOK (x : VarId) (rhs : Expr) (er : Bool) (body : Expr) : Prop :=
     ∃ t', lowerTotalExpr env (sinkInto x rhs er body) = some t' ∧
       ∀ F, FactRefines env.length F (.Apply (.Lam 0 tb) tr) t'
 
+omit sv in
 theorem lowerTotalExpr_consLet' (env : List VarId) (binding : VarId × Expr × Bool) (e : Expr) :
     lowerTotalExpr env (consLet binding e) = lowerTotalExpr env (.Let [binding] e) := by
   unfold consLet
@@ -36,9 +39,11 @@ theorem lowerTotalExpr_consLet' (env : List VarId) (binding : VarId × Expr × B
   · exact lowerTotalExpr_let_cons env _ _ _
   · rfl
 
+omit sv in
 theorem isErrorExpr_eq {a : Expr} (h : isErrorExpr a = true) : a = .Error := by
   cases a <;> simp_all [isErrorExpr]
 
+omit sv in
 theorem closedAtList_map_let {d : Nat} {tr : Term} (htr : closedAt d tr = true) :
     ∀ {ts : List Term}, closedAtList (d + 1) ts = true →
       closedAtList d (ts.map fun a => .Apply (.Lam 0 a) tr) = true
@@ -81,6 +86,7 @@ theorem sink_alternatives {x : VarId} {rhs : Expr} {er : Bool} {env : List VarId
           rw [List.map_cons, if_neg herr, MIR.lowerTotalExprList_cons, ht', htas']
           rfl
 
+omit sv in
 theorem sinkCheck_spec {x : VarId} {rhs c : Expr} {alts : List Expr}
     (h : sinkCheck x rhs c alts = true) :
     (freeVars c).contains x = false ∧ terminates c = true := by

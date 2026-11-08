@@ -1,5 +1,7 @@
 import Moist.Verified.KnownListsSoundness.Walk
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Known-list `case` fusion
 
 `fuseKnownListCases` replaces `case (nullList l) [case l [C, …], E]` by

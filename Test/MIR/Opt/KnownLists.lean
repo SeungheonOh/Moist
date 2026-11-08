@@ -2,6 +2,10 @@ import Test.MIR.Opt.Soundness
 import Moist.MIR.Compile
 import Moist.MIR.Optimize.Advanced.KnownLists
 
+/-- Tests evaluate under semantics variant E (the conformance-suite variant). -/
+private local instance testSemVariant : Moist.CEK.SemVariant := .E
+
+
 namespace Test.MIR.Opt.KnownLists
 
 open Moist.MIR Moist.Plutus.Term Test.MIR Test.Framework

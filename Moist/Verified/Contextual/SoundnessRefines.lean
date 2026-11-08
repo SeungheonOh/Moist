@@ -1,6 +1,8 @@
 import Moist.Verified.Contextual.BisimRef
 import Moist.Verified.Contextual.Guarded
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Open refinement implies contextual refinement
 
 `term_obsRefinesG` is the fundamental property for `TermSubstL`-related terms
@@ -30,6 +32,7 @@ def dummyEnv : Nat → CekEnv
   | 0 => .nil
   | n + 1 => (dummyEnv n).extend (.VCon .Unit)
 
+omit sv in
 theorem dummyEnv_length : ∀ (n : Nat), (dummyEnv n).length = n
   | 0 => rfl
   | n + 1 => by
@@ -97,6 +100,7 @@ theorem obsRefinesK_error (k : Nat) : ObsRefinesK k (.error : State) .error :=
 
 open Moist.Verified.Contextual.Guarded
 
+omit sv in
 private theorem listRel_iff {R S : CekValue → CekValue → Prop} (h : ∀ a b, R a b ↔ S a b) :
     ∀ {l₁ l₂ : List CekValue}, ListRel R l₁ l₂ ↔ ListRel S l₁ l₂
   | [], [] | [], _ :: _ | _ :: _, [] => Iff.rfl
@@ -188,6 +192,7 @@ def TermListSubstL.refl {t₁ t₂ : Term} : ∀ (ts : List Term), TermListSubst
   | t :: rest => .cons (TermSubstL.refl t) (TermListSubstL.refl rest)
 end
 
+omit sv in
 /-- `fill C` produces `TermSubstL`-related terms — never uses `swapInv`. -/
 theorem fill_termSubstL (C : Context) (t₁ t₂ : Term) :
     TermSubstL t₁ t₂ (fill C t₁) (fill C t₂) := by
@@ -330,6 +335,7 @@ theorem applyArgFrames_stackRefK {j : Nat}
 -- 8. The fundamental property for `TermSubstL`
 --------------------------------------------------------------------------------
 
+omit sv in
 private theorem termListSubstL_listRel {t₁ t₂ : Term} {R : Term → Term → Prop}
     (h : ∀ {a₁ a₂}, TermSubstL t₁ t₂ a₁ a₂ → R a₁ a₂) :
     ∀ {l₁ l₂ : List Term}, TermListSubstL t₁ t₂ l₁ l₂ → ListRel R l₁ l₂

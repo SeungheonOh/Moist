@@ -119,16 +119,23 @@ def coversRange (values : List Int) (low high : Int) : Bool :=
 /-- Failing tests of a contiguous range of at least three tags. -/
 def rangeRule (environment : List (VarId × Expr)) (subject : VarId) (value : Int)
     (otherwise : Expr) : Option Expr :=
+  -- The comparisons unlift `CInteger` arguments under semantics variant E, so they fail on
+  -- integers beyond `±2^262143` where the equality tests they replace do not. The rule
+  -- therefore needs the tag and every bound to be known below `2^64` in magnitude.
+  if !(boundedInteger 64 environment (.Var subject) && decide (value.natAbs < 2 ^ 64)) then none
+  else
   match rangeOf subject otherwise with
   | some (low, high, outside) =>
-    if low ≤ value + 1 && value ≤ high + 1 then
+    if low ≤ value + 1 && value ≤ high + 1 && decide (low.natAbs < 2 ^ 64) &&
+        decide (high.natAbs < 2 ^ 64) then
       some (rangeCase subject (min low value) (max high value) outside)
     else none
   | none =>
     let spine := errorSpine environment subject otherwise
     let low := spine.1.foldl min value
     let high := spine.1.foldl max value
-    if 2 ≤ high - low && coversRange (value :: spine.1) low high then
+    if 2 ≤ high - low && coversRange (value :: spine.1) low high &&
+        decide (low.natAbs < 2 ^ 64) && decide (high.natAbs < 2 ^ 64) then
       some (rangeCase subject low high spine.2)
     else none
 

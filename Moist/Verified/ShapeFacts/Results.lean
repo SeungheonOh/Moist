@@ -2,6 +2,8 @@ import Moist.Verified.ShapeFacts.Delays
 import Moist.Verified.ShapeFacts.Known
 import Moist.Verified.ShapeFacts.Top
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Boolean result summaries
 
 `booleanResultCore` accepts expressions whose successful evaluations return
@@ -22,15 +24,18 @@ open Moist.Verified Moist.Verified.Equivalence
 /-- The part of a name that `==` compares. -/
 def varKey (x : VarId) : VarOrigin × Nat := (x.origin, x.uid)
 
+omit sv in
 theorem varKey_eq {x y : VarId} (h : (x == y) = true) : varKey x = varKey y := by
   rw [VarId.beq_true_iff] at h
   obtain ⟨h₁, h₂⟩ := h
   simp [varKey, h₁, h₂]
 
+omit sv in
 theorem beq_of_varKey {x y : VarId} (h : varKey x = varKey y) : (x == y) = true := by
   simp only [varKey, Prod.mk.injEq] at h
   rw [VarId.beq_true_iff]; exact ⟨h.1, h.2⟩
 
+omit sv in
 theorem varId_beq_trans {x y z : VarId} (h₁ : (x == y) = true) (h₂ : (y == z) = true) :
     (x == z) = true := beq_of_varKey ((varKey_eq h₁).trans (varKey_eq h₂))
 
@@ -70,10 +75,12 @@ theorem ProducesB.produces {S : List (VarId × Nat)} {β : Budget} {env : List V
   obtain ⟨t, m, ht, hm, _, hf⟩ := h
   exact ⟨⟨t, ht, hm.halts⟩, hf⟩
 
+omit sv in
 theorem WithinBudget.le {S : List (VarId × Nat)} {env : List VarId} {β : Budget} {n m : Nat}
     (h : WithinBudget S env β n) (hm : m ≤ n) : WithinBudget S env β m :=
   fun entry hmem hb => Nat.le_trans hm (h entry hmem hb)
 
+omit sv in
 theorem WithinBudget.sub {S S' : List (VarId × Nat)} {env : List VarId} {β : Budget} {n : Nat}
     (h : WithinBudget S env β n) (hS : ∀ entry ∈ S', entry ∈ S) : WithinBudget S' env β n :=
   fun entry hmem hb => h entry (hS entry hmem) hb
@@ -88,6 +95,7 @@ theorem ProducesB.sub {S S' : List (VarId × Nat)} {β : Budget} {env : List Var
   obtain ⟨t, m, ht, hm, hb, hf⟩ := h
   exact ⟨t, m, ht, hm, hb.sub hS, hf⟩
 
+omit sv in
 theorem WithinBudget.drop {S : List (VarId × Nat)} {env : List VarId} {β : Budget} {n : Nat}
     (h : WithinBudget S env β n) (hd : EnvDistinct env) (j : Nat) :
     WithinBudget S (env.drop j) β n := by
@@ -103,9 +111,11 @@ theorem SummariesHold.drop {S : List (VarId × Nat)} {env : List VarId} {ρ : Ce
   rw [dropEnv_lookup j ρ (i + 1) (by omega)] at hw
   exact h entry hmem (i + j) (hd.drop_lookup j hl) w (by rw [← hw]; congr 1; omega)
 
+omit sv in
 theorem filter_mem {α : Type} {p : α → Bool} {l : List α} : ∀ x ∈ l.filter p, x ∈ l :=
   fun _ hx => (List.mem_filter.mp hx).1
 
+omit sv in
 theorem contains_congr {xs : List VarId} {x y : VarId} (h : (x == y) = true) :
     xs.contains x = xs.contains y := by
   induction xs with
@@ -120,6 +130,7 @@ theorem contains_congr {xs : List VarId} {x y : VarId} (h : (x == y) = true) :
       | false => rfl
       | true => exact absurd (varId_beq_trans h hyz) (by simp [hxz])
 
+omit sv in
 theorem envLookupT_none_iff {l : List VarId} {y : VarId} :
     envLookupT l y = none ↔ ∀ z ∈ l, (z == y) = false := by
   induction l with
@@ -132,6 +143,7 @@ theorem envLookupT_none_iff {l : List VarId} {y : VarId} :
       simp only [Option.map_eq_none_iff, ih, List.mem_cons, forall_eq_or_imp]
       simp [hz]
 
+omit sv in
 theorem envLookupT_none_of_contains {l : List VarId} {y : VarId} (h : l.contains y = false) :
     envLookupT l y = none := by
   rw [envLookupT_none_iff]
@@ -142,6 +154,7 @@ theorem envLookupT_none_of_contains {l : List VarId} {y : VarId} (h : l.contains
     have : l.contains y = true := List.contains_iff_exists_mem_beq.mpr ⟨z, hz, varId_beq_symm hzy⟩
     rw [h] at this; cases this
 
+omit sv in
 theorem envLookupT_append_of_none {l env : List VarId} {y : VarId} (h : envLookupT l y = none) :
     envLookupT (l ++ env) y = (envLookupT env y).map (· + l.length) := by
   induction l with
@@ -164,6 +177,7 @@ def extendAll : CekEnv → List CekValue → CekEnv
   | ρ, [] => ρ
   | ρ, v :: vs => extendAll (ρ.extend v) vs
 
+omit sv in
 theorem dropEnv_extendAll : ∀ (ρ : CekEnv) (vals : List CekValue),
     dropEnv vals.length (extendAll ρ vals) = ρ
   | ρ, [] => rfl
@@ -172,12 +186,14 @@ theorem dropEnv_extendAll : ∀ (ρ : CekEnv) (vals : List CekValue),
     rw [← dropEnv_add, dropEnv_extendAll (ρ.extend v) vs]
     rfl
 
+omit sv in
 theorem lookup_extendAll (ρ : CekEnv) (vals : List CekValue) (n : Nat) (hn : 0 < n) :
     (extendAll ρ vals).lookup (n + vals.length) = ρ.lookup n := by
   have := dropEnv_lookup vals.length (extendAll ρ vals) n hn
   rw [dropEnv_extendAll] at this
   exact this.symm
 
+omit sv in
 theorem lookup_extendAll_lt : ∀ (ρ : CekEnv) (vals : List CekValue) (j : Nat), j < vals.length →
     (extendAll ρ vals).lookup (j + 1) = vals.reverse[j]?
   | ρ, [], j, h => by simp at h
@@ -194,6 +210,7 @@ theorem lookup_extendAll_lt : ∀ (ρ : CekEnv) (vals : List CekValue) (j : Nat)
 
 /-! ## Facts and summaries in extended environments -/
 
+omit sv in
 theorem find?_zip_lookup {y : VarId} : ∀ (qs : List VarId) (bs : List Expr), qs.length = bs.length →
     ∀ entry, (qs.zip bs).find? (fun e => e.1 == y) = some entry →
       ∃ j, envLookupT qs y = some j ∧ bs[j]? = some entry.2
@@ -211,6 +228,7 @@ theorem find?_zip_lookup {y : VarId} : ∀ (qs : List VarId) (bs : List Expr), q
       obtain ⟨j, hj, hb⟩ := find?_zip_lookup qs bs (by simpa using hlen) entry h
       exact ⟨j + 1, by simp [hj], hb⟩
 
+omit sv in
 theorem find?_zip_none {y : VarId} : ∀ (qs : List VarId) (bs : List Expr), qs.length = bs.length →
     (qs.zip bs).find? (fun e => e.1 == y) = none → envLookupT qs y = none
   | [], [], _, _ => rfl
@@ -225,6 +243,7 @@ theorem find?_zip_none {y : VarId} : ∀ (qs : List VarId) (bs : List Expr), qs.
       rw [hq] at h
       simp [find?_zip_none qs bs (by simpa using hlen) h]
 
+omit sv in
 theorem FactsHold.mono_suffix {P Q : List VarId → CekEnv → Expr → CekValue → Prop}
     {Γ : List (VarId × Expr)} {env : List VarId} {ρ : CekEnv} (h : FactsHold P Γ env ρ)
     (hPQ : ∀ k ρs rhs v, k ≤ env.length → P (env.drop k) ρs rhs v → Q (env.drop k) ρs rhs v) :
@@ -233,6 +252,7 @@ theorem FactsHold.mono_suffix {P Q : List VarId → CekEnv → Expr → CekValue
   obtain ⟨v, k, hik, hk, hv, hp⟩ := h x entry i hf hl
   exact ⟨v, k, hik, hk, hv, hPQ k _ _ _ hk hp⟩
 
+omit sv in
 /-- Binding values for several names whose facts are the expressions that
     produced the values in the outer environment. -/
 theorem FactsHold.bind {P : List VarId → CekEnv → Expr → CekValue → Prop}
@@ -280,6 +300,7 @@ theorem FactsHold.bind {P : List VarId → CekEnv → Expr → CekValue → Prop
       · rw [← List.drop_drop, List.drop_left, ← dropEnv_add, hdrop]
         exact hp
 
+omit sv in
 /-- Binding names that carry no facts. -/
 theorem FactsHold.append_fresh {P : List VarId → CekEnv → Expr → CekValue → Prop}
     {Γ₀ : List (VarId × Expr)} {env : List VarId} {ρ ρ' : CekEnv} (qs : List VarId)
@@ -323,6 +344,7 @@ theorem SummariesHold.append {S : List (VarId × Nat)} {env : List VarId} {ρ ρ
     rw [hdrop] at this
     rw [this, ← hw]; congr 1; omega
 
+omit sv in
 theorem WithinBudget.append {S : List (VarId × Nat)} {env : List VarId} {β : Budget} {n : Nat}
     (qs : List VarId) (h : WithinBudget S env β n)
     (hnames : ∀ entry ∈ S, envLookupT qs entry.1 = none) :
@@ -344,6 +366,7 @@ def lamsT : Nat → Term → Term
   | 0, t => t
   | n + 1, t => .Lam 0 (lamsT n t)
 
+omit sv in
 theorem lams_resultParameters : ∀ e : Expr, lams (resultParameters e).1 (resultParameters e).2 = e
   | .Lam x b => by
     simp only [resultParameters, lams]
@@ -351,6 +374,7 @@ theorem lams_resultParameters : ∀ e : Expr, lams (resultParameters e).1 (resul
   | .Var _ | .Lit _ | .Builtin _ | .Error | .Fix _ _ | .App _ _ | .Force _ | .Delay _
   | .Constr _ _ | .Case _ _ | .Let _ _ => rfl
 
+omit sv in
 theorem lower_lams : ∀ (ps : List VarId) (res : Expr) (env : List VarId) (t : Term),
     lowerTotalExpr env (lams ps res) = some t →
     ∃ tr, lowerTotalExpr (ps.reverse ++ env) res = some tr ∧ t = lamsT ps.length tr
@@ -360,6 +384,7 @@ theorem lower_lams : ∀ (ps : List VarId) (res : Expr) (env : List VarId) (t : 
     obtain ⟨tr, htr, rfl⟩ := lower_lams ps res (p :: env) t' ht'
     exact ⟨tr, by simpa using htr, rfl⟩
 
+omit sv in
 theorem fresh_lams : ∀ (ps : List VarId) (res : Expr) (env : List VarId),
     freshIn env (lams ps res) = true → EnvDistinct env →
     freshIn (ps.reverse ++ env) res = true ∧ EnvDistinct (ps.reverse ++ env)
@@ -424,6 +449,7 @@ theorem telescope_prefix_halts : ∀ (n : Nat) (tr : Term) (ρ : CekEnv) (first 
 
 /-! ## Application spines -/
 
+omit sv in
 theorem lowerTotalExprList_index {env : List VarId} :
     ∀ {as : List Expr} {ts : List Term}, MIR.lowerTotalExprList env as = some ts →
       ts.length = as.length ∧
@@ -447,6 +473,7 @@ theorem lowerTotalExprList_index {env : List VarId} :
         | zero => simp at hb ht; subst hb ht; exact ha
         | succ i => exact hidx i b t (by simpa using hb) (by simpa using ht)
 
+omit sv in
 theorem spine_lower {env : List VarId} : ∀ (e : Expr) (acc : List Expr) (te : Term) (tacc : List Term),
     lowerTotalExpr env e = some te → MIR.lowerTotalExprList env acc = some tacc →
     ∃ th targs, lowerTotalExpr env (applicationSpine.go e acc).1 = some th ∧
@@ -463,6 +490,7 @@ theorem spine_lower {env : List VarId} : ∀ (e : Expr) (acc : List Expr) (te : 
   | .Constr _ _, _, te, tacc, h, hacc | .Case _ _, _, te, tacc, h, hacc
   | .Let _ _, _, te, tacc, h, hacc => ⟨te, tacc, h, hacc, rfl⟩
 
+omit sv in
 theorem spine_fresh {env : List VarId} : ∀ (e : Expr) (acc : List Expr),
     freshIn env e = true → freshInList env acc = true →
     freshIn env (applicationSpine.go e acc).1 = true ∧ freshInList env (applicationSpine.go e acc).2 = true
@@ -612,6 +640,7 @@ theorem boolFn_fixR {k B : Nat} {tb : Term} {ρ : CekEnv} (hk : 0 < k) (h : Bool
 
 /-! ## More bookkeeping -/
 
+omit sv in
 theorem zip_reverse {α β : Type} {l : List α} {l' : List β} (h : l.length = l'.length) :
     (l.zip l').reverse = l.reverse.zip l'.reverse := by
   have := List.reverse_zipWith (f := Prod.mk) h
@@ -633,12 +662,14 @@ theorem SummariesHold.congr {S : List (VarId × Nat)} {env : List VarId} {ρ : C
   intro entry hmem i hl w hw
   rw [hβ entry hmem]; exact h entry hmem i hl w hw
 
+omit sv in
 theorem WithinBudget.congr {S : List (VarId × Nat)} {env : List VarId} {β β' : Budget} {n : Nat}
     (h : WithinBudget S env β n) (hβ : ∀ entry ∈ S, β' (varKey entry.1) = β (varKey entry.1)) :
     WithinBudget S env β' n := by
   intro entry hmem hb
   rw [hβ entry hmem]; exact h entry hmem hb
 
+omit sv in
 theorem le_envMax : ∀ {l : List VarId} {y : VarId}, y ∈ l → y.uid ≤ envMax l
   | x :: xs, y, h => by
     simp only [envMax]
@@ -646,11 +677,13 @@ theorem le_envMax : ∀ {l : List VarId} {y : VarId}, y ∈ l → y.uid ≤ envM
     · omega
     · have := le_envMax h; omega
 
+omit sv in
 theorem beq_false_of_uid_ne {x y : VarId} (h : x.uid ≠ y.uid) : (x == y) = false := by
   cases hxy : (x == y) with
   | false => rfl
   | true => rw [VarId.beq_true_iff] at hxy; exact absurd hxy.2 h
 
+omit sv in
 /-- Names absent from a list by `contains` are absent from its lookups. -/
 theorem forall_beq_false_of_contains {l : List VarId} {y : VarId} (h : l.contains y = false) :
     ∀ z ∈ l, (z == y) = false := by
@@ -661,6 +694,7 @@ theorem forall_beq_false_of_contains {l : List VarId} {y : VarId} (h : l.contain
     have : l.contains y = true := List.contains_iff_exists_mem_beq.mpr ⟨z, hz, varId_beq_symm hzy⟩
     rw [h] at this; cases this
 
+omit sv in
 theorem not_contains_of_filter {α : Type} {l : List α} {keep : α → Bool} {x : α}
     (h : x ∈ l.filter keep) : keep x = true := (List.mem_filter.mp h).2
 
@@ -712,6 +746,7 @@ theorem let_case {fuel : Nat} (ih : ResultSound fuel) (S' : List (VarId × Nat))
 
 /-! ## Applied lambda telescopes -/
 
+omit sv in
 theorem envLookupT_reverse_none {ps : List VarId} {y : VarId} (h : ps.contains y = false) :
     envLookupT ps.reverse y = none := by
   rw [envLookupT_none_iff]
@@ -909,6 +944,7 @@ theorem alternative_case {fuel : Nat} (ih : ResultSound fuel) (Γ : List (VarId 
 
 /-! ## Recursive functions -/
 
+omit sv in
 theorem EnvDistinct.append_lookup_none : ∀ {l : List VarId} {y : VarId} {rest : List VarId},
     EnvDistinct (l ++ y :: rest) → envLookupT l y = none
   | [], _, _, _ => rfl
@@ -924,6 +960,7 @@ theorem EnvDistinct.append_lookup_none : ∀ {l : List VarId} {y : VarId} {rest 
       cases this
     | false => simp [ih]
 
+omit sv in
 theorem avoids_insert (env : List VarId) (s : VarId) (bound : Nat) (hs : bound < s.uid) :
     Avoids env (s :: env) bound := by
   intro y hy

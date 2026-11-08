@@ -1,6 +1,8 @@
 import Moist.Verified.ShapeFacts.Known
 import Moist.Verified.ShapeFacts.Lift
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Resolved unary builtin applications
 
 When `resolveHead` turns an expression into a builtin, possibly forced, applied
@@ -17,6 +19,7 @@ open Moist.CEK Moist.Plutus.Term
 open Moist.MIR Moist.MIR.Advanced
 open Moist.Verified Moist.Verified.Equivalence Moist.Verified.BetaValueRefines
 
+omit sv in
 theorem FactsScoped.drop {Γ : List (VarId × Expr)} {env : List VarId}
     (h : FactsScoped Γ env) (hd : EnvDistinct env) (j : Nat) : FactsScoped Γ (env.drop j) := by
   intro y entry i hf hl
@@ -38,6 +41,7 @@ def forcedBuiltin : Expr → Option (BuiltinFun × ExpectedArgs)
     if rem.head = .argQ then (rem.tail).map (b, ·) else none
   | _ => none
 
+omit sv in
 theorem forcedBuiltin_force {e : Expr} {b : BuiltinFun} {rem : ExpectedArgs}
     (h : forcedBuiltin (.Force e) = some (b, rem)) :
     ∃ rem', forcedBuiltin e = some (b, rem') ∧ rem'.head = .argQ ∧ rem'.tail = some rem := by
@@ -122,6 +126,7 @@ where
     | .Let _ _, _, _, _, _, _, hfb, _ | .App _ _, _, _, _, _, _, hfb, _ => by
       simp [forcedBuiltin] at hfb
 
+omit sv in
 /-- The argument variable of a resolved application is bound. -/
 theorem resolveHead_app_var_bound :
     ∀ (n : Nat) (Γ : List (VarId × Expr)) (e : Expr) {g : Expr} {l : VarId} {env : List VarId},

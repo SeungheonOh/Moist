@@ -1,14 +1,18 @@
 import Moist.MIR.Optimize.Advanced.Traversal
 import Moist.Verified.MIR.Congruence
 
+variable [sv : Moist.CEK.SemVariant]
+
 namespace Moist.Verified.MIR
 
 open Moist.MIR Moist.MIR.Advanced
 open Moist.Verified.Equivalence
 
+omit sv in
 theorem exprSize_positive (expression : Expr) : 0 < exprSize expression := by
   cases expression <;> simp [exprSize] <;> omega
 
+omit sv in
 theorem exprSize_member_le {expression : Expr} {expressions : List Expr}
     (member : expression ∈ expressions) : exprSize expression ≤ exprSizeList expressions := by
   induction expressions with
@@ -19,6 +23,7 @@ theorem exprSize_member_le {expression : Expr} {expressions : List Expr}
     | inl equal => subst expression; simp [exprSizeList]
     | inr member => have bound := inductionHypothesis member; simp only [exprSizeList]; omega
 
+omit sv in
 private theorem exprSize_binding_le {binding : VarId × Expr × Bool}
     {bindings : List (VarId × Expr × Bool)} (member : binding ∈ bindings) :
     exprSize binding.2.1 ≤ exprSizeBinds bindings := by
@@ -31,6 +36,7 @@ private theorem exprSize_binding_le {binding : VarId × Expr × Bool}
     | inl equal => subst binding; simp [exprSizeBinds]
     | inr member => have bound := inductionHypothesis member; simp only [exprSizeBinds]; omega
 
+omit sv in
 theorem mapChildren_congr_size (left right : Expr → Expr) (expression : Expr)
     (agree : ∀ child, exprSize child < exprSize expression → left child = right child) :
     mapChildren left expression = mapChildren right expression := by
@@ -65,6 +71,7 @@ theorem mapChildren_congr_size (left right : Expr → Expr) (expression : Expr)
       rw [agree rhs (by have bound := exprSize_binding_le member; simp only [exprSize] at *; omega)]
     · exact agree body (by simp [exprSize]; omega)
 
+omit sv in
 theorem rewriteBottomUp_fuel_irrel (rewrite : Expr → Expr) (expression : Expr)
     (leftFuel rightFuel : Nat) (leftBound : exprSize expression ≤ leftFuel)
     (rightBound : exprSize expression ≤ rightFuel) :
@@ -82,6 +89,7 @@ theorem rewriteBottomUp_fuel_irrel (rewrite : Expr → Expr) (expression : Expr)
       exact rewriteBottomUp_fuel_irrel rewrite child leftFuel rightFuel (by omega) (by omega)
 termination_by exprSize expression
 
+omit sv in
 theorem rewriteBottomUp_complete (rewrite : Expr → Expr) (expression : Expr) :
     rewriteBottomUp rewrite (exprSize expression) expression =
       rewrite (mapChildren (fun child => rewriteBottomUp rewrite (exprSize child) child) expression) := by
@@ -94,6 +102,7 @@ theorem rewriteBottomUp_complete (rewrite : Expr → Expr) (expression : Expr) :
     intro child smaller
     exact rewriteBottomUp_fuel_irrel rewrite child fuel (exprSize child) (by omega) (Nat.le_refl _)
 
+omit sv in
 theorem rewriteBottomUp_unique (rewrite candidate : Expr → Expr)
     (equation : ∀ expression, candidate expression = rewrite (mapChildren candidate expression))
     (expression : Expr) :

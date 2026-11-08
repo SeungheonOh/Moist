@@ -1,11 +1,13 @@
 import Moist.CEK.Value
+import Moist.CEK.SemVariant
 import Moist.CEK.OpaqueBuiltins
 import Moist.Plutus.Types
+import Moist.Plutus.DecidableEq
 import Moist.Plutus.Value
 
 namespace Moist.CEK
 
-open Moist.Plutus.Term (Const BuiltinType BuiltinFun AtomicType)
+open Moist.Plutus.Term (Const BuiltinType BuiltinFun AtomicType constType dataType pairDataType)
 open Moist.Plutus (Data ByteString Integer)
 
 /-! # Builtin Argument Signatures and Evaluation
@@ -149,6 +151,12 @@ private def haskellDiv (a b : Int) : Int :=
 private def haskellMod (a b : Int) : Int :=
   a - b * haskellDiv a b
 
+theorem haskellDiv_one (x : Int) : haskellDiv x 1 = x := by
+  simp [haskellDiv]
+
+theorem haskellMod_one (x : Int) : haskellMod x 1 = 0 := by
+  simp [haskellMod, haskellDiv_one]
+
 /-! ### ByteString Helpers -/
 
 /-- Lexicographic less-than for ByteArrays. -/
@@ -235,57 +243,36 @@ private def writeBitsHelper (bs : ByteArray) (indices : List Int)
       | some bs' => writeBitsHelper bs' is val
       | none => none
 
-private def shiftBS (bs : ByteArray) (n : Int) : ByteArray := Id.run do
-  if bs.size == 0 then return bs
-  let totalBits := bs.size * 8
-  let absN := n.natAbs
-  if absN >= totalBits then return ByteArray.mk (Array.replicate bs.size 0)
-  if n > 0 then
-    -- Shift left: high bits disappear, low bits filled with 0
-    let byteShift := absN / 8
-    let bitShift := absN % 8
-    let mut result := ByteArray.mk (Array.replicate bs.size 0)
-    for i in [:bs.size] do
-      let srcIdx := i + byteShift
-      if srcIdx < bs.size then
-        let current := bs.get! srcIdx
-        let shifted := current <<< bitShift.toUInt8
-        let carry := if srcIdx + 1 < bs.size then
-          bs.get! (srcIdx + 1) >>> (8 - bitShift).toUInt8
-        else 0
-        result := result.set! i (shifted ||| carry)
-    return result
-  else if n < 0 then
-    -- Shift right: low bits disappear, high bits filled with 0
-    let byteShift := absN / 8
-    let bitShift := absN % 8
-    let mut result := ByteArray.mk (Array.replicate bs.size 0)
-    for i in [:bs.size] do
-      if i >= byteShift then
-        let srcIdx := i - byteShift
-        let current := bs.get! srcIdx
-        let shifted := current >>> bitShift.toUInt8
-        let carry := if srcIdx > 0 then
-          bs.get! (srcIdx - 1) <<< (8 - bitShift).toUInt8
-        else 0
-        result := result.set! i (shifted ||| carry)
-    return result
-  else return bs
+/-- Big-endian bytes as a natural number. Bit `i` of a bytestring (CIP-122: bit `i % 8`
+of byte `size - 1 - i / 8`) is bit `i` of this number. -/
+private def bytesToNatBE (bs : ByteArray) : Nat :=
+  bs.data.foldl (fun acc b => acc * 256 + b.toNat) 0
 
-private def rotateBS (bs : ByteArray) (n : Int) : ByteArray := Id.run do
-  if bs.size == 0 then return bs
-  let totalBits := bs.size * 8
-  -- Normalize rotation to [0, totalBits)
-  let norm := n % Int.ofNat totalBits
-  let norm := if norm < 0 then norm + Int.ofNat totalBits else norm
-  if norm == 0 then return bs
-  -- Rotate left by norm bits: shifted = (bs << norm) | (bs >> (total - norm))
-  let left := shiftBS bs norm
-  let right := shiftBS bs (norm - Int.ofNat totalBits)
-  let mut result := ByteArray.emptyWithCapacity bs.size
-  for i in [:bs.size] do
-    result := result.push (left.get! i ||| right.get! i)
-  return result
+/-- The low `len` bytes of `n`, big-endian. -/
+private def natToBytesBE (len n : Nat) : ByteArray :=
+  ByteArray.mk ((Array.range len).map fun i => (n / 256 ^ (len - 1 - i) % 256).toUInt8)
+
+/-- `shiftByteString` (Bitwise.hs:596): result bit `i` is input bit `i - n`, zero outside. -/
+private def shiftBS (bs : ByteArray) (n : Int) : ByteArray :=
+  if bs.size == 0 || n == 0 then bs
+  else
+    let bitLen := bs.size * 8
+    if n.natAbs ≥ bitLen then ByteArray.mk (Array.replicate bs.size 0)
+    else
+      let v := bytesToNatBE bs
+      let r := if n > 0 then (v <<< n.toNat) % 2 ^ bitLen else v >>> n.natAbs
+      natToBytesBE bs.size r
+
+/-- `rotateByteString` (Bitwise.hs:619): result bit `i` is input bit `(i - n) mod bitLen`. -/
+private def rotateBS (bs : ByteArray) (n : Int) : ByteArray :=
+  if bs.size == 0 then bs
+  else
+    let bitLen := bs.size * 8
+    let k := (n % (bitLen : Int)).toNat
+    if k == 0 then bs
+    else
+      let v := bytesToNatBE bs
+      natToBytesBE bs.size (((v <<< k) ||| (v >>> (bitLen - k))) % 2 ^ bitLen)
 
 private def popcount8 (b : UInt8) : Nat :=
   let c0 := if b &&& 0x01 != 0 then 1 else 0
@@ -399,7 +386,7 @@ private def modInverse (a m : Int) : Option Int :=
   if g != 1 then none
   else some (((x % m) + m) % m)
 
-/-! ### ConstList helpers for extracting typed elements -/
+/-! ### Typed-list helpers -/
 
 private def constListToInts : List Const → Option (List Int)
   | [] => some []
@@ -415,8 +402,112 @@ def constListToData : List Const → Option (List Data)
 
 def constListToPairData : List Const → Option (List (Data × Data))
   | [] => some []
-  | .PairData pair :: rest => return pair :: (← constListToPairData rest)
+  | .Pair (.Data k, .Data v) :: rest => return (k, v) :: (← constListToPairData rest)
   | _ => none
+
+theorem constListToData_map (data : List Data) :
+    constListToData (data.map Const.Data) = some data := by
+  induction data with
+  | nil => rfl
+  | cons head tail ih => simp [constListToData, ih]
+
+theorem constListToPairData_map (entries : List (Data × Data)) :
+    constListToPairData (entries.map Const.pairData) = some entries := by
+  induction entries with
+  | nil => rfl
+  | cons head tail ih => obtain ⟨k, v⟩ := head; simp [constListToPairData, Const.pairData, ih]
+
+/-! ### Unlifting checks -/
+
+/-- `Int` unlifting (Universe.hs `readKnownAsInteger` for `Int64`): the integer must fit
+in 64 signed bits. -/
+def int64Ok (i : Int) : Bool := decide (-((2 ^ 63 : Nat) : Int) ≤ i) && decide (i < ((2 ^ 63 : Nat) : Int))
+
+/-- `Word64` unlifting. -/
+def word64Ok (i : Int) : Bool := decide (0 ≤ i) && decide (i < ((2 ^ 64 : Nat) : Int))
+
+/-- `Word8` unlifting. -/
+def word8Ok (i : Int) : Bool := decide (0 ≤ i) && decide (i < 256)
+
+/-- `maxBoundI` in PlutusCore/Crypto/ExpMod.hs: `2^8191 - 1`. -/
+@[irreducible] def expModBound : Int := ((2 ^ 8191 : Nat) : Int) - 1
+
+/-! ### `serialiseData` (PlutusCore/Data.hs `encodeData`) -/
+
+namespace Serialise
+
+/-- CBOR head: major type `m`, argument `n` (minimal encoding, `n < 2^64`). -/
+def head (m : Nat) (n : Nat) : List UInt8 :=
+  let mt := (m * 32)
+  if n < 24 then [(mt + n).toUInt8]
+  else if n < 256 then [(mt + 24).toUInt8, n.toUInt8]
+  else if n < 65536 then [(mt + 25).toUInt8] ++ (List.range 2).reverse.map (fun i => (n / 256 ^ i % 256).toUInt8)
+  else if n < 4294967296 then [(mt + 26).toUInt8] ++ (List.range 4).reverse.map (fun i => (n / 256 ^ i % 256).toUInt8)
+  else [(mt + 27).toUInt8] ++ (List.range 8).reverse.map (fun i => (n / 256 ^ i % 256).toUInt8)
+
+/-- Minimal big-endian bytes of a positive natural (`integerToBytesBE`). -/
+def natBytes (n : Nat) : List UInt8 :=
+  if n = 0 then [0] else go n []
+where
+  go (n : Nat) (acc : List UInt8) : List UInt8 :=
+    if h : n = 0 then acc else go (n / 256) ((n % 256).toUInt8 :: acc)
+  termination_by n
+  decreasing_by omega
+
+/-- 64-byte chunks. -/
+def chunks (bs : List UInt8) : List (List UInt8) :=
+  if h : bs.length ≤ 64 then [bs]
+  else bs.take 64 :: chunks (bs.drop 64)
+termination_by bs.length
+decreasing_by simp; omega
+
+/-- `encodeBs`: definite when at most 64 bytes, otherwise indefinite with 64-byte chunks. -/
+def bytes (bs : List UInt8) : List UInt8 :=
+  if bs.length ≤ 64 then head 2 bs.length ++ bs
+  else [0x5f] ++ (chunks bs).flatMap (fun c => head 2 c.length ++ c) ++ [0xff]
+
+/-- `encodeInteger` (PlutusCore/Data.hs:173). -/
+def integer (i : Int) : List UInt8 :=
+  if 0 ≤ i ∧ i < ((2 ^ 64 : Nat) : Int) then head 0 i.toNat
+  else if i < 0 ∧ -((2 ^ 64 : Nat) : Int) ≤ i then head 1 (-1 - i).toNat
+  else if 0 ≤ i then head 6 2 ++ bytes (natBytes i.toNat)
+  else head 6 3 ++ bytes (natBytes (-1 - i).toNat)
+
+/-- cborg's `encodeInteger` (big integers as tagged definite bytestrings), used for
+constructor tags outside `Word64`. -/
+def cborgInteger (i : Int) : List UInt8 :=
+  if 0 ≤ i ∧ i < ((2 ^ 64 : Nat) : Int) then head 0 i.toNat
+  else if i < 0 ∧ -((2 ^ 64 : Nat) : Int) ≤ i then head 1 (-1 - i).toNat
+  else if 0 ≤ i then head 6 2 ++ (let b := natBytes i.toNat; head 2 b.length ++ b)
+  else head 6 3 ++ (let b := natBytes (-1 - i).toNat; head 2 b.length ++ b)
+
+mutual
+  /-- `encodeData`. -/
+  def data : Data → List UInt8
+    | .Constr i ds =>
+      if 0 ≤ i ∧ i < 7 then head 6 (121 + i.toNat) ++ list ds
+      else if 7 ≤ i ∧ i < 128 then head 6 (1280 + (i - 7).toNat) ++ list ds
+      else head 6 102 ++ head 4 2 ++ cborgInteger i ++ list ds
+    | .Map es => head 5 es.length ++ pairs es
+    | .List ds => list ds
+    | .I i => integer i
+    | .B b => bytes b.data.toList
+  /-- serialise's list encoding: `[]` is definite, others are indefinite. -/
+  def list : List Data → List UInt8
+    | [] => [0x80]
+    | ds => [0x9f] ++ items ds ++ [0xff]
+  def items : List Data → List UInt8
+    | [] => []
+    | d :: ds => data d ++ items ds
+  def pairs : List (Data × Data) → List UInt8
+    | [] => []
+    | (k, v) :: es => data k ++ data v ++ pairs es
+end
+
+end Serialise
+
+/-- `serialiseData`. -/
+def serialiseData (d : Data) : ByteArray := ByteArray.mk (Serialise.data d).toArray
 
 /-! ### Helpers for the uninterpreted (crypto) and `Value` builtins -/
 
@@ -438,166 +529,179 @@ def constListG2 : List Const → Option (List ByteString)
   | .Bls12_381_G2_element p :: rest => return p :: (← constListG2 rest)
   | _ => none
 
-/-- The semantics variant used for the uninterpreted builtins in this file until the model is
-parametric in the variant. The builtins are opaque, so no proof depends on it. -/
-private local instance modelSemVariant : SemVariant := .E
 
 /-! ## Two-Stage Builtin Evaluation
 
 Stage 1: `evalBuiltinConst` — pure computation on `List Const`, returns `Option Const`.
 Stage 2: `evalBuiltinPassThrough` — handles builtins that return a `CekValue` arg unchanged.
 `evalBuiltin` composes both stages.
+
+Both are exact transcriptions of the denotations in plutus-core 1.65
+`PlutusCore/Default/Builtins.hs` for the semantics variant `sv` (C or E). Type checks
+on polymorphic list builtins compare the constants' exact types (`constType`), as the
+reference does with `geq` on universe tags.
 -/
 
 /-- Pure builtin computation on constants. Every argument is a `Const`.
 Returns `none` on type error or runtime failure (e.g. division by zero). -/
-def evalBuiltinConst (b : BuiltinFun) (args : List Const) : Option Const :=
+def evalBuiltinConst [sv : SemVariant] (b : BuiltinFun) (args : List Const) : Option Const :=
   match b, args with
-  -- Integer arithmetic
-  | .AddInteger, [.Integer b, .Integer a] => some (.Integer (a + b))
-  | .SubtractInteger, [.Integer b, .Integer a] => some (.Integer (a - b))
-  | .MultiplyInteger, [.Integer b, .Integer a] => some (.Integer (a * b))
+  -- Integer arithmetic (variant E unlifts both arguments as `CInteger`)
+  | .AddInteger, [.Integer b, .Integer a] =>
+    if cIntegerOk sv a && cIntegerOk sv b then some (.Integer (a + b)) else none
+  | .SubtractInteger, [.Integer b, .Integer a] =>
+    if cIntegerOk sv a && cIntegerOk sv b then some (.Integer (a - b)) else none
+  | .MultiplyInteger, [.Integer b, .Integer a] =>
+    if cIntegerOk sv a && cIntegerOk sv b then some (.Integer (a * b)) else none
   | .DivideInteger, [.Integer b, .Integer a] =>
-    if b == 0 then none else some (.Integer (haskellDiv a b))
+    if cIntegerOk sv a && cIntegerOk sv b && b != 0 then some (.Integer (haskellDiv a b)) else none
   | .QuotientInteger, [.Integer b, .Integer a] =>
-    if b == 0 then none else some (.Integer (a.tdiv b))
+    if cIntegerOk sv a && cIntegerOk sv b && b != 0 then some (.Integer (a.tdiv b)) else none
   | .RemainderInteger, [.Integer b, .Integer a] =>
-    if b == 0 then none else some (.Integer (a.tmod b))
+    if cIntegerOk sv a && cIntegerOk sv b && b != 0 then some (.Integer (a.tmod b)) else none
   | .ModInteger, [.Integer b, .Integer a] =>
-    if b == 0 then none else some (.Integer (haskellMod a b))
+    if cIntegerOk sv a && cIntegerOk sv b && b != 0 then some (.Integer (haskellMod a b)) else none
 
   -- Integer comparison
   | .EqualsInteger, [.Integer b, .Integer a] => some (.Bool (a == b))
-  | .LessThanInteger, [.Integer b, .Integer a] => some (.Bool (a < b))
-  | .LessThanEqualsInteger, [.Integer b, .Integer a] => some (.Bool (a ≤ b))
+  | .LessThanInteger, [.Integer b, .Integer a] =>
+    if cIntegerOk sv a && cIntegerOk sv b then some (.Bool (decide (a < b))) else none
+  | .LessThanEqualsInteger, [.Integer b, .Integer a] =>
+    if cIntegerOk sv a && cIntegerOk sv b then some (.Bool (decide (a ≤ b))) else none
 
-  -- ByteString operations
+  -- ByteString operations (variant E unlifts `CByteString` arguments)
   | .AppendByteString, [.ByteString bs2, .ByteString bs1] =>
-    some (.ByteString (bs1 ++ bs2))
+    if cByteStringOk sv bs1 && cByteStringOk sv bs2 then some (.ByteString (bs1 ++ bs2)) else none
   | .EqualsByteString, [.ByteString bs2, .ByteString bs1] =>
-    some (.Bool (bs1 == bs2))
+    if cByteStringOk sv bs1 && cByteStringOk sv bs2 then some (.Bool (bs1 == bs2)) else none
   | .LessThanByteString, [.ByteString bs2, .ByteString bs1] =>
-    some (.Bool (bsLt bs1 bs2))
+    if cByteStringOk sv bs1 && cByteStringOk sv bs2 then some (.Bool (bsLt bs1 bs2)) else none
   | .LessThanEqualsByteString, [.ByteString bs2, .ByteString bs1] =>
-    some (.Bool (bsLe bs1 bs2))
+    if cByteStringOk sv bs1 && cByteStringOk sv bs2 then some (.Bool (bsLe bs1 bs2)) else none
   | .SliceByteString, [.ByteString bs, .Integer len, .Integer start] =>
-    let startN := if start < 0 then 0 else start.toNat
-    let lenN := if len < 0 then 0 else len.toNat
-    let endN := min (startN + lenN) bs.size
-    let startN := min startN bs.size
-    some (.ByteString (bs.extract startN endN))
+    if int64Ok start && int64Ok len && cByteStringOk sv bs then
+      let startN := if start < 0 then 0 else start.toNat
+      let lenN := if len < 0 then 0 else len.toNat
+      let endN := min (startN + lenN) bs.size
+      let startN := min startN bs.size
+      some (.ByteString (bs.extract startN endN))
+    else none
   | .LengthOfByteString, [.ByteString bs] =>
     some (.Integer (Int.ofNat bs.size))
   | .IndexByteString, [.Integer idx, .ByteString bs] =>
-    if idx < 0 || idx >= Int.ofNat bs.size then none
-    else some (.Integer (Int.ofNat (bs.get! idx.toNat).toNat))
+    if cByteStringOk sv bs && int64Ok idx && 0 ≤ idx && idx < Int.ofNat bs.size then
+      some (.Integer (Int.ofNat (bs.get! idx.toNat).toNat))
+    else none
   | .ConsByteString, [.ByteString bs, .Integer n] =>
-    if n < 0 || n > 255 then none
-    else some (.ByteString (ByteArray.mk #[n.toNat.toUInt8] ++ bs))
+    if word8Ok n && cByteStringOk sv bs then
+      some (.ByteString (ByteArray.mk #[n.toNat.toUInt8] ++ bs))
+    else none
 
   -- String operations
   | .AppendString, [.String s2, .String s1] => some (.String (s1 ++ s2))
   | .EqualsString, [.String s2, .String s1] => some (.Bool (s1 == s2))
   | .EncodeUtf8, [.String s] => some (.ByteString s.toUTF8)
   | .DecodeUtf8, [.ByteString bs] =>
-    if h : String.validateUTF8 bs then
-      some (.String (String.fromUTF8 bs h))
+    if cByteStringOk sv bs then
+      if h : String.validateUTF8 bs then
+        some (.String (String.fromUTF8 bs h))
+      else none
     else none
 
   -- Data constructors
-  | .ConstrData, [.ConstDataList fields, .Integer tag] =>
-    some (.Data (.Constr tag fields))
-  | .ConstrData, [.ConstList fields, .Integer tag] =>
-    return .Data (.Constr tag (← constListToData fields))
+  | .ConstrData, [.ConstList ty fields, .Integer tag] =>
+    if ty = dataType && (!sv.ensurable || word64Ok tag) then
+      return .Data (.Constr tag (← constListToData fields))
+    else none
   | .IData, [.Integer i] => some (.Data (.I i))
   | .BData, [.ByteString bs] => some (.Data (.B bs))
-  | .ListData, [.ConstDataList ds] => some (.Data (.List ds))
-  | .ListData, [.ConstList fields] => return .Data (.List (← constListToData fields))
-  | .MapData, [.ConstPairDataList ps] => some (.Data (.Map ps))
-  | .MapData, [.ConstList ps] => return .Data (.Map (← constListToPairData ps))
+  | .ListData, [.ConstList ty fields] =>
+    if ty = dataType then return .Data (.List (← constListToData fields)) else none
+  | .MapData, [.ConstList ty ps] =>
+    if ty = pairDataType then return .Data (.Map (← constListToPairData ps)) else none
 
   -- Data destructors
   | .UnConstrData, [.Data (.Constr tag fields)] =>
-    some (.Pair (.Integer tag, .ConstDataList fields))
+    some (.Pair (.Integer tag, .dataList fields))
   | .UnIData, [.Data (.I i)] => some (.Integer i)
   | .UnBData, [.Data (.B bs)] => some (.ByteString bs)
-  | .UnListData, [.Data (.List ds)] => some (.ConstDataList ds)
-  | .UnMapData, [.Data (.Map ps)] => some (.ConstPairDataList ps)
+  | .UnListData, [.Data (.List ds)] => some (.dataList ds)
+  | .UnMapData, [.Data (.Map ps)] => some (.pairDataList ps)
 
-  -- Data comparison
+  -- Data comparison and serialisation
   | .EqualsData, [.Data b, .Data a] => some (.Bool (a == b))
+  | .SerializeData, [.Data d] => some (.ByteString (serialiseData d))
 
   -- Pair construction
-  | .MkPairData, [.Data d2, .Data d1] => some (.PairData (d1, d2))
-  | .MkNilData, [.Unit] => some (.ConstDataList [])
-  | .MkNilPairData, [.Unit] => some (.ConstPairDataList [])
+  | .MkPairData, [.Data d2, .Data d1] => some (.pairData (d1, d2))
+  | .MkNilData, [.Unit] => some (.dataList [])
+  | .MkNilPairData, [.Unit] => some (.pairDataList [])
 
   -- Pair destructors
-  | .FstPair, [.PairData (a, _)] => some (.Data a)
   | .FstPair, [.Pair (a, _)] => some a
-  | .SndPair, [.PairData (_, b)] => some (.Data b)
   | .SndPair, [.Pair (_, b)] => some b
 
-  -- List operations (ConstDataList)
-  | .HeadList, [.ConstDataList (h :: _)] => some (.Data h)
-  | .HeadList, [.ConstDataList []] => none
-  | .TailList, [.ConstDataList (_ :: t)] => some (.ConstDataList t)
-  | .TailList, [.ConstDataList []] => none
-  | .NullList, [.ConstDataList l] => some (.Bool l.isEmpty)
-  | .MkCons, [.ConstDataList tail, .Data h] =>
-    some (.ConstDataList (h :: tail))
-  | .MkCons, [.ConstList tail, c] =>
-    some (.ConstList (c :: tail))
+  -- List operations (any element type)
+  | .HeadList, [.ConstList _ (h :: _)] => some h
+  | .TailList, [.ConstList ty (_ :: t)] => some (.ConstList ty t)
+  | .NullList, [.ConstList _ l] => some (.Bool l.isEmpty)
+  | .MkCons, [.ConstList ty tail, h] =>
+    if constType h = ty then some (.ConstList ty (h :: tail)) else none
+  | .DropList, [.ConstList ty l, .Integer n] =>
+    if n < 0 then some (.ConstList ty l)
+    else if n < ((2 ^ 63 : Nat) : Int) then some (.ConstList ty (l.drop n.toNat))
+    -- `drop maxBound`, then a structural failure if anything remains (Builtins.hs DropList)
+    else if l.length ≤ 2 ^ 63 - 1 then some (.ConstList ty [])
+    else none
 
-  -- List operations (ConstPairDataList, the lists `unMapData` returns)
-  | .HeadList, [.ConstPairDataList (h :: _)] => some (.PairData h)
-  | .HeadList, [.ConstPairDataList []] => none
-  | .TailList, [.ConstPairDataList (_ :: t)] => some (.ConstPairDataList t)
-  | .TailList, [.ConstPairDataList []] => none
-  | .NullList, [.ConstPairDataList l] => some (.Bool l.isEmpty)
-  | .MkCons, [.ConstPairDataList tail, .PairData h] =>
-    some (.ConstPairDataList (h :: tail))
-
-  -- List operations (ConstList)
-  | .HeadList, [.ConstList (h :: _)] => some h
-  | .HeadList, [.ConstList []] => none
-  | .TailList, [.ConstList (_ :: t)] => some (.ConstList t)
-  | .TailList, [.ConstList []] => none
-  | .NullList, [.ConstList l] => some (.Bool l.isEmpty)
+  -- Arrays
+  | .LengthOfArray, [.ConstArray _ l] => some (.Integer l.length)
+  | .ListToArray, [.ConstList ty l] => some (.ConstArray ty l)
+  | .IndexArray, [.Integer i, .ConstArray _ l] =>
+    if int64Ok i && 0 ≤ i then l[i.toNat]? else none
 
   -- Bitwise ByteString operations
   | .AndByteString, [.ByteString bs2, .ByteString bs1, .Bool padMode] =>
-    some (.ByteString (bitwiseOp (· &&& ·) padMode 0xFF bs1 bs2))
+    if cByteStringOk sv bs1 && cByteStringOk sv bs2 then
+      some (.ByteString (bitwiseOp (· &&& ·) padMode 0xFF bs1 bs2))
+    else none
   | .OrByteString, [.ByteString bs2, .ByteString bs1, .Bool padMode] =>
-    some (.ByteString (bitwiseOp (· ||| ·) padMode 0x00 bs1 bs2))
+    if cByteStringOk sv bs1 && cByteStringOk sv bs2 then
+      some (.ByteString (bitwiseOp (· ||| ·) padMode 0x00 bs1 bs2))
+    else none
   | .XorByteString, [.ByteString bs2, .ByteString bs1, .Bool padMode] =>
-    some (.ByteString (bitwiseOp (· ^^^ ·) padMode 0x00 bs1 bs2))
+    if cByteStringOk sv bs1 && cByteStringOk sv bs2 then
+      some (.ByteString (bitwiseOp (· ^^^ ·) padMode 0x00 bs1 bs2))
+    else none
   | .ComplementByteString, [.ByteString bs] =>
-    some (.ByteString (complementBS bs))
+    if cByteStringOk sv bs then some (.ByteString (complementBS bs)) else none
   | .ReadBit, [.Integer idx, .ByteString bs] =>
-    if idx < 0 then none
-    else match readBitBS bs idx.toNat with
+    if cByteStringOk sv bs && int64Ok idx && 0 ≤ idx then
+      match readBitBS bs idx.toNat with
       | some v => some (.Bool v)
       | none => none
-  | .WriteBits, [.Bool val, .ConstList idxConsts, .ByteString bs] =>
-    match constListToInts idxConsts with
-    | some indices =>
-      match writeBitsHelper bs indices val with
-      | some result => some (.ByteString result)
+    else none
+  | .WriteBits, [.Bool val, .ConstList ty idxConsts, .ByteString bs] =>
+    if ty = .AtomicType .TypeInteger && (!sv.ensurable || decide (bs.size ≤ 4096)) then
+      match constListToInts idxConsts with
+      | some indices =>
+        match writeBitsHelper bs indices val with
+        | some result => some (.ByteString result)
+        | none => none
       | none => none
-    | none => none
+    else none
   | .ReplicateByte, [.Integer byte, .Integer count] =>
-    if count < 0 || count > 8192 || byte < 0 || byte > 255 then none
+    if count < 0 || count > 8192 || !word8Ok byte then none
     else
       some (.ByteString (ByteArray.mk (Array.replicate count.toNat byte.toNat.toUInt8)))
   | .ShiftByteString, [.Integer n, .ByteString bs] =>
-    some (.ByteString (shiftBS bs n))
+    if !sv.ensurable || int64Ok n then some (.ByteString (shiftBS bs n)) else none
   | .RotateByteString, [.Integer n, .ByteString bs] =>
-    some (.ByteString (rotateBS bs n))
+    if !sv.ensurable || int64Ok n then some (.ByteString (rotateBS bs n)) else none
   | .CountSetBits, [.ByteString bs] =>
-    some (.Integer (Int.ofNat (countSetBitsBS bs)))
+    if cByteStringOk sv bs then some (.Integer (Int.ofNat (countSetBitsBS bs))) else none
   | .FindFirstSetBit, [.ByteString bs] =>
-    some (.Integer (findFirstSetBitBS bs))
+    if cByteStringOk sv bs then some (.Integer (findFirstSetBitBS bs)) else none
 
   -- Integer/ByteString conversions
   | .IntegerToByteString, [.Integer n, .Integer width, .Bool endian] =>
@@ -610,30 +714,23 @@ def evalBuiltinConst (b : BuiltinFun) (args : List Const) : Option Const :=
         else some (.ByteString bs)
       | none => none
   | .ByteStringToInteger, [.ByteString bs, .Bool endian] =>
-    if endian then some (.Integer (bytesToIntBE bs))
-    else some (.Integer (bytesToIntLE bs))
+    if cByteStringOk sv bs then
+      if endian then some (.Integer (bytesToIntBE bs))
+      else some (.Integer (bytesToIntLE bs))
+    else none
 
-  -- Modular exponentiation
+  -- Modular exponentiation (PlutusCore/Crypto/ExpMod.hs)
   | .ExpModInteger, [.Integer m, .Integer e, .Integer b] =>
-    if m <= 0 then none
+    if m <= 0 || m > expModBound then none
     else if m == 1 then some (.Integer 0)
+    else if b == 0 && e < 0 then none
+    else if b > expModBound || b < -expModBound - 1 || e > expModBound || e < -expModBound - 1 then none
     else if e == 0 then some (.Integer 1)
     else if e > 0 then some (.Integer (modPow b e m))
     else
       match modInverse b m with
       | some bInv => some (.Integer (modPow bInv (-e) m))
       | none => none
-
-  -- DropList
-  | .DropList, [.ConstList l, .Integer n] =>
-    if n < 0 then some (.ConstList l)
-    else some (.ConstList (l.drop n.toNat))
-  | .DropList, [.ConstDataList l, .Integer n] =>
-    if n < 0 then some (.ConstDataList l)
-    else some (.ConstDataList (l.drop n.toNat))
-  | .DropList, [.ConstPairDataList l, .Integer n] =>
-    if n < 0 then some (.ConstPairDataList l)
-    else some (.ConstPairDataList (l.drop n.toNat))
 
   -- Hashes and signature verification: uninterpreted (see `Moist.CEK.Opaque`)
   | .Sha2_256, [.ByteString bs] => (Opaque.hash .sha2_256 bs).map .ByteString
@@ -664,7 +761,9 @@ def evalBuiltinConst (b : BuiltinFun) (args : List Const) : Option Const :=
     (Opaque.blsCompress .g1 p).map .ByteString
   | .Bls12_381_G1_uncompress, [.ByteString bs] =>
     (Opaque.blsUncompress .g1 bs).map .Bls12_381_G1_element
-  | .Bls12_381_G1_multiScalarMul, [.ConstList points, .ConstList scalars] => do
+  | .Bls12_381_G1_multiScalarMul, [.ConstList pointType points, .ConstList scalarType scalars] => do
+    if !(decide (scalarType = .AtomicType .TypeInteger) &&
+        decide (pointType = .AtomicType .TypeBls12_381_G1_element)) then none
     let ss ← constListInts scalars
     let ps ← constListG1 points
     (Opaque.blsMultiScalarMul .g1 ss ps).map .Bls12_381_G1_element
@@ -682,7 +781,9 @@ def evalBuiltinConst (b : BuiltinFun) (args : List Const) : Option Const :=
     (Opaque.blsCompress .g2 p).map .ByteString
   | .Bls12_381_G2_uncompress, [.ByteString bs] =>
     (Opaque.blsUncompress .g2 bs).map .Bls12_381_G2_element
-  | .Bls12_381_G2_multiScalarMul, [.ConstList points, .ConstList scalars] => do
+  | .Bls12_381_G2_multiScalarMul, [.ConstList pointType points, .ConstList scalarType scalars] => do
+    if !(decide (scalarType = .AtomicType .TypeInteger) &&
+        decide (pointType = .AtomicType .TypeBls12_381_G2_element)) then none
     let ss ← constListInts scalars
     let ps ← constListG2 points
     (Opaque.blsMultiScalarMul .g2 ss ps).map .Bls12_381_G2_element
@@ -711,7 +812,7 @@ def evalBuiltinConst (b : BuiltinFun) (args : List Const) : Option Const :=
   | _, _ => none
 
 /-- Pass-through builtins: return a `CekValue` argument unchanged based on a
-`VCon` condition. Only 5 builtins (+MkCons ConstList) need this treatment. -/
+`VCon` condition. -/
 def evalBuiltinPassThrough (b : BuiltinFun) (args : List CekValue) : Option CekValue :=
   match b, args with
   -- IfThenElse [elseV, thenV, VCon (Bool cond)]
@@ -734,21 +835,9 @@ def evalBuiltinPassThrough (b : BuiltinFun) (args : List CekValue) : Option CekV
     | .I _ => some iCase
     | .B _ => some bCase
 
-  -- ChooseList [consCase, nilCase, VCon (ConstDataList l)]
-  | .ChooseList, [consCase, nilCase, .VCon (.ConstDataList l)] =>
-    some (if l.isEmpty then nilCase else consCase)
   -- ChooseList [consCase, nilCase, VCon (ConstList l)]
-  | .ChooseList, [consCase, nilCase, .VCon (.ConstList l)] =>
+  | .ChooseList, [consCase, nilCase, .VCon (.ConstList _ l)] =>
     some (if l.isEmpty then nilCase else consCase)
-  -- ChooseList [consCase, nilCase, VCon (ConstPairDataList l)]
-  | .ChooseList, [consCase, nilCase, .VCon (.ConstPairDataList l)] =>
-    some (if l.isEmpty then nilCase else consCase)
-
-  -- MkCons ConstList: the element can be any CekValue (pass-through of sorts)
-  | .MkCons, [.VCon (.ConstList tail), elem] =>
-    match elem with
-    | .VCon c => some (.VCon (.ConstList (c :: tail)))
-    | _ => none
 
   | _, _ => none
 
@@ -763,7 +852,7 @@ def extractConsts : List CekValue → Option (List Const)
 
 Tries pass-through builtins first (which may return non-VCon args unchanged),
 then falls back to extracting all constants and running `evalBuiltinConst`. -/
-def evalBuiltin (b : BuiltinFun) (args : List CekValue) : Option CekValue :=
+def evalBuiltin [sv : SemVariant] (b : BuiltinFun) (args : List CekValue) : Option CekValue :=
   match evalBuiltinPassThrough b args with
   | some v => some v
   | none =>
@@ -773,6 +862,72 @@ def evalBuiltin (b : BuiltinFun) (args : List CekValue) : Option CekValue :=
       | some c => some (.VCon c)
       | none => none
     | none => none
+
+theorem extractConsts_map (cs : List Const) : extractConsts (cs.map CekValue.VCon) = some cs := by
+  induction cs with
+  | nil => rfl
+  | cons c cs ih => simp [extractConsts, ih]
+
+/-- A non-pass-through saturated builtin over constants is `evalBuiltinConst`. -/
+theorem evalBuiltin_consts [SemVariant] (b : BuiltinFun) (cs : List Const)
+    (hp : evalBuiltinPassThrough b (cs.map CekValue.VCon) = none) :
+    evalBuiltin b (cs.map CekValue.VCon) = (evalBuiltinConst b cs).map CekValue.VCon := by
+  unfold evalBuiltin
+  rw [hp]
+  simp only [extractConsts_map]
+  cases evalBuiltinConst b cs <;> rfl
+
+theorem evalBuiltin_listData_dataList [SemVariant] (ds : List Data) :
+    evalBuiltin .ListData [.VCon (.dataList ds)] = some (.VCon (.Data (.List ds))) := by
+  rw [show [CekValue.VCon (.dataList ds)] = [Const.dataList ds].map CekValue.VCon from rfl,
+    evalBuiltin_consts _ _ rfl]
+  change ((constListToData (ds.map Const.Data)).bind
+    (fun values => some (Const.Data (.List values)))).map CekValue.VCon = _
+  rw [constListToData_map]; rfl
+
+theorem evalBuiltin_mapData_pairDataList [SemVariant] (ps : List (Data × Data)) :
+    evalBuiltin .MapData [.VCon (.pairDataList ps)] = some (.VCon (.Data (.Map ps))) := by
+  rw [show [CekValue.VCon (.pairDataList ps)] = [Const.pairDataList ps].map CekValue.VCon from rfl,
+    evalBuiltin_consts _ _ rfl]
+  change ((constListToPairData (ps.map Const.pairData)).bind
+    (fun values => some (Const.Data (.Map values)))).map CekValue.VCon = _
+  rw [constListToPairData_map]; rfl
+
+/-- A guarded builtin arm that succeeded produced its guarded result. -/
+theorem eq_of_ite_some {α : Type} {p : Prop} {inst : Decidable p} {a c : α}
+    (h : @ite (Option α) p inst (some a) none = some c) : c = a := by
+  by_cases hp : p
+  · rw [if_pos hp] at h; cases h; rfl
+  · rw [if_neg hp] at h; cases h
+
+/-- A guarded builtin arm that succeeded had its guard satisfied. -/
+theorem cond_of_ite_some {α : Type} {p : Prop} {inst : Decidable p} {a c : α}
+    (h : @ite (Option α) p inst (some a) none = some c) : p := by
+  by_cases hp : p
+  · exact hp
+  · rw [if_neg hp] at h; cases h
+
+/-- The constant result of a saturated builtin when every semantics variant agrees on
+it. Compile-time folding uses this so that a fold is sound whichever variant runs. -/
+def evalBuiltinAgreed (b : BuiltinFun) (args : List CekValue) : Option Const :=
+  match evalBuiltin (sv := .C) b args, evalBuiltin (sv := .E) b args with
+  | some (.VCon c), some (.VCon c') => if c = c' then some c else none
+  | _, _ => none
+
+theorem evalBuiltinAgreed_spec {b : BuiltinFun} {args : List CekValue} {c : Const}
+    (h : evalBuiltinAgreed b args = some c) [sv : SemVariant] :
+    evalBuiltin b args = some (.VCon c) := by
+  unfold evalBuiltinAgreed at h
+  split at h
+  · rename_i c₁ c₂ hC hE
+    split at h
+    · rename_i heq
+      cases h
+      cases sv
+      · exact hC
+      · rw [hE, ← heq]
+    · contradiction
+  · contradiction
 
 /-! ## evalBuiltinPassThrough relational lemmas
 

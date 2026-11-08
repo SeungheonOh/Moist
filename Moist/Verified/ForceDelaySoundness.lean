@@ -9,6 +9,8 @@ import Moist.Verified.MIR.Primitives.LetFlattenBody
 import Moist.Verified.HygieneSoundness
 import Moist.MIR.Optimize.ForceDelay
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Soundness of force/delay cancellation
 
 `forceDelay_refines : MIRCtxRefines e (forceDelay e).1` for every MIR
@@ -117,6 +119,7 @@ theorem fdEnv_mono {I : Term} {d p j k : Nat} (hjk : j ≤ k) {ρ₁ ρ₂ : Cek
   exact ⟨envRel_mono hjk henv, ρ₀, hlook,
     renameEnvRef2_map (fun _ _ h => valueRel_mono hjk h) hren⟩
 
+omit sv in
 private theorem lookup_zero (ρ : CekEnv) : ρ.lookup 0 = none := by
   cases ρ <;> rfl
 
@@ -283,19 +286,23 @@ open Moist.Verified.MIR (lowerTotalExprList lowerTotalExprList_nil lowerTotalExp
 open Moist.Verified.InlineSoundness.StrictOcc (renameTerm_renameTerm multiShift_succ
   renameTerm_multiShift_zero)
 
+omit sv in
 theorem FDRel.cast {I : Term} {p q : Nat} {t t' : Term} (h : p = q) (r : FDRel I p t t') :
     FDRel I q t t' := h ▸ r
 
+omit sv in
 theorem FDRel.lam_inv {I : Term} {p n : Nat} {b t' : Term} (h : FDRel I p (.Lam n b) t') :
     ∃ b', t' = .Lam n b' ∧ FDRel I (p + 1) b b' := by
   cases h with
   | refl => exact ⟨b, rfl, .refl _ _⟩
   | lam _ _ hb => exact ⟨_, rfl, hb⟩
 
+omit sv in
 theorem fdRel_fixLamWrap {I : Term} {p : Nat} {B B' : Term} (h : FDRel I (p + 3) B B') :
     FDRel I p (fixLamWrapUplc B) (fixLamWrapUplc B') :=
   .app p (.refl _ _) (.lam p 0 (.app (p + 1) (.lam (p + 1) 0 (.lam (p + 2) 0 h)) (.refl _ _)))
 
+omit sv in
 /-- Lowering under binders that are not free shifts by their number. -/
 theorem lowerTotalExpr_prepend_many (e : Expr) (env : List VarId) :
     ∀ ys : List VarId, (∀ y ∈ ys, (freeVars e).contains y = false) →
@@ -314,6 +321,7 @@ theorem lowerTotalExpr_prepend_many (e : Expr) (env : List VarId) :
       funext n
       exact (multiShift_succ _ n).symm
 
+omit sv in
 private theorem beq_symm_false {a b : VarId} (h : (a == b) = false) : (b == a) = false := by
   cases hba : (b == a)
   · rfl
@@ -322,6 +330,7 @@ private theorem beq_symm_false {a b : VarId} (h : (a == b) = false) : (b == a) =
       rw [Moist.MIR.VarId.beq_true_iff]; exact ⟨hba.1.symm, hba.2.symm⟩
     rw [this] at h; exact absurd h (by simp)
 
+omit sv in
 private theorem beq_false_of_chain {x w v : VarId} (hwv : (w == v) = true) (hvx : (v == x) = false) :
     (x == w) = false := by
   cases hxw : (x == w)
@@ -332,6 +341,7 @@ private theorem beq_false_of_chain {x w v : VarId} (hwv : (w == v) = true) (hvx 
       exact ⟨(hxw.1.trans hwv.1).symm, (hxw.2.trans hwv.2).symm⟩
     rw [this] at hvx; exact absurd hvx (by simp)
 
+omit sv in
 theorem envLookupT_go_append_hit {w v : VarId} (env : List VarId) (hvw : (v == w) = true) :
     ∀ (xs : List VarId) (n : Nat), (∀ x ∈ xs, (x == w) = false) →
       envLookupT.go w (xs ++ v :: env) n = some (n + xs.length)
@@ -341,6 +351,7 @@ theorem envLookupT_go_append_hit {w v : VarId} (env : List VarId) (hvw : (v == w
     rw [envLookupT_go_append_hit env hvw xs (n + 1) (fun y hy => h y (.tail _ hy))]
     simp only [List.length_cons]; congr 1; omega
 
+omit sv in
 /-- Avoiding `fv(inner) ∪ {v}`. -/
 private theorem avoid_split {s : VarSet} {v x : VarId} (h : (s.insert v).contains x = false) :
     s.contains x = false ∧ (v == x) = false := by
@@ -352,6 +363,7 @@ private theorem avoid_split {s : VarSet} {v x : VarId} (h : (s.insert v).contain
     · rfl
     · have := (VarSet.contains_insert_elim s v x).mpr (.inr hc); rw [this] at h; exact absurd h (by simp)
 
+omit sv in
 private theorem avoid_of_split {s : VarSet} {v x : VarId} (h₁ : s.contains x = false)
     (h₂ : (v == x) = false) : (s.insert v).contains x = false := by
   cases hc : (s.insert v).contains x
@@ -362,6 +374,7 @@ private theorem avoid_of_split {s : VarSet} {v x : VarId} (h₁ : s.contains x =
 
 variable {v : VarId} {inner : Expr} {env : List VarId} {I : Term}
 
+omit sv in
 theorem lowerTotalExpr_inner_at (hI : lowerTotalExpr env inner = some I)
     (hv : (freeVars inner).contains v = false) {xs : List VarId}
     (hxs : ∀ x ∈ xs, ((freeVars inner).insert v).contains x = false) :
@@ -374,6 +387,7 @@ theorem lowerTotalExpr_inner_at (hI : lowerTotalExpr env inner = some I)
   rw [List.append_assoc, List.singleton_append, hI] at h
   simpa using h
 
+omit sv in
 theorem replaceForceVar_let_avoid {s : VarSet} (repl : Expr) (body : Expr) :
     ∀ (rest : List (VarId × Expr × Bool)), bindersAvoidLet (s.insert v) rest body = true →
       replaceForceVarLet v repl rest body =
@@ -386,12 +400,14 @@ theorem replaceForceVar_let_avoid {s : VarSet} (repl : Expr) (body : Expr) :
     simp only [hxv, Bool.false_eq_true, ↓reduceIte, List.map_cons]
     rw [replaceForceVar_let_avoid repl body rest h.2]
 
+omit sv in
 private theorem some_map_inv {α β : Type} {f : α → β} {o : Option α} {b : β}
     (h : o.map f = some b) : ∃ a, o = some a ∧ b = f a := by
   cases o with
   | none => simp at h
   | some a => simp at h; exact ⟨a, rfl, h.symm⟩
 
+omit sv in
 private theorem some_bind2_inv {α β γ : Type} {o₁ : Option α} {o₂ : Option β} {f : α → β → γ}
     {c : γ} (h : (do let a ← o₁; let b ← o₂; some (f a b)) = some c) :
     ∃ a b, o₁ = some a ∧ o₂ = some b ∧ c = f a b := by

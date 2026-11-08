@@ -1,6 +1,8 @@
 import Moist.Verified.TagGuardSoundness.Abstract
 import Moist.Verified.ShapesSoundness.Choices
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Soundness of guard trees
 
 A guard tree `case x [λtag fields. case tag [t₀ … tₙ]]` that `guardOK`
@@ -24,6 +26,7 @@ def ValIn (env : List VarId) (ρ : CekEnv) (x : VarId) (v : CekValue) : Prop :=
 
 /-! ## Updating hypotheses -/
 
+omit sv in
 theorem replaceFirst_map_fst (x : VarId) (a : AVal) :
     ∀ (L : List (VarId × AVal)), (replaceFirst x a L).map Prod.fst = L.map Prod.fst
   | [] => rfl
@@ -33,11 +36,13 @@ theorem replaceFirst_map_fst (x : VarId) (a : AVal) :
     · rfl
     · simp [replaceFirst_map_fst x a L]
 
+omit sv in
 theorem replaceFirst_length (x : VarId) (a : AVal) (L : List (VarId × AVal)) :
     (replaceFirst x a L).length = L.length := by
   have := congrArg List.length (replaceFirst_map_fst x a L)
   simpa using this
 
+omit sv in
 theorem replaceFirst_get (x : VarId) (a : AVal) :
     ∀ (L : List (VarId × AVal)) {j : Nat}, envLookupT (L.map Prod.fst) x = some j →
       ∀ k (hk : k < L.length),
@@ -65,10 +70,12 @@ theorem replaceFirst_get (x : VarId) (a : AVal) :
           rw [replaceFirst_get x a L hl k (by simp at hk; omega)]
           simp
 
+omit sv in
 theorem lookupAVal_cons_self {x : VarId} {a : AVal} {H : List (VarId × AVal)} {y : VarId}
     (h : (x == y) = true) : lookupAVal ((x, a) :: H) y = some a := by
   simp [lookupAVal, List.find?_cons, h]
 
+omit sv in
 theorem lookupAVal_cons_other {x : VarId} {a : AVal} {H : List (VarId × AVal)} {y : VarId}
     (h : (x == y) = false) : lookupAVal ((x, a) :: H) y = lookupAVal H y := by
   simp [lookupAVal, List.find?_cons, h]
@@ -129,6 +136,7 @@ theorem Ctx.assume {Γ : List (VarId × Expr)} {H L : List (VarId × AVal)} {out
 
 /-! ## Guard trees -/
 
+omit sv in
 theorem lowerTotalExprList_getElem?' {env : List VarId} :
     ∀ {es : List Expr} {ts : List Term}, MIR.lowerTotalExprList env es = some ts →
       ∀ n : Nat, (∃ e t, es[n]? = some e ∧ ts[n]? = some t ∧ lowerTotalExpr env e = some t) ∨
@@ -155,6 +163,7 @@ mutual
     | t :: rest => gAllVars P t ∧ gAllVarsList P rest
 end
 
+omit sv in
 theorem gAllVarsList_get {P : VarId → Prop} :
     ∀ {ts : List GuardTree}, gAllVarsList P ts → ∀ k (h : k < ts.length), gAllVars P ts[k]
   | [], _, _, h => by simp at h
@@ -163,6 +172,7 @@ theorem gAllVarsList_get {P : VarId → Prop} :
     | zero => exact ht
     | succ k => exact gAllVarsList_get hrest k (by simp at h; omega)
 
+omit sv in
 theorem guardOKList_get {fuel : Nat} {Γ : List (VarId × Expr)} {M : Expr}
     {H L : List (VarId × AVal)} {x : VarId} :
     ∀ {m : Nat} {ts : List GuardTree}, guardOKList fuel Γ M H L x m ts = true →
@@ -178,12 +188,14 @@ theorem guardOKList_get {fuel : Nat} {Γ : List (VarId × Expr)} {M : Expr}
       have := guardOKList_get hok.2 k (by simp at h; omega)
       simpa [show m + 1 + k = m + (k + 1) by omega] using this
 
+omit sv in
 theorem tagRange_mem {n : Int} {count : Nat} : n ∈ tagRange count ↔ 0 ≤ n ∧ n < count := by
   simp only [tagRange, List.mem_map, List.mem_range, Int.ofNat_eq_coe]
   constructor
   · rintro ⟨k, hk, rfl⟩; omega
   · intro h; exact ⟨n.toNat, by omega, by omega⟩
 
+omit sv in
 theorem assume_map_fst (H L : List (VarId × AVal)) (x : VarId) (a : AVal) :
     (assume H L x a).2.map Prod.fst = L.map Prod.fst := by
   unfold Moist.MIR.Advanced.assume; split

@@ -3,6 +3,8 @@ import Moist.Verified.StepWellFormed
 import Moist.Verified.InlineSoundness.StrictOcc
 import Moist.Verified.InlineSoundness.Frontier
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Reusing an earlier evaluation
 
 `reuse_ctxRefines` is the UPLC rule behind common sub-expression
@@ -147,6 +149,7 @@ theorem valueRefinesK_of_shiftBisim_rev : ∀ (k : Nat) (v₁ v₂ : CekValue),
 open Moist.Verified.InlineSoundness.StrictOcc
   (multiShift is0preserving_multiShift iterShift_eq_renameTerm_multiShift ret_on_all_stacks)
 
+omit sv in
 private theorem shiftBisimEnv_multiShift {d K : Nat} {ρ ρK : CekEnv}
     (hwf : EnvWellFormed d ρ)
     (h_lookup : ∀ n, 0 < n → n ≤ d → ρK.lookup (n + K) = ρ.lookup n) :
@@ -197,6 +200,7 @@ theorem shifted_returns_rev {t : Term} {a : CekValue} {d K k : Nat} {ρ ρK : Ce
 def mergeRename (i : Nat) (n : Nat) : Nat :=
   if n = 0 then 0 else if n = 1 then i + 1 else n - 1
 
+omit sv in
 theorem is0preserving_mergeRename (i : Nat) : Is0Preserving (mergeRename i) := by
   refine ⟨rfl, fun n hn => ?_⟩
   simp only [mergeRename]
@@ -212,6 +216,7 @@ def reuseSource (rhs body : Term) (i : Nat) : Term :=
 def reuseTarget (body : Term) (i : Nat) : Term :=
   renameTerm (mergeRename i) body
 
+omit sv in
 theorem closedAt_reuseTarget {body : Term} {i d : Nat} (hi : i + 1 ≤ d)
     (h : closedAt (d + 1) body = true) : closedAt d (reuseTarget body i) = true := by
   apply closedAt_rename (mergeRename i) body (d + 1) d h
@@ -254,6 +259,7 @@ theorem eval_refl_list {k d : Nat} {ρ₁ ρ₂ : CekEnv} {ts : List Term}
     (renameEnvRef2_id h)
   rwa [Moist.Verified.renameTermList_id] at result
 
+omit sv in
 theorem listRel_around {R : Term → Term → Prop} :
     ∀ (pre post : List Term) {a b : Term}, ListRel R pre pre → R a b → ListRel R post post →
       ListRel R (pre ++ [a] ++ post) (pre ++ [b] ++ post)
@@ -328,6 +334,7 @@ def Below (m : Nat) (ρ₁ ρ₂ : CekEnv) : Prop :=
   (∀ n, 0 < n → n ≤ depth → ρ₁.lookup (n + (m + 1)) = ρ.lookup n) ∧
     ρ₂.lookup (m + 1) = some a
 
+omit sv in
 theorem Below.extend {m : Nat} {ρ₁ ρ₂ : CekEnv} (h : Below depth ρ a m ρ₁ ρ₂)
     (v₁ v₂ : CekValue) : Below depth ρ a (m + 1) (ρ₁.extend v₁) (ρ₂.extend v₂) := by
   refine ⟨fun n hn hnd => ?_, h.2⟩
@@ -458,6 +465,7 @@ open Moist.Verified.InlineSoundness.StrictOcc (halt_on_all_stacks error_on_all_s
   halt_excludes_error)
 open Moist.Verified.InlineSoundness.Frontier (outcome_of_terminal)
 
+omit sv in
 private theorem closed_parts {C : Context} {rhs body : Term} {i d : Nat} (hi : C.binders = i)
     (h : closedAt d (.Apply (.Lam 0 (fill C (reuseSource rhs body i))) rhs) = true) :
     Context.closedAt (d + 1) C = true ∧ closedAt (d + 1 + i + 1) body = true ∧

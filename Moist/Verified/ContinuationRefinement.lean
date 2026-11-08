@@ -1,6 +1,8 @@
 import Moist.Verified.InlineSoundness.Frontier
 import Moist.Verified.Purity
 
+variable [sv : Moist.CEK.SemVariant]
+
 namespace Moist.Verified.ContinuationRefinement
 
 open Moist.CEK Moist.Plutus.Term

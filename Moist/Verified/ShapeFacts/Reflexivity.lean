@@ -1,6 +1,8 @@
 import Moist.Verified.FundamentalRefinesWF
 import Moist.Verified.ShapeFacts.Evaluation
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Reflexivity of the well-formedness-guarded relation
 
 Every well-formed value, environment and stack is related to itself by the
@@ -16,6 +18,7 @@ open Moist.Verified.Contextual.Guarded
 open Moist.Verified.TermObsRefinesWF
 open Moist.Verified.BetaValueRefines
 
+omit sv in
 private theorem lookup_extend_succ (ρ : CekEnv) (v : CekValue) (n : Nat) :
     (ρ.extend v).lookup (n + 2) = ρ.lookup (n + 1) := rfl
 

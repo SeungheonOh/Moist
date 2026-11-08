@@ -2,6 +2,8 @@ import Moist.Verified.ShapeFacts.Delays
 import Moist.Verified.ShapeFacts.Known
 import Moist.Verified.Purity
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Totality under facts
 
 `totalWithFacts` accepts pure expressions, integer arithmetic on known
@@ -42,13 +44,29 @@ def integerOperation : BuiltinFun → Bool
   | .LessThanInteger | .LessThanEqualsInteger => true
   | _ => false
 
+omit sv in
 theorem integerOperation_args {b : BuiltinFun} (h : integerOperation b = true) :
     expectedArgs b = .more .argV (.one .argV) := by
   cases b <;> simp [integerOperation] at h <;> rfl
 
-theorem integerOperation_eval {b : BuiltinFun} (h : integerOperation b = true) (x y : Int) :
+/-- Integer operations succeed on integers below `2^64` in magnitude under every variant;
+    `equalsInteger` succeeds on every pair of integers. -/
+theorem integerOperation_eval {b : BuiltinFun} (h : integerOperation b = true) (x y : Int)
+    (hbound : b = .EqualsInteger ∨ (x.natAbs < 2 ^ 64 ∧ y.natAbs < 2 ^ 64)) :
     ∃ r, evalBuiltin b [.VCon (.Integer y), .VCon (.Integer x)] = some r := by
-  cases b <;> simp [integerOperation] at h <;> exact ⟨_, rfl⟩
+  rw [show [CekValue.VCon (.Integer y), .VCon (.Integer x)] =
+    [Const.Integer y, .Integer x].map CekValue.VCon from rfl]
+  cases b <;> simp [integerOperation] at h
+  all_goals first
+    | exact ⟨_, rfl⟩
+    | (obtain ⟨hx, hy⟩ := hbound.resolve_left (by decide)
+       have ox := cIntegerOk_of_natAbs_lt sv x hx
+       have oy := cIntegerOk_of_natAbs_lt sv y hy
+       rw [evalBuiltin_consts _ _ rfl]
+       have hk : ∀ (a : Const), (if (cIntegerOk sv x && cIntegerOk sv y) = true then some a
+           else none) = some a := by
+         intro a; rw [ox, oy]; rfl
+       exact ⟨_, congrArg (Option.map CekValue.VCon) (hk _)⟩)
 
 /-- A head resolved to a builtin applied to a known integer returns a builtin
     state holding that integer. -/
@@ -60,7 +78,8 @@ theorem partial_integer_head
     (hint : knownInteger 64 Γ first = true)
     (hfacts : FactsHold P Γ env ρ) (hd : EnvDistinct env) (hfresh : freshIn env f = true)
     (hlow : lowerTotalExpr env f = some tf) (hf : Halts ρ tf wf) :
-    ∃ wa, wf = .VBuiltin b [wa] (.one .argV) ∧ IntegerValue wa := by
+    ∃ wa, wf = .VBuiltin b [wa] (.one .argV) ∧ IntegerValue wa ∧
+      (boundedInteger 64 Γ first = true → ∃ i, wa = .VCon (.Integer i) ∧ i.natAbs < 2 ^ 64) := by
   obtain ⟨k, m, e₁, t₁, ta, w₁, wa, _, _, hres₁, ht₁, hta, hw₁, hwa, happ, _, _, hfacts', hd'⟩ :=
     resolveHead_app_unfold hP n Γ f hres hfacts hd hfresh hlow hf
   have hProd := hfacts'.mono (fun _ _ _ _ h => (hP _ _ _ _ h).1)
@@ -68,8 +87,10 @@ theorem partial_integer_head
   have := halts_unique hw₁ hb₁
   subst this
   rw [integerOperation_args hb] at happ
-  refine ⟨wa, apply_partial rfl happ, ?_⟩
-  exact knownInteger_sound (fun _ _ _ _ h => (hP _ _ _ _ h).1) 64 Γ first hint hfacts' hd' hta hwa
+  refine ⟨wa, apply_partial rfl happ, ?_, fun hbounded => ?_⟩
+  · exact knownInteger_sound (fun _ _ _ _ h => (hP _ _ _ _ h).1) 64 Γ first hint hfacts' hd' hta hwa
+  · exact boundedInteger_sound (fun _ _ _ _ h => (hP _ _ _ _ h).1) 64 Γ first hbounded hfacts' hd'
+      hta hwa
 
 theorem totalWithFacts_sound
     (hP : ∀ env ρ rhs v, P env ρ rhs v → Produces env ρ rhs v ∧ freshIn env rhs = true) :
@@ -98,7 +119,7 @@ theorem totalWithFacts_sound
         split at h
         · rename_i b first hres
           simp only [Bool.and_eq_true] at h
-          obtain ⟨⟨⟨⟨hb, hif⟩, hia⟩, htf'⟩, hta'⟩ := h
+          obtain ⟨⟨⟨⟨⟨hb, hif⟩, hia⟩, hbounded⟩, htf'⟩, hta'⟩ := h
           have hb' : integerOperation b = true := by
             revert hb; cases b <;> simp [integerOperation]
           -- the head returns
@@ -125,11 +146,21 @@ theorem totalWithFacts_sound
               exact ⟨_, halts_apply_intro hgb hwfirst hpr⟩
             | Force _ => rw [show (64 : Nat) = 63 + 1 from rfl, resolveHead_force] at hres; cases hres
             | _ => simp [resolveHead] at hres
-          obtain ⟨wa, rfl, hwa⟩ := partial_integer_head hP hres hb' hif hfacts hd hfresh.1 htf hwf
+          obtain ⟨wa, rfl, hwa, hwaBound⟩ :=
+            partial_integer_head hP hres hb' hif hfacts hd hfresh.1 htf hwf
           obtain ⟨va, hva⟩ := ih Γ a hta' hfacts hd hfresh.2 hw hta
           obtain ⟨x, rfl⟩ := hwa
           obtain ⟨y, rfl⟩ := knownInteger_sound hProd 64 Γ a hia hfacts hd hta hva
-          obtain ⟨r, hr⟩ := integerOperation_eval hb' x y
+          have hbound : b = .EqualsInteger ∨ (x.natAbs < 2 ^ 64 ∧ y.natAbs < 2 ^ 64) := by
+            simp only [Bool.or_eq_true, Bool.and_eq_true] at hbounded
+            rcases hbounded with heq | ⟨hbf, hba⟩
+            · exact .inl (by revert heq; cases b <;> decide)
+            · obtain ⟨y', hy', hyb⟩ := boundedInteger_sound hProd 64 Γ a hba hfacts hd hta hva
+              cases hy'
+              obtain ⟨x', hx', hxb⟩ := hwaBound hbf
+              cases hx'
+              exact .inr ⟨hxb, hyb⟩
+          obtain ⟨r, hr⟩ := integerOperation_eval hb' x y hbound
           exact ⟨r, halts_apply_intro hwf hva (builtin_final_reaches rfl rfl hr)⟩
         · rename_i b hres
           simp only [Bool.and_eq_true] at h

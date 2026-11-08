@@ -1,6 +1,8 @@
 import Moist.Verified.MIR.Primitives.Atomize
 import Moist.Verified.MIR.Primitives.LetFlattenRhsHead
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Binding-list and argument-list helpers -/
 
 namespace Moist.Verified.MIR

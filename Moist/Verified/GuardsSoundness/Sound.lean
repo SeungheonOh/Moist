@@ -1,5 +1,7 @@
 import Moist.Verified.GuardsSoundness.CallSound
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # `chk` is sound
 
 `chk_sound`: when `chk n c v alt e` holds, the lowering of `e` in any
@@ -19,6 +21,7 @@ open Moist.Verified.ShapeFacts
 open Moist.Verified.FailFast
 open Moist.Verified.KnownLists
 
+omit sv in
 theorem delayBody_some {e b : Expr} (h : delayBody e = some b) : e = .Delay b := by
   unfold delayBody at h
   split at h

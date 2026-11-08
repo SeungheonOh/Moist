@@ -1,5 +1,7 @@
 import Moist.Verified.GuardsSoundness.SinkRel
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Soundness of checks before work
 
 `checksFirst_refines`: for every MIR expression `e`, `e ⊑Ctxᴹ checksFirst e`.

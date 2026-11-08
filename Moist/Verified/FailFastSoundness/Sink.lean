@@ -1,5 +1,7 @@
 import Moist.Verified.ShapeFacts.Top
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Evaluating a terminating check before a binding
 
 The fail-fast rewrites move a strict binding `let x = e` below a check `c`
@@ -66,6 +68,7 @@ theorem step_caseScrutinee (alts : List Term) (ρ : CekEnv) (π : Stack) (v : Ce
   | VDelay _ _ => rfl
   | VBuiltin _ _ _ => rfl
 
+omit sv in
 theorem dispatch_map (alts : List Term) (g : Term → Term) (v : CekValue) :
     dispatch (alts.map g) v = (dispatch alts v).map fun r => (g r.1, r.2) := by
   cases v with

@@ -62,22 +62,20 @@ instance : BEq BuiltinType where beq := beqBuiltinType
 instance : BEq TypeOperator where beq := beqTypeOperator
 
 
+/-- A Plutus constant. Every Plutus value has exactly one encoding: lists and arrays
+carry their element type (as `DefaultUniList t` / `DefaultUniArray t` do in plutus-core),
+a list of data is `ConstList (data) [.Data d, ...]` and a pair of data is
+`Pair (.Data a, .Data b)`. -/
 inductive Const
   | Integer               : Integer → Const
   | ByteString            : ByteString → Const
   | String                : String → Const
   | Unit                  : Const
   | Bool                  : Bool → Const
-  | ConstList             : List Const → Const
-  | ConstDataList         : List Data → Const
-    -- NOTE: Added to properly implement builtins evaluation and to avoid using List.map
-  | ConstPairDataList     : List (Data × Data) → Const
-    -- NOTE: Added to properly implement builtins evaluation and to avoid using List.map
+  | ConstList             : BuiltinType → List Const → Const
   | Pair                  : Const × Const → Const
-  | PairData              : Data × Data → Const
-    -- NOTE: Added to properly implement builtins evaluation and to avoid using List.map
   | Data                  : Data → Const
-  | ConstArray            : List Const → Const
+  | ConstArray            : BuiltinType → List Const → Const
   /-- A G1 point, carried as its canonical 48-byte compressed encoding. Distinct
   points have distinct encodings, so distinct points are distinct model values. -/
   | Bls12_381_G1_element  : ByteString → Const
@@ -100,13 +98,10 @@ private def beqConst : Const → Const → Bool
   | .String a, .String b => a == b
   | .Unit, .Unit => true
   | .Bool a, .Bool b => a == b
-  | .ConstList as, .ConstList bs => beqConstList as bs
-  | .ConstDataList as, .ConstDataList bs => as == bs
-  | .ConstPairDataList as, .ConstPairDataList bs => as == bs
+  | .ConstList ta as, .ConstList tb bs => ta == tb && beqConstList as bs
   | .Pair (a1, a2), .Pair (b1, b2) => beqConst a1 b1 && beqConst a2 b2
-  | .PairData a, .PairData b => a == b
   | .Data a, .Data b => a == b
-  | .ConstArray as, .ConstArray bs => beqConstList as bs
+  | .ConstArray ta as, .ConstArray tb bs => ta == tb && beqConstList as bs
   | .Bls12_381_G1_element a, .Bls12_381_G1_element b => a == b
   | .Bls12_381_G2_element a, .Bls12_381_G2_element b => a == b
   | .Bls12_381_MlResult a, .Bls12_381_MlResult b => a == b
@@ -296,24 +291,32 @@ deriving Repr
 instance : Inhabited Program where
   default := .Program (.Version 1 1 0) (.Error)
 
-/-- Map a constant to its builtin type. -/
+/-- The builtin type of a constant (exact: lists and arrays carry their element type). -/
 def constType : Const → BuiltinType
-  | Const.Integer _            => BuiltinType.AtomicType AtomicType.TypeInteger
-  | Const.ByteString _         => BuiltinType.AtomicType AtomicType.TypeByteString
-  | Const.String _             => BuiltinType.AtomicType AtomicType.TypeString
-  | Const.Unit                 => BuiltinType.AtomicType AtomicType.TypeUnit
-  | Const.Bool _               => BuiltinType.AtomicType AtomicType.TypeBool
-  | Const.ConstList _          => BuiltinType.TypeOperator (TypeOperator.TypeList (BuiltinType.AtomicType AtomicType.TypeData))
-  | Const.ConstDataList _      => BuiltinType.TypeOperator (TypeOperator.TypeList (BuiltinType.AtomicType AtomicType.TypeData))
-  | Const.ConstPairDataList _  => .TypeOperator (.TypeList (.TypeOperator
-      (.TypePair (.AtomicType .TypeData) (.AtomicType .TypeData))))
+  | Const.Integer _            => .AtomicType .TypeInteger
+  | Const.ByteString _         => .AtomicType .TypeByteString
+  | Const.String _             => .AtomicType .TypeString
+  | Const.Unit                 => .AtomicType .TypeUnit
+  | Const.Bool _               => .AtomicType .TypeBool
+  | Const.ConstList ty _       => .TypeOperator (.TypeList ty)
   | Const.Pair (first, second) => .TypeOperator (.TypePair (constType first) (constType second))
-  | Const.PairData _           => BuiltinType.TypeOperator (TypeOperator.TypePair (BuiltinType.AtomicType AtomicType.TypeData) (BuiltinType.AtomicType AtomicType.TypeData)) -- This is wrong : ( fix .
-  | Const.Data _               => BuiltinType.AtomicType AtomicType.TypeData
-  | Const.ConstArray _         => BuiltinType.TypeOperator (TypeOperator.TypeArray (BuiltinType.AtomicType AtomicType.TypeData))
-  | Const.Bls12_381_G1_element _ => BuiltinType.AtomicType AtomicType.TypeBls12_381_G1_element
-  | Const.Bls12_381_G2_element _ => BuiltinType.AtomicType AtomicType.TypeBls12_381_G2_element
-  | Const.Bls12_381_MlResult _   => BuiltinType.AtomicType AtomicType.TypeBls12_381_MlResult
-  | Const.Value _              => BuiltinType.AtomicType AtomicType.TypeValue
+  | Const.Data _               => .AtomicType .TypeData
+  | Const.ConstArray ty _      => .TypeOperator (.TypeArray ty)
+  | Const.Bls12_381_G1_element _ => .AtomicType .TypeBls12_381_G1_element
+  | Const.Bls12_381_G2_element _ => .AtomicType .TypeBls12_381_G2_element
+  | Const.Bls12_381_MlResult _   => .AtomicType .TypeBls12_381_MlResult
+  | Const.Value _              => .AtomicType .TypeValue
+
+/-- The builtin type `data`. -/
+abbrev dataType : BuiltinType := .AtomicType .TypeData
+/-- The builtin type `pair data data`. -/
+abbrev pairDataType : BuiltinType := .TypeOperator (.TypePair dataType dataType)
+
+/-- The constant `list data` holding the given data items. -/
+def Const.dataList (ds : List Moist.Plutus.Data) : Const := .ConstList dataType (ds.map .Data)
+/-- The constant `pair data data`. -/
+def Const.pairData (p : Moist.Plutus.Data × Moist.Plutus.Data) : Const := .Pair (.Data p.1, .Data p.2)
+/-- The constant `list (pair data data)` holding the given entries. -/
+def Const.pairDataList (ps : List (Moist.Plutus.Data × Moist.Plutus.Data)) : Const := .ConstList pairDataType (ps.map Const.pairData)
 
 end Moist.Plutus.Term

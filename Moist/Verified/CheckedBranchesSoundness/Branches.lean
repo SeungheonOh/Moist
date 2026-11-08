@@ -1,6 +1,8 @@
 import Moist.Verified.CheckedBranchesSoundness.Relation
 import Moist.Verified.ShapeFacts
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Branches of list discriminators
 
 * `chooseList l e (delay n)`: the suspension of `n` escapes only as the result
@@ -65,6 +67,7 @@ theorem chooseDelay_factRefines {d : Nat} {F F' : CekEnv → Prop} {X tn tn' : T
       intro j _
       exact eval_of_factRefines closedN hn (envRel_refl henv) henv hlen henv hlen hF'
 
+omit sv in
 theorem closedAt_var_of_lookup {env : List VarId} {l : VarId} {il : Nat}
     (hil : envLookupT env l = some il) : closedAt env.length (.Var (il + 1)) = true := by
   have := Moist.MIR.envLookupT_bound env l il hil
@@ -168,6 +171,7 @@ theorem CheckedRel.nullCase {Γ : List (VarId × Expr)} {N : List VarId} {sel ne
 
 /-! ## Head and tail of a non-empty list -/
 
+omit sv in
 theorem lowerTotalExpr_fusedNonempty {env : List VarId} {l h t : VarId} {B' : Expr} {il : Nat}
     {tB' : Term} (hil : envLookupT env l = some il)
     (htB' : lowerTotalExpr (t :: h :: env) B' = some tB') :
@@ -182,18 +186,13 @@ theorem lowerTotalExpr_fusedNonempty {env : List VarId} {l h t : VarId} {B' : Ex
 
 theorem fusedNonempty_steps {ρ : CekEnv} {π : Stack} {n : Nat} {vl : CekValue} {b : Term}
     (hvl : ρ.lookup n = some vl) :
-    ∀ hv tv, (∃ c cs, vl = .VCon (.ConstList (c :: cs)) ∧ hv = .VCon c ∧ tv = .VCon (.ConstList cs)) ∨
-      (∃ d ds, vl = .VCon (.ConstDataList (d :: ds)) ∧ hv = .VCon (.Data d) ∧
-        tv = .VCon (.ConstDataList ds)) ∨
-      (∃ p ps, vl = .VCon (.ConstPairDataList (p :: ps)) ∧ hv = .VCon (.PairData p) ∧
-        tv = .VCon (.ConstPairDataList ps)) →
+    ∀ hv tv, (∃ ty c cs, vl = .VCon (.ConstList ty (c :: cs)) ∧ hv = .VCon c ∧
+        tv = .VCon (.ConstList ty cs)) →
     Reaches (.compute π ρ (.Case (.Var n) [.Lam 0 (.Lam 0 b)]))
       (.compute π ((ρ.extend hv).extend tv) b) := by
   intro hv tv h
-  rcases h with ⟨c, cs, rfl, rfl, rfl⟩ | ⟨d, ds, rfl, rfl, rfl⟩ | ⟨p, ps, rfl, rfl, rfl⟩
-  · exact ⟨7, by simp [steps, step, hvl, constToTagAndFields, CekEnv.extend]⟩
-  · exact ⟨7, by simp [steps, step, hvl, constToTagAndFields, CekEnv.extend]⟩
-  · exact ⟨7, by simp [steps, step, hvl, constToTagAndFields, CekEnv.extend]⟩
+  obtain ⟨ty, c, cs, rfl, rfl, rfl⟩ := h
+  exact ⟨7, by simp [steps, step, hvl, constToTagAndFields, CekEnv.extend]⟩
 
 theorem CheckedRel.fusion {Γ : List (VarId × Expr)} {N : List VarId} {h t : VarId}
     {hr tr B B' : Expr} {he te : Bool} {l l' : VarId}
@@ -244,18 +243,15 @@ theorem CheckedRel.fusion {Γ : List (VarId × Expr)} {N : List VarId} {h t : Va
       · rw [envLookupT_congr hc] at hh; simp [hil] at hh
     simp [hhl, hil]
   have nonempty : ∀ hv tv : CekValue,
-      ((∃ c cs, vl = .VCon (.ConstList (c :: cs)) ∧ hv = .VCon c ∧ tv = .VCon (.ConstList cs)) ∨
-        (∃ d ds, vl = .VCon (.ConstDataList (d :: ds)) ∧ hv = .VCon (.Data d) ∧
-          tv = .VCon (.ConstDataList ds)) ∨
-        (∃ p ps, vl = .VCon (.ConstPairDataList (p :: ps)) ∧ hv = .VCon (.PairData p) ∧
-          tv = .VCon (.ConstPairDataList ps))) →
+      ((∃ ty c cs, vl = .VCon (.ConstList ty (c :: cs)) ∧ hv = .VCon c ∧
+        tv = .VCon (.ConstList ty cs))) →
       ObsRefines (.compute π ρ (.Apply (.Lam 0 (.Apply (.Lam 0 tB) ttr)) thr))
         (.compute π ρ (.Case (.Var (il + 1)) [.Lam 0 (.Lam 0 tB')])) := by
     intro hv tv hshape
     have hhead_eval : evalBuiltin .HeadList [vl] = some hv := by
-      rcases hshape with ⟨c, cs, rfl, rfl, rfl⟩ | ⟨d, ds, rfl, rfl, rfl⟩ | ⟨p, ps, rfl, rfl, rfl⟩ <;> rfl
+      obtain ⟨ty, c, cs, rfl, rfl, rfl⟩ := hshape; rfl
     have htail_eval : evalBuiltin .TailList [vl] = some tv := by
-      rcases hshape with ⟨c, cs, rfl, rfl, rfl⟩ | ⟨d, ds, rfl, rfl, rfl⟩ | ⟨p, ps, rfl, rfl, rfl⟩ <;> rfl
+      obtain ⟨ty, c, cs, rfl, rfl, rfl⟩ := hshape; rfl
     have hthr_halts : Halts ρ thr hv := (hiffH hv).mpr hhead_eval
     have hvwf := halts_wellFormed henv hlen (MIR.lowerTotalExpr_closedAt hthr) hthr_halts
     have hF₁ : FactsHold Produces Γ (h :: env) (ρ.extend hv) := FactsHold.extend hv hF.1 hnh
@@ -276,18 +272,10 @@ theorem CheckedRel.fusion {Γ : List (VarId × Expr)} {N : List VarId} {h t : Va
   cases vl with
   | VCon c =>
     cases c with
-    | ConstList xs =>
+    | ConstList ty xs =>
       cases xs with
       | nil => exact absurd hvne id
-      | cons c cs => exact nonempty _ _ (.inl ⟨c, cs, rfl, rfl, rfl⟩)
-    | ConstDataList xs =>
-      cases xs with
-      | nil => exact absurd hvne id
-      | cons d ds => exact nonempty _ _ (.inr (.inl ⟨d, ds, rfl, rfl, rfl⟩))
-    | ConstPairDataList xs =>
-      cases xs with
-      | nil => exact absurd hvne id
-      | cons p ps => exact nonempty _ _ (.inr (.inr ⟨p, ps, rfl, rfl, rfl⟩))
+      | cons c cs => exact nonempty _ _ ⟨ty, c, cs, rfl, rfl, rfl⟩
     | _ => exact absurd hvne id
   | _ => exact absurd hvne id
 

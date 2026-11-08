@@ -4,6 +4,8 @@ import Moist.Verified.AdvancedTraversal
 import Moist.Verified.MIR.Hoist
 import Moist.MIR.Optimize.Advanced.Recursion
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Soundness of the static argument transformation
 
 `Fix r (λp. λn. body) ⊑ λp. Fix r (λn. body')`, where `body'` drops the first
@@ -23,6 +25,7 @@ namespace StaticArguments
 
 /-! ## Variable lookups -/
 
+omit sv in
 theorem envLookupT_append (bs rest : List VarId) (x : VarId) :
     envLookupT (bs ++ rest) x =
       match envLookupT bs x with
@@ -43,13 +46,16 @@ theorem envLookupT_append (bs rest : List VarId) (x : VarId) :
       cases envLookupT.go x bs 0 <;> cases envLookupT.go x rest 0 <;>
         simp [List.length_cons] <;> omega
 
+omit sv in
 theorem beq_symm {a b : VarId} (h : (a == b) = true) : (b == a) = true := by
   rw [VarId.beq_true_iff] at h ⊢
   exact ⟨h.1.symm, h.2.symm⟩
 
+omit sv in
 theorem beq_false_of_uid {a b : VarId} (h : a.uid ≠ b.uid) : (a == b) = false :=
   (VarId.beq_false_iff a b).mpr (.inr h)
 
+omit sv in
 theorem lookup_none_of_avoid {bs : List VarId} {x z : VarId}
     (hbs : ∀ y ∈ bs, (y == z) = false) (hxz : (x == z) = true) : envLookupT bs x = none := by
   induction bs with
@@ -71,6 +77,7 @@ theorem lookup_none_of_avoid {bs : List VarId} {x z : VarId}
     rw [h']
     rfl
 
+omit sv in
 /-- A variable that is not the recursive name lowers to related indices. -/
 theorem lower_var (r p σ : VarId) (env bs : List VarId) (x : VarId) (idx : Nat)
     (hx : (x == r) = false) (hσx : x.uid < σ.uid)
@@ -120,6 +127,7 @@ theorem lower_var (r p σ : VarId) (env bs : List VarId) (x : VarId) (idx : Nat)
         have hj : j < env.length := envLookupT_bound env x j he
         refine ⟨j + 3 + bs.length, rfl, .varHigh (by omega) (by omega)⟩
 
+omit sv in
 /-- A recursive call `r p` lowers to the call pattern of `Rel`. -/
 theorem lower_call (r p σ : VarId) (env bs : List VarId) (b a : VarId) (ts : Term)
     (hbr : (b == r) = true) (hap : (a == p) = true) (hpr : (p == r) = false)
@@ -145,22 +153,27 @@ theorem lower_call (r p σ : VarId) (env bs : List VarId) (b a : VarId) (ts : Te
 
 /-! ## Equations for applications whose head is not a variable -/
 
+omit sv in
 theorem invariantUses_app_nonvar (r p : VarId) {f a : Expr} (hf : ∀ b, f ≠ .Var b) :
     invariantUses r p (.App f a) = (invariantUses r p f && invariantUses r p a) := by
   cases f <;> first | exact absurd rfl (hf _) | simp only [invariantUses]
 
+omit sv in
 theorem removeArgument_app_nonvar (r : VarId) {f a : Expr} (hf : ∀ b, f ≠ .Var b) :
     removeArgument r (.App f a) = .App (removeArgument r f) (removeArgument r a) := by
   cases f <;> first | exact absurd rfl (hf _) | simp only [removeArgument]
 
+omit sv in
 theorem invariantUses_app_var (r p b : VarId) (a : Expr) (hbr : (b == r) = false) :
     invariantUses r p (.App (.Var b) a) = invariantUses r p a := by
   cases a <;> simp [invariantUses, hbr]
 
+omit sv in
 theorem removeArgument_app_var (r b : VarId) (a : Expr) (hbr : (b == r) = false) :
     removeArgument r (.App (.Var b) a) = .App (.Var b) (removeArgument r a) := by
   cases a <;> simp [removeArgument, hbr]
 
+omit sv in
 /-- The fixed-point wrapper preserves `Rel`. -/
 theorem rel_wrap {e d : Nat} {B₁ B₂ : Term} (h : Rel e (d + 3) B₁ B₂) :
     Rel e d (fixLamWrapUplc B₁) (fixLamWrapUplc B₂) :=
@@ -170,6 +183,7 @@ theorem rel_wrap {e d : Nat} {B₁ B₂ : Term} (h : Rel e (d + 3) B₁ B₂) :
 
 /-! ## Lowering the worker -/
 
+omit sv in
 theorem avoid_cons {r p x : VarId} {bs : List VarId}
     (hx : (x == r) = false ∧ (x == p) = false)
     (hbs : ∀ y ∈ bs, (y == r) = false ∧ (y == p) = false) :
@@ -179,6 +193,7 @@ theorem avoid_cons {r p x : VarId} {bs : List VarId}
   | head => exact hx
   | tail _ hy => exact hbs y hy
 
+omit sv in
 theorem not_bne {a b : VarId} (h : (a != b) = true) : (a == b) = false := by
   simpa [bne] using h
 

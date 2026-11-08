@@ -1,5 +1,7 @@
 import Moist.Verified.Contextual
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Congruence lemmas for `CtxRefines`
 
 Every lemma has the shape `R a b → R (F a) (F b)` (or the pointwise list

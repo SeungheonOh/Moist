@@ -1,6 +1,8 @@
 import Moist.Verified.EtaReduce.Local
 import Moist.Verified.MIR
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # The MIR eta rule
 
 `λx. f x ⊑ f` at the MIR level when `x` is not free in `f` and `f` is a
@@ -14,6 +16,7 @@ open Moist.MIR (Expr VarId expandFix lowerTotal lowerTotalExpr freeVars isCallab
   builtinRemainder)
 open Moist.Verified.MIR (MIRCtxRefines lowerTotal_closedAt)
 
+omit sv in
 theorem isCallableValue_expandFix (f : Expr) (callable : isCallableValue f = true) :
     isCallableValue (expandFix f) = true := by
   by_cases lambda : ∃ x body, f = .Lam x body
@@ -34,6 +37,7 @@ theorem isCallableValue_expandFix (f : Expr) (callable : isCallableValue f = tru
       · rfl
       · rw [expanded]; exact remainder
 
+omit sv in
 theorem lowerTotalExpr_eta (env : List VarId) {x y : VarId} (same : (x == y) = true)
     (f : Expr) :
     lowerTotalExpr env (.Lam x (.App f (.Var y))) =

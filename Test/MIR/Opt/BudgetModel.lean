@@ -1,5 +1,9 @@
 import Moist.Verified.Definitions
 
+/-- Tests evaluate under semantics variant E (the conformance-suite variant). -/
+private local instance testSemVariant : Moist.CEK.SemVariant := .E
+
+
 namespace Test.MIR.Opt.BudgetModel
 
 open Moist.CEK

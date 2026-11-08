@@ -1,5 +1,7 @@
 import Moist.Verified.GuardsSoundness.Leaves
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # `chk` on cases -/
 
 namespace Moist.Verified.Guards
@@ -12,12 +14,14 @@ open Moist.Verified.ShapeFacts
 open Moist.Verified.FailFast
 open Moist.Verified.KnownLists
 
+omit sv in
 theorem valueList_take : ∀ {vs : List CekValue} (k : Nat), ValueListWellFormed vs →
     ValueListWellFormed (vs.take k)
   | [], _, _ => by simpa using ValueListWellFormed.nil
   | _ :: _, 0, _ => by simpa using ValueListWellFormed.nil
   | _ :: vs, k + 1, .cons h hs => by simpa using ValueListWellFormed.cons h (valueList_take k hs)
 
+omit sv in
 theorem valueList_drop : ∀ {vs : List CekValue} (k : Nat), ValueListWellFormed vs →
     ValueListWellFormed (vs.drop k)
   | [], _, _ => by simpa using ValueListWellFormed.nil
@@ -63,6 +67,7 @@ theorem nullFlow_list {c : TCtx} {env : List VarId} {ρ : CekEnv} (hρ : Inv c e
   rw [hj] at hi; cases hi
   exact ⟨wx, halts_var hwx, hlist⟩
 
+omit sv in
 theorem envLookupT_append_isSome : ∀ (pre : List VarId) {env : List VarId} {z : VarId},
     (envLookupT env z).isSome = true → (envLookupT (pre ++ env) z).isSome = true
   | [], _, _, h => h

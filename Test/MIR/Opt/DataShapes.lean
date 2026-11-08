@@ -2,6 +2,10 @@ import Test.MIR.Opt.Soundness
 import Moist.MIR.Compile
 import Moist.MIR.Optimize.Advanced.DataShapes
 
+/-- Tests evaluate under semantics variant E (the conformance-suite variant). -/
+private local instance testSemVariant : Moist.CEK.SemVariant := .E
+
+
 namespace Test.MIR.Opt.DataShapes
 
 open Moist.MIR Moist.Plutus.Term Test.MIR Test.Framework
@@ -48,7 +52,7 @@ private def observe (term : Term) : IO String := do
     unoptimized script on every argument list, including traces. -/
 private def compare (label : String) (script : Expr) (arguments : List (List Expr)) : IO Unit := do
   let raw ← requireTerm (lowerExpr script)
-  let candidates ← [Advanced.specializeDataChecks, Advanced.insertKeyBytes, Advanced.simplify,
+  let candidates ← [Advanced.specializeDataChecks, Advanced.simplify,
       fun e => Advanced.simplify (Advanced.simplify e)].mapM fun transform =>
     requireTerm (lowerExpr (transform script))
   let compiled ← requireTerm (compileOptimized script)
@@ -124,7 +128,10 @@ def tests : TestTree := suite "data-shapes" do
         (boolLit false) (boolLit true))) (.Delay (.Var probe))) (.Delay .Error))))
     check "other result kept" (hasBuiltin .ChooseData (Advanced.specializeDataChecks other))
     compare "other result" other (samples.map fun value => [dataLit value, intLit 4])
-  test "key_comparisons_use_bytes" do
+  -- Key comparisons stay `equalsData`: rewriting them to `equalsByteString` (with a
+  -- prefixed key from `appendByteString`) fails under semantics variant E on bytestrings
+  -- longer than 65536 bytes, where `equalsData` and `unBData` succeed.
+  test "key_comparisons_keep_equalsData" do
     for (script, index) in [
         keyed (comparison (.Var policy) (.Var datum)),
         keyed (comparison (.Var datum) (.Var policy)),
@@ -133,8 +140,8 @@ def tests : TestTree := suite "data-shapes" do
           (.Case (.Var result) [trace "different" (intLit 0), trace "equal" (intLit 1)])),
         keyed (.Let [(partial', .App (.Builtin .EqualsData) (.Var datum), false)]
           (.App (.Var partial') (.Var policy)))].zipIdx do
-      check s!"comparison {index} rewritten" (!compiledHas .EqualsData script)
-      check s!"comparison {index} compares bytes" (compiledHas .EqualsByteString script)
+      check s!"comparison {index} kept" (compiledHas .EqualsData script)
+      check s!"comparison {index} adds no key bytes" (!compiledHas .AppendByteString script)
       compare s!"comparison/{index}" script allPairs
   test "key_comparisons_in_loops" do
     -- A lookup over a list of pairs keyed by `policy`.
@@ -151,7 +158,7 @@ def tests : TestTree := suite "data-shapes" do
     let maps : List Moist.Plutus.Data :=
       [.Map [], .Map [(.B (bytes [1, 2]), .I 1)], .Map [(.I 0, .I 9), (.B (bytes [0, 1, 2]), .I 4),
         (.B (bytes [1, 2]), .I 5)], .Map [(.B (bytes []), .I 6), (.List [], .I 7)], .I 3]
-    check "loop comparison rewritten" (!compiledHas .EqualsData lookup)
+    check "loop comparison kept" (compiledHas .EqualsData lookup)
     compare "loop" lookup ((samples.flatMap fun first => maps.map fun m => [dataLit first, dataLit m]))
   test "map_and_list_round_trips" do
     -- `source` is a data-list representation of the expected kind: decoded
@@ -173,14 +180,14 @@ def tests : TestTree := suite "data-shapes" do
           | .Constr _ fields => (fields.map (go fuel)).sum
           | _ => 0
       go 1000 e
-    let pairs : Expr := .Lit (.ConstPairDataList [(.I 1, .B (bytes [2])), (.I 3, .I 4)],
+    let pairs : Expr := .Lit (.pairDataList [(.I 1, .B (bytes [2])), (.I 3, .I 4)],
       .TypeOperator (.TypeList (.TypeOperator (.TypePair (.AtomicType .TypeData) (.AtomicType .TypeData)))))
     let mapTrip := roundTrip .UnMapData .MapData pairs
     check "map round trip removed" (countOf .UnMapData (Advanced.simplify mapTrip) == 0)
     compare "map round trip" mapTrip (samples.map fun value => [dataLit value])
     let decodedMap := roundTrip .UnMapData .MapData (.App (.Builtin .UnMapData) (.Var datum))
     compare "decoded map round trip" decodedMap (samples.map fun value => [dataLit value])
-    let items : Expr := .Lit (.ConstDataList [.I 1, .B (bytes [2])],
+    let items : Expr := .Lit (.dataList [.I 1, .B (bytes [2])],
       .TypeOperator (.TypeList (.AtomicType .TypeData)))
     let listTrip := roundTrip .UnListData .ListData items
     check "list round trip removed" (countOf .UnListData (Advanced.simplify listTrip) == 0)

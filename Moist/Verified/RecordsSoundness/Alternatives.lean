@@ -1,5 +1,7 @@
 import Moist.Verified.RecordsSoundness.Unpack
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Alternatives with field facts
 
 When the shape of the scrutinee fixes the number of fields at the tag of an
@@ -75,11 +77,13 @@ theorem termAltsRel_get {Γ : List (VarId × Expr)} {env : List VarId} {scrut : 
 
 /-! ## The facts of an alternative -/
 
+omit sv in
 theorem alternativeFacts_eq (scrut : Expr) (tag : Nat) (binders : List VarId) :
     alternativeFacts scrut tag binders =
       binders.reverse.zip (binders.reverse.map (alternativeProjection scrut tag binders)) := by
   rw [alternativeFacts, zip_map_self]
 
+omit sv in
 theorem lowerTotalExprList_replicate_error (env : List VarId) (tag : Nat) (rest : List Expr) :
     MIR.lowerTotalExprList env (List.replicate tag .Error ++ rest) =
       (MIR.lowerTotalExprList env rest).map (List.replicate tag .Error ++ ·) := by
@@ -89,6 +93,7 @@ theorem lowerTotalExprList_replicate_error (env : List VarId) (tag : Nat) (rest 
     rw [List.replicate_succ, List.cons_append, MIR.lowerTotalExprList_cons, lowerTotalExpr_error, ih]
     cases MIR.lowerTotalExprList env rest <;> rfl
 
+omit sv in
 theorem lowerTotalExpr_alternativeProjection {env : List VarId} {scrut : Expr} {ts : Term} {tag : Nat}
     {binders : List VarId} {x : VarId} {index : Nat} (hts : lowerTotalExpr env scrut = some ts)
     (hx : envLookupT binders.reverse x = some index) :
@@ -101,6 +106,7 @@ theorem lowerTotalExpr_alternativeProjection {env : List VarId} {scrut : Expr} {
     MIR.lowerTotalExprList_cons, lowerTotalExpr_lambdas, hv, MIR.lowerTotalExprList_nil]
   rfl
 
+omit sv in
 theorem freshIn_alternativeProjection {env : List VarId} {scrut : Expr} {tag : Nat}
     {binders : List VarId} {x : VarId} (hfs : freshIn env scrut = true) (hdistinct : NamesDistinct binders)
     (hout : ∀ z ∈ binders, envLookupT env z = none) :

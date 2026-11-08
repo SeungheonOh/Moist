@@ -52,7 +52,7 @@ def knownConstructor (environment : KnownCtors) : Expr → Option KnownCtor
       | (.VCon field, fieldType) => some (Expr.Lit (field, fieldType))
       | _ => none
     let listValue := match constant with
-      | .ConstList _ | .ConstDataList _ => true
+      | .ConstList _ _ => true
       | _ => false
     return ⟨tag, constructorCount, fields, listValue⟩
   | _ => none

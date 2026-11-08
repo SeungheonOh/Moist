@@ -2,6 +2,8 @@ import Moist.Verified.ANFSoundness
 import Moist.Verified.DCESoundness
 import Moist.Verified.InlineSoundness
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Verified Optimization Pipeline
 
 Composes ANF normalization, dead code elimination, and inlining into a

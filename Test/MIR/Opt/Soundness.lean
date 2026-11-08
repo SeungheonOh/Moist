@@ -5,6 +5,10 @@ import Moist.MIR.Lower
 import Moist.CEK.Machine
 import Moist.CEK.Readback
 
+/-- Tests evaluate under semantics variant E (the conformance-suite variant). -/
+private local instance testSemVariant : Moist.CEK.SemVariant := .E
+
+
 namespace Test.MIR.Opt.Soundness
 
 open Moist.MIR

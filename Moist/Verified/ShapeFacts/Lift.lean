@@ -1,6 +1,8 @@
 import Moist.Verified.ShapeFacts.Fresh
 import Moist.Verified.ShapeFacts.Decompose
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Refinement of MIR expressions under facts
 
 `FactRel G P Γ e e'` lifts `FactRefines` to MIR: in every distinct lowering
@@ -53,6 +55,7 @@ theorem FactRel.of_mirCtxRefines_lower {G : VarId → Prop} {P : List VarId → 
 
 /-! ## Environment invariants under binders -/
 
+omit sv in
 theorem KeysBound.cons {Γ : List (VarId × Expr)} {env : List VarId} (h : KeysBound Γ env)
     (x : VarId) : KeysBound Γ (x :: env) := by
   intro entry hmem
@@ -61,6 +64,7 @@ theorem KeysBound.cons {Γ : List (VarId × Expr)} {env : List VarId} (h : KeysB
   · rfl
   · simpa using h entry hmem
 
+omit sv in
 theorem find?_none_of_unbound {Γ : List (VarId × Expr)} {env : List VarId} {x : VarId}
     (hk : KeysBound Γ env) (hx : (envLookupT env x).isNone = true) :
     Γ.find? (fun e => e.1 == x) = none := by
@@ -74,6 +78,7 @@ theorem find?_none_of_unbound {Γ : List (VarId × Expr)} {env : List VarId} {x 
     simp [Option.isSome_iff_ne_none, Option.isNone_iff_eq_none] at this hx
     exact absurd hx this
 
+omit sv in
 theorem FactsScoped.extend {Γ : List (VarId × Expr)} {env : List VarId} {x : VarId}
     (h : FactsScoped Γ env) (hx : Γ.find? (fun e => e.1 == x) = none) :
     FactsScoped Γ (x :: env) := by
@@ -94,6 +99,7 @@ theorem FactsScoped.extend {Γ : List (VarId × Expr)} {env : List VarId} {x : V
       obtain ⟨k, hik, hk, hs⟩ := h y entry i' hf hl'
       exact ⟨k + 1, by omega, by simp; omega, by simpa using hs⟩
 
+omit sv in
 theorem FactsScoped.push {Γ : List (VarId × Expr)} {env : List VarId} {x : VarId} {rhs : Expr}
     (h : FactsScoped Γ env) (hrhs : (lowerTotalExpr env rhs).isSome = true) :
     FactsScoped ((x, rhs) :: Γ) (x :: env) := by
@@ -114,6 +120,7 @@ theorem FactsScoped.push {Γ : List (VarId × Expr)} {env : List VarId} {x : Var
       obtain ⟨k, hik, hk, hs⟩ := h y entry i' hf hl'
       exact ⟨k + 1, by omega, by simp; omega, by simpa using hs⟩
 
+omit sv in
 /-- The invariants of a walk after entering the scope of a binder without a fact. -/
 theorem enter_binder {Γ : List (VarId × Expr)} {env : List VarId} {x : VarId}
     (hd : EnvDistinct env) (hk : KeysBound Γ env) (hs : FactsScoped Γ env)
@@ -122,6 +129,7 @@ theorem enter_binder {Γ : List (VarId × Expr)} {env : List VarId} {x : VarId}
       Γ.find? (fun e => e.1 == x) = none :=
   ⟨hd.cons hx, hk.cons x, hs.extend (find?_none_of_unbound hk hx), find?_none_of_unbound hk hx⟩
 
+omit sv in
 theorem allG_cons {G : VarId → Prop} {x : VarId} {env : List VarId} (hx : G x)
     (h : ∀ y ∈ env, G y) : ∀ y ∈ x :: env, G y := by
   intro y hy
@@ -174,6 +182,7 @@ theorem FactRel.app {G : VarId → Prop} {P : List VarId → CekEnv → Expr →
   refine ⟨.Apply tf' ta', by rw [MIR.lowerTotalExpr_app, htf', hta']; rfl, ?_⟩
   exact factRefines_apply hrf hra (MIR.lowerTotalExpr_closedAt htf') (MIR.lowerTotalExpr_closedAt hta)
 
+omit sv in
 theorem lowerTotalExprList_closedAtList {env : List VarId} {es : List Expr} {ts : List Term}
     (h : MIR.lowerTotalExprList env es = some ts) : closedAtList env.length ts = true :=
   MIR.lowerTotalList_closedAtList env _ ts h
@@ -239,6 +248,7 @@ def envMax : List VarId → Nat
   | [] => 0
   | x :: xs => max x.uid (envMax xs)
 
+omit sv in
 theorem envLookupT_none_of_gt : ∀ (env : List VarId) (y : VarId), envMax env < y.uid →
     envLookupT env y = none
   | [], _, _ => rfl
@@ -355,6 +365,7 @@ theorem FactRel.fix_lam {G : VarId → Prop} {P : List VarId → CekEnv → Expr
 
 /-! ## Bindings -/
 
+omit sv in
 theorem lowerTotalExpr_let_single (env : List VarId) (x : VarId) (r b : Expr) (er : Bool) :
     lowerTotalExpr env (.Let [(x, r, er)] b) =
       (do let tr ← lowerTotalExpr env r
@@ -362,6 +373,7 @@ theorem lowerTotalExpr_let_single (env : List VarId) (x : VarId) (r b : Expr) (e
           some (.Apply (.Lam 0 tb) tr)) := by
   simp only [lowerTotalExpr, expandFix, expandFixBinds, lowerTotal, lowerTotalLet]
 
+omit sv in
 theorem lowerTotalExpr_let_single_some {env : List VarId} {x : VarId} {r b : Expr} {er : Bool}
     {t : Term} (h : lowerTotalExpr env (.Let [(x, r, er)] b) = some t) :
     ∃ tr tb, lowerTotalExpr env r = some tr ∧ lowerTotalExpr (x :: env) b = some tb ∧
@@ -374,6 +386,7 @@ theorem lowerTotalExpr_let_single_some {env : List VarId} {x : VarId} {r b : Exp
     | none => rw [hr, hb] at h; cases h
     | some tb => rw [hr, hb] at h; cases h; exact ⟨tr, tb, rfl, rfl, rfl⟩
 
+omit sv in
 theorem freshIn_let_single {avoid : List VarId} {x : VarId} {r b : Expr} {er : Bool} :
     freshIn avoid (.Let [(x, r, er)] b) =
       (freshIn avoid r && (envLookupT avoid x).isNone && freshIn (x :: avoid) b) := by
@@ -426,6 +439,7 @@ theorem FactRel.let_single {G : VarId → Prop} {P : List VarId → CekEnv → E
   · exact (body trf htrf closedTr).trans (rhs tb' closedTb')
   · exact (rhs tb closedTb).trans (body trf htrf closedTr')
 
+omit sv in
 theorem lowerTotalExpr_let_cons (env : List VarId) (binding : VarId × Expr × Bool)
     (rest : List (VarId × Expr × Bool)) (body : Expr) :
     lowerTotalExpr env (.Let (binding :: rest) body) =
@@ -433,16 +447,19 @@ theorem lowerTotalExpr_let_cons (env : List VarId) (binding : VarId × Expr × B
   obtain ⟨x, r, er⟩ := binding
   simp only [lowerTotalExpr, expandFix, expandFixBinds, lowerTotal, lowerTotalLet]
 
+omit sv in
 theorem freshIn_let_cons (avoid : List VarId) (binding : VarId × Expr × Bool)
     (rest : List (VarId × Expr × Bool)) (body : Expr) :
     freshIn avoid (.Let (binding :: rest) body) = freshIn avoid (.Let [binding] (.Let rest body)) := by
   obtain ⟨x, r, er⟩ := binding
   simp only [freshIn, freshInLet]
 
+omit sv in
 theorem lowerTotalExpr_let_nil (env : List VarId) (body : Expr) :
     lowerTotalExpr env (.Let [] body) = lowerTotalExpr env body := by
   simp only [lowerTotalExpr, expandFix, expandFixBinds, lowerTotal, lowerTotalLet]
 
+omit sv in
 theorem freshIn_let_nil (avoid : List VarId) (body : Expr) :
     freshIn avoid (.Let [] body) = freshIn avoid body := by
   simp only [freshIn, freshInLet]

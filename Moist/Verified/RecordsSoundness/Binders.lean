@@ -1,5 +1,7 @@
 import Moist.Verified.RecordsSoundness.Replace
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Entering several binders with facts
 
 Binding the names `qs` (newest first) in front of an environment, with the
@@ -16,6 +18,7 @@ open Moist.MIR Moist.MIR.Advanced
 open Moist.Verified Moist.Verified.Equivalence Moist.Verified.BetaValueRefines
 open Moist.Verified.Contextual
 
+omit sv in
 theorem envLookupT_append_isSome {env : List VarId} {x : VarId} (h : (envLookupT env x).isSome = true) :
     ∀ (names : List VarId), (envLookupT (names ++ env) x).isSome = true
   | [] => by simpa using h
@@ -25,6 +28,7 @@ theorem envLookupT_append_isSome {env : List VarId} {x : VarId} (h : (envLookupT
     · rfl
     · simpa using envLookupT_append_isSome h ys
 
+omit sv in
 theorem KeysBound.bind {Γ₀ : List (VarId × Expr)} {env : List VarId} (qs : List VarId) (bs : List Expr)
     (hk : KeysBound Γ₀ env) : KeysBound (qs.zip bs ++ Γ₀) (qs ++ env) := by
   intro entry hmem
@@ -42,6 +46,7 @@ theorem KeysBound.bind {Γ₀ : List (VarId × Expr)} {env : List VarId} (qs : L
     rw [envLookupT_append_of_some hi]; rfl
   · exact envLookupT_append_isSome (hk entry hΓ) qs
 
+omit sv in
 theorem FactsScoped.bind {Γ₀ : List (VarId × Expr)} {env : List VarId} (qs : List VarId) (bs : List Expr)
     (h : FactsScoped Γ₀ env) (hbs : qs.length = bs.length)
     (hlow : ∀ b ∈ bs, (lowerTotalExpr env b).isSome = true) :
@@ -77,12 +82,14 @@ theorem FactsScoped.bind {Γ₀ : List (VarId × Expr)} {env : List VarId} (qs :
       rw [← List.drop_drop, List.drop_left]
       exact hs
 
+omit sv in
 theorem zip_map_self (names : List VarId) (f : VarId → Expr) :
     names.zip (names.map f) = names.map fun y => (y, f y) := by
   induction names with
   | nil => rfl
   | cons y ys ih => simp [ih]
 
+omit sv in
 theorem EnvDistinct.append : ∀ {names env : List VarId}, NamesDistinct names → EnvDistinct env →
     (∀ y ∈ names, envLookupT env y = none) → EnvDistinct (names ++ env)
   | [], env, _, hd, _ => hd
@@ -100,6 +107,7 @@ theorem EnvDistinct.append : ∀ {names env : List VarId}, NamesDistinct names �
         have := hn (j + 1) 0 ys[j] y (by simp [hj]) rfl hzy
         omega
 
+omit sv in
 /-- Binders of a lambda telescope that is fresh for an environment are distinct. -/
 theorem lambdas_distinct {binders : List VarId} {body : Expr} {env : List VarId}
     (h : freshIn env (lambdas binders body) = true) : NamesDistinct binders := by
@@ -126,6 +134,7 @@ theorem lambdas_distinct {binders : List VarId} {body : Expr} {env : List VarId}
     rw [varId_beq_symm hab] at hba
     cases hba
 
+omit sv in
 theorem lambdas_outside {binders : List VarId} {body : Expr} {env : List VarId}
     (h : freshIn env (lambdas binders body) = true) : ∀ y ∈ binders, envLookupT env y = none := by
   obtain ⟨hall, _⟩ := (freshIn_lambdas binders body env).mp h
@@ -137,6 +146,7 @@ theorem lambdas_outside {binders : List VarId} {body : Expr} {env : List VarId}
   intro z hz
   exact this z (List.mem_append_right _ hz)
 
+omit sv in
 /-- A telescope of fresh, distinct binders is fresh. -/
 theorem freshIn_lambdas_of {binders : List VarId} {body : Expr} {env : List VarId}
     (hd : NamesDistinct binders) (hout : ∀ y ∈ binders, envLookupT env y = none)

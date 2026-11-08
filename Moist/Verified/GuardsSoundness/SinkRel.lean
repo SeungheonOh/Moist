@@ -1,5 +1,7 @@
 import Moist.Verified.GuardsSoundness.SinkSpec
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Exchanging two steps found by `unitView` -/
 
 namespace Moist.Verified.Guards
@@ -19,6 +21,7 @@ def lamsFresh : List VarId → List VarId → Bool
   | _, [] => true
   | avoid, x :: xs => (envLookupT avoid x).isNone && lamsFresh (x :: avoid) xs
 
+omit sv in
 theorem freshIn_lams : ∀ (bs avoid : List VarId) (X : Expr),
     freshIn avoid (Advanced.lams bs X) = (lamsFresh avoid bs && freshIn (bs.reverse ++ avoid) X)
   | [], avoid, X => by simp [Advanced.lams, lamsFresh]
@@ -27,6 +30,7 @@ theorem freshIn_lams : ∀ (bs avoid : List VarId) (X : Expr),
     simp only [freshIn, lamsFresh, freshIn_lams bs (b :: avoid) X, List.reverse_cons, List.append_assoc,
       List.singleton_append, Bool.and_assoc]
 
+omit sv in
 theorem freshInList_append (avoid : List VarId) :
     ∀ (xs ys : List Expr), freshInList avoid (xs ++ ys) = (freshInList avoid xs && freshInList avoid ys)
   | [], ys => by simp [freshInList]
@@ -108,9 +112,11 @@ theorem lamsFresh_not_mem : ∀ {bs avoid : List VarId}, lamsFresh avoid bs = tr
     · exact hf.1
     · exact lookup_isNone_tail (lamsFresh_not_mem hf.2 y hy)
 
+omit sv in
 theorem beq_symm_var {a b : VarId} (h : (a == b) = true) : (b == a) = true := by
   rw [VarId.beq_true_iff] at h ⊢; exact ⟨h.1.symm, h.2.symm⟩
 
+omit sv in
 theorem lookup_none_beq : ∀ {l : List VarId} {y : VarId}, (envLookupT l y).isNone = true →
     ∀ x ∈ l, (x == y) = false
   | [], _, _, _, hx => by cases hx
@@ -123,6 +129,7 @@ theorem lookup_none_beq : ∀ {l : List VarId} {y : VarId}, (envLookupT l y).isN
       · simpa using hzy
       · exact lookup_none_beq h x hx
 
+omit sv in
 theorem lookup_none_of_beq : ∀ {l : List VarId} {y : VarId}, (∀ x ∈ l, (x == y) = false) →
     (envLookupT l y).isNone = true
   | [], _, _ => rfl
@@ -174,6 +181,7 @@ structure UnitSem (Γ : List (VarId × Expr)) (u : GUnit) where
   ok : ∀ env ρ tE w, EnvWellFormed env.length ρ → env.length ≤ ρ.length → FactsHold PF Γ env ρ →
     EnvDistinct env → lowerTotalExpr env u.expr = some tE → Halts ρ tE w → S.ok w
 
+omit sv in
 theorem fields_some_of_lt {k : Kind} (hk : k = .bool ∨ k = .int ∨ k = .list ∨ k = .pair) {n m j : Nat}
     (hn : k.fields n = some m) (hj : j < n) : ∃ m', k.fields j = some m' := by
   rcases hk with rfl | rfl | rfl | rfl
@@ -244,6 +252,7 @@ theorem unit_sem {Γ : List (VarId × Expr)} : ∀ (u : GUnit), u.valid Γ = tru
 
 /-! ## What `canSwap` checks -/
 
+omit sv in
 theorem contains_flatMap_false {f : Expr → List VarId} {x : VarId} :
     ∀ {es : List Expr}, (es.flatMap f).contains x = false → ∀ p ∈ es, (f p).contains x = false
   | [], _, _, hp => by cases hp
@@ -268,6 +277,7 @@ theorem innerBinders_parts {a : GUnit} {x : VarId} (h : a.innerBinders.contains 
     · exact h.1
     · exact contains_flatMap_false h.2 p hp
 
+omit sv in
 theorem disjoint_spec {xs : List VarId} {vars : VarSet} (h : disjoint xs vars = true) :
     ∀ x ∈ xs, vars.contains x = false := by
   intro x hx
@@ -292,6 +302,7 @@ theorem canSwap_spec {Γ : List (VarId × Expr)} {a b : GUnit} (h : canSwap Γ a
 
 /-! ## Exchanging two steps -/
 
+omit sv in
 theorem freshInList_mem {avoid : List VarId} :
     ∀ {es : List Expr}, freshInList avoid es = true → ∀ e ∈ es, freshIn avoid e = true
   | [], _, _, he => by cases he
@@ -301,6 +312,7 @@ theorem freshInList_mem {avoid : List VarId} :
     · exact h.1
     · exact freshInList_mem h.2 e' he'
 
+omit sv in
 theorem _root_.Moist.MIR.Advanced.GUnit.expr_mem_parts (u : GUnit) : u.expr ∈ u.parts := by
   cases u <;> simp [GUnit.expr, GUnit.parts]
 
@@ -405,11 +417,13 @@ theorem lams_rel {Γ : List (VarId × Expr)} : ∀ (bs : List VarId) {X X' : Exp
   | [], _, _, h => h
   | _ :: bs, _, _, h => (lams_rel bs h).lam trivial
 
+omit sv in
 theorem listRel_mid {R : Expr → Expr → Prop} (hR : ∀ e, R e e) {y y' : Expr} (hy : R y y') :
     ∀ (xs zs : List Expr), ListRel R (xs ++ [y] ++ zs) (xs ++ [y'] ++ zs)
   | [], zs => ⟨hy, listRel_refl hR zs⟩
   | x :: xs, zs => ⟨hR x, listRel_mid hR hy xs zs⟩
 
+omit sv in
 theorem valid_two_binders {Γ : List (VarId × Expr)} {s : Expr} {before after : List Expr} {h t : VarId}
     (hv : (GUnit.cases s before after [h, t]).valid Γ = true) : before = [] := by
   simp only [GUnit.valid] at hv

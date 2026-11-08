@@ -45,6 +45,7 @@ import Test.MIR.Opt.Axioms
 import Test.Onchain.ConstitutionEncoding
 import Test.Onchain.CollectionEncoding
 import Test.Onchain.RecursiveEncoding
+import Test.CEK.Fidelity
 
 namespace Test.MIR
 
@@ -101,5 +102,7 @@ def testTree : TestTree := suite "mir" do
     Test.MIR.Eval.Policy.policyTree
   group "analysis" do
     Test.MIR.Analysis.Unit.unitTree
+  group "cek" do
+    Test.CEK.Fidelity.tests
 
 end Test.MIR

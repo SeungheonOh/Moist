@@ -1,5 +1,9 @@
 import Moist.Verified.InlineSoundness.FrontierError
 
+/-- Tests evaluate under semantics variant E (the conformance-suite variant). -/
+private local instance testSemVariant : Moist.CEK.SemVariant := .E
+
+
 namespace Test.MIR.Opt.FrontierCertificates
 
 open Moist.Plutus.Term Moist.Verified

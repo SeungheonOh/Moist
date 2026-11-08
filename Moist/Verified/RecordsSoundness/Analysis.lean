@@ -1,5 +1,7 @@
 import Moist.Verified.RecordsSoundness.Steps
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Soundness of `shapeOf`
 
 Under realized facts, whatever an expression returns has the shape that
@@ -23,6 +25,7 @@ def ShapeSound (P : List VarId → CekEnv → Expr → CekValue → Prop) (fuel 
     {v : CekValue}, FactsHold P Γ env ρ → EnvDistinct env → freshIn env e = true →
     lowerTotalExpr env e = some t → Halts ρ t v → ShapeHolds (shapeOf fuel depth Γ e) v
 
+omit sv in
 theorem stripLams_spec : ∀ (count : Nat) (expression : Expr) (binders : List VarId) (body : Expr),
     stripLams count expression = some (binders, body) →
       expression = lambdas binders body ∧ binders.length = count
@@ -46,8 +49,10 @@ theorem stripLams_spec : ∀ (count : Nat) (expression : Expr) (binders : List V
   | _ + 1, .Force _, _, _, h | _ + 1, .Delay _, _, _, h | _ + 1, .Constr _ _, _, _, h
   | _ + 1, .Case _ _, _, _, h | _ + 1, .Let _ _, _, _, h => by simp [stripLams] at h
 
+omit sv in
 theorem stripLams_zero (expression : Expr) : stripLams 0 expression = some ([], expression) := rfl
 
+omit sv in
 /-- Facts survive entering binders after hiding the facts about them. -/
 theorem FactsHold.hide {Γ : List (VarId × Expr)} {env : List VarId} {ρ : CekEnv}
     (h : FactsHold P Γ env ρ) (binders : List VarId) (fields : List CekValue)
@@ -198,6 +203,7 @@ theorem alternative_sound {fuel depth : Nat} (hP : ∀ env ρ rhs v, P env ρ rh
       · trivial
     · exact plain_sound ih hfacts hd hfa hta hrun
 
+omit sv in
 theorem alternativesShape_holds (recur : List (VarId × Expr) → Expr → Shape) (listScrutinee : Bool)
     (Γ : List (VarId × Expr)) (scrutinee : Shape) :
     ∀ (base : Nat) (alts : List Expr) (j : Nat) (alt : Expr) (v : CekValue), alts[j]? = some alt →

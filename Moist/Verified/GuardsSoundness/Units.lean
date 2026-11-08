@@ -1,5 +1,7 @@
 import Moist.Verified.GuardsSoundness.UnitSwap
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # The three kinds of strict steps -/
 
 namespace Moist.Verified.Guards
@@ -94,6 +96,7 @@ theorem lamN_steps : ∀ (n : Nat) (tb : Term) (fs : List CekValue) (ρ : CekEnv
     exact reaches_trans (reaches_of_steps 2 rfl) (lamN_steps n tb fs (ρ.extend f) π h)
   | 0, _, _ :: _, _, _, h | _ + 1, _, [], _, _, h => by simp at h
 
+omit sv in
 theorem closedAt_lamN : ∀ (n d : Nat) (t : Term), closedAt d (lamN n t) = closedAt (d + n) t
   | 0, _, _ => rfl
   | n + 1, d, t => by
@@ -110,6 +113,7 @@ def dispatchIdx (len : Nat) : CekValue → Option (Nat × List CekValue)
     | none => none
   | _ => none
 
+omit sv in
 theorem dispatch_idx (alts : List Term) (w : CekValue) :
     dispatch alts w = (dispatchIdx alts.length w).bind fun r => alts[r.1]?.map fun a => (a, r.2) := by
   cases w with
@@ -152,6 +156,7 @@ structure CaseShape where
 
 def CaseShape.alts (S : CaseShape) (b : Term) : List Term := S.before ++ [lamN S.arity b] ++ S.after
 
+omit sv in
 theorem CaseShape.alts_length (S : CaseShape) (b : Term) :
     (S.alts b).length = S.before.length + 1 + S.after.length := by
   simp [CaseShape.alts]; omega
@@ -161,6 +166,7 @@ def CaseShape.out (S : CaseShape) (w : CekValue) : Option (List CekValue) :=
   | some (i, fs) => if i = S.before.length then some fs else none
   | none => none
 
+omit sv in
 theorem CaseShape.get_alt (S : CaseShape) (b : Term) (i : Nat) :
     (S.alts b)[i]? =
       if i < S.before.length then S.before[i]?
@@ -177,6 +183,7 @@ theorem CaseShape.get_alt (S : CaseShape) (b : Term) (i : Nat) :
       simp only [List.length_append, List.length_cons, List.length_nil]
       congr 1
 
+omit sv in
 /-- The fields of the selected tag are those its shape announces. -/
 theorem dispatchIdx_kind {k : Kind} (hk : k = .bool ∨ k = .int ∨ k = .list ∨ k = .pair) {w : CekValue}
     (hkv : KindV k w) {len i : Nat} {fs : List CekValue} (h : dispatchIdx len w = some (i, fs)) :
@@ -212,6 +219,7 @@ theorem dispatchIdx_kind {k : Kind} (hk : k = .bool ∨ k = .int ∨ k = .list �
   · obtain ⟨n, xs, rfl⟩ := hkv
     exact vcon _ rfl 0 1 _ rfl rfl
 
+omit sv in
 theorem CaseShape.select (S : CaseShape) {b : Term} {w : CekValue} {alt : Term} {fs : List CekValue}
     (h : dispatch (S.alts b) w = some (alt, fs)) :
     ∃ i, dispatchIdx (S.before.length + 1 + S.after.length) w = some (i, fs) ∧ (S.alts b)[i]? = some alt := by
@@ -230,6 +238,7 @@ theorem lamN_error_fails (m : Nat) (fs : List CekValue) (ρ : CekEnv) (π : Stac
     Reaches (.compute (fs.map Frame.applyArg ++ π) ρ (lamN m .Error)) .error :=
   reaches_trans (lamN_steps m _ fs ρ π h) (reaches_of_steps 1 rfl)
 
+omit sv in
 theorem closedAtList_of_forall {d : Nat} : ∀ (ts : List Term), (∀ t ∈ ts, closedAt d t = true) →
     closedAtList d ts = true
   | [], _ => by simp [closedAtList]

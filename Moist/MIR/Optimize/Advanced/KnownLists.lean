@@ -32,9 +32,7 @@ def knownListValue : Nat → List (VarId × Expr) → List VarId → Expr → Bo
       lists.contains binder ||
         (environment.find? (fun entry => entry.1 == binder)).any
           (fun entry => knownListValue fuel environment lists entry.2)
-    | .Lit (.ConstList _, .TypeOperator (.TypeList _))
-    | .Lit (.ConstDataList _, .TypeOperator (.TypeList _))
-    | .Lit (.ConstPairDataList _, .TypeOperator (.TypeList _)) => true
+    | .Lit (.ConstList _ _, .TypeOperator (.TypeList _)) => true
     | .App function argument =>
       match resolveHead fuel environment function with
       | .Builtin .UnListData | .Builtin .UnMapData | .Force (.Builtin .TailList) => true

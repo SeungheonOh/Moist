@@ -2,6 +2,8 @@ import Moist.Verified.InlineSoundness
 import Moist.Verified.AdvancedTraversal
 import Moist.MIR.Optimize.Advanced.Allocations
 
+variable [sv : Moist.CEK.SemVariant]
+
 namespace Moist.Verified.MIR
 
 open Moist.MIR Moist.MIR.Advanced
@@ -45,6 +47,7 @@ private def fixUnroll (recursive parameter self argument binder : VarId) (body :
     (.Lam self (.App (.Lam recursive (.Lam parameter body))
       (.Lam argument (.App (.App (.Var self) (.Var self)) (.Var argument)))))
 
+omit sv in
 private theorem fixUnroll_lower (environment : List VarId)
     (recursive parameter self argument binder : VarId) (body : Expr)
     (different : (argument == self) = false) :
@@ -98,6 +101,7 @@ theorem eliminateDeadFix_refines (expression : Expr) :
   rewriteBottomUp_refines eliminateDeadFixRoot eliminateDeadFixRoot_refines
     (fun _ _ => rfl) (exprSize expression) expression
 
+omit sv in
 theorem eliminateDeadFix_recursive_eq (expression : Expr) :
     eliminateDeadFix expression = eliminateDeadFixRoot (mapChildren eliminateDeadFix expression) :=
   rewriteBottomUp_complete eliminateDeadFixRoot expression

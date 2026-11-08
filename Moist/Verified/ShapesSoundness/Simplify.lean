@@ -2,6 +2,8 @@ import Moist.Verified.ShapesSoundness.Integers
 import Moist.Verified.ShapesSoundness.DataComparisons
 import Moist.Verified.ShapesSoundness.BooleanCases
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # The fact-driven simplifier
 
 `simplifyWalk` refines its input under the facts it records (`simplifyWalk_factRel`).
@@ -32,6 +34,7 @@ theorem checkedRoundTrip_factRel {G : VarId → Prop} {Γ : List (VarId × Expr)
     · cases h
   · cases h
 
+omit sv in
 theorem checkedRoundTrip_fresh {Γ : List (VarId × Expr)} {x y : Expr} {env : List VarId}
     (h : checkedRoundTrip Γ x = some y) : freshIn env y = true := by
   unfold checkedRoundTrip at h
@@ -53,6 +56,7 @@ theorem stage1_factRel {G : VarId → Prop} (useShapes : Bool) (Γ : List (VarId
     | some y => exact checkedRoundTrip_factRel hc
   · exact FactRel.refl _ _ _ _
 
+omit sv in
 theorem stage1_fresh (useShapes : Bool) (Γ : List (VarId × Expr)) {x : Expr} {env : List VarId}
     (hx : freshIn env x = true) :
     freshIn env (if useShapes then (checkedRoundTrip Γ x).getD x else x) = true := by
@@ -70,6 +74,7 @@ theorem stage2_factRel {G : VarId → Prop} (useShapes : Bool) (base : Nat) (Γ 
     | some y => exact integerIdentity_factRel hc
   · exact FactRel.refl _ _ _ _
 
+omit sv in
 theorem stage2_fresh (useShapes : Bool) (base : Nat) (Γ : List (VarId × Expr)) {x : Expr}
     {env : List VarId} (hG : ∀ y ∈ env, GenSafe base y) (hx : freshIn env x = true) :
     freshIn env (if useShapes then (integerIdentity base Γ x).getD x else x) = true := by
@@ -79,39 +84,22 @@ theorem stage2_fresh (useShapes : Bool) (base : Nat) (Γ : List (VarId × Expr))
     | some y => exact integerIdentity_fresh hG hx hc
   · exact hx
 
-theorem stage3_factRel {G : VarId → Prop} (useShapes : Bool) (Γ : List (VarId × Expr)) (x : Expr) :
-    FactRel G PF Γ x (if useShapes then (dataComparison Γ x).getD x else x) := by
-  split
-  · cases hc : dataComparison Γ x with
-    | none => exact FactRel.refl _ _ _ _
-    | some y => exact dataComparison_factRel hc
-  · exact FactRel.refl _ _ _ _
-
-theorem stage3_fresh (useShapes : Bool) (Γ : List (VarId × Expr)) {x : Expr} {env : List VarId}
-    (hx : freshIn env x = true) :
-    freshIn env (if useShapes then (dataComparison Γ x).getD x else x) = true := by
-  split
-  · cases hc : dataComparison Γ x with
-    | none => exact hx
-    | some y => exact dataComparison_fresh hc
-  · exact hx
-
 theorem checkedRewrite_factRel (useShapes : Bool) (base : Nat) (Γ : List (VarId × Expr)) (x : Expr) :
     FactRel (GenSafe base) PF Γ x (checkedRewrite useShapes base Γ x) := by
   unfold checkedRewrite
   simp only []
   generalize hr₁ : (if useShapes = true then (checkedRoundTrip Γ x).getD x else x) = r₁
   generalize hr₂ : (if useShapes = true then (integerIdentity base Γ r₁).getD r₁ else r₁) = r₂
-  generalize hr₃ : (if useShapes = true then (dataComparison Γ r₂).getD r₂ else r₂) = r₃
+  generalize hr₃ : r₂ = r₃
   have s₁ : FactRel (GenSafe base) PF Γ x r₁ := hr₁ ▸ stage1_factRel useShapes Γ x
   have s₂ : FactRel (GenSafe base) PF Γ r₁ r₂ := hr₂ ▸ stage2_factRel useShapes base Γ r₁
-  have s₃ : FactRel (GenSafe base) PF Γ r₂ r₃ := hr₃ ▸ stage3_factRel useShapes Γ r₂
+  have s₃ : FactRel (GenSafe base) PF Γ r₂ r₃ := hr₃ ▸ FactRel.refl _ _ _ _
   have f₁ : ∀ env, (∀ y ∈ env, GenSafe base y) → freshIn env x = true → freshIn env r₁ = true :=
     fun env _ hx => hr₁ ▸ stage1_fresh useShapes Γ hx
   have f₂ : ∀ env, (∀ y ∈ env, GenSafe base y) → freshIn env r₁ = true → freshIn env r₂ = true :=
     fun env hG hx => hr₂ ▸ stage2_fresh useShapes base Γ hG hx
   have f₃ : ∀ env, (∀ y ∈ env, GenSafe base y) → freshIn env r₂ = true → freshIn env r₃ = true :=
-    fun env _ hx => hr₃ ▸ stage3_fresh useShapes Γ hx
+    fun env _ hx => hr₃ ▸ hx
   refine ((s₁.trans s₂ f₁).trans s₃ (fun env hG hx => f₂ env hG (f₁ env hG hx))).trans ?_
     (fun env hG hx => f₃ env hG (f₂ env hG (f₁ env hG hx)))
   clear s₁ s₂ s₃ f₁ f₂ f₃ hr₂ hr₃
@@ -139,6 +127,7 @@ theorem checkedRewrite_factRel (useShapes : Bool) (base : Nat) (Γ : List (VarId
     · exact FactRel.refl _ _ _ _
   · exact FactRel.refl _ _ _ _
 
+omit sv in
 theorem freshInList_map_delay {env : List VarId} :
     ∀ (bodies : List Expr), freshInList env (bodies.map .Delay) = freshInList env bodies
   | [] => rfl
@@ -151,10 +140,10 @@ theorem checkedRewrite_fresh (useShapes : Bool) (base : Nat) (Γ : List (VarId �
   simp only []
   generalize hr₁ : (if useShapes = true then (checkedRoundTrip Γ x).getD x else x) = r₁
   generalize hr₂ : (if useShapes = true then (integerIdentity base Γ r₁).getD r₁ else r₁) = r₂
-  generalize hr₃ : (if useShapes = true then (dataComparison Γ r₂).getD r₂ else r₂) = r₃
+  generalize hr₃ : r₂ = r₃
   have f₁ : freshIn env r₁ = true := hr₁ ▸ stage1_fresh useShapes Γ hx
   have f₂' : freshIn env r₂ = true := hr₂ ▸ stage2_fresh useShapes base Γ hG f₁
-  have f₂ : freshIn env r₃ = true := hr₃ ▸ stage3_fresh useShapes Γ f₂'
+  have f₂ : freshIn env r₃ = true := hr₃ ▸ f₂'
   clear hr₂ hr₃
   split
   · split
@@ -197,6 +186,7 @@ theorem shapeRewrite_fresh (useShapes : Bool) (base : Nat) (Γ : List (VarId × 
 
 /-! ## Freshness of the walk -/
 
+omit sv in
 theorem avoids_drop_head (x : VarId) (env : List VarId) (bound : Nat) : Avoids (x :: env) env bound := by
   intro y hy
   left
@@ -205,6 +195,7 @@ theorem avoids_drop_head (x : VarId) (env : List VarId) (bound : Nat) : Avoids (
   · rfl
   · simp only [Option.isSome_map]; exact hy
 
+omit sv in
 theorem maxUidExprBinds_mem : ∀ {b : VarId × Expr × Bool} {bs : List (VarId × Expr × Bool)}, b ∈ bs →
     b.1.uid ≤ maxUidExprBinds bs ∧ maxUidExpr b.2.1 ≤ maxUidExprBinds bs
   | _, (x, r, er) :: rest, h => by

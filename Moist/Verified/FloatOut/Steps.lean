@@ -1,5 +1,7 @@
 import Moist.Verified.FloatOut.Lowering
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Single float-out steps on MIR
 
 * `mirCtxRefines_floatLam`: `λx. let v = p; rest in b ⊑ let v = p in λx. let rest in b`
@@ -39,6 +41,7 @@ theorem mirCtxRefines_of_shapeCtx {α : Type} {m₁ m₂ : Expr}
   | none => exact ⟨id, trivial⟩
   | some a => exact ⟨fun _ => rfl, hsem env a hP⟩
 
+omit sv in
 theorem total_of_pure {env : List VarId} {p : Expr} {tp : Term} (hp : isPure p = true)
     (h : lowerTotalExpr env p = some tp) : TotalTerm tp :=
   lowerTotal_total (expandFix p) env tp (Moist.Verified.Purity.isPure_expandFix p hp) h
@@ -120,6 +123,7 @@ theorem mirCtxRefines_floatFix {f x v : VarId} {p : Expr} {er : Bool}
 
 /-! ## Reordering a pure binding before an earlier one -/
 
+omit sv in
 theorem lowerTotalExpr_app_lam (env : List VarId) (x : VarId) (M e : Expr) (er : Bool) :
     lowerTotalExpr env (.App (.Lam x M) e) = lowerTotalExpr env (.Let [(x, e, er)] M) := by
   rw [lowerTotalExpr_app, lowerTotalExpr_lam, lowerTotalExpr_let_single]

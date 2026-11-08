@@ -1,6 +1,8 @@
 import Moist.Verified.CheckedBranchesSoundness.Builtins
 import Moist.MIR.Optimize.Advanced.CheckedBranches
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Delayed list choices as a discriminator
 
 `force (chooseList l (delay e) (delay n))` becomes `case (nullList l) [n, e]`.
@@ -56,6 +58,7 @@ theorem delayedChoice_obsRefines {ρ : CekEnv} {π : Stack} {ts ti tem tne : Ter
           (obsRefines_refl _)
 
 
+omit sv in
 theorem lowerTotalExpr_nullCase {env : List VarId} {input ne em : Expr} {ti tne tem : Term}
     (hti : lowerTotalExpr env input = some ti) (htne : lowerTotalExpr env ne = some tne)
     (htem : lowerTotalExpr env em = some tem) :
@@ -97,6 +100,7 @@ theorem delayedChoice_factRel {G : VarId → Prop} {Γ : List (VarId × Expr)}
       closedTi) ⟨hrne, hrem, trivial⟩ (by simp [closedAt, closedTi']) ?_
     simp [closedAtList, MIR.lowerTotalExpr_closedAt htne, MIR.lowerTotalExpr_closedAt htem]
 
+omit sv in
 theorem beq_chooseList {x : Expr} (h : (x == Expr.Force (.Force (.Builtin .ChooseList))) = true) :
     x = .Force (.Force (.Builtin .ChooseList)) := by
   cases x with

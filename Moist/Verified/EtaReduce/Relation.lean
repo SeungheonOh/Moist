@@ -1,6 +1,8 @@
 import Moist.Verified.FundamentalRefines
 import Moist.Verified.AdvancedRefinement
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # A logical relation for eta reduction
 
 `EtaRel` is the step-indexed value refinement of `Contextual.Guarded.ValueRel`
@@ -465,6 +467,7 @@ theorem constrField_stackRel {tag : Nat} {ρ₁ ρ₂ : CekEnv} :
 
 /-! ## Fundamental property for renamed terms -/
 
+omit sv in
 private theorem lookup_zero (ρ : CekEnv) : ρ.lookup 0 = none := by
   cases ρ <;> rfl
 
@@ -559,6 +562,7 @@ theorem fundamental (d : Nat) (t : Term) (ht : closedAt d t = true) : OpenRel d 
 
 /-! ## Fundamental property for `TermSubstL` and soundness -/
 
+omit sv in
 private theorem termListSubstL_listRel {t₁ t₂ : Term} {R : Term → Term → Prop}
     (h : ∀ {a₁ a₂}, TermSubstL t₁ t₂ a₁ a₂ → R a₁ a₂) :
     ∀ {l₁ l₂ : List Term}, TermListSubstL t₁ t₂ l₁ l₂ → ListRel R l₁ l₂

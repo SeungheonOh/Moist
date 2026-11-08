@@ -4,6 +4,8 @@ import Moist.Verified.Purity
 import Moist.Verified.StepLift
 import Moist.Verified.FundamentalRefines
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Dead-let refinement
 
 `Apply (Lam 0 (shift body)) rhs ⊑ body` whenever `rhs` returns to its

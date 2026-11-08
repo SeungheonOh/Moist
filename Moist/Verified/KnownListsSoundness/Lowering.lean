@@ -1,5 +1,7 @@
 import Moist.Verified.KnownListsSoundness.Rewrites
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Lowering checked calls
 
 A body accepted by `listCallsOK f m P names` lowers to a term satisfying
@@ -15,6 +17,7 @@ open Moist.CEK Moist.Plutus.Term
 open Moist.MIR Moist.MIR.Advanced
 open Moist.Verified Moist.Verified.ShapeFacts
 
+omit sv in
 theorem envLookupT_inj : ∀ (env : List VarId) {x y : VarId} {i : Nat},
     envLookupT env x = some i → envLookupT env y = some i → (x == y) = true
   | [], x, y, i, hx, _ => by simp [envLookupT, envLookupT.go] at hx
@@ -53,6 +56,7 @@ structure CheckCtx (f : VarId) (σs names env : List VarId) (F : Nat) (X Ls : Li
   avoid : ∀ x ∈ X, 0 < x ∧ ∃ σ ∈ σs, envLookupT env σ = some (x - 1)
   lists : ∀ y, names.contains y = true → ∃ i, envLookupT env y = some i ∧ i + 1 ∈ Ls
 
+omit sv in
 theorem lookup_shift {env : List VarId} {x y : VarId} {i : Nat}
     (hx : (envLookupT env x).isNone = true) (hy : envLookupT env y = some i) :
     envLookupT (x :: env) y = some (i + 1) := by
@@ -62,6 +66,7 @@ theorem lookup_shift {env : List VarId} {x y : VarId} {i : Nat}
     · rw [envLookupT_congr h, hy] at hx; cases hx
   rw [envLookupT_cons_neq x y env hxy, hy]; rfl
 
+omit sv in
 theorem CheckCtx.cons {f : VarId} {σs names env : List VarId} {F : Nat} {X Ls : List Nat}
     (h : CheckCtx f σs names env F X Ls) (x : VarId) (hx : (envLookupT env x).isNone = true) :
     CheckCtx f σs names (x :: env) (F + 1) (shiftLs 1 X) (shiftLs 1 Ls) := by
@@ -74,6 +79,7 @@ theorem CheckCtx.cons {f : VarId} {σs names env : List VarId} {F : Nat} {X Ls :
   · obtain ⟨i, hi, hLs⟩ := h.lists y hy
     exact ⟨i + 1, lookup_shift hx hi, mem_shiftLs.mpr ⟨i + 1, hLs, rfl⟩⟩
 
+omit sv in
 theorem CheckCtx.tail {f : VarId} {σs names env : List VarId} {F : Nat} {X Ls : List Nat}
     (h : CheckCtx f σs names env F X Ls) (hd t : VarId) (hh : (envLookupT env hd).isNone = true)
     (ht : (envLookupT (hd :: env) t).isNone = true) :
@@ -93,43 +99,52 @@ theorem CheckCtx.tail {f : VarId} {σs names env : List VarId} {F : Nat} {X Ls :
 
 /-! ## Equations of the check -/
 
+omit sv in
 theorem listCallsOK_var {f : VarId} {m : Nat} {P : List Nat} {names : List VarId} {x : VarId} :
     listCallsOK f m P names (.Var x) = !(x == f) := by
   rw [listCallsOK]
 
+omit sv in
 theorem listCallsOK_lam {f : VarId} {m : Nat} {P : List Nat} {names : List VarId} {x : VarId}
     {b : Expr} : listCallsOK f m P names (.Lam x b) = listCallsOK f m P names b := by
   rw [listCallsOK]
 
+omit sv in
 theorem listCallsOK_fix {f : VarId} {m : Nat} {P : List Nat} {names : List VarId} {x : VarId}
     {b : Expr} : listCallsOK f m P names (.Fix x b) = listCallsOK f m P names b := by
   rw [listCallsOK]
 
+omit sv in
 theorem listCallsOK_app {f : VarId} {m : Nat} {P : List Nat} {names : List VarId} {g a : Expr} :
     listCallsOK f m P names (.App g a) =
       (listCallSpine f m P names m g a ||
         (listCallsOK f m P names g && listCallsOK f m P names a)) := by
   rw [listCallsOK]
 
+omit sv in
 theorem listCallsOK_force {f : VarId} {m : Nat} {P : List Nat} {names : List VarId} {b : Expr} :
     listCallsOK f m P names (.Force b) = listCallsOK f m P names b := by
   rw [listCallsOK]
 
+omit sv in
 theorem listCallsOK_delay {f : VarId} {m : Nat} {P : List Nat} {names : List VarId} {b : Expr} :
     listCallsOK f m P names (.Delay b) = listCallsOK f m P names b := by
   rw [listCallsOK]
 
+omit sv in
 theorem listCallsOK_constr {f : VarId} {m : Nat} {P : List Nat} {names : List VarId} {tag : Nat}
     {fs : List Expr} :
     listCallsOK f m P names (.Constr tag fs) = listCallsOKList f m P names fs := by
   rw [listCallsOK]
 
+omit sv in
 theorem listCallsOK_let {f : VarId} {m : Nat} {P : List Nat} {names : List VarId}
     {bs : List (VarId × Expr × Bool)} {b : Expr} :
     listCallsOK f m P names (.Let bs b) =
       (listCallsOKBinds f m P names bs && listCallsOK f m P names b) := by
   rw [listCallsOK]
 
+omit sv in
 theorem listCallsOK_case {f : VarId} {m : Nat} {P : List Nat} {names : List VarId} {s : Expr}
     {alts : List Expr} (h : listCallsOK f m P names (.Case s alts) = true) :
     (∃ z hd t C rest, s = .Var z ∧ alts = .Lam hd (.Lam t C) :: rest ∧ names.contains z = true ∧
@@ -147,6 +162,7 @@ theorem listCallsOK_case {f : VarId} {m : Nat} {P : List Nat} {names : List VarI
   · simp only [Bool.and_eq_true] at h
     exact .inr h
 
+omit sv in
 theorem listCallSpine_succ {f : VarId} {m : Nat} {P : List Nat} {names : List VarId} {r : Nat}
     {g a : Expr} :
     listCallSpine f m P names (r + 1) g a =
@@ -154,10 +170,12 @@ theorem listCallSpine_succ {f : VarId} {m : Nat} {P : List Nat} {names : List Va
         listCallHead f m P names r g) := by
   rw [listCallSpine]
 
+omit sv in
 theorem listCallSpine_zero {f : VarId} {m : Nat} {P : List Nat} {names : List VarId} {g a : Expr} :
     listCallSpine f m P names 0 g a = false := by
   rw [listCallSpine]
 
+omit sv in
 theorem listCallHead_eq {f : VarId} {m : Nat} {P : List Nat} {names : List VarId} {r : Nat}
     {e : Expr} (h : listCallHead f m P names r e = true) :
     (r = 0 ∧ ∃ b, e = .Var b ∧ (b == f) = true) ∨
@@ -168,22 +186,26 @@ theorem listCallHead_eq {f : VarId} {m : Nat} {P : List Nat} {names : List VarId
   · exact .inr ⟨_, _, _, rfl, rfl, h⟩
   · cases h
 
+omit sv in
 theorem listCallsOKList_cons {f : VarId} {m : Nat} {P : List Nat} {names : List VarId} {e : Expr}
     {es : List Expr} :
     listCallsOKList f m P names (e :: es) =
       (listCallsOK f m P names e && listCallsOKList f m P names es) := by
   rw [listCallsOKList]
 
+omit sv in
 theorem listCallsOKBinds_cons {f : VarId} {m : Nat} {P : List Nat} {names : List VarId}
     {x : VarId} {r : Expr} {er : Bool} {bs : List (VarId × Expr × Bool)} :
     listCallsOKBinds f m P names ((x, r, er) :: bs) =
       (listCallsOK f m P names r && listCallsOKBinds f m P names bs) := by
   rw [listCallsOKBinds]
 
+omit sv in
 theorem listCallsOKBinds_nil {f : VarId} {m : Nat} {P : List Nat} {names : List VarId} :
     listCallsOKBinds f m P names [] = true := by
   rw [listCallsOKBinds]
 
+omit sv in
 theorem argOK_of_listArgument {f : VarId} {σs names env : List VarId} {F : Nat} {X Ls : List Nat}
     {P : List Nat} {p : Nat} {a : Expr} {ta : Term} (hc : CheckCtx f σs names env F X Ls)
     (h : listArgument names P p a = true) (hlow : lowerTotalExpr env a = some ta) :
@@ -199,6 +221,7 @@ theorem argOK_of_listArgument {f : VarId} {σs names env : List VarId} {F : Nat}
     rw [hi] at hi'; cases hi'
     exact ⟨i + 1, rfl, hLs⟩
 
+omit sv in
 /-- The self-application wrapper of a nested fixed point. -/
 theorem calls_wrap {P : List Nat} {m F : Nat} {X Ls : List Nat} {tb : Term} (hF : 0 < F)
     (hX : ∀ x ∈ X, 0 < x)
@@ -240,6 +263,7 @@ theorem freshIn_fix_body {env : List VarId} {g y s : VarId} {b : Expr}
         omega
       · left; simpa using hz
 
+omit sv in
 theorem uid_child {σs : List VarId} {a b : Nat} (h : ∀ σ ∈ σs, b < σ.uid) (hab : a ≤ b) :
     ∀ σ ∈ σs, a < σ.uid := fun σ hσ => Nat.lt_of_le_of_lt hab (h σ hσ)
 

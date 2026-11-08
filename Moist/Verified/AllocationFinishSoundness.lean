@@ -3,6 +3,8 @@ import Moist.Verified.SharingSoundness
 import Moist.Verified.PlacementSoundness
 import Moist.MIR.Optimize.Advanced
 
+variable [sv : Moist.CEK.SemVariant]
+
 namespace Moist.Verified.MIR
 
 open Moist.MIR Moist.MIR.Advanced

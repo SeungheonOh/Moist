@@ -6,6 +6,8 @@ import Moist.Verified.Contextual.SoundnessRefines
 import Moist.Verified.Definitions.MIR
 import Moist.MIR.LowerTotal
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # MIR-level refinement
 
 Lifts UPLC refinement to MIR expressions via `lowerTotalExpr`:
@@ -35,6 +37,7 @@ Bridging lemmas connecting `Moist.MIR.lowerTotal` with the
 below (and indirectly by the dead-let refinement proof). -/
 
 open Moist.MIR (envLookupT_bound lowerTotalList) in
+omit sv in
 mutual
   theorem lowerTotal_closedAt (env : List VarId) (e : Expr) (t : Moist.Plutus.Term.Term)
       (h : Moist.MIR.lowerTotal env e = some t) : closedAt env.length t = true := by
@@ -110,6 +113,7 @@ mutual
   termination_by sizeOf binds + sizeOf body
 end
 
+omit sv in
 /-- Lift `lowerTotal_closedAt` through `lowerTotalExpr`'s extra `expandFix`
     step: if `lowerTotalExpr env e = some t`, then `t` is closed at
     `env.length`. -/
@@ -217,18 +221,21 @@ theorem mirRefines_to_mirCtxRefines {m₁ m₂ : Expr} (h : MIRRefines m₁ m₂
 
 /-! ### 6a. `lowerTotalExpr` compositional decomposition -/
 
+omit sv in
 /-- `lowerTotalExpr` commutes with `.Force`. -/
 theorem lowerTotalExpr_force (env : List VarId) (t : Expr) :
     lowerTotalExpr env (.Force t) = (lowerTotalExpr env t).map .Force := by
   simp only [lowerTotalExpr, Moist.MIR.expandFix, Moist.MIR.lowerTotal]
   cases Moist.MIR.lowerTotal env (Moist.MIR.expandFix t) <;> rfl
 
+omit sv in
 /-- `lowerTotalExpr` commutes with `.Delay`. -/
 theorem lowerTotalExpr_delay (env : List VarId) (t : Expr) :
     lowerTotalExpr env (.Delay t) = (lowerTotalExpr env t).map .Delay := by
   simp only [lowerTotalExpr, Moist.MIR.expandFix, Moist.MIR.lowerTotal]
   cases Moist.MIR.lowerTotal env (Moist.MIR.expandFix t) <;> rfl
 
+omit sv in
 /-- `lowerTotalExpr` commutes with `.Lam` (shifting `x` onto the env). -/
 theorem lowerTotalExpr_lam (env : List VarId) (x : VarId) (body : Expr) :
     lowerTotalExpr env (.Lam x body) =
@@ -236,6 +243,7 @@ theorem lowerTotalExpr_lam (env : List VarId) (x : VarId) (body : Expr) :
   simp only [lowerTotalExpr, Moist.MIR.expandFix, Moist.MIR.lowerTotal]
   cases Moist.MIR.lowerTotal (x :: env) (Moist.MIR.expandFix body) <;> rfl
 
+omit sv in
 /-- `lowerTotalExpr` commutes with `.App`. -/
 theorem lowerTotalExpr_app (env : List VarId) (f a : Expr) :
     lowerTotalExpr env (.App f a) =
@@ -244,6 +252,7 @@ theorem lowerTotalExpr_app (env : List VarId) (f a : Expr) :
           some (.Apply f' a')) := by
   simp only [lowerTotalExpr, Moist.MIR.expandFix, Moist.MIR.lowerTotal]
 
+omit sv in
 /-- `lowerTotalExpr` commutes with `.Constr`. -/
 theorem lowerTotalExpr_constr (env : List VarId) (tag : Nat) (args : List Expr) :
     lowerTotalExpr env (.Constr tag args) =
@@ -251,6 +260,7 @@ theorem lowerTotalExpr_constr (env : List VarId) (tag : Nat) (args : List Expr) 
   simp only [lowerTotalExpr, Moist.MIR.expandFix, Moist.MIR.lowerTotal]
   cases Moist.MIR.lowerTotalList env (Moist.MIR.expandFixList args) <;> rfl
 
+omit sv in
 /-- `lowerTotalExpr` commutes with `.Case`. -/
 theorem lowerTotalExpr_case (env : List VarId) (scrut : Expr) (alts : List Expr) :
     lowerTotalExpr env (.Case scrut alts) =
@@ -266,10 +276,12 @@ theorem lowerTotalExpr_case (env : List VarId) (scrut : Expr) (alts : List Expr)
 def lowerTotalExprList (env : List VarId) (es : List Expr) : Option (List Moist.Plutus.Term.Term) :=
   Moist.MIR.lowerTotalList env (Moist.MIR.expandFixList es)
 
+omit sv in
 theorem lowerTotalExprList_nil (env : List VarId) :
     lowerTotalExprList env [] = some [] := by
   simp only [lowerTotalExprList, Moist.MIR.expandFixList, Moist.MIR.lowerTotalList]
 
+omit sv in
 theorem lowerTotalExprList_cons (env : List VarId) (e : Expr) (es : List Expr) :
     lowerTotalExprList env (e :: es) =
       (do let t ← lowerTotalExpr env e
@@ -280,6 +292,7 @@ theorem lowerTotalExprList_cons (env : List VarId) (e : Expr) (es : List Expr) :
 
 /-! ### 6e. Constr / Case congruences -/
 
+omit sv in
 /-- `lowerTotalExpr` on `.Constr` in terms of `lowerTotalExprList`. -/
 theorem lowerTotalExpr_constr_of_list (env : List VarId) (tag : Nat)
     (args : List Expr) :
@@ -287,6 +300,7 @@ theorem lowerTotalExpr_constr_of_list (env : List VarId) (tag : Nat)
       (lowerTotalExprList env args).map (.Constr tag) := by
   rw [lowerTotalExpr_constr]; rfl
 
+omit sv in
 /-- `lowerTotalExpr` on `.Case` in terms of `lowerTotalExprList`. -/
 theorem lowerTotalExpr_case_of_list (env : List VarId) (scrut : Expr)
     (alts : List Expr) :
@@ -320,6 +334,7 @@ theorem mirCtxRefines_of_lhs_none {m₁ m₂ : Expr}
   rw [h env]
   exact ⟨by simp, trivial⟩
 
+omit sv in
 /-- `Fix` whose body is not a lambda never lowers. -/
 theorem lowerTotalExpr_fix_nonlam_none (env : List VarId) (f : VarId) (body : Expr)
     (h : ∀ (x : VarId) (inner : Expr), body ≠ .Lam x inner) :

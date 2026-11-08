@@ -1,6 +1,8 @@
 import Moist.Verified.Contextual.SoundnessRefines
 import Moist.Verified.StepWellFormed
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Well-formedness instance of open-to-contextual soundness
 
 `wfGuard` threads CEK well-formedness (`StateWellFormed` and friends) through
@@ -65,6 +67,7 @@ def OpenRefinesWF (d : Nat) (t₁ t₂ : Term) : Prop := ∀ k, OpenRefinesKWF k
 
 open Moist.Verified.Contextual.Soundness (dummyEnv dummyEnv_length)
 
+omit sv in
 private theorem dummyEnv_wellFormed : ∀ (n : Nat), EnvWellFormed n (dummyEnv n)
   | 0 => .zero
   | n + 1 => envWellFormed_extend n (dummyEnv_wellFormed n)

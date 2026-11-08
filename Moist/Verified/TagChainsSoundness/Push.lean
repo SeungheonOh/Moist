@@ -1,5 +1,7 @@
 import Moist.Verified.TagChainsSoundness.Rules
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Applying a tree of field-less cases
 
 `(case s alts) y` evaluates `s`, selects an alternative, evaluates it and
@@ -17,6 +19,7 @@ open Moist.MIR Moist.MIR.Advanced
 open Moist.Verified Moist.Verified.Equivalence Moist.Verified.ShapeFacts
 open Moist.Verified.BetaValueRefines Moist.Verified.Contextual
 
+omit sv in
 theorem lowerTotalExprList_map_app {env : List VarId} {y : Expr} {ty : Term}
     (hy : lowerTotalExpr env y = some ty) :
     ∀ {alts : List Expr} {talts : List Term}, MIR.lowerTotalExprList env alts = some talts →
@@ -59,11 +62,13 @@ theorem case_push_ret {ρ : CekEnv} {π : Stack} {talts : List Term} {ty : Term}
         simp only [Option.map_some]
         exact obsRefines_of_reaches (reaches_refl _) ⟨1, rfl⟩ (obsRefines_refl _)
 
+omit sv in
 theorem bool_fieldless (b : Bool) :
     ∀ tag n fields, constToTagAndFields (.Bool b) = some (tag, n, fields) → fields = [] := by
   intro tag n fields h
   cases b <;> simp [constToTagAndFields] at h <;> exact h.2.2
 
+omit sv in
 theorem integer_fieldless (k : Int) :
     ∀ tag n fields, constToTagAndFields (.Integer k) = some (tag, n, fields) → fields = [] := by
   intro tag n fields h

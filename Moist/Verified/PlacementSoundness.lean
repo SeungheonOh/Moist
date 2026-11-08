@@ -3,6 +3,8 @@ import Moist.Verified.MIR.Primitives.Iterated
 import Moist.Verified.MIR.AlphaEqBool
 import Moist.MIR.Optimize.Advanced.Placement
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Soundness of sharing at the lowest dominating node
 
 `placeShared` applies `shareClosed`'s binding step at the nodes of an arbitrary
@@ -51,6 +53,7 @@ theorem halts_delay (body : Expr) :
     subst ht
     exact ⟨_, 2, rfl⟩
 
+omit sv in
 theorem beq_symm_true {a b : VarId} (h : (a == b) = true) : (b == a) = true := by
   rw [VarId.beq_true_iff] at h ⊢
   exact ⟨h.1.symm, h.2.symm⟩

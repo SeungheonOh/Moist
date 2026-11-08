@@ -4,6 +4,8 @@ import Moist.Plutus.Term
 import Moist.Verified.Definitions
 import Moist.Verified.ClosedAt
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Step-indexed logical-relation definitions
 
 `ObsRefinesK` (one-directional bounded observation, in the

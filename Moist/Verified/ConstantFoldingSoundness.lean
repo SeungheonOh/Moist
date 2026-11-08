@@ -1,5 +1,7 @@
 import Moist.Verified.DataFoldingSoundness
 
+variable [sv : Moist.CEK.SemVariant]
+
 namespace Moist.Verified.MIR
 
 open Moist.MIR Moist.MIR.Advanced Moist.Plutus.Term Moist.CEK
@@ -108,10 +110,8 @@ theorem constantValue_evaluates (expression : Expr) (value : CekValue)
         intro stack; simp [step, headEqual, tail]
       · rename_i tail
         simp only [Option.bind_eq_some_iff] at result
-        obtain ⟨evaluated, evaluation, result⟩ := result
-        cases evaluated <;> try contradiction
-        rename_i constant
-        dsimp only at result
+        obtain ⟨constant, agreed, result⟩ := result
+        have evaluation := evalBuiltinAgreed_spec agreed
         split at result
         · cases result
           apply closedEvaluation_app (constantValue_evaluates function _ functionAccepted)

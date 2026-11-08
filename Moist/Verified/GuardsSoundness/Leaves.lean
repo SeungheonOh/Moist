@@ -1,5 +1,7 @@
 import Moist.Verified.GuardsSoundness.Simple
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # `chk` on names, constants, builtin applications and constructors -/
 
 namespace Moist.Verified.Guards
@@ -12,6 +14,7 @@ open Moist.Verified.ShapeFacts
 open Moist.Verified.FailFast
 open Moist.Verified.KnownLists
 
+omit sv in
 theorem KindV.inert : ∀ {k : Kind} {w : CekValue}, k ≠ .unknown → KindV k w → InertV w
   | .bool, _, _, ⟨_, h⟩ => by subst h; trivial
   | .int, _, _, ⟨_, h⟩ => by subst h; trivial

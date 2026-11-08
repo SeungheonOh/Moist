@@ -1,5 +1,7 @@
 import Moist.Verified.ShapeFacts.Values
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Soundness of the shape analyses
 
 Under realized facts, an expression accepted by `knownList`,
@@ -16,6 +18,7 @@ open Moist.Verified Moist.Verified.Equivalence
 
 variable {P : List VarId → CekEnv → Expr → CekValue → Prop}
 
+omit sv in
 theorem lowerTotalExprList_mem {env : List VarId} :
     ∀ {alts : List Expr} {talts : List Term}, MIR.lowerTotalExprList env alts = some talts →
       ∀ alt ∈ talts, ∃ a ∈ alts, lowerTotalExpr env a = some alt
@@ -86,6 +89,7 @@ theorem case_result {ρ : CekEnv} {s : Term} {talts : List Term} {v : CekValue}
   | VLam _ _ | VDelay _ _ | VBuiltin _ _ _ =>
     simp only [step] at r; exact absurd r (fun he => halt_not_error he ⟨0, rfl⟩)
 
+omit sv in
 theorem protocol_builtin (b : BuiltinFun) :
     builtinProtocolAfterSuccess (.Builtin b) = some (b, expectedArgs b) := rfl
 
@@ -242,6 +246,37 @@ theorem knownInteger_sound (hP : ∀ env ρ rhs v, P env ρ rhs v → Produces e
           refine integerBuiltin_result ?_ hlen heval
           cases b <;> simp_all [integerBuiltin]
     | _ => simp [knownInteger] at h
+
+/-- Integers accepted by `boundedInteger` are below `2^64` in magnitude, hence inside the
+    `CInteger` bounds of every semantics variant. -/
+theorem boundedInteger_sound (hP : ∀ env ρ rhs v, P env ρ rhs v → Produces env ρ rhs v) :
+    ∀ (n : Nat) (Γ : List (VarId × Expr)) (e : Expr) {env : List VarId} {ρ : CekEnv}
+      {t : Term} {v : CekValue},
+      boundedInteger n Γ e = true → FactsHold P Γ env ρ → EnvDistinct env →
+      lowerTotalExpr env e = some t → Halts ρ t v →
+      ∃ i, v = .VCon (.Integer i) ∧ i.natAbs < 2 ^ 64 := by
+  intro n
+  induction n with
+  | zero => intro Γ e env ρ t v h; simp [boundedInteger] at h
+  | succ n ih =>
+    intro Γ e env ρ t v h hfacts hd hlow hv
+    cases e with
+    | Var x =>
+      simp only [boundedInteger] at h
+      cases hf : Γ.find? (fun entry => entry.1 == x) with
+      | none => rw [hf] at h; cases h
+      | some entry =>
+        rw [hf] at h
+        obtain ⟨k, _, hp, hfacts', hd'⟩ := fact_of_var hfacts hd hf hlow hv
+        obtain ⟨t', ht', hv'⟩ := hP _ _ _ _ hp
+        exact ih Γ entry.2 (by simpa using h) hfacts' hd' ht' hv'
+    | Lit lit =>
+      obtain ⟨c, ty⟩ := lit
+      rw [lowerTotalExpr_lit] at hlow; cases hlow
+      rw [halts_constant hv]
+      cases c <;> simp [boundedInteger] at h
+      exact ⟨_, rfl, h⟩
+    | _ => simp [boundedInteger] at h
 
 theorem knownBooleanLocal_sound (hP : ∀ env ρ rhs v, P env ρ rhs v → Produces env ρ rhs v) :
     ∀ (n : Nat) (Γ : List (VarId × Expr)) (e : Expr) {env : List VarId} {ρ : CekEnv}

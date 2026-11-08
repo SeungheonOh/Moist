@@ -1,6 +1,8 @@
 import Moist.Verified.InlineSoundness.EvaluationPath
 import Moist.Verified.InlineSoundness.Frontier
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Errors propagate along evaluation paths
 
 Substituting an erroring term into a total term returns or errors

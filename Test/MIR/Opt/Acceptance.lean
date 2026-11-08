@@ -31,12 +31,12 @@ def inputs : List Expr :=
   ([Moist.Plutus.Data.I 0, .I 3, .B ⟨#[]⟩, .List [], .List [.I 3],
     .List [.I 3, .B ⟨#[1]⟩], .Map [], .Map [(.I 0, .I 1)],
     .Constr 0 [], .Constr 1 [.I 3]].map datum) ++
-  [Expr.Lit (.ConstList [], .TypeOperator (.TypeList (.AtomicType .TypeInteger))),
-   .Lit (.ConstList [.Integer 3, .Integer 4], .TypeOperator (.TypeList (.AtomicType .TypeInteger))),
-   .Lit (.ConstDataList [], Advanced.dataListType),
-   .Lit (.ConstDataList [.I 3, .I 4], Advanced.dataListType),
-   .Lit (.PairData (.I 3, .I 4), .TypeOperator (.TypePair (.AtomicType .TypeData) (.AtomicType .TypeData))),
-   .Lit (.ConstPairDataList [(.I 3, .I 4)], .TypeOperator (.TypeList
+  [Expr.Lit (.ConstList (.AtomicType .TypeInteger) [], .TypeOperator (.TypeList (.AtomicType .TypeInteger))),
+   .Lit (.ConstList (.AtomicType .TypeInteger) [.Integer 3, .Integer 4], .TypeOperator (.TypeList (.AtomicType .TypeInteger))),
+   .Lit (.dataList [], Advanced.dataListType),
+   .Lit (.dataList [.I 3, .I 4], Advanced.dataListType),
+   .Lit (.pairData (.I 3, .I 4), .TypeOperator (.TypePair (.AtomicType .TypeData) (.AtomicType .TypeData))),
+   .Lit (.pairDataList [(.I 3, .I 4)], .TypeOperator (.TypeList
      (.TypeOperator (.TypePair (.AtomicType .TypeData) (.AtomicType .TypeData)))))]
 
 def transformations : List (String × (Expr → Expr)) :=
@@ -231,6 +231,12 @@ def tests : TestTree := suite "acceptance" do
       checkEq s!"flat tag of {repr builtin}" (Moist.Plutus.Encode.builtinFunTag builtin) tag
     checkEq "decoder covers every builtin" table.length 101
     checkEq "decoder tags are distinct" (table.map (·.1)).eraseDups.length table.length
+  test "constant_annotation_does_not_change_flat" do
+    let program (annotation : BuiltinType) : Program :=
+      .Program (.Version 1 1 0) (.Constant (.Integer 7, annotation))
+    let right := (program (.AtomicType .TypeInteger)).encode
+    let stale := (program (.AtomicType .TypeByteString)).encode
+    check "a stale annotation encodes as the value's type" (right.bits == stale.bits)
   test "all_builtin_partial_protocols_preserve_acceptance" do
     let mut count := 0
     for (name, script) in protocolScripts do

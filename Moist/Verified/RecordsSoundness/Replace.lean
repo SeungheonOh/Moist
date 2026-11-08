@@ -1,5 +1,7 @@
 import Moist.Verified.RecordsSoundness.Fields
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Replacing field reads by field binders
 
 Inside the scope of field binders recorded with `fieldProjection`, every
@@ -21,12 +23,14 @@ variable {P : List VarId → CekEnv → Expr → CekValue → Prop}
 def NamesDistinct (names : List VarId) : Prop :=
   ∀ (i j : Nat) (a b : VarId), names[i]? = some a → names[j]? = some b → (a == b) = true → i = j
 
+omit sv in
 theorem NamesDistinct.tail {x : VarId} {xs : List VarId} (h : NamesDistinct (x :: xs)) :
     NamesDistinct xs := by
   intro i j a b ha hb hab
   have := h (i + 1) (j + 1) a b (by simpa using ha) (by simpa using hb) hab
   omega
 
+omit sv in
 theorem NamesDistinct.reverse {names : List VarId} (h : NamesDistinct names) :
     NamesDistinct names.reverse := by
   intro i j a b ha hb hab
@@ -38,6 +42,7 @@ theorem NamesDistinct.reverse {names : List VarId} (h : NamesDistinct names) :
   have := h _ _ a b ha hb hab
   omega
 
+omit sv in
 theorem envLookupT_getElem : ∀ {names : List VarId} {i : Nat} {x : VarId}, NamesDistinct names →
     names[i]? = some x → envLookupT names x = some i
   | [], _, _, _, h => by simp at h
@@ -56,9 +61,11 @@ theorem envLookupT_getElem : ∀ {names : List VarId} {i : Nat} {x : VarId}, Nam
     rw [if_neg (by simp [hyx]), envLookupT_getElem hd.tail (by simpa using h)]
     rfl
 
+omit sv in
 theorem freshFields_length (next count : Nat) : (freshFields next count).length = count := by
   simp [freshFields]
 
+omit sv in
 theorem freshFields_getElem {next count i : Nat} {y : VarId} (h : (freshFields next count)[i]? = some y) :
     y = { uid := next + i, origin := .gen, hint := "field" } ∧ i < count := by
   have hi : i < count := by
@@ -68,6 +75,7 @@ theorem freshFields_getElem {next count i : Nat} {y : VarId} (h : (freshFields n
     List.getElem_range, Option.map_some, Option.some.injEq] at h
   exact ⟨h.symm, hi⟩
 
+omit sv in
 theorem freshFields_distinct (next count : Nat) : NamesDistinct (freshFields next count) := by
   intro i j a b ha hb hab
   obtain ⟨rfl, _⟩ := freshFields_getElem ha
@@ -76,6 +84,7 @@ theorem freshFields_distinct (next count : Nat) : NamesDistinct (freshFields nex
   simp at hab
   omega
 
+omit sv in
 theorem freshFields_mem {next count : Nat} {y : VarId} (h : y ∈ freshFields next count) :
     next ≤ y.uid ∧ y.uid < next + count ∧ y.origin = .gen := by
   simp only [freshFields, List.mem_map, List.mem_range] at h
@@ -84,6 +93,7 @@ theorem freshFields_mem {next count : Nat} {y : VarId} (h : y ∈ freshFields ne
 
 /-! ## A single read -/
 
+omit sv in
 theorem fieldRead_spec {w : VarId} {alt : Expr} {record : VarId} {arity field : Nat}
     (h : fieldRead (.Case (.Var w) [alt]) = some (record, arity, field)) :
     ∃ binders x index, alt = lams binders (.Var x) ∧ binders.length = arity ∧ record = w ∧
@@ -108,6 +118,7 @@ theorem fieldRead_spec {w : VarId} {alt : Expr} {record : VarId} {arity field : 
         exact ⟨binders, x, index, hlams.symm, rfl, rfl, hidx, rfl⟩
   | _ => simp at h
 
+omit sv in
 theorem fieldRead_shape {e : Expr} {r : VarId × Nat × Nat} (h : fieldRead e = some r) :
     ∃ w alt, e = .Case (.Var w) [alt] := by
   unfold fieldRead at h
@@ -115,6 +126,7 @@ theorem fieldRead_shape {e : Expr} {r : VarId × Nat × Nat} (h : fieldRead e = 
   · rename_i w alt; exact ⟨w, alt, rfl⟩
   · cases h
 
+omit sv in
 theorem readOf_spec {record : VarId} {arity field : Nat} {e : Expr}
     (h : readOf record arity e = some field) :
     ∃ w alt, e = .Case (.Var w) [alt] ∧ (w == record) = true ∧
@@ -139,6 +151,7 @@ theorem readOf_spec {record : VarId} {arity field : Nat} {e : Expr}
       exact ⟨other, alt, rfl, hother, hr⟩
     · cases h
 
+omit sv in
 theorem lowerTotalExpr_fieldProjection {env : List VarId} {record y : VarId} {fields : List VarId}
     {ir q : Nat} (hir : envLookupT env record = some ir) (hq : envLookupT fields.reverse y = some q) :
     lowerTotalExpr env (fieldProjection record fields y) =
@@ -229,6 +242,7 @@ theorem read_factRel (hP : ∀ env ρ rhs v, P env ρ rhs v → Produces env ρ 
 
 /-! ## Every read -/
 
+omit sv in
 theorem replaceReads_case (record : VarId) (fields : List VarId) (scrutinee : Expr)
     (alternatives : List Expr) (h : readOf record fields.length (.Case scrutinee alternatives) = none) :
     replaceReads record fields (.Case scrutinee alternatives) =
@@ -237,6 +251,7 @@ theorem replaceReads_case (record : VarId) (fields : List VarId) (scrutinee : Ex
   simp only [h]
   rw [attach_map_eq_map]
 
+omit sv in
 theorem replaceReads_let (record : VarId) (fields : List VarId) (bs : List (VarId × Expr × Bool))
     (body : Expr) :
     replaceReads record fields (.Let bs body) =

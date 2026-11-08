@@ -1,6 +1,8 @@
 import Moist.Verified.EtaReduce.Relation
 import Moist.Verified.BuiltinStateSoundness
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # The local eta rule
 
 `λ. (shift F) 1 ⊑ F` whenever `F` returns a callable value (a closure, or a
@@ -49,6 +51,7 @@ theorem etaRel_closure {k : Nat} {body : Term} {ρ : CekEnv} {value : CekValue}
       exact ⟨head, fun j hj a₁ a₂ ha i hi π₁ π₂ hπ =>
         apply j (by omega) a₁ a₂ ha i hi π₁ π₂ hπ⟩
 
+omit sv in
 private theorem extend_lookup_succ (ρ : CekEnv) (v : CekValue) (m : Nat) (hm : m ≥ 1) :
     (ρ.extend v).lookup (m + 1) = ρ.lookup m := by
   match m, hm with

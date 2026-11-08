@@ -8,20 +8,22 @@ Date: 2026-11-07. This replaces the coverage table in
 `Moist/Verified/CompilerSoundness.lean`:
 
 ```lean
-theorem compileOptimized_refines {e : Expr} {optFresh lowerFresh : Nat}
+theorem compileOptimized_refines [sv : SemVariant] {e : Expr} {optFresh lowerFresh : Nat}
     {options : Advanced.Options} {t : Term}
     (h : compileOptimized e optFresh lowerFresh options = .ok t) :
     ∃ t₀, lowerTotalExpr [] e = some t₀ ∧ CtxRefines t₀ t
 
-theorem compileOptimized_error {e : Expr} {optFresh lowerFresh : Nat}
+theorem compileOptimized_error [sv : SemVariant] {e : Expr} {optFresh lowerFresh : Nat}
     {options : Advanced.Options} {msg : String}
     (h : compileOptimized e optFresh lowerFresh options = .error msg) :
     validateCompilationInput [] e = .error msg
 ```
 
-These theorems have no hypotheses. They hold for every MIR program, every
-fresh-name start and every option set, including low sharing, builtin-state
-sharing and constant pooling. In words:
+These theorems have no hypotheses. They hold for every builtin semantics
+variant (`SemVariant.C`, PlutusV3 before PV11, and `SemVariant.E`, PlutusV3
+from PV11; see `CEK-Model-Fidelity.md`), every MIR program, every fresh-name
+start and every option set, including low sharing, builtin-state sharing and
+constant pooling. In words:
 
 - If compilation succeeds, the source has a certified lowering `t₀`, and the
   emitted UPLC contextually refines it. In every closing context, the output
@@ -84,8 +86,6 @@ check under `Test/MIR/Opt/Axioms/` or in `Test/MIR/Opt/FormalAxioms.lean`.
 | Boolean results and Boolean case rewrites (inside shape DCE) | `booleanResultCore_sound`, `booleanCaseRewrite_factRel` | `ShapeFacts/Results.lean`, `ShapesSoundness/BooleanCases.lean` |
 | Constructor-tag chains to integer cases | `caseTagChains_refines` | `TagChainsSoundness.lean`, `TagChainsSoundness/` |
 | Data kind guards to unData checks | `specializeDataChecks_refines` | `DataShapesSoundness.lean` |
-| Bytes of compared `unBData` keys | `insertKeyBytes_refines` | `DataShapesSoundness.lean` |
-| `equalsData` against a key of known bytes (shape-DCE rewrite) | `dataComparison_factRel` | `ShapesSoundness/DataComparisons.lean` |
 | `Advanced.simplify` | `simplify_refines` | `ShapesSoundness/Pipeline.lean` |
 | Pre-lowering inline, `preLower` | `preLowerInlineExpr_refines`, `preLower_refines'` | `PreLowerSoundness.lean`, `CompilerSoundness.lean` |
 | Product destructuring (projections resolved through let aliases; whole-pair and bound-projection unboxing) | `destructureProducts_refines` (`unbox_factRel`, `unboxProjection_factRel`, `project_factRel`) | `ProductsSoundness.lean`, `ProductsSoundness/` |

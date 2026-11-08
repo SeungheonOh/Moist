@@ -4,6 +4,8 @@ import Moist.Verified.HygieneSoundness
 import Moist.Verified.MIR.AlphaEqBool
 import Moist.Verified.MIR.Hoist
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Soundness of common sub-expression elimination
 
 `cse_refines : MIRCtxRefines e (cse [] e).1` for every MIR expression `e`.
@@ -36,6 +38,7 @@ open Moist.Verified.InlineSoundness.Rename (lowerTotalExpr_let_nil lowerTotalExp
 
 /-! ## Contexts -/
 
+omit sv in
 theorem Context.compose_assoc (A B D : Context) :
     (A.compose B).compose D = A.compose (B.compose D) := by
   induction A with
@@ -49,6 +52,7 @@ theorem Context.compose_assoc (A B D : Context) :
   | Case C alts ih => simp [Context.compose, ih]
   | CaseAlt scrut lefts C rights ih => simp [Context.compose, ih]
 
+omit sv in
 theorem Context.binders_compose (A D : Context) :
     (A.compose D).binders = A.binders + D.binders := by
   induction A with
@@ -143,6 +147,7 @@ theorem obsUnder_fill {seen seen' : List (Expr × VarId)} {env env' : List VarId
   rw [← fill_compose]
   exact h (C.compose D) (transport C hC) hc
 
+omit sv in
 theorem envLookupT_append (ys env : List VarId) (w : VarId) (i : Nat)
     (hys : ∀ y ∈ ys, (y == w) = false) (hw : envLookupT env w = some i) :
     envLookupT (ys ++ env) w = some (i + ys.length) := by
@@ -154,6 +159,7 @@ theorem envLookupT_append (ys env : List VarId) (w : VarId) (i : Nat)
     simp only [Option.map_some, List.length_cons, Option.some.injEq]
     omega
 
+omit sv in
 theorem lowerTotalExpr_append_unused (ys env : List VarId) (e : Expr) (n : Nat) (t₀ : Term)
     (hys : ∀ y ∈ ys, (freeVars e).contains y = false)
     (he : lowerTotalExpr env e = some (iterShift n t₀)) :
@@ -165,6 +171,7 @@ theorem lowerTotalExpr_append_unused (ys env : List VarId) (e : Expr) (n : Nat) 
       ih fun y' hy' => hys y' (.tail _ hy')]
     rfl
 
+omit sv in
 /-- Passing `|ys|` binders keeps every entry whose variable and free
     variables are not among them. -/
 theorem avail_compose {C D : Context} {env : List VarId} {seen seen' : List (Expr × VarId)}
@@ -184,10 +191,12 @@ theorem avail_compose {C D : Context} {env : List VarId} {seen seen' : List (Exp
     congr 2
     omega
 
+omit sv in
 theorem avail_compose_flat {C D : Context} {env : List VarId} {seen : List (Expr × VarId)}
     (hD : D.binders = 0) (hC : Avail C env seen) : Avail (C.compose D) env seen :=
   avail_compose [] hD (fun _ hp => ⟨hp, fun _ h => nomatch h⟩) hC
 
+omit sv in
 theorem scoped_append {seen seen' : List (Expr × VarId)} {env : List VarId} (ys : List VarId)
     (hsub : ∀ p ∈ seen', p ∈ seen ∧ ∀ y ∈ ys, (y == p.2) = false)
     (hs : Scoped seen env) : Scoped seen' (ys ++ env) := by
@@ -198,6 +207,7 @@ theorem scoped_append {seen seen' : List (Expr × VarId)} {env : List VarId} (ys
 
 /-! ## The seen map -/
 
+omit sv in
 theorem mem_filterSeen {x : VarId} {seen : List (Expr × VarId)} {p : Expr × VarId}
     (h : p ∈ filterSeen x seen) :
     p ∈ seen ∧ (x == p.2) = false ∧ (freeVars p.1).contains x = false := by
@@ -207,6 +217,7 @@ theorem mem_filterSeen {x : VarId} {seen : List (Expr × VarId)} {p : Expr × Va
   simpa [bne] using h.2.1
 
 
+omit sv in
 theorem avail_filterSeen {C D : Context} {env : List VarId} {seen : List (Expr × VarId)}
     (x : VarId) (hD : D.binders = 1) (hC : Avail C env seen) :
     Avail (C.compose D) (x :: env) (filterSeen x seen) :=
@@ -214,12 +225,14 @@ theorem avail_filterSeen {C D : Context} {env : List VarId} {seen : List (Expr �
     let ⟨hm, hx, hfv⟩ := mem_filterSeen hp
     ⟨hm, fun y hy => by cases List.mem_singleton.mp hy; exact ⟨hx, hfv⟩⟩) hC
 
+omit sv in
 theorem scoped_filterSeen {env : List VarId} {seen : List (Expr × VarId)} (x : VarId)
     (hs : Scoped seen env) : Scoped (filterSeen x seen) (x :: env) :=
   scoped_append [x] (fun _ hp =>
     let ⟨hm, hx, _⟩ := mem_filterSeen hp
     ⟨hm, fun y hy => by cases List.mem_singleton.mp hy; exact hx⟩) hs
 
+omit sv in
 theorem avail_extendSeen {C : Context} {env : List VarId} {seen : List (Expr × VarId)}
     {v : VarId} {rhs : Expr} {t_rhs : Term} (hrhs : lowerTotalExpr env rhs = some t_rhs)
     (hC : Avail C env seen) :
@@ -237,6 +250,7 @@ theorem avail_extendSeen {C : Context} {env : List VarId} {seen : List (Expr × 
       rfl
     | tail _ hp => exact filtered p hp
 
+omit sv in
 theorem scoped_extendSeen {env : List VarId} {seen : List (Expr × VarId)} {v : VarId}
     {rhs : Expr} (hs : Scoped seen env) : Scoped (extendSeen seen v rhs) (v :: env) := by
   have filtered := scoped_filterSeen v hs
@@ -253,6 +267,7 @@ def seenBound : List (Expr × VarId) → Nat
   | [] => 0
   | (e, w) :: rest => maxUidExpr e + w.uid + 1 + seenBound rest
 
+omit sv in
 theorem seenBound_mem {seen : List (Expr × VarId)} {p : Expr × VarId} (h : p ∈ seen) :
     maxUidExpr p.1 < seenBound seen ∧ p.2.uid < seenBound seen := by
   induction seen with
@@ -266,6 +281,7 @@ theorem seenBound_mem {seen : List (Expr × VarId)} {p : Expr × VarId} (h : p �
 
 /-! ## Reusing an available binding -/
 
+omit sv in
 theorem lookupStructEq_some {seen : List (Expr × VarId)} {t : Expr} {w : VarId}
     (h : lookupStructEq seen t = some w) : ∃ e, (e, w) ∈ seen ∧ alphaEq e t = true := by
   induction seen with
@@ -280,6 +296,7 @@ theorem lookupStructEq_some {seen : List (Expr × VarId)} {t : Expr} {w : VarId}
     · obtain ⟨e', hm, ha⟩ := ih h
       exact ⟨e', .tail _ hm, ha⟩
 
+omit sv in
 theorem reusableBinding_some {seen : List (Expr × VarId)} {rhs : Expr}
     {rest : List (VarId × Expr × Bool)} {body : Expr} {w : VarId}
     (h : reusableBinding seen rhs rest body = some w) :
@@ -318,6 +335,7 @@ theorem obsUnder_reuse {seen : List (Expr × VarId)} {env : List VarId} {e : Exp
 
 /-! ## Congruences -/
 
+omit sv in
 theorem lowerTotalExpr_lam_some {env : List VarId} {x : VarId} {body : Expr} {t : Term}
     (h : lowerTotalExpr env (.Lam x body) = some t) :
     ∃ tb, lowerTotalExpr (x :: env) body = some tb ∧ t = .Lam 0 tb := by
@@ -450,6 +468,7 @@ theorem cseRelList_cons {seen : List (Expr × VarId)} {env : List VarId} {a a' :
 
 /-! ## Let blocks -/
 
+omit sv in
 theorem lowerTotalExpr_let_cons_some {env : List VarId} {v : VarId} {rhs : Expr} {er : Bool}
     {rest : List (VarId × Expr × Bool)} {body : Expr} {t : Term}
     (h : lowerTotalExpr env (.Let ((v, rhs, er) :: rest) body) = some t) :
@@ -465,6 +484,7 @@ theorem lowerTotalExpr_let_cons_some {env : List VarId} {v : VarId} {rhs : Expr}
       simp [h0, h1] at h
       exact ⟨r, b, rfl, rfl, h.symm⟩
 
+omit sv in
 theorem lowerTotalExpr_let_cons_of {env : List VarId} {v : VarId} {rhs : Expr} {er : Bool}
     {rest : List (VarId × Expr × Bool)} {body : Expr} {r b : Term}
     (hr : lowerTotalExpr env rhs = some r) (hb : lowerTotalExpr (v :: env) (.Let rest body) = some b) :
@@ -491,6 +511,7 @@ theorem cseRel_let_body {seen : List (Expr × VarId)} {env : List VarId} {v : Va
   exact ⟨_, lowerTotalExpr_let_cons_of hr hb',
     obsUnder_fill (.AppLeft (.Lam 0 .Hole) r) (fun _ hC => avail_extendSeen hr hC) ho⟩
 
+omit sv in
 theorem mergeEnv_top {v w : VarId} {env : List VarId} {i : Nat} (hw : envLookupT env w = some i) :
     MergeEnv v w (mergeRename i) (v :: env) env := by
   refine ⟨fun z hz => ?_, ?_⟩
@@ -521,8 +542,10 @@ def fixContext : Context :=
   .AppRight (.Lam 0 (.Apply (.Var 1) (.Var 1)))
     (.Lam 0 (.AppLeft (.Lam 0 (.Lam 0 .Hole)) (.Lam 0 (.Apply (.Apply (.Var 2) (.Var 2)) (.Var 1)))))
 
+omit sv in
 theorem fill_fixContext (t : Term) : fill fixContext t = fixLamWrapUplc t := rfl
 
+omit sv in
 theorem uniqueOptimizationBinders_lam (p : VarId) (inner : Expr) :
     ∃ p' inner', uniqueOptimizationBinders (.Lam p inner) = .Lam p' inner' := by
   unfold uniqueOptimizationBinders
@@ -568,6 +591,7 @@ section Equations
 
 variable {seen : List (Expr × VarId)} {e : Expr}
 
+omit sv in
 theorem cse_let_lower {binds : List (VarId × Expr × Bool)} {body : Expr} (env : List VarId)
     (h : uniqueOptimizationBinders e = .Let binds body) :
     lowerTotalExpr env (cse seen e).1 =
@@ -587,62 +611,77 @@ theorem cse_let_lower {binds : List (VarId × Expr × Bool)} {body : Expr} (env 
         | cons k ks => rfl
   all_goals simp_all
 
+omit sv in
 theorem cse_lam {x : VarId} {body : Expr} (h : uniqueOptimizationBinders e = .Lam x body) :
     (cse seen e).1 = .Lam x (cse (filterSeen x seen) body).1 := by
   rw [cse]; split <;> simp_all
 
+omit sv in
 theorem cse_fix {f : VarId} {body : Expr} (h : uniqueOptimizationBinders e = .Fix f body) :
     (cse seen e).1 = .Fix f (cse (filterSeen f seen) body).1 := by
   rw [cse]; split <;> simp_all
 
+omit sv in
 theorem cse_app {f a : Expr} (h : uniqueOptimizationBinders e = .App f a) :
     (cse seen e).1 = .App (cse seen f).1 (cse seen a).1 := by
   rw [cse]; split <;> simp_all
 
+omit sv in
 theorem cse_force {a : Expr} (h : uniqueOptimizationBinders e = .Force a) :
     (cse seen e).1 = .Force (cse seen a).1 := by
   rw [cse]; split <;> simp_all
 
+omit sv in
 theorem cse_delay {a : Expr} (h : uniqueOptimizationBinders e = .Delay a) :
     (cse seen e).1 = .Delay (cse seen a).1 := by
   rw [cse]; split <;> simp_all
 
+omit sv in
 theorem cse_constr {tag : Nat} {args : List Expr} (h : uniqueOptimizationBinders e = .Constr tag args) :
     (cse seen e).1 = .Constr tag (cseList seen args).1 := by
   rw [cse]; split <;> simp_all
 
+omit sv in
 theorem cse_case {scrut : Expr} {alts : List Expr}
     (h : uniqueOptimizationBinders e = .Case scrut alts) :
     (cse seen e).1 = .Case (cse seen scrut).1 (cseList seen alts).1 := by
   rw [cse]; split <;> simp_all
 
+omit sv in
 theorem cse_var {x : VarId} (h : uniqueOptimizationBinders e = .Var x) : (cse seen e).1 = .Var x := by
   rw [cse]; split <;> simp_all
 
+omit sv in
 theorem cse_lit {l : Moist.Plutus.Term.Const × Moist.Plutus.Term.BuiltinType}
     (h : uniqueOptimizationBinders e = .Lit l) : (cse seen e).1 = .Lit l := by
   rw [cse]; split <;> simp_all
 
+omit sv in
 theorem cse_builtin {b : Moist.Plutus.Term.BuiltinFun}
     (h : uniqueOptimizationBinders e = .Builtin b) : (cse seen e).1 = .Builtin b := by
   rw [cse]; split <;> simp_all
 
+omit sv in
 theorem cse_error (h : uniqueOptimizationBinders e = .Error) : (cse seen e).1 = .Error := by
   rw [cse]; split <;> simp_all
 
+omit sv in
 theorem cseList_nil : (cseList seen []).1 = [] := by
   rw [cseList]
 
+omit sv in
 theorem cseList_cons (a : Expr) (rest : List Expr) :
     (cseList seen (a :: rest)).1 = (cse seen a).1 :: (cseList seen rest).1 := by
   rw [cseList]
 
+omit sv in
 theorem cseBinds_nil (body : Expr) :
     (cseBinds seen [] body).1 = [] ∧ (cseBinds seen [] body).2.1 = (cse seen body).1 := by
   rw [cseBinds]
   cases cse seen body
   exact ⟨rfl, rfl⟩
 
+omit sv in
 theorem cseBinds_hit {v w : VarId} {rhs : Expr} {er : Bool} {rest : List (VarId × Expr × Bool)}
     {body : Expr} (h : reusableBinding seen (cse seen rhs).1 rest body = some w) :
     (cseBinds seen ((v, rhs, er) :: rest) body).1 =
@@ -657,6 +696,7 @@ theorem cseBinds_hit {v w : VarId} {rhs : Expr} {er : Bool} {rest : List (VarId 
     cases cseBinds seen (renameLet v w rest body).1 (renameLet v w rest body).2 with
     | mk k rest' => cases rest'; simp
 
+omit sv in
 theorem cseBinds_miss {v : VarId} {rhs : Expr} {er : Bool} {rest : List (VarId × Expr × Bool)}
     {body : Expr} (h : reusableBinding seen (cse seen rhs).1 rest body = none) :
     (cseBinds seen ((v, rhs, er) :: rest) body).1 =
@@ -675,6 +715,7 @@ end Equations
 
 /-! ## The traversal -/
 
+omit sv in
 theorem lowerTotalExpr_fix_uob {env : List VarId} {f p p' : VarId} {inner inner' : Expr}
     (hb : uniqueOptimizationBinders (.Lam p inner) = .Lam p' inner') :
     lowerTotalExpr env (.Fix f (.Lam p' inner')) = lowerTotalExpr env (.Fix f (.Lam p inner)) := by

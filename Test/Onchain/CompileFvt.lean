@@ -41,16 +41,22 @@ private partial def convertConst : Moist.Plutus.Term.Const → PlutusCore.UPLC.T
   | .String s => .String s
   | .Unit => .Unit
   | .Bool b => .Bool b
-  | .ConstList cs => .ConstList (cs.map convertConst)
-  | .ConstDataList ds => .ConstDataList (ds.map convertData)
-  | .ConstPairDataList ps => .ConstPairDataList (ps.map fun (a, b) => (convertData a, convertData b))
+  | .ConstList ty cs =>
+    -- sc-fvt keeps specialised encodings of data lists and data-pair lists
+    match ty, cs.mapM (fun | .Data d => some d | _ => none),
+        cs.mapM (fun | .Pair (.Data a, .Data b) => some (a, b) | _ => none) with
+    | .AtomicType .TypeData, some ds, _ => .ConstDataList (ds.map convertData)
+    | .TypeOperator (.TypePair (.AtomicType .TypeData) (.AtomicType .TypeData)), _, some ps =>
+      .ConstPairDataList (ps.map fun (a, b) => (convertData a, convertData b))
+    | _, _, _ => .ConstList (cs.map convertConst)
+  | .Pair (.Data a, .Data b) => .PairData (convertData a, convertData b)
   | .Pair (a, b) => .Pair (convertConst a, convertConst b)
-  | .PairData (a, b) => .PairData (convertData a, convertData b)
   | .Data d => .Data (convertData d)
-  | .ConstArray cs => .ConstList (cs.map convertConst)
-  | .Bls12_381_G1_element => .Bls12_381_G1_element
-  | .Bls12_381_G2_element => .Bls12_381_G2_element
-  | .Bls12_381_MlResult => .Bls12_381_MlResult
+  | .ConstArray _ cs => .ConstList (cs.map convertConst)
+  | .Bls12_381_G1_element _ => .Bls12_381_G1_element
+  | .Bls12_381_G2_element _ => .Bls12_381_G2_element
+  | .Bls12_381_MlResult _ => .Bls12_381_MlResult
+  | .Value _ => panic! "sc-fvt has no Value constants"
 
 private def convertBuiltinFun : Moist.Plutus.Term.BuiltinFun → PlutusCore.UPLC.Term.BuiltinFun
   | .AddInteger => .AddInteger

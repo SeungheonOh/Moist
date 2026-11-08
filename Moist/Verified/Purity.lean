@@ -4,6 +4,8 @@ import Moist.MIR.LowerTotal
 import Moist.MIR.Optimize.Purity
 import Moist.CEK.Builtins
 
+variable [sv : Moist.CEK.SemVariant]
+
 set_option linter.unusedSimpArgs false
 
 namespace Moist.Verified.Purity
@@ -30,9 +32,11 @@ private theorem force_delay_steps (ρ : CekEnv) (body' : Term) (n : Nat) :
     steps n (.compute [] ρ body') := by
   rw [steps_trans]; rfl
 
+omit sv in
 private theorem no_builtin_one_argQ (b : BuiltinFun) : expectedArgs b ≠ .one .argQ := by
   cases b <;> (simp [expectedArgs]; try decide)
 
+omit sv in
 private theorem no_builtin_more_argQ_one_argQ (b : BuiltinFun) :
     expectedArgs b ≠ .more .argQ (.one .argQ) := by
   cases b <;> (simp [expectedArgs]; try decide)
@@ -338,6 +342,7 @@ for these shapes). Since `expandFix` is identity on `.Builtin` and on
 the force-case purity is preserved.
 -/
 
+omit sv in
 mutual
   theorem isPure_expandFix (e : Expr) (h : isPure e = true) :
       isPure (Moist.MIR.expandFix e) = true := by

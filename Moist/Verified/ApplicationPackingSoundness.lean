@@ -3,6 +3,8 @@ import Moist.Verified.InlineSoundness.Totality
 import Moist.Verified.AdvancedTraversal
 import Moist.MIR.Optimize.Advanced.Allocations
 
+variable [sv : Moist.CEK.SemVariant]
+
 namespace Moist.Verified.ApplicationPacking
 
 open Moist.CEK Moist.Plutus.Term
@@ -154,6 +156,7 @@ theorem total_arguments_return (environment : CekEnv) (depth : Nat) (arguments :
       rw [bridge]
       exact returns
 
+omit sv in
 theorem closedAt_spine (depth : Nat) (function : Term) (arguments : List Term) :
     closedAt depth (arguments.foldl Term.Apply function) =
       (closedAt depth function && closedAtList depth arguments) := by
@@ -197,6 +200,7 @@ open Moist.MIR Moist.MIR.Advanced Moist.Plutus.Term
 open Moist.Verified.Equivalence Moist.Verified.Contextual
 open Moist.Verified.InlineSoundness.Totality
 
+omit sv in
 theorem lowerTotalExpr_spine (environment : List VarId) (function : Expr) (arguments : List Expr) :
     lowerTotalExpr environment (arguments.foldl Expr.App function) = (do
       let functionTerm ← lowerTotalExpr environment function
@@ -211,6 +215,7 @@ theorem lowerTotalExpr_spine (environment : List VarId) (function : Expr) (argum
       cases lowerTotalExpr environment argument <;>
       cases lowerTotalExprList environment arguments <;> rfl
 
+omit sv in
 theorem lowerTotalExprList_total (environment : List VarId) (arguments : List Expr) (terms : List Term)
     (pure : arguments.all isPure = true) (lowered : lowerTotalExprList environment arguments = some terms) :
     TotalTerms terms := by
@@ -245,6 +250,7 @@ theorem packApplicationSpine_refines (function : Expr) (arguments : List Expr)
         (lowerTotalList_closedAtList environment _ _ argumentsLowered)
         (lowerTotalExprList_total environment arguments argumentTerms pure argumentsLowered)
 
+omit sv in
 theorem applicationSpine_go_rebuild (expression : Expr) (arguments : List Expr) :
     (applicationSpine.go expression arguments).2.foldl Expr.App
       (applicationSpine.go expression arguments).1 = arguments.foldl Expr.App expression := by
@@ -254,10 +260,12 @@ theorem applicationSpine_go_rebuild (expression : Expr) (arguments : List Expr) 
       applicationSpine_go_rebuild function (argument :: arguments)
 termination_by sizeOf expression
 
+omit sv in
 theorem applicationSpine_rebuild (expression : Expr) :
     (applicationSpine expression).2.foldl Expr.App (applicationSpine expression).1 = expression :=
   applicationSpine_go_rebuild expression []
 
+omit sv in
 theorem applicationSpine_go_size (expression : Expr) (arguments : List Expr) :
     exprSize (applicationSpine.go expression arguments).1 +
       exprSizeList (applicationSpine.go expression arguments).2 +
@@ -270,12 +278,14 @@ theorem applicationSpine_go_size (expression : Expr) (arguments : List Expr) :
     omega
 termination_by sizeOf expression
 
+omit sv in
 theorem applicationSpine_go_nonempty (expression : Expr) (argument : Expr) (arguments : List Expr) :
     (applicationSpine.go expression (argument :: arguments)).2 ≠ [] := by
   cases expression <;> try simp [applicationSpine.go]
   case App function inner => exact applicationSpine_go_nonempty function inner (argument :: arguments)
 termination_by sizeOf expression
 
+omit sv in
 theorem applicationSpine_smaller (function argument : Expr) :
     exprSize (applicationSpine (.App function argument)).1 < exprSize (.App function argument) ∧
       ∀ child ∈ (applicationSpine (.App function argument)).2, exprSize child < exprSize (.App function argument) := by
@@ -373,11 +383,13 @@ def packApplicationsStep (minimum : Nat) (transform : Expr → Expr) (expression
     else arguments'.foldl Expr.App function'
   | _ => mapChildren transform expression
 
+omit sv in
 theorem packApplicationsFuel_succ (minimum fuel : Nat) (expression : Expr) :
     packApplicationsFuel minimum (fuel + 1) expression =
       packApplicationsStep minimum (packApplicationsFuel minimum fuel) expression := by
   cases expression <;> rfl
 
+omit sv in
 theorem packApplicationsStep_congr (minimum : Nat) (left right : Expr → Expr) (expression : Expr)
     (agree : ∀ child, exprSize child < exprSize expression → left child = right child) :
     packApplicationsStep minimum left expression = packApplicationsStep minimum right expression := by
@@ -393,6 +405,7 @@ theorem packApplicationsStep_congr (minimum : Nat) (left right : Expr → Expr) 
     simp only [packApplicationsStep, heads, arguments]
   | _ => exact mapChildren_congr_size left right _ agree
 
+omit sv in
 theorem packApplicationsFuel_irrel (minimum : Nat) (expression : Expr)
     (leftFuel rightFuel : Nat) (leftBound : exprSize expression ≤ leftFuel)
     (rightBound : exprSize expression ≤ rightFuel) :
@@ -409,6 +422,7 @@ theorem packApplicationsFuel_irrel (minimum : Nat) (expression : Expr)
       exact packApplicationsFuel_irrel minimum child leftFuel rightFuel (by omega) (by omega)
 termination_by exprSize expression
 
+omit sv in
 theorem packApplications_recursive_eq (minimum : Nat) (expression : Expr) :
     packApplications minimum expression = packApplicationsStep minimum (packApplications minimum) expression := by
   unfold packApplications
@@ -420,6 +434,7 @@ theorem packApplications_recursive_eq (minimum : Nat) (expression : Expr) :
     intro child smaller
     exact packApplicationsFuel_irrel minimum child fuel (exprSize child) (by omega) (Nat.le_refl _)
 
+omit sv in
 theorem packApplications_unique (minimum : Nat) (candidate : Expr → Expr)
     (equation : ∀ expression, candidate expression = packApplicationsStep minimum candidate expression)
     (expression : Expr) : packApplications minimum expression = candidate expression := by

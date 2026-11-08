@@ -1,5 +1,7 @@
 import Moist.Verified.GuardsSoundness.Calls
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Calls of recursive functions terminate by induction on the shrinking argument -/
 
 namespace Moist.Verified.Guards
@@ -14,6 +16,7 @@ open Moist.Verified.KnownLists
 
 /-! ## Names bound in a block -/
 
+omit sv in
 theorem beq_false_symm {a b : VarId} (h : (a == b) = false) : (b == a) = false := by
   cases hba : (b == a)
   · rfl
@@ -21,6 +24,7 @@ theorem beq_false_symm {a b : VarId} (h : (a == b) = false) : (b == a) = false :
     have : (a == b) = true := by rw [VarId.beq_true_iff]; exact ⟨hba.1.symm, hba.2.symm⟩
     rw [h] at this; cases this
 
+omit sv in
 /-- A name outside a block keeps its value across the block. -/
 theorem bound_transport {y : VarId} {Q : CekValue → Prop} :
     ∀ (bs : List VarId) (fs : List CekValue) {env : List VarId} {ρ : CekEnv},
@@ -33,6 +37,7 @@ theorem bound_transport {y : VarId} {Q : CekValue → Prop} :
     simpa [extendAll] using this
   | [], _ :: _, _, _, h, _, _ | _ :: _, [], _, _, h, _, _ => by simp at h
 
+omit sv in
 theorem envDistinct_prefix : ∀ (pre : List VarId) {y : VarId} {env : List VarId},
     EnvDistinct (pre ++ y :: env) → ∀ x ∈ pre, (x == y) = false
   | [], _, _, _, _, hx => by cases hx
@@ -76,10 +81,12 @@ theorem extendAll_bound : ∀ (bs : List VarId) (fs : List CekValue) {env : List
 
 def pickFresh (names : List VarId) (k : Nat) : VarId := ⟨(names.map VarId.uid).sum + k + 1, .gen, "s"⟩
 
+omit sv in
 theorem uid_le_sum : ∀ {names : List VarId} {y : VarId}, y ∈ names → y.uid ≤ (names.map VarId.uid).sum
   | _ :: _, _, .head _ => by simp
   | _ :: _, _, .tail _ h => by have := uid_le_sum h; simp; omega
 
+omit sv in
 theorem pickFresh_ne {names : List VarId} {k : Nat} {y : VarId} (hy : y ∈ names) :
     (pickFresh names k == y) = false := by
   rw [VarId.beq_false_iff]
@@ -87,9 +94,11 @@ theorem pickFresh_ne {names : List VarId} {k : Nat} {y : VarId} (hy : y ∈ name
   have := uid_le_sum hy
   simp [pickFresh]; omega
 
+omit sv in
 theorem pickFresh_uid (names : List VarId) (k : Nat) : k < (pickFresh names k).uid := by
   simp [pickFresh]; omega
 
+omit sv in
 theorem envLookupT_none_of_ne : ∀ {env : List VarId} {s : VarId}, (∀ y ∈ env, (s == y) = false) →
     envLookupT env s = none
   | [], _, _ => rfl
@@ -101,6 +110,7 @@ theorem envLookupT_none_of_ne : ∀ {env : List VarId} {s : VarId}, (∀ y ∈ e
 def ctxNames (c : TCtx) : List VarId :=
   c.facts.map (·.1) ++ c.lists ++ c.roles.flatMap fun r => r.fn :: r.base :: r.small
 
+omit sv in
 theorem fresh_of_ne {c : TCtx} {s : VarId} (h : ∀ y ∈ ctxNames c, (s == y) = false) : c.fresh s = true := by
   have hn : ∀ y ∈ ctxNames c, (y == s) = false := fun y hy => beq_false_symm (h y hy)
   unfold TCtx.fresh
@@ -129,9 +139,11 @@ theorem Inv.addLists' {c : TCtx} {env : List VarId} {ρ : CekEnv} (h : Inv c env
     have := (Inv.addLists' h xs (fun y hy => hx y (.tail _ hy))).addList (hx x (.head _))
     simpa [TCtx.addLists] using this
 
+omit sv in
 theorem rolePreds_length (r : Role) (m : Nat) : (rolePreds r m).length = r.arity := by
   simp [rolePreds]
 
+omit sv in
 theorem rolePreds_get {r : Role} {m i : Nat} {P : CekValue → Prop} (h : (rolePreds r m)[i]? = some P) :
     i < r.arity ∧ P = fun w => (i = r.index → vsize w < m) ∧ (r.lists.contains i → ListValue w) := by
   simp only [rolePreds, List.getElem?_map] at h
@@ -141,6 +153,7 @@ theorem rolePreds_get {r : Role} {m i : Nat} {P : CekValue → Prop} (h : (roleP
     exact ⟨hi, h.symm⟩
   · rw [List.getElem?_eq_none (by simpa using hi)] at h; simp at h
 
+omit sv in
 theorem fresh_restrict {c : TCtx} {roles : List Role} (hsub : ∀ r ∈ roles, r ∈ c.roles) {x : VarId}
     (h : c.fresh x = true) : ({ c with roles := roles } : TCtx).fresh x = true := by
   unfold TCtx.fresh at h ⊢

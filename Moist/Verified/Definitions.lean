@@ -2,6 +2,8 @@ import Moist.CEK.Machine
 import Moist.CEK.Readback
 import Moist.Plutus.Term
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Core semantic primitives shared across all Verified modules
 
 This file hosts the three primitive definitions used everywhere:

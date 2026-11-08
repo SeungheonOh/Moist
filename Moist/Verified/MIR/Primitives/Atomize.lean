@@ -1,5 +1,7 @@
 import Moist.Verified.MIR.Hoist
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Atomization: `e ⊑ let x = e in x` -/
 
 namespace Moist.Verified.MIR

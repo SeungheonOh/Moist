@@ -4,6 +4,8 @@ import Moist.Verified.BuiltinStateSoundness
 import Moist.Verified.InlineSoundness.Rename
 import Moist.MIR.Optimize.Advanced.Sharing
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Soundness of closed-subterm sharing
 
 `shareClosed` binds closed candidates at the top and replaces every
@@ -29,6 +31,7 @@ open Moist.Verified.SharedLets
 
 /-! ## Environment lookups -/
 
+omit sv in
 theorem envLookupT_go_append (x : VarId) :
     ∀ (bs rest : List VarId) (n : Nat),
       envLookupT.go x (bs ++ rest) n =
@@ -43,6 +46,7 @@ theorem envLookupT_go_append (x : VarId) :
     · rw [envLookupT_go_append x bs rest (n + 1)]
       simp only [List.length_cons, Nat.add_assoc, Nat.add_comm 1]
 
+omit sv in
 theorem envLookupT_append (bs rest : List VarId) (x : VarId) :
     envLookupT (bs ++ rest) x =
       match envLookupT bs x with
@@ -53,6 +57,7 @@ theorem envLookupT_append (bs rest : List VarId) (x : VarId) :
     envLookupT.go_shift]
   simp only [Nat.zero_add]
 
+omit sv in
 theorem envLookupT_none_of_ne : ∀ (bs : List VarId) (x : VarId),
     (∀ b ∈ bs, (b == x) = false) → envLookupT bs x = none
   | [], _, _ => rfl
@@ -61,6 +66,7 @@ theorem envLookupT_none_of_ne : ∀ (bs : List VarId) (x : VarId),
       envLookupT_none_of_ne bs x (fun b' hb' => h b' (.tail _ hb'))]
     rfl
 
+omit sv in
 theorem envLookupT_go_getElem : ∀ (L : List VarId) (i n : Nat) (hi : i < L.length),
     (∀ i' (h' : i' < i), (L[i']'(by omega) == L[i]) = false) →
       envLookupT.go L[i] L n = some (n + i)
@@ -78,6 +84,7 @@ theorem envLookupT_go_getElem : ∀ (L : List VarId) (i n : Nat) (hi : i < L.len
     simp only [Bool.false_eq_true, if_false]
     congr 1; omega
 
+omit sv in
 theorem beq_false_of_uid_ne {a b : VarId} (h : a.uid ≠ b.uid) : (a == b) = false :=
   (VarId.beq_false_iff a b).mpr (.inr h)
 
@@ -86,6 +93,7 @@ theorem beq_false_of_uid_ne {a b : VarId} (h : a.uid ≠ b.uid) : (a == b) = fal
 /-- No free variables. -/
 def Closed (e : Expr) : Prop := ∀ x, (freeVars e).contains x = false
 
+omit sv in
 theorem lowerTotalExpr_closed {e : Expr} (hc : Closed e) (env : List VarId) :
     lowerTotalExpr env e = lowerTotalExpr [] e := by
   unfold lowerTotalExpr
@@ -96,6 +104,7 @@ theorem lowerTotalExpr_closed {e : Expr} (hc : Closed e) (env : List VarId) :
   | nil => rfl
   | cons x l ih => rw [List.reverse_cons, lowerTotal_append_unused l.reverse x _ (hfix x), ih]
 
+omit sv in
 theorem closed_of_isEmpty {e : Expr} (h : (freeVars e).data.isEmpty = true) : Closed e := by
   intro x
   unfold VarSet.contains
@@ -103,13 +112,16 @@ theorem closed_of_isEmpty {e : Expr} (h : (freeVars e).data.isEmpty = true) : Cl
   rw [h]
   rfl
 
+omit sv in
 theorem alphaEq_lam_false {c : Expr} (hc : ∀ x b, c ≠ .Lam x b) (x : VarId) (b : Expr) :
     alphaEq c (.Lam x b) = false := by
   cases c with
   | Lam y b' => exact absurd rfl (hc _ _)
   | _ => unfold alphaEq alphaEqAux; rfl
 
+omit sv in
 theorem fresh_left {a b c : Nat} (h : max a b < c) : a < c := by omega
+omit sv in
 theorem fresh_right {a b c : Nat} (h : max a b < c) : b < c := by omega
 
 /-! ## Replacement setup -/
@@ -130,6 +142,7 @@ def uidBound : List (Expr × VarId) → Nat
   | [] => 0
   | entry :: rest => entry.2.uid + uidBound rest
 
+omit sv in
 theorem le_uidBound : ∀ {R : List (Expr × VarId)} {entry : Expr × VarId}, entry ∈ R →
     entry.2.uid ≤ uidBound R
   | _ :: _, _, .head _ => by simp only [uidBound]; omega
@@ -138,8 +151,10 @@ theorem le_uidBound : ∀ {R : List (Expr × VarId)} {entry : Expr × VarId}, en
 section
 variable {R : List (Expr × VarId)} {ts : List Term}
 
+omit sv in
 theorem binders_length : (binders R).length = R.length := by simp [binders]
 
+omit sv in
 theorem binders_lookup (S : Setup R ts) {j : Nat} (hj : j < R.length) :
     envLookupT (binders R) R[j].2 = some (R.length - 1 - j) := by
   have hi : R.length - 1 - j < (binders R).length := by rw [binders_length]; omega
@@ -162,6 +177,7 @@ theorem binders_lookup (S : Setup R ts) {j : Nat} (hj : j < R.length) :
       have := S.distinct _ _ (by omega) hj hb
       omega
 
+omit sv in
 theorem binders_lookup_none {x : VarId} (hx : ∀ entry ∈ R, (entry.2 == x) = false) :
     envLookupT (binders R) x = none := by
   apply envLookupT_none_of_ne
@@ -197,6 +213,7 @@ theorem pin_case (S : Setup R ts) (env bs : List VarId) (e : Expr) (t : Term) (c
   have := S.length
   omega
 
+omit sv in
 theorem fixLamWrap_shared {K : Nat} {P : Term → Nat → Prop} {d : Nat} {t u : Term}
     (h : Shared K P (d + 1 + 1 + 1) t u) :
     Shared K P d (fixLamWrapUplc t) (fixLamWrapUplc u) := by
@@ -206,15 +223,18 @@ theorem fixLamWrap_shared {K : Nat} {P : Term → Nat → Prop} {d : Nat} {t u :
       (.lam (.apply (.apply (Shared.var_le (by omega)) (Shared.var_le (by omega)))
         (Shared.var_le (by omega))))))
 
+omit sv in
 theorem lowerTotalExpr_let_eq (env : List VarId) (binds : List (VarId × Expr × Bool))
     (body : Expr) :
     lowerTotalExpr env (.Let binds body) = lowerTotalLet env (expandFixBinds binds) (expandFix body) := by
   simp only [lowerTotalExpr, expandFix, lowerTotal]
 
+omit sv in
 theorem fresh_binder {x : VarId} {bound : Nat} (hx : x.uid ≤ bound)
     (hfresh : ∀ entry ∈ R, bound < entry.2.uid) : ∀ entry ∈ R, (x == entry.2) = false :=
   fun entry he => beq_false_of_uid_ne (by have := hfresh entry he; omega)
 
+omit sv in
 theorem cons_binders {x : VarId} {bs : List VarId} (hx : ∀ entry ∈ R, (x == entry.2) = false)
     (hbs : ∀ b ∈ bs, ∀ entry ∈ R, (b == entry.2) = false) :
     ∀ b ∈ x :: bs, ∀ entry ∈ R, (b == entry.2) = false := by
@@ -484,6 +504,7 @@ end
 
 /-! ## The bindings -/
 
+omit sv in
 theorem lowerTotalExpr_shared_lets (R : List (Expr × VarId)) (body : Expr)
     (hclosed : ∀ entry ∈ R, Closed entry.1)
     (hlow : ∀ entry ∈ R, (lowerTotalExpr [] entry.1).isSome) :
@@ -572,6 +593,7 @@ def collectChildren : Expr → List Expr
   | .Let bindings body => collectMatchesBinds predicate bindings ++ collectMatches predicate body
   | _ => []
 
+omit sv in
 theorem collect_cases {e c : Expr} (hc : c ∈ collectMatches predicate e) :
     (c = e ∧ predicate e = true) ∨ c ∈ collectChildren predicate e := by
   rw [collectMatches.eq_def] at hc
@@ -743,6 +765,7 @@ end
 
 end Collect
 
+omit sv in
 theorem mem_dedup : ∀ (l acc : List Expr) (x : Expr),
     x ∈ l.foldl (fun result candidate =>
       if result.any (alphaEq candidate) then result else result ++ [candidate]) acc →

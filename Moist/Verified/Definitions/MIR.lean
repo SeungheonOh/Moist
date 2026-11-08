@@ -4,6 +4,8 @@ import Moist.Verified.Definitions
 import Moist.Verified.Definitions.Contextual
 import Moist.Verified.Definitions.StepIndexed
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # MIR-level relations
 
 * `MIROpenRefK` / `MIROpenRef` — step-indexed / step-index-free open

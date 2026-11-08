@@ -1,5 +1,7 @@
 import Moist.CEK.Machine
 
+variable [sv : Moist.CEK.SemVariant]
+
 namespace Moist.Verified.AdvancedRedexes
 
 open Moist.CEK
@@ -44,18 +46,19 @@ private def separateListProjections (body : Term) : Term :=
 private def fusedListProjections (body : Term) : Term :=
   .Case (.Var 1) [.Lam 0 (.Lam 0 body), .Error]
 
-theorem list_cons_fusion (head : Moist.Plutus.Data) (tail : List Moist.Plutus.Data)
+theorem list_cons_fusion (elementType : BuiltinType) (head : Const) (tail : List Const)
     (body : Term) (environment : CekEnv) (stack : Stack) :
-    advance 22 (.compute stack (.cons (.VCon (.ConstDataList (head :: tail))) environment)
+    advance 22 (.compute stack (.cons (.VCon (.ConstList elementType (head :: tail))) environment)
       (separateListProjections body)) =
-    advance 7 (.compute stack (.cons (.VCon (.ConstDataList (head :: tail))) environment)
+    advance 7 (.compute stack (.cons (.VCon (.ConstList elementType (head :: tail))) environment)
       (fusedListProjections body)) := by
   rfl
 
-theorem list_nil_fusion (body : Term) (environment : CekEnv) (stack : Stack) :
-    advance 10 (.compute stack (.cons (.VCon (.ConstDataList [])) environment)
+theorem list_nil_fusion (elementType : BuiltinType) (body : Term) (environment : CekEnv)
+    (stack : Stack) :
+    advance 10 (.compute stack (.cons (.VCon (.ConstList elementType [])) environment)
       (separateListProjections body)) =
-    advance 4 (.compute stack (.cons (.VCon (.ConstDataList [])) environment)
+    advance 4 (.compute stack (.cons (.VCon (.ConstList elementType [])) environment)
       (fusedListProjections body)) := by
   rfl
 
@@ -80,21 +83,37 @@ theorem fold_binary_builtin (builtin : BuiltinFun) (first second result : Const)
     advance 1 (.compute stack environment (.Constant (result, resultType))) := by
   simp [advance, step, signature, ExpectedArgs.head, ExpectedArgs.tail, evaluated]
 
-theorem add_integer_zero (number : Int) (environment : CekEnv) (stack : Stack) :
+theorem add_integer_zero (number : Int) (environment : CekEnv) (stack : Stack)
+    (inBounds : cIntegerOk sv number = true) :
     advance 9 (.compute stack (.cons (.VCon (.Integer number)) environment)
       (.Apply (.Apply (.Builtin .AddInteger) (.Var 1))
         (.Constant (.Integer 0, .AtomicType .TypeInteger)))) =
     advance 1 (.compute stack (.cons (.VCon (.Integer number)) environment) (.Var 1)) := by
-  change State.ret stack (.VCon (.Integer (number + 0))) = State.ret stack (.VCon (.Integer number))
-  rw [Int.add_zero]
+  have zeroBounds : cIntegerOk sv 0 = true := cIntegerOk_of_natAbs_lt sv 0 (by decide)
+  have evaluated : evalBuiltin .AddInteger [.VCon (.Integer 0), .VCon (.Integer number)] =
+      some (.VCon (.Integer number)) := by
+    rw [show [CekValue.VCon (.Integer 0), .VCon (.Integer number)] =
+      [Const.Integer 0, .Integer number].map CekValue.VCon from rfl, evalBuiltin_consts _ _ rfl]
+    change (if cIntegerOk sv number && cIntegerOk sv 0 then some (Const.Integer (number + 0)) else none).map _ = _
+    simp [inBounds, zeroBounds]
+  have signature : expectedArgs .AddInteger = .more .argV (.one .argV) := rfl
+  simp [advance, step, signature, ExpectedArgs.head, ExpectedArgs.tail, evaluated, CekEnv.lookup]
 
-theorem multiply_integer_one (number : Int) (environment : CekEnv) (stack : Stack) :
+theorem multiply_integer_one (number : Int) (environment : CekEnv)
+    (stack : Stack) (inBounds : cIntegerOk sv number = true) :
     advance 9 (.compute stack (.cons (.VCon (.Integer number)) environment)
       (.Apply (.Apply (.Builtin .MultiplyInteger) (.Var 1))
         (.Constant (.Integer 1, .AtomicType .TypeInteger)))) =
     advance 1 (.compute stack (.cons (.VCon (.Integer number)) environment) (.Var 1)) := by
-  change State.ret stack (.VCon (.Integer (number * 1))) = State.ret stack (.VCon (.Integer number))
-  rw [Int.mul_one]
+  have oneBounds : cIntegerOk sv 1 = true := cIntegerOk_of_natAbs_lt sv 1 (by decide)
+  have evaluated : evalBuiltin .MultiplyInteger [.VCon (.Integer 1), .VCon (.Integer number)] =
+      some (.VCon (.Integer number)) := by
+    rw [show [CekValue.VCon (.Integer 1), .VCon (.Integer number)] =
+      [Const.Integer 1, .Integer number].map CekValue.VCon from rfl, evalBuiltin_consts _ _ rfl]
+    change (if cIntegerOk sv number && cIntegerOk sv 1 then some (Const.Integer (number * 1)) else none).map _ = _
+    simp [inBounds, oneBounds]
+  have signature : expectedArgs .MultiplyInteger = .more .argV (.one .argV) := rfl
+  simp [advance, step, signature, ExpectedArgs.head, ExpectedArgs.tail, evaluated, CekEnv.lookup]
 
 theorem checked_integer_round_trip (number : Int) (environment : CekEnv) (stack : Stack) :
     advance 5 (.compute stack
@@ -117,22 +136,38 @@ theorem checked_bytes_round_trip (bytes : ByteArray) (environment : CekEnv) (sta
 theorem checked_list_round_trip (fields : List Moist.Plutus.Data)
     (environment : CekEnv) (stack : Stack) :
     advance 5 (.compute stack
-      (.cons (.VCon (.ConstDataList fields)) (.cons (.VCon (.Data (.List fields))) environment))
+      (.cons (.VCon (.dataList fields)) (.cons (.VCon (.Data (.List fields))) environment))
       (.Apply (.Builtin .ListData) (.Var 1))) =
     advance 1 (.compute stack
-      (.cons (.VCon (.ConstDataList fields)) (.cons (.VCon (.Data (.List fields))) environment))
+      (.cons (.VCon (.dataList fields)) (.cons (.VCon (.Data (.List fields))) environment))
       (.Var 2)) := by
-  rfl
+  have evaluated : evalBuiltin .ListData [.VCon (.dataList fields)] =
+      some (.VCon (.Data (.List fields))) := by
+    rw [show [CekValue.VCon (.dataList fields)] = [Const.dataList fields].map CekValue.VCon from rfl,
+      evalBuiltin_consts _ _ rfl]
+    change ((constListToData (fields.map Const.Data)).bind
+      (fun v => some (Const.Data (.List v)))).map CekValue.VCon = _
+    rw [constListToData_map]; rfl
+  have signature : expectedArgs .ListData = .one .argV := rfl
+  simp [advance, step, signature, ExpectedArgs.head, ExpectedArgs.tail, evaluated, CekEnv.lookup]
 
 theorem checked_map_round_trip (fields : List (Moist.Plutus.Data × Moist.Plutus.Data))
     (environment : CekEnv) (stack : Stack) :
     advance 5 (.compute stack
-      (.cons (.VCon (.ConstPairDataList fields)) (.cons (.VCon (.Data (.Map fields))) environment))
+      (.cons (.VCon (.pairDataList fields)) (.cons (.VCon (.Data (.Map fields))) environment))
       (.Apply (.Builtin .MapData) (.Var 1))) =
     advance 1 (.compute stack
-      (.cons (.VCon (.ConstPairDataList fields)) (.cons (.VCon (.Data (.Map fields))) environment))
+      (.cons (.VCon (.pairDataList fields)) (.cons (.VCon (.Data (.Map fields))) environment))
       (.Var 2)) := by
-  rfl
+  have evaluated : evalBuiltin .MapData [.VCon (.pairDataList fields)] =
+      some (.VCon (.Data (.Map fields))) := by
+    rw [show [CekValue.VCon (.pairDataList fields)] = [Const.pairDataList fields].map CekValue.VCon
+      from rfl, evalBuiltin_consts _ _ rfl]
+    change ((constListToPairData (fields.map Const.pairData)).bind
+      (fun v => some (Const.Data (.Map v)))).map CekValue.VCon = _
+    rw [constListToPairData_map]; rfl
+  have signature : expectedArgs .MapData = .one .argV := rfl
+  simp [advance, step, signature, ExpectedArgs.head, ExpectedArgs.tail, evaluated, CekEnv.lookup]
 
 theorem repeated_boolean_case (condition : Bool) (whenFalse whenTrue unreachable : Term)
     (environment : CekEnv) (stack : Stack) :
@@ -157,38 +192,30 @@ theorem native_pair_second (first second : Const) (environment : CekEnv) (stack 
       (.Case (.Var 1) [.Lam 0 (.Lam 0 (.Var 1))])) := by
   rfl
 
-theorem list_choice_cons (head : Moist.Plutus.Data) (tail : List Moist.Plutus.Data)
+theorem list_choice_cons (elementType : BuiltinType) (head : Const) (tail : List Const)
     (body empty : Term) (environment : CekEnv) (stack : Stack) :
-    advance 31 (.compute stack (.cons (.VCon (.ConstDataList (head :: tail))) environment)
+    advance 31 (.compute stack (.cons (.VCon (.ConstList elementType (head :: tail))) environment)
       (.Case (.Apply (.Force (.Builtin .NullList)) (.Var 1))
         [separateListProjections body, empty])) =
-    advance 7 (.compute stack (.cons (.VCon (.ConstDataList (head :: tail))) environment)
+    advance 7 (.compute stack (.cons (.VCon (.ConstList elementType (head :: tail))) environment)
       (.Case (.Var 1) [.Lam 0 (.Lam 0 body), empty])) := by
   rfl
 
-theorem list_choice_nil (body empty : Term) (environment : CekEnv) (stack : Stack) :
-    advance 9 (.compute stack (.cons (.VCon (.ConstDataList [])) environment)
+theorem list_choice_nil (elementType : BuiltinType) (body empty : Term) (environment : CekEnv)
+    (stack : Stack) :
+    advance 9 (.compute stack (.cons (.VCon (.ConstList elementType [])) environment)
       (.Case (.Apply (.Force (.Builtin .NullList)) (.Var 1))
         [body, empty])) =
-    advance 3 (.compute stack (.cons (.VCon (.ConstDataList [])) environment)
+    advance 3 (.compute stack (.cons (.VCon (.ConstList elementType [])) environment)
       (.Case (.Var 1) [.Lam 0 (.Lam 0 body), empty])) := by
   rfl
 
-theorem delayed_data_list_choice (fields : List Moist.Plutus.Data)
+theorem delayed_generic_list_choice (elementType : BuiltinType) (fields : List Const)
     (nonempty empty : Term) (environment : CekEnv) (stack : Stack) :
-    advance 19 (.compute stack (.cons (.VCon (.ConstDataList fields)) environment)
+    advance 19 (.compute stack (.cons (.VCon (.ConstList elementType fields)) environment)
       (.Force (.Apply (.Apply (.Apply (.Force (.Force (.Builtin .ChooseList)))
         (.Var 1)) (.Delay empty)) (.Delay nonempty)))) =
-    advance 9 (.compute stack (.cons (.VCon (.ConstDataList fields)) environment)
-      (.Case (.Apply (.Force (.Builtin .NullList)) (.Var 1)) [nonempty, empty])) := by
-  cases fields <;> rfl
-
-theorem delayed_generic_list_choice (fields : List Const)
-    (nonempty empty : Term) (environment : CekEnv) (stack : Stack) :
-    advance 19 (.compute stack (.cons (.VCon (.ConstList fields)) environment)
-      (.Force (.Apply (.Apply (.Apply (.Force (.Force (.Builtin .ChooseList)))
-        (.Var 1)) (.Delay empty)) (.Delay nonempty)))) =
-    advance 9 (.compute stack (.cons (.VCon (.ConstList fields)) environment)
+    advance 9 (.compute stack (.cons (.VCon (.ConstList elementType fields)) environment)
       (.Case (.Apply (.Force (.Builtin .NullList)) (.Var 1)) [nonempty, empty])) := by
   cases fields <;> rfl
 
@@ -201,14 +228,14 @@ theorem delayed_list_choice_value (value : CekValue)
       (.Case (.Apply (.Force (.Builtin .NullList)) (.Var 1)) [nonempty, empty])) := by
   cases value with
   | VCon constant =>
-    cases constant <;> first | rfl | (rename_i fields; cases fields <;> rfl)
+    cases constant <;> first | rfl | (rename_i _ fields; cases fields <;> rfl)
   | _ => rfl
 
-theorem checked_nonempty_list_fusion (head : Const) (tail : List Const)
+theorem checked_nonempty_list_fusion (elementType : BuiltinType) (head : Const) (tail : List Const)
     (body : Term) (environment : CekEnv) (stack : Stack) :
-    advance 22 (.compute stack (.cons (.VCon (.ConstList (head :: tail))) environment)
+    advance 22 (.compute stack (.cons (.VCon (.ConstList elementType (head :: tail))) environment)
       (separateListProjections body)) =
-    advance 7 (.compute stack (.cons (.VCon (.ConstList (head :: tail))) environment)
+    advance 7 (.compute stack (.cons (.VCon (.ConstList elementType (head :: tail))) environment)
       (.Case (.Var 1) [.Lam 0 (.Lam 0 body)])) := by
   rfl
 

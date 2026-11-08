@@ -1,5 +1,7 @@
 import Moist.Verified.GuardsSoundness.Steps
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Alternatives that bind fields -/
 
 namespace Moist.Verified.Guards
@@ -16,9 +18,11 @@ def extendAll (ρ : CekEnv) : List CekValue → CekEnv
   | [] => ρ
   | f :: fs => extendAll (ρ.extend f) fs
 
+omit sv in
 theorem lams_cons (x : VarId) (xs : List VarId) (b : Expr) :
     Advanced.lams (x :: xs) b = .Lam x (Advanced.lams xs b) := rfl
 
+omit sv in
 theorem lamSpine_spec : ∀ (e : Expr), Advanced.lams (lamSpine e).1 (lamSpine e).2 = e
   | .Lam x b => by
     have := lamSpine_spec b
@@ -26,12 +30,14 @@ theorem lamSpine_spec : ∀ (e : Expr), Advanced.lams (lamSpine e).1 (lamSpine e
   | .Var _ | .Lit _ | .Builtin _ | .Error | .Fix _ _ | .App _ _ | .Force _ | .Delay _
   | .Constr _ _ | .Case _ _ | .Let _ _ => rfl
 
+omit sv in
 theorem lamSpine_body_not_lam : ∀ (e : Expr) (x : VarId) (b : Expr), (lamSpine e).2 ≠ .Lam x b
   | .Lam y c, x, b => by simp only [lamSpine]; exact lamSpine_body_not_lam c x b
   | .Var _, _, _ | .Lit _, _, _ | .Builtin _, _, _ | .Error, _, _ | .Fix _ _, _, _ | .App _ _, _, _
   | .Force _, _, _ | .Delay _, _, _ | .Constr _ _, _, _ | .Case _ _, _, _ | .Let _ _, _, _ => by
     simp [lamSpine]
 
+omit sv in
 theorem peelLams_spec : ∀ (k : Nat) (e : Expr) {bs : List VarId} {body : Expr},
     peelLams k e = some (bs, body) → e = Advanced.lams bs body ∧ bs.length = k
   | 0, e, bs, body, h => by
@@ -52,6 +58,7 @@ theorem peelLams_spec : ∀ (k : Nat) (e : Expr) {bs : List VarId} {body : Expr}
   | _ + 1, .Force _, _, _, h | _ + 1, .Delay _, _, _, h | _ + 1, .Constr _ _, _, _, h
   | _ + 1, .Case _ _, _, _, h | _ + 1, .Let _ _, _, _, h => by simp [peelLams] at h
 
+omit sv in
 theorem peelLams_lt : ∀ (k : Nat) (e : Expr), peelLams k e = none → (lamSpine e).1.length < k
   | 0, e, h => by simp [peelLams] at h
   | k + 1, .Lam x b, h => by
@@ -64,6 +71,7 @@ theorem peelLams_lt : ∀ (k : Nat) (e : Expr), peelLams k e = none → (lamSpin
   | _ + 1, .Force _, _ | _ + 1, .Delay _, _ | _ + 1, .Constr _ _, _
   | _ + 1, .Case _ _, _ | _ + 1, .Let _ _, _ => by simp [lamSpine]
 
+omit sv in
 /-- Lowering a lambda prefix. -/
 theorem lower_lams : ∀ (bs : List VarId) (body : Expr) {env : List VarId} {t : Term},
     lowerTotalExpr env (Advanced.lams bs body) = some t →

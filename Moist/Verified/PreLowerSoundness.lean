@@ -4,6 +4,8 @@ import Moist.Verified.HygieneSoundness
 import Moist.Verified.MIR.Hoist
 import Moist.MIR.Optimize.Advanced
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Soundness of pre-lowering inline
 
 `preLowerInlineExpr_refines : MIRCtxRefines e (preLowerInlineExpr e n)`.
@@ -104,10 +106,12 @@ theorem subst_redex_refines {src e rhs : Expr} {v : VarId} {s : FreshState}
 
 /-! ## Dropping a dead binding -/
 
+omit sv in
 private theorem singleton_contains (x v : VarId) :
     (VarSet.singleton x).contains v = (x == v) := by
   simp [VarSet.singleton, VarSet.contains]
 
+omit sv in
 private theorem erase_not_contains {s : VarSet} {x v : VarId}
     (h : (x == v) = true ∨ s.contains v = false) : (s.erase x).contains v = false := by
   rcases h with h | h
@@ -221,6 +225,7 @@ theorem drop_redex_refines {src e rhs : Expr} {v : VarId}
 
 /-! ## Redex shapes -/
 
+omit sv in
 theorem let_cons_shape (v : VarId) (rhs : Expr) (er : Bool)
     (rest : List (VarId × Expr × Bool)) (body : Expr) (env : List VarId) :
     lowerTotalExpr env (.Let ((v, rhs, er) :: rest) body) =
@@ -229,6 +234,7 @@ theorem let_cons_shape (v : VarId) (rhs : Expr) (er : Bool)
           some (.Apply (.Lam 0 tb) tr)) :=
   Moist.Verified.InlineSoundness.Rename.lowerTotalExpr_let_cons env v rhs er rest body
 
+omit sv in
 theorem app_lam_shape (v : VarId) (body x : Expr) (env : List VarId) :
     lowerTotalExpr env (.App (.Lam v body) x) =
       (do let tr ← lowerTotalExpr env x
@@ -239,6 +245,7 @@ theorem app_lam_shape (v : VarId) (body x : Expr) (env : List VarId) :
 
 /-! ## Bookkeeping -/
 
+omit sv in
 theorem flattenLet_spec : ∀ e : Expr,
     (∀ env, lowerTotalExpr env (Moist.MIR.flattenLet e) = lowerTotalExpr env e) ∧
       maxUidExpr (Moist.MIR.flattenLet e) ≤ maxUidExpr e
@@ -254,16 +261,19 @@ theorem flattenLet_spec : ∀ e : Expr,
 theorem flattenLet_refines (e : Expr) : MIRCtxRefines e (Moist.MIR.flattenLet e) :=
   mirCtxRefines_of_lowerEq fun env => ((flattenLet_spec e).1 env).symm
 
+omit sv in
 theorem maxUidExprBinds_append : ∀ (a b : List (VarId × Expr × Bool)),
     maxUidExprBinds (a ++ b) = max (maxUidExprBinds a) (maxUidExprBinds b)
   | [], b => by simp [maxUidExprBinds]
   | (x, e, er) :: a, b => by
     simp only [List.cons_append, maxUidExprBinds, maxUidExprBinds_append a b]; omega
 
+omit sv in
 theorem maxUid_let_append (a b : List (VarId × Expr × Bool)) (body : Expr) :
     maxUidExpr (.Let (a ++ b) body) = max (maxUidExprBinds a) (maxUidExpr (.Let b body)) := by
   simp only [maxUidExpr, maxUidExprBinds_append]; omega
 
+omit sv in
 theorem lowerTotalExpr_let_split (env : List VarId)
     (binds₁ binds₂ : List (VarId × Expr × Bool)) (body : Expr) :
     lowerTotalExpr env (.Let (binds₁ ++ binds₂) body) =
@@ -294,6 +304,7 @@ theorem preLowerKeep_spec (acc : List (VarId × Expr × Bool)) (body : Expr) :
   | nil => exact ⟨mirCtxRefines_let_nil, Nat.le_max_right _ _⟩
   | cons b bs => exact ⟨mirCtxRefines_refl _, by simp only [maxUidExpr]; omega⟩
 
+omit sv in
 theorem isTotal_of_atom {e : Expr} (h : e.isAtom = true) : isTotalPreLowerValue e = true := by
   cases e <;> simp_all [Moist.MIR.Expr.isAtom, isTotalPreLowerValue, Moist.MIR.isPure]
 
@@ -312,17 +323,21 @@ theorem usesInScope_unused {v : VarId} {rest : List (VarId × Expr × Bool)} {bo
 section Equations
 variable (p : Expr → Moist.MIR.FreshM Expr) (s : FreshState)
 
+omit sv in
 theorem preLowerList_nil : Moist.MIR.preLowerList p [] s = ([], s) := rfl
 
+omit sv in
 theorem preLowerList_cons (e : Expr) (rest : List Expr) :
     Moist.MIR.preLowerList p (e :: rest) s =
       ((p e s).1 :: (Moist.MIR.preLowerList p rest (p e s).2).1,
         (Moist.MIR.preLowerList p rest (p e s).2).2) := rfl
 
+omit sv in
 theorem preLowerLet_nil (acc : List (VarId × Expr × Bool)) (body : Expr) :
     Moist.MIR.preLowerLet p [] acc body s =
       (Moist.MIR.preLowerKeep acc (p body s).1, (p body s).2) := rfl
 
+omit sv in
 theorem preLowerLet_cons (v : VarId) (rhs : Expr) (er : Bool)
     (rest acc : List (VarId × Expr × Bool)) (body : Expr) (rhs' : Expr) (s₁ : FreshState)
     (h : p rhs s = (rhs', s₁)) :
@@ -354,6 +369,7 @@ theorem preLowerLet_cons (v : VarId) (rhs : Expr) (er : Bool)
     simp only [Bool.false_eq_true, ite_true, ite_false] <;> rfl
 
 
+omit sv in
 theorem preLowerBeta_cases (f x : Expr) :
     Moist.MIR.preLowerBeta p f x s = (.App f x, s) ∨
     ∃ param body, f = .Lam param body ∧
@@ -503,29 +519,36 @@ theorem preLowerLet_sound {p : Expr → Moist.MIR.FreshM Expr} (hp : Sound p) :
 section FuelEquations
 variable (n : Nat) (s : FreshState)
 
+omit sv in
 theorem fuel_lam (x : VarId) (b : Expr) : Moist.MIR.preLowerInlineFuel (n + 1) (.Lam x b) s =
     (.Lam x (Moist.MIR.preLowerInlineFuel n b s).1, (Moist.MIR.preLowerInlineFuel n b s).2) := rfl
 
+omit sv in
 theorem fuel_fix (f : VarId) (b : Expr) : Moist.MIR.preLowerInlineFuel (n + 1) (.Fix f b) s =
     (.Fix f (Moist.MIR.preLowerInlineFuel n b s).1, (Moist.MIR.preLowerInlineFuel n b s).2) := rfl
 
+omit sv in
 theorem fuel_force (b : Expr) : Moist.MIR.preLowerInlineFuel (n + 1) (.Force b) s =
     (.Force (Moist.MIR.preLowerInlineFuel n b s).1, (Moist.MIR.preLowerInlineFuel n b s).2) := rfl
 
+omit sv in
 theorem fuel_delay (b : Expr) : Moist.MIR.preLowerInlineFuel (n + 1) (.Delay b) s =
     (.Delay (Moist.MIR.preLowerInlineFuel n b s).1, (Moist.MIR.preLowerInlineFuel n b s).2) := rfl
 
+omit sv in
 theorem fuel_app (f x : Expr) : Moist.MIR.preLowerInlineFuel (n + 1) (.App f x) s =
     Moist.MIR.preLowerBeta (Moist.MIR.preLowerInlineFuel n)
       (Moist.MIR.preLowerInlineFuel n f s).1
       (Moist.MIR.preLowerInlineFuel n x (Moist.MIR.preLowerInlineFuel n f s).2).1
       (Moist.MIR.preLowerInlineFuel n x (Moist.MIR.preLowerInlineFuel n f s).2).2 := rfl
 
+omit sv in
 theorem fuel_constr (tag : Nat) (args : List Expr) :
     Moist.MIR.preLowerInlineFuel (n + 1) (.Constr tag args) s =
       (.Constr tag (Moist.MIR.preLowerList (Moist.MIR.preLowerInlineFuel n) args s).1,
         (Moist.MIR.preLowerList (Moist.MIR.preLowerInlineFuel n) args s).2) := rfl
 
+omit sv in
 theorem fuel_case (scrut : Expr) (alts : List Expr) :
     Moist.MIR.preLowerInlineFuel (n + 1) (.Case scrut alts) s =
       (.Case (Moist.MIR.preLowerInlineFuel n scrut s).1
@@ -534,6 +557,7 @@ theorem fuel_case (scrut : Expr) (alts : List Expr) :
         (Moist.MIR.preLowerList (Moist.MIR.preLowerInlineFuel n) alts
           (Moist.MIR.preLowerInlineFuel n scrut s).2).2) := rfl
 
+omit sv in
 theorem fuel_let (binds : List (VarId × Expr × Bool)) (body : Expr) :
     Moist.MIR.preLowerInlineFuel (n + 1) (.Let binds body) s =
       Moist.MIR.preLowerLet (Moist.MIR.preLowerInlineFuel n) binds [] body s := rfl

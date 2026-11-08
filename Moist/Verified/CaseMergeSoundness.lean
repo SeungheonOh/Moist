@@ -1,6 +1,8 @@
 import Moist.Verified.CaseMerge.Compat
 import Moist.Verified.HygieneSoundness
 
+variable [sv : Moist.CEK.SemVariant]
+
 /-! # Soundness of known-constructor case simplification
 
 `caseMerge Γ e` is related to `e` by the well-formedness-guarded logical
@@ -127,11 +129,13 @@ theorem eval_fixWrap {k : Nat} {ρ₁ ρ₂ : CekEnv} {b₁ b₂ : Term}
   exact h j'' (by omega) s₁ s₂ f₁ f₂ x₁ x₂ (valueRel_mono (by omega) hs) hs₁ hs₂
     (valueRel_mono (by omega) hf) hf₁ hf₂ hx hx₁ hx₂
 
+omit sv in
 theorem bindFact_of_fact {Γ : KnownCtors} {x : VarId} {r : Expr} {info : KnownCtor}
     (hk : knownConstructor Γ r = some info) (hx : (freeVarsList info.fields).contains x = false) :
     bindFact Γ x r = (x, info) :: filterKnown x Γ := by
   simp [bindFact, hk, hx]
 
+omit sv in
 theorem bindFact_of_no_fact {Γ : KnownCtors} {x : VarId} {r : Expr}
     (h : ¬ ∃ info, knownConstructor Γ r = some info ∧
       (freeVarsList info.fields).contains x = false) :
@@ -145,6 +149,7 @@ theorem bindFact_of_no_fact {Γ : KnownCtors} {x : VarId} {r : Expr}
     | true => rfl
     | false => exact absurd ⟨info, hk, hc⟩ h
 
+omit sv in
 theorem wf_of_ret {π : Stack} {v : CekValue} (h : StateWellFormed (.ret π v)) :
     ValueWellFormed v := by
   cases h with | ret _ hv => exact hv
