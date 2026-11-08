@@ -486,6 +486,17 @@ def exactError (kind : Kind) (i : Nat) (a : Expr) : Bool :=
     | none => false
   | none => isErrorAlt a
 
+/-- The shape a case step needs at the given facts: a known scrutinee, the
+    continuing alternative taking the fields of its tag, the others failing. -/
+def GUnit.valid (facts : List (VarId × Expr)) : GUnit → Bool
+  | .cases s before after binders =>
+    let kind := scrutineeKind facts [] s
+    (kind == .bool || kind == .int || kind == .list || kind == .pair) &&
+      kind.fields before.length == some binders.length &&
+      (before.zipIdx.all fun (a, i) => exactError kind (i + 0) a) &&
+      (after.zipIdx.all fun (a, i) => exactError kind (i + (before.length + 1)) a)
+  | _ => true
+
 def unitView (facts : List (VarId × Expr)) : Expr → Option (GUnit × Expr)
   | .Let [(x, r, er)] body => some (.bind x r er, body)
   | .Let ((x, r, er) :: rest) body => some (.bind x r er, .Let rest body)
@@ -529,9 +540,15 @@ decreasing_by
     | (have := List.sizeOf_lt_of_mem (by assumption); omega)
     | (rename_i h; have := List.sizeOf_lt_of_mem h; simp at this; omega)
 
+/-- The names a step binds besides its continuation binders. -/
+def GUnit.innerBinders : GUnit → List VarId
+  | .bind _ r _ => bindersOf r
+  | .cases s before after _ => bindersOf s ++ (before ++ after).flatMap bindersOf
+  | .ite c => bindersOf c
+
 def canSwap (facts : List (VarId × Expr)) (a b : GUnit) : Bool :=
-  disjoint a.binders (freeVars b.expr) && disjoint b.binders (freeVars a.expr) &&
-    b.binders.all (fun x => !(bindersOf a.expr).contains x) &&
+  a.valid facts && b.valid facts && disjoint a.binders (freeVars b.expr) && disjoint b.binders (freeVars a.expr) &&
+    b.binders.all (fun x => !a.innerBinders.contains x) &&
     traceFree a.expr && traceFree b.expr && terminatesWith facts b.expr
 
 /-- Move `a` below the steps of `body`, ending below a check. -/
