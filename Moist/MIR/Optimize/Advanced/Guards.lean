@@ -17,9 +17,6 @@ never use those bindings. Three steps move such work behind the checks:
   alternatives of cases whose scrutinee shape fixes the number of fields of
   each alternative, and into both branches of `ifThenElse`. Every check of
   `X` then has a local `error` alternative.
-* `splitChecks` names the argument of a builtin scrutinee when that argument
-  itself contains a check, so that the destructuring can move without the
-  check.
 * `sinkUnits` moves a strict step (a binding, a case with a single continuing
   alternative, or a check) below the strict steps that follow it, when it is
   not needed by them, as long as it then ends up below at least one check.
@@ -409,7 +406,7 @@ def pushAsserts (e : Expr) : Expr :=
   let prepared := uniqueOptimizationBinders e
   if wellScoped prepared then pushWalk [] prepared else prepared
 
-/-! ## Naming the argument that carries a check -/
+/-! ## Checks inside an expression -/
 
 /-- An `error` or a case with an `error` alternative outside any lambda or delay. -/
 def hasStrictCheck : Expr → Bool
@@ -428,76 +425,6 @@ decreasing_by
     | omega
     | (have := List.sizeOf_lt_of_mem (by assumption); omega)
     | (rename_i h; have := List.sizeOf_lt_of_mem h; simp at this; omega)
-
-/-- Heads whose evaluation returns at once. -/
-def pureHead : Expr → Bool
-  | .Var _ | .Builtin _ => true
-  | _ => false
-
-/-- `h₁ (h₂ (… (hₖ x)))` with pure heads, `x` replaced by `d`. -/
-def checkArgument (d : VarId) : Expr → Option (Expr × Expr)
-  | .App f a =>
-    if pureHead f then
-      match a with
-      | .Var _ | .Lit _ => none
-      | _ =>
-        match checkArgument d a with
-        | some (x, a') => some (x, .App f a')
-        | none => if hasStrictCheck a then some (a, .App f (.Var d)) else none
-    else none
-  | _ => none
-
-theorem checkArgument_size {d : VarId} : ∀ {s x s' : Expr}, checkArgument d s = some (x, s') →
-    exprSize x < exprSize s
-  | .App f a, x, s', h => by
-    unfold checkArgument at h
-    split at h
-    · split at h
-      · cases h
-      · cases h
-      · split at h
-        · rename_i x' a' ha
-          cases h
-          have := checkArgument_size ha
-          simp only [exprSize]; omega
-        · split at h
-          · cases h; simp only [exprSize]; omega
-          · cases h
-    · cases h
-  | .Var _, _, _, h | .Lit _, _, _, h | .Builtin _, _, _, h | .Error, _, _, h
-  | .Lam _ _, _, _, h | .Fix _ _, _, _, h | .Force _, _, _, h | .Delay _, _, _, h
-  | .Constr _ _, _, _, h | .Case _ _, _, _, h | .Let _ _, _, _, h => by simp [checkArgument] at h
-
-def splitWalk (d : VarId) (e : Expr) : Expr :=
-  match e with
-  | .Let [] body => splitWalk d body
-  | .Let ((x, r, er) :: rest) body => consLet (x, splitWalk d r, er) (splitWalk d (.Let rest body))
-  | .Lam x b => .Lam x (splitWalk d b)
-  | .Fix f b => .Fix f (splitWalk d b)
-  | .App f a => .App (splitWalk d f) (splitWalk d a)
-  | .Force b => .Force (splitWalk d b)
-  | .Delay b => .Delay (splitWalk d b)
-  | .Constr tag fields => .Constr tag (fields.attach.map fun ⟨field, _⟩ => splitWalk d field)
-  | .Case s alts =>
-    let alts' := alts.attach.map fun ⟨alt, _⟩ => splitWalk d alt
-    match hcheck : checkArgument d s with
-    | some (x, s') =>
-      if alts.any isErrorExpr && (alts.filter fun a => !isErrorExpr a).length == 1 then
-        .Let [(d, splitWalk d x, false)] (.Case s' alts')
-      else .Case (splitWalk d s) alts'
-    | none => .Case (splitWalk d s) alts'
-  | .Var _ | .Lit _ | .Builtin _ | .Error => e
-termination_by exprSize e
-decreasing_by
-  all_goals first
-    | (simp only [exprSize, exprSizeList]; omega)
-    | (have := exprSize_lt_of_mem (by assumption); simp only [exprSize, exprSizeList]; omega)
-    | (simp only [exprSize, exprSizeBinds]; have := exprSize_pos r; omega)
-    | (have := checkArgument_size hcheck; simp only [exprSize]; omega)
-
-def splitChecks (e : Expr) : Expr :=
-  let d : VarId := ⟨maxUidExpr e + 1, .gen, "checked"⟩
-  splitWalk d e
 
 /-! ## Moving strict steps below checks -/
 
@@ -550,6 +477,15 @@ def continuing (kind : Kind) (before : List Expr) (alt : Expr) : Option (List Va
   | .pair, 0, .Lam h (.Lam t b) => some ([h, t], b)
   | _, _, _ => none
 
+/-- An alternative that fails after taking the fields its tag carries. -/
+def exactError (kind : Kind) (i : Nat) (a : Expr) : Bool :=
+  match kind.fields i with
+  | some n =>
+    match peelLams n a with
+    | some (_, b) => isErrorExpr b
+    | none => false
+  | none => isErrorAlt a
+
 def unitView (facts : List (VarId × Expr)) : Expr → Option (GUnit × Expr)
   | .Let [(x, r, er)] body => some (.bind x r er, body)
   | .Let ((x, r, er) :: rest) body => some (.bind x r er, .Let rest body)
@@ -559,7 +495,9 @@ def unitView (facts : List (VarId × Expr)) : Expr → Option (GUnit × Expr)
     | some k =>
       let before := alts.take k
       let after := alts.drop (k + 1)
-      if after.all isErrorAlt then
+      let kind := scrutineeKind facts [] s
+      if (before.zipIdx.all fun (a, i) => exactError kind i a) &&
+          (after.zipIdx.all fun (a, i) => exactError kind (i + k + 1) a) then
         match alts[k]? with
         | some alt =>
           match continuing (scrutineeKind facts [] s) before alt with
@@ -573,8 +511,27 @@ def unitView (facts : List (VarId × Expr)) : Expr → Option (GUnit × Expr)
 
 def disjoint (xs : List VarId) (vars : VarSet) : Bool := xs.all fun x => !vars.contains x
 
+/-- The names an expression binds. -/
+def bindersOf : Expr → List VarId
+  | .Var _ | .Lit _ | .Builtin _ | .Error => []
+  | .Lam x b | .Fix x b => x :: bindersOf b
+  | .App f a => bindersOf f ++ bindersOf a
+  | .Force b | .Delay b => bindersOf b
+  | .Constr _ fields => (fields.attach.map fun ⟨field, _⟩ => bindersOf field).flatten
+  | .Case s alts => bindersOf s ++ (alts.attach.map fun ⟨alt, _⟩ => bindersOf alt).flatten
+  | .Let bs body =>
+    (bs.attach.map fun ⟨(x, r, _), _⟩ => x :: bindersOf r).flatten ++ bindersOf body
+termination_by e => sizeOf e
+decreasing_by
+  all_goals simp_wf
+  all_goals first
+    | omega
+    | (have := List.sizeOf_lt_of_mem (by assumption); omega)
+    | (rename_i h; have := List.sizeOf_lt_of_mem h; simp at this; omega)
+
 def canSwap (facts : List (VarId × Expr)) (a b : GUnit) : Bool :=
   disjoint a.binders (freeVars b.expr) && disjoint b.binders (freeVars a.expr) &&
+    b.binders.all (fun x => !(bindersOf a.expr).contains x) &&
     traceFree a.expr && traceFree b.expr && terminatesWith facts b.expr
 
 /-- Move `a` below the steps of `body`, ending below a check. -/
@@ -620,7 +577,7 @@ def sinkWalk (facts : List (VarId × Expr)) (e : Expr) : Expr :=
   | .Delay b => .Delay (sinkWalk facts b)
   | .Constr tag fields => .Constr tag (fields.attach.map fun ⟨field, _⟩ => sinkWalk facts field)
   | .Case s ((.Lam h (.Lam t b)) :: rest) =>
-    trySink facts (.Case (sinkWalk facts s) (.Lam h (.Lam t (sinkWalk (altFacts facts s h t) b)) ::
+    trySink facts (.Case (sinkWalk facts s) (.Lam h (.Lam t (sinkWalk (altFacts facts (sinkWalk facts s) h t) b)) ::
       rest.attach.map fun ⟨alt, _⟩ => sinkWalk facts alt))
   | .Case s alts =>
     trySink facts (.Case (sinkWalk facts s) (alts.attach.map fun ⟨alt, _⟩ => sinkWalk facts alt))
@@ -638,6 +595,6 @@ def sinkUnits (e : Expr) : Expr :=
   if wellScoped prepared then sinkWalk [] prepared else prepared
 
 /-- Checks before work. -/
-def checksFirst (e : Expr) : Expr := sinkUnits (splitChecks (pushAsserts e))
+def checksFirst (e : Expr) : Expr := sinkUnits (pushAsserts e)
 
 end Moist.MIR.Advanced
