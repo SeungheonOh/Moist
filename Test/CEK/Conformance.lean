@@ -188,13 +188,13 @@ def main (args : List String) : IO UInt32 := do
     else ""
     IO.println s!"  {cat}: {stats.pass}/{total} pass, {stats.fail} fail, {stats.skip} skip{budgetInfo}"
 
-  IO.println s!"\n=== Eval Failures ({failures.size} total, showing first 30) ==="
-  for i in [:min failures.size 30] do
+  IO.println s!"\n=== Eval Failures ({failures.size} total) ==="
+  for i in [:failures.size] do
     let r : TestResult := failures[i]!
     IO.println s!"  FAIL [{r.category}] {r.name}: {r.detail}"
 
-  IO.println s!"\n=== Budget Mismatches ({budgetFailures.size} total, showing first 30) ==="
-  for i in [:min budgetFailures.size 30] do
+  IO.println s!"\n=== Budget Mismatches ({budgetFailures.size} total) ==="
+  for i in [:budgetFailures.size] do
     let r : TestResult := budgetFailures[i]!
     IO.println s!"  BUDGET [{r.category}] {r.name}: {r.budgetDetail}"
 
