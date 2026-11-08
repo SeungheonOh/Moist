@@ -179,6 +179,22 @@ where
       if remaining'.isExhausted then ⟨.budget, initial - remaining', traces⟩
       else go remaining' initial (Moist.CEK.step s) (traces ++ (stepMessages s).toArray)
 
+/-- BLS points cannot be flat-encoded; a readback value that contains one is
+    rendered through `uncompress` of its compressed payload, which the real
+    machine evaluates back to the same point. -/
+partial def renderable : Term → Term
+  | .Constant (.Bls12_381_G1_element bytes, _) =>
+    .Apply (.Builtin .Bls12_381_G1_uncompress) (.Constant (.ByteString bytes, .AtomicType .TypeByteString))
+  | .Constant (.Bls12_381_G2_element bytes, _) =>
+    .Apply (.Builtin .Bls12_381_G2_uncompress) (.Constant (.ByteString bytes, .AtomicType .TypeByteString))
+  | .Lam n body => .Lam n (renderable body)
+  | .Apply f x => .Apply (renderable f) (renderable x)
+  | .Force e => .Force (renderable e)
+  | .Delay e => .Delay (renderable e)
+  | .Constr tag fields => .Constr tag (fields.map renderable)
+  | .Case s alts => .Case (renderable s) (alts.map renderable)
+  | t => t
+
 def utf8Hex (message : String) : String :=
   (Moist.Plutus.ByteString.toHex message.toUTF8)
 
@@ -252,7 +268,7 @@ def emitProgram (sink : Sink) (label : String) (expression : Expr)
           | .halted _ => "OK" | .failed => "FAIL" | .budget => "BUDGET"
         sink.model.putStrLn s!"{jobId}\t{outcome}\t{run.consumed.cpu}\t{run.consumed.mem}\t{traces}"
         if let .halted value := run.outcome then
-          sink.modelValues.putStrLn s!"{jobId}\t{flatHex value}\t"
+          sink.modelValues.putStrLn s!"{jobId}\t{flatHex (renderable value)}\t"
     jobRows := jobRows.push (.arr row)
   let manifest := Lean.Json.mkObj ([
     ("label", .str label),
