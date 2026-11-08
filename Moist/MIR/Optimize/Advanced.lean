@@ -5,6 +5,7 @@ import Moist.MIR.Optimize.Advanced.Allocations
 import Moist.MIR.Optimize.Advanced.Sharing
 import Moist.MIR.Optimize.Advanced.Placement
 import Moist.MIR.Optimize.Advanced.Products
+import Moist.MIR.Optimize.Advanced.PairLists
 import Moist.MIR.Optimize.Advanced.Records
 import Moist.MIR.Optimize.Advanced.Recursion
 import Moist.MIR.Optimize.Advanced.CheckedBranches
@@ -47,8 +48,8 @@ def prepare (expression : Expr) : Expr :=
   eliminateDeadFix (shareDelayedValues expression)
 
 def structural (expression : Expr) : Expr :=
-  checksFirst (failFast (tagGuards (fuseKnownListCases (unpackRecords (optimizeCheckedBranches
-    (destructureProducts (fuseListChoices expression)))))))
+  destructurePairEntries (checksFirst (failFast (tagGuards (fuseKnownListCases (unpackRecords
+    (optimizeCheckedBranches (destructureProducts (fuseListChoices expression))))))))
 
 def simplify (expression : Expr) : Expr :=
   caseTagChains (shapeDCE (insertKeyGuards (specializeDataChecks

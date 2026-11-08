@@ -126,6 +126,45 @@ private def maps : List Moist.Plutus.Data :=
     .Map [(.B (filled 65538 5), .I 1), (.B (filled 64 4), .I 10), (.B (filled 63 4), .I 11)],
     .I 3]
 
+private def outer := sourceVar 1890
+private def inner := sourceVar 1891
+private def entry := sourceVar 1892
+private def count := sourceVar 1893
+private def found := sourceVar 1894
+
+/-- Sums the integer values of a map, carrying a counter through the loop. -/
+private def total : Expr :=
+  .Lam list
+    (.App (.App (.Fix loop (.Lam rest (.Lam count
+      (.Case (.Var rest)
+        [.Lam pair (.Lam probe
+          (.App (.App (.Var loop) (.Var probe))
+            (.App (.App (.Builtin .AddInteger) (.Var count))
+              (.App (.Builtin .UnIData) (sndApp (.Var pair)))))),
+         .Var count]))))
+      (.App (.Builtin .UnMapData) (.Var list))) (intLit 0))
+
+/-- Looks `policy` up in a map, then looks `datum` up in the map found. -/
+private def nested : Expr :=
+  let search (key : Expr) (source : Expr) (k : Expr → Expr) : Expr :=
+    .App (.Fix loop (.Lam rest
+      (.Case (.Var rest)
+        [.Lam entry (.Lam probe
+          (.Case (comparison key (fstApp (.Var entry)))
+            [.App (.Var loop) (.Var probe), k (sndApp (.Var entry))])),
+         dataLit (.I (-1))])))
+      (.App (.Builtin .UnMapData) source)
+  .Lam policy (.Lam datum (.Lam list
+    (.Let [(key, .App (.Builtin .UnBData) (.Var policy), false)]
+      (search (.Var policy) (.Var list) fun value =>
+        .Let [(found, value, false)] (search (.Var datum) (.Var found) fun hit => hit)))))
+
+/-- The heads of a list of data that is not known to hold pairs. -/
+private def firsts : Expr :=
+  .Lam list
+    (.Case (.App (.Builtin .UnListData) (.Var list))
+      [.Lam pair (.Lam probe (fstApp (.Var pair))), dataLit (.I (-1))])
+
 def tests : TestTree := suite "key-guards" do
   test "comparisons_against_keys" do
     for (script, index) in [
@@ -140,6 +179,26 @@ def tests : TestTree := suite "key-guards" do
   test "lookups_over_maps" do
     check "lookup compares bytes" (compiledHas .EqualsByteString lookup)
     compare "lookup" lookup (keys.flatMap fun k => maps.map fun m => [dataLit (.B k), dataLit m])
+  test "pair_entries" do
+    check "lookup destructures entries" (!compiledHas .FstPair lookup && !compiledHas .SndPair lookup)
+    check "total destructures entries" (!compiledHas .SndPair total)
+    compare "total" total
+      ((maps ++ [Moist.Plutus.Data.Map [(.I 1, .I 2), (.B (filled 65537 1), .I 40), (.List [], .I (-3))], Moist.Plutus.Data.Map [(.I 1, .B (bytes []))],
+        Moist.Plutus.Data.List [.I 1], Moist.Plutus.Data.Constr 0 []]).map fun m => [dataLit m])
+    check "nested destructures entries" (!compiledHas .FstPair nested)
+    let innerMaps : List Moist.Plutus.Data :=
+      [.Map [(.B (bytes [7]), .I 70), (.B (filled 65537 5), .I 71)], .Map [], .I 0,
+        .Map [(.Map [], .I 1), (.B (filled 64 4), .I 72)]]
+    let outerMaps : List Moist.Plutus.Data :=
+      [.Map [], .Map [(.B (bytes [1, 2]), .I 1)]] ++ innerMaps.map fun m =>
+        .Map [(.I 0, .I 0), (.B (bytes [1, 2]), m), (.B (filled 65538 5), m)]
+    let probes : List Moist.Plutus.Data := [.B (bytes [7]), .B (filled 65537 5), .B (filled 64 4), .I 7]
+    compare "nested" nested
+      ([bytes [1, 2], filled 65538 5, filled 65537 5].flatMap fun k => outerMaps.flatMap fun m =>
+        probes.map fun d => [dataLit (.B k), dataLit d, dataLit m])
+    check "lists of data keep their heads" (compiledHas .FstPair firsts)
+    compare "firsts" firsts
+      (([.List [], .List [.I 1], .Map [(.I 1, .I 2)], .I 3] : List Moist.Plutus.Data).map fun m => [dataLit m])
   test "unguarded_comparisons_are_kept" do
     let literal := Expr.Lam datum (.Case (comparison (.Var datum) (dataLit (.B (bytes [])))) [intLit 0, intLit 1])
     check "literal kept" (!compiledHas .DropList literal)
