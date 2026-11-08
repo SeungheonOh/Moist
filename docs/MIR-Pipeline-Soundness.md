@@ -51,7 +51,7 @@ graph TD
   S --> O["optimize<br>prepare, floatOut, betaReduce, ANF"]
   O --> L["simplifyLoop<br>simplify (incl. caseTagChains), CSE, DCE,<br>inline, beta, eta, forceDelay, caseMerge"]
   L --> P["preLower<br>preLowerInline, ANF"]
-  P --> T["structural<br>fuseListChoices, destructureProducts,<br>optimizeCheckedBranches, unpackRecords,<br>fuseKnownListCases"]
+  P --> T["structural<br>fuseListChoices, destructureProducts,<br>optimizeCheckedBranches, unpackRecords,<br>fuseKnownListCases, tagGuards,<br>failFast, checksFirst"]
   T --> W["lowerExpr ≈ lowerTotalExpr<br>(LoweringSoundness)"]
   W --> F["finish on liftUPLC<br>packing, low sharing,<br>builtin sharing, pooling"]
 ```
@@ -92,6 +92,9 @@ check under `Test/MIR/Opt/Axioms/` or in `Test/MIR/Opt/FormalAxioms.lean`.
 | Checked list branches | `lowerDelayedListChoices_refines`, `fuseCheckedListBranches_refines`, `optimizeCheckedBranches_refines` | `CheckedBranchesSoundness.lean` |
 | Record unpacking | `unpackRecords_refines` | `RecordsSoundness.lean`, `RecordsSoundness/` |
 | Known-list case fusion (including recursive list parameters) | `fuseKnownListCases_refines` | `KnownListsSoundness.lean`, `KnownListsSoundness/` |
+| Constructor-tag prechecks before field decoding | `tagGuards_refines` | `TagGuardSoundness.lean`, `TagGuardSoundness/` |
+| Bindings moved into the accepting alternative of a terminating check | `failFast_refines` | `FailFastSoundness.lean` |
+| Checks before work: `if _ then u else error` consumers pushed into the checked computation, strict bindings and list/pair destructurings moved below the checks that follow them | `checksFirst_refines` (`pushAsserts_refines`, `sinkUnits_refines`, `swap_rel`, `terminatesWith_sound`) | `GuardsSoundness.lean`, `GuardsSoundness/` |
 | `Advanced.structural` | `structural_refines` | `CompilerSoundness.lean` |
 | Application packing | `packApplications_refines` | `ApplicationPackingSoundness.lean` |
 | Builtin sharing, constant pooling | `hoistBuiltinStates_refines`, `poolConstants_refines` | `SharingSoundness.lean` |
@@ -117,6 +120,17 @@ pair, none otherwise), so a partially applied alternative never escapes as a
 non-Boolean. Shape DCE uses it to turn lazy `ifThenElse` into `case`, to move
 an outer case with small alternatives into a Boolean case tree, and to drop
 `case b [False, True]`.
+
+`checksFirst` exchanges two strict steps (a binding, a case with one
+continuing alternative whose other alternatives fail, or a forced
+`ifThenElse` with an `error` branch) when neither expression mentions the
+other step's binders, neither traces, and the second expression halts or fails
+under the facts in scope. Then a failure of either step is a failure of both
+orders (`unit_swap` in `GuardsSoundness/UnitSwap.lean`). The termination
+analysis `terminatesWith` (`terminatesWith_sound`, via `chk_sound`) accepts
+builtin calls on terminating arguments, known-shape cases, calls of
+`let`-bound functions, and recursive functions whose list or constructor
+argument shrinks on every recursive call (measure `vsize`).
 
 ## Totality
 

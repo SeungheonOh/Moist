@@ -23,6 +23,7 @@ import Test.MIR.Opt.Production
 import Test.MIR.Opt.Structural
 import Test.MIR.Opt.LowSharing
 import Test.MIR.Opt.FailFast
+import Test.MIR.Opt.ChecksFirst
 import Test.MIR.Lower.Golden
 import Test.MIR.Lower.FixCalls
 import Test.MIR.Eval.Golden
@@ -77,6 +78,7 @@ def testTree : TestTree := suite "mir" do
       Test.MIR.Opt.Structural.tests
       Test.MIR.Opt.LowSharing.tests
       Test.MIR.Opt.FailFast.tests
+      Test.MIR.Opt.ChecksFirst.tests
       Test.MIR.Opt.Recursion.tests
       Test.MIR.Opt.BooleanCases.tests
       Test.MIR.Opt.CheckedBranches.tests

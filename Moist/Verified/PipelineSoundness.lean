@@ -299,12 +299,13 @@ theorem structural_refines_of
     (hRecords : ∀ e, MIRCtxRefines e (Advanced.unpackRecords e))
     (hKnown : ∀ e, MIRCtxRefines e (Advanced.fuseKnownListCases e))
     (hTagGuards : ∀ e, MIRCtxRefines e (Advanced.tagGuards e))
-    (hFailFast : ∀ e, MIRCtxRefines e (Advanced.failFast e)) (e : Expr) :
+    (hFailFast : ∀ e, MIRCtxRefines e (Advanced.failFast e))
+    (hChecks : ∀ e, MIRCtxRefines e (Advanced.checksFirst e)) (e : Expr) :
     MIRCtxRefines e (Advanced.structural e) :=
   mirCtxRefines_trans (hChoices e)
     (mirCtxRefines_trans (hProducts _) (mirCtxRefines_trans (hBranches _)
       (mirCtxRefines_trans (hRecords _) (mirCtxRefines_trans (hKnown _)
-        (mirCtxRefines_trans (hTagGuards _) (hFailFast _))))))
+        (mirCtxRefines_trans (hTagGuards _) (mirCtxRefines_trans (hFailFast _) (hChecks _)))))))
 
 theorem finish_refines_of
     (hLow : ∀ o e, MIRCtxRefines e (Advanced.shareLow o e))
