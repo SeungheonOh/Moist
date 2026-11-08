@@ -138,8 +138,31 @@ def variantThunks (expression : Expr) : List (String × (Unit → Except String 
   (productionOptions.map fun (name, options) =>
     (s!"prod/{name}", fun (_ : Unit) => compileOptimized expression 1000 5000 options))
 
+/-- The variants of `variantThunks`, sharing the pipeline: the stages are
+    computed once, and the option profiles other than the default and size
+    ones finish the same lowered term the way `compileOptimized` does
+    (`prod/default` and `prod/size` call `compileOptimized` itself). -/
 def variants (expression : Expr) : List (String × Except String Term) :=
-  (variantThunks expression).map fun (name, thunk) => (name, thunk ())
+  let stages := pipelineStages expression
+  let prepared := (stages.getLastD ("", expression)).2
+  let lowered := lowerExpr prepared 6000
+  let finishWith (options : Advanced.Options) : Except String Term := do
+    validateCompilationInput [] expression
+    let term ← lowered
+    if options.packApplications || options.shareLow || options.shareBuiltinStates ||
+        options.poolConstants then
+      lowerExpr (Advanced.finish (liftUPLC term) options) 6000
+    else pure term
+  let base := match lowerTotalExpr [] expression with
+    | some term => Except.ok term
+    | none => .error "lowerTotalExpr failed"
+  [("base", base), ("lower", lowerExpr expression)] ++
+  (alonePasses.map fun (name, transform) => (s!"alone/{name}", lowerExpr (transform expression))) ++
+  (stages.map fun (name, stage) => (s!"pipe/{name}", lowerExpr stage)) ++
+  [("prod/default", compileOptimized expression),
+   ("prod/size", compileOptimized expression 1000 5000
+     { shareBuiltinStates := true, poolConstants := true })] ++
+  (productionOptions.map fun (name, options) => (s!"prod/{name}", finishWith options))
 
 /-! ## The Lean model, with traces -/
 
