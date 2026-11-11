@@ -9,25 +9,28 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    env:
-      # PlutusCore lives in the private input-output-hk/sc-fvt repo; fetch it
-      # over SSH with the deploy key loaded below instead of anonymous HTTPS.
-      LAKE_PKG_URL_MAP: '{"PlutusCore": "git@github.com:input-output-hk/sc-fvt.git"}'
-
     steps:
       - uses: actions/checkout@v5
         with:
           submodules: recursive
-
-      - uses: webfactory/ssh-agent@v0.10.0
-        with:
-          ssh-private-key: ${{ secrets.SC_FVT_DEPLOY_KEY }}
 
       # ffi/ builds the plutuz CEK machine with Zig (see ffi/build.zig.zon)
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.15.2
 
-      - uses: leanprover/lean-action@v1
+      - name: Install elan
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/cache@v4
         with:
-          test: false
+          path: .lake
+          key: lake-${{ runner.os }}-${{ hashFiles('lean-toolchain', 'lake-manifest.json', 'lakefile.lean') }}-${{ github.sha }}
+          restore-keys: |
+            lake-${{ runner.os }}-${{ hashFiles('lean-toolchain', 'lake-manifest.json', 'lakefile.lean') }}-
+
+      # -Kci skips the private PlutusCore dependency (see lakefile.lean)
+      - name: Build
+        run: lake -Kci=true build

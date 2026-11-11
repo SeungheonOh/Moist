@@ -41,6 +41,9 @@ extern_lib liblean_shim (pkg : NPackage _) := do
   }
   return pure (pkg.staticLibDir / name)
 
+-- PlutusCore (private sc-fvt repo) is only used by Test/Onchain/{CompileFvt,Demo}.
+-- `lake -Kci build` skips it so public CI can build the `Moist` library.
+meta if get_config? ci |>.isNone then
 require PlutusCore from git "https://github.com/input-output-hk/sc-fvt" @ "staging" / "PlutusCore"
 require «Blaster» from git
   "https://github.com/input-output-hk/Lean-blaster" @ "staging"
