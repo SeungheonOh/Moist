@@ -17,26 +17,28 @@ open Moist.Plutus (ByteString)
   match context.scriptInfo with
   | .spendingScript reference (.justData raw) =>
     let terms : Terms := PlutusData.unsafeFromData raw
-    let info := context.txInfo
+    let ⟨inputs, _, _, _, _, _, _, range, signers, _, _, _, _, _, _, _⟩ := context.txInfo
     let action := unConstrData context.redeemer
-    let authorized :=
-      if equalsInteger action.1 0 then
-        match action.2 with
-        | [preimage] =>
-          equalsByteString (sha2_256 (unBData preimage)) terms.secretHash &&
-          signedByAddress terms.recipient info.signatories &&
-          lessThanInteger (latest info.validRange.upperBound) terms.timeout
-        | _ => false
-      else equalsData context.redeemer (constrData 1 []) &&
-        signedByAddress terms.payer info.signatories &&
-        lessThanInteger terms.timeout (earliest info.validRange.lowerBound)
-    if authorized &&
-      equalsInteger (countInputs (ownOutput reference info.inputs).address.credential info.inputs) 1
+    let authorized := match action.2 with
+      | [] => equalsInteger action.1 1 &&
+        signedByAddress terms.payer signers &&
+        lessThanInteger terms.timeout (earliest range.lowerBound)
+      | [preimage] => equalsInteger action.1 0 &&
+        equalsByteString (sha2_256 (unBData preimage)) terms.secretHash &&
+        signedByAddress terms.recipient signers &&
+        lessThanInteger (latest range.upperBound) terms.timeout
+      | _ => false
+    let single := match inputs with
+      | [input] => Moist.Onchain.dataBeq input.outRef reference
+      | _ => (uniqueOwnOutput reference inputs).isSome
+    if authorized && single
     then () else pError
   | _ => pError
 
 set_option maxRecDepth 10000 in
 set_option maxHeartbeats 8000000 in
+set_option moist.optimize.shareBuiltinStates true in
+set_option moist.optimize.poolConstants true in
 def script := compile! validate
 
 end Test.Cape.HTLC

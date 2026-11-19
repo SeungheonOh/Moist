@@ -12,34 +12,40 @@ open Moist.Plutus (Data)
 @[onchain] def seller : PubKeyHash := ⟨Array.replicate 28 0xbb⟩
 
 @[onchain] def token : TokenName := ⟨#[0x65, 0x73, 0x63, 0x72, 0x6f, 0x77]⟩
-@[onchain] def ada : CurrencySymbol := ⟨#[]⟩
+@[onchain] def lovelace (output : TxOut) : Int :=
+  quantity output.value ⟨#[]⟩ ⟨#[]⟩
 
 @[onchain] def exactMint (info : TxInfo) (policy : CurrencySymbol) (amount : Int) : Bool :=
-  match Moist.Onchain.AssocMap.lookup policy info.mint with
-  | none => false
-  | some tokens => dataBeq tokens (Moist.Onchain.AssocMap.singleton token amount)
+  lookupBytes policy false (fun tokens => equalsData tokens (mapData [mkPairData (bData token) (iData amount)]))
+    (unMapData (PlutusData.toData info.mint))
 
-@[onchain] def outputsAt (credential : Credential) : List TxOut → List TxOut
-  | [] => []
+@[onchain] def noOtherOutput (credential : Credential) : List TxOut → Bool
+  | [] => true
   | output :: rest =>
-    let others := outputsAt credential rest
-    if dataBeq output.address.credential credential then output :: others else others
+    if dataBeq output.address.credential credential then false else noOtherOutput credential rest
+
+@[onchain] def uniqueOutput (credential : Credential) : List TxOut → Option TxOut
+  | [] => none
+  | output :: rest =>
+    if dataBeq output.address.credential credential then
+      if noOtherOutput credential rest then some output else none
+    else uniqueOutput credential rest
 
 @[onchain] def paidTo (key : PubKeyHash) : List TxOut → Int
   | [] => 0
   | output :: rest =>
     let total := paidTo key rest
     if dataBeq output.address.credential (.pubKeyCredential key)
-    then addInteger total (quantity output.value ada ada) else total
+    then addInteger total (lovelace output) else total
 
 @[onchain] noncomputable def deposit (info : TxInfo) (policy : CurrencySymbol) : Bool :=
-  match outputsAt (.scriptCredential policy) info.outputs with
-  | [output] =>
+  match uniqueOutput (.scriptCredential policy) info.outputs with
+  | some output =>
     let depositTime := subtractInteger (finiteTime info.validRange.upperBound.bound) 1
     match output.datum with
     | .outputDatum datum =>
       signedBy buyer info.signatories && exactMint info policy 1 &&
-        equalsInteger (quantity output.value ada ada) 75000000 &&
+        equalsInteger (lovelace output) 75000000 &&
         equalsInteger (quantity output.value policy token) 1 &&
         equalsData datum (constrData 0 [iData depositTime])
     | _ => false
@@ -57,15 +63,16 @@ open Moist.Plutus (Data)
 
 @[onchain] noncomputable def spend (info : TxInfo) (reference : TxOutRef)
     (datum : MaybeData Data) (action : Int) : Bool :=
-  let credential := (ownOutput reference info.inputs).address.credential
+  let own := match uniqueOwnOutput reference info.inputs with
+    | some output => output
+    | none => pError
+  let credential := own.address.credential
   match credential with
   | .scriptCredential policy =>
-    equalsInteger (countInputs credential info.inputs) 1 &&
-      equalsInteger (quantity info.mint policy token) (-1) &&
-      (if equalsInteger action 1 then
-         signedBy seller info.signatories && lessThanEqInteger 75000000 (paidTo seller info.outputs)
-       else equalsInteger action 2 && signedBy buyer info.signatories && pastDeadline info datum &&
-         lessThanEqInteger 75000000 (paidTo buyer info.outputs))
+    let recipient := if equalsInteger action 1 then seller
+      else if equalsInteger action 2 && pastDeadline info datum then buyer else pError
+    equalsInteger (quantity info.mint policy token) (-1) &&
+      signedBy recipient info.signatories && lessThanEqInteger 75000000 (paidTo recipient info.outputs)
   | _ => false
 
 @[onchain] noncomputable def validate (context : ScriptContext) : Unit :=
@@ -81,6 +88,8 @@ open Moist.Plutus (Data)
 
 set_option maxRecDepth 10000 in
 set_option maxHeartbeats 8000000 in
+set_option moist.optimize.shareBuiltinStates true in
+set_option moist.optimize.poolConstants true in
 def script := compile! validate
 
 end Test.Cape.TwoPartyEscrow
