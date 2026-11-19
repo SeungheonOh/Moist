@@ -1,60 +1,64 @@
 import Moist.Onchain
 import Moist.Onchain.Prelude
+import Moist.Ptah.Prelude
 
 namespace Test.Cape
 
 open Moist.Onchain.Prelude
 
-@[onchain] def factorialNaive (number : Int) : Int :=
-  if lessThanEqInteger number 0 then 1
-  else multiplyInteger number (factorialNaive (subtractInteger number 1))
+@[onchain] def factorial (number : Int) : Int :=
+  if lessThanInteger number 4 then
+    if lessThanEqInteger number 1 then 1 else multiplyInteger number (subtractInteger number 1)
+  else
+    let outer := multiplyInteger number (subtractInteger number 3)
+    multiplyInteger (multiplyInteger outer (addInteger outer 2))
+      (factorial (subtractInteger number 4))
 termination_by number.toNat
-decreasing_by simp_all [lessThanEqInteger, subtractInteger]; omega
+decreasing_by simp_all [lessThanInteger, subtractInteger]; omega
 
-@[onchain] def fibonacciNaive (number : Int) : Int :=
-  if lessThanEqInteger number 1 then number
-  else addInteger (fibonacciNaive (subtractInteger number 1))
-                  (fibonacciNaive (subtractInteger number 2))
-termination_by number.toNat
-decreasing_by all_goals simp_all [lessThanEqInteger, subtractInteger] <;> omega
+open Moist.Ptah
 
-@[onchain] def factorialLoop (number : Int) : Int → Int := fun product =>
-  if lessThanEqInteger number 1 then product
-  else factorialLoop (subtractInteger number 1) (multiplyInteger product number)
-termination_by number.toNat
-decreasing_by simp_all [lessThanEqInteger, subtractInteger]; omega
+def factorialNaive : Term (PInteger → PInteger) :=
+  plet (paddInteger # pconstant (-1 : Int)) fun predecessor =>
+  plet (plessThanInteger # 0) fun positive =>
+    pfix fun recur number =>
+      pif (positive # number) (number * (recur # (predecessor # number))) 1
 
-@[onchain] def factorial (number : Int) := factorialLoop number 1
+def fibonacciNaive : Term (PInteger → PInteger) :=
+  plet (paddInteger # pconstant (-1 : Int)) fun minusOne =>
+  plet (paddInteger # pconstant (-2 : Int)) fun minusTwo =>
+  plet (plessThanInteger # 1) fun aboveOne =>
+    pfix fun recur number =>
+      pif (aboveOne # number) ((recur # (minusOne # number)) + (recur # (minusTwo # number))) number
 
-@[onchain] def fibonacciLoop (remaining : Int) : Int → Int → Int := fun previous current =>
-  if lessThanEqInteger remaining 0 then previous
-  else fibonacciLoop (subtractInteger remaining 1) current (addInteger previous current)
-termination_by remaining.toNat
-decreasing_by simp_all [lessThanEqInteger, subtractInteger]; omega
+private def fibPair : Nat → Int × Int
+  | 0 => (0, 1)
+  | index + 1 => let (previous, current) := fibPair index; (current, previous + current)
 
-@[onchain] def fibonacci (number : Int) :=
-  if lessThanEqInteger number 1 then number else fibonacciLoop number 0 1
+private def windowSize := 26
 
-private theorem mod_decreases (dividend divisor : Int) (nonzero : divisor ≠ 0) :
-    (dividend % divisor).natAbs < divisor.natAbs := by
-  have := Int.emod_lt dividend nonzero
-  have := Int.emod_nonneg dividend nonzero
-  omega
+private def fibWindow (index : Term PInteger) : Term PInteger := ⟨do
+  let entries ← (List.range windowSize).mapM fun offset => (pconstant (a := PInteger) (fibPair offset).1).build
+  return .Case (← index.build) entries⟩
 
-@[onchain] def ecd (dividend divisor : Int) : Int :=
-  if equalsInteger divisor 0 then
-    if lessThanInteger dividend 0 then subtractInteger 0 dividend else dividend
-  else ecd divisor (modInteger dividend divisor)
-termination_by divisor.natAbs
-decreasing_by
-  simp_all [equalsInteger, modInteger]
-  apply mod_decreases
-  assumption
+def fibonacci : Term (PInteger → PInteger) :=
+  plam fun (number : Term PInteger) =>
+    pif (plessThanInteger # number # 2) number <|
+      pif (plessThanEqualsInteger # number # pconstant (Int.ofNat (windowSize - 1))) (fibWindow number) <|
+        let loop := pfix fun (recur : Term (PInteger → PInteger → PInteger → PInteger))
+            (remaining : Term PInteger) => plam fun (previous current : Term PInteger) =>
+          pif (pequalsInteger # remaining # 0) previous
+            (recur # (remaining - 1) # current # (previous + current))
+        let (previous, current) := fibPair windowSize
+        loop # (number - pconstant (a := PInteger) (Int.ofNat windowSize)) # pconstant previous # pconstant current
+
+def ecd : Term (PInteger → PInteger → PInteger) :=
+  pfix fun (recur : Term (PInteger → PInteger → PInteger)) (dividend : Term PInteger) =>
+    plam fun (divisor : Term PInteger) =>
+      pif (pequalsInteger # 0 # divisor)
+        (pif (plessThanInteger # dividend # 0) (-dividend) dividend)
+        (recur # divisor # (dividend % divisor))
 
 def factorialScript := compile! factorial
-def factorialNaiveScript := compile! factorialNaive
-def fibonacciScript := compile! fibonacci
-def fibonacciNaiveScript := compile! fibonacciNaive
-def ecdScript := compile! ecd
 
 end Test.Cape
