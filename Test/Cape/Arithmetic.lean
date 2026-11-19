@@ -41,17 +41,15 @@ private theorem mod_decreases (dividend divisor : Int) (nonzero : divisor ≠ 0)
   have := Int.emod_nonneg dividend nonzero
   omega
 
-@[onchain] def euclid (divisor : Int) : Int → Int := fun dividend =>
+@[onchain] def ecd (dividend divisor : Int) : Int :=
   if equalsInteger divisor 0 then
     if lessThanInteger dividend 0 then subtractInteger 0 dividend else dividend
-  else euclid (modInteger dividend divisor) divisor
+  else ecd divisor (modInteger dividend divisor)
 termination_by divisor.natAbs
 decreasing_by
   simp_all [equalsInteger, modInteger]
   apply mod_decreases
   assumption
-
-@[onchain] def ecd (dividend divisor : Int) := euclid divisor dividend
 
 def factorialScript := compile! factorial
 def factorialNaiveScript := compile! factorialNaive
