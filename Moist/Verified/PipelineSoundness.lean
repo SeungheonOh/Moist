@@ -6,6 +6,7 @@ import Moist.Verified.HygieneSoundness
 import Moist.Verified.DeadFixSoundness
 import Moist.Verified.ConstantFoldingSoundness
 import Moist.Verified.DataFoldingSoundness
+import Moist.Verified.IntegerComparisonsSoundness
 import Moist.Verified.AllocationFinishSoundness
 import Moist.MIR.Compile
 
@@ -296,7 +297,8 @@ theorem simplify_refines_of
     (mirCtxRefines_trans (Moist.Verified.MIR.constantFold_refines _)
       (mirCtxRefines_trans (Moist.Verified.MIR.foldDataConstructors_refines _)
         (mirCtxRefines_trans (hChecks _) (mirCtxRefines_trans (hKeys _)
-          (mirCtxRefines_trans (hShape _) (hTags _))))))
+          (mirCtxRefines_trans (hShape _) (mirCtxRefines_trans (hTags _)
+            (Moist.Verified.MIR.normalizeIntegerComparisons_refines _)))))))
 
 theorem structural_refines_of
     (hChoices : ∀ e, MIRCtxRefines e (Advanced.fuseListChoices e))
