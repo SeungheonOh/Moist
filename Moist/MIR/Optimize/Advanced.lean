@@ -42,6 +42,8 @@ structure Options where
   poolConstants : Bool := false
   minimumBuiltinUses : Nat := 2
   minimumConstantBytes : Nat := 32
+  /-- Maximum number of initial recursive entries to specialize. Zero disables peeling. -/
+  recursionPeelDepth : Nat := 0
   deriving Repr
 
 def prepare (expression : Expr) : Expr :=

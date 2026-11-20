@@ -8,6 +8,7 @@ import Moist.MIR.Pretty
 import Moist.MIR.ANF
 import Moist.MIR.Lower
 import Moist.MIR.Optimize
+import Moist.MIR.Tune
 import Moist.Verified.Semantics
 import Moist.Verified.DCESoundness
 import Moist.Verified.EtaReduceSoundness

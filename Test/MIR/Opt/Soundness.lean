@@ -49,13 +49,16 @@ private def tracedSteps : Nat → Moist.CEK.State → List String → Except Str
     | .error => .ok ("failure", messages)
     | _ => tracedSteps fuel (Moist.CEK.step state) (messages ++ stepMessages state)
 
+def tracedTermObservation (term : Term) : IO (String × List String) := do
+  match tracedSteps 10000 (.compute [] .nil term) [] with
+  | .ok result => pure result
+  | .error message => throw (IO.userError message)
+
 def tracedObservation (expression : Expr) : IO (String × List String) := do
   let term ← match lowerExpr expression with
     | .ok term => pure term
     | .error message => throw (IO.userError s!"Lowering failed: {message}")
-  match tracedSteps 10000 (.compute [] .nil term) [] with
-  | .ok result => pure result
-  | .error message => throw (IO.userError message)
+  tracedTermObservation term
 
 def transformations : List (String × (Expr → Expr)) :=
   [("FloatOut", fun expression => (floatOut expression).1),

@@ -28,6 +28,10 @@ register_option moist.optimize.poolConstants : Bool := {
   defValue := false
   descr := "Pool repeated large constants for script size, potentially increasing execution cost" }
 
+register_option moist.optimize.recursionPeelDepth : Nat := {
+  defValue := 0
+  descr := "Maximum number of initial recursive entries to specialize (zero disables peeling)" }
+
 namespace Moist.Onchain
 
 open Lean Elab Meta
@@ -42,7 +46,8 @@ private def optimizationOptions : CoreM Moist.MIR.Advanced.Options := do
     packApplications := moist.optimize.packApplications.get options
     shareLow := moist.optimize.shareLow.get options
     shareBuiltinStates := moist.optimize.shareBuiltinStates.get options
-    poolConstants := moist.optimize.poolConstants.get options }
+    poolConstants := moist.optimize.poolConstants.get options
+    recursionPeelDepth := moist.optimize.recursionPeelDepth.get options }
 
 /-! # compile! Term Elaborator
 
