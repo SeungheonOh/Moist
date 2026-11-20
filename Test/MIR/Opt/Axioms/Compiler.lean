@@ -4,6 +4,7 @@ import Lean.Elab.Command
 
 run_cmd do
   let checked := [
+    ``Moist.Verified.MIR.normalizeIntegerComparisons_refines,
     ``Moist.Verified.Pipeline.structural_refines,
     ``Moist.Verified.Pipeline.stageCertificates,
     ``Moist.Verified.Pipeline.preLower_refines',

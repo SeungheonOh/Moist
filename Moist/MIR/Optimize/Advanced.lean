@@ -1,4 +1,5 @@
 import Moist.MIR.Optimize.Advanced.Constants
+import Moist.MIR.Optimize.Advanced.IntegerComparisons
 import Moist.MIR.Optimize.Advanced.Shapes
 import Moist.MIR.Optimize.Advanced.DataShapes
 import Moist.MIR.Optimize.Advanced.Allocations
@@ -52,8 +53,8 @@ def structural (expression : Expr) : Expr :=
     (optimizeCheckedBranches (destructureProducts (fuseListChoices expression))))))))
 
 def simplify (expression : Expr) : Expr :=
-  caseTagChains (shapeDCE (insertKeyGuards (specializeDataChecks
-    (foldDataConstructors (constantFold (fuseListDestructors expression))))))
+  normalizeIntegerComparisons (caseTagChains (shapeDCE (insertKeyGuards (specializeDataChecks
+    (foldDataConstructors (constantFold (fuseListDestructors expression)))))))
 
 def preLower (expression : Expr) : Expr :=
   go 4 expression
