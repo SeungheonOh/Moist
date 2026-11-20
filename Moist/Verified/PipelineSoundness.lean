@@ -7,6 +7,7 @@ import Moist.Verified.DeadFixSoundness
 import Moist.Verified.ConstantFoldingSoundness
 import Moist.Verified.DataFoldingSoundness
 import Moist.Verified.AllocationFinishSoundness
+import Moist.Verified.RecursionPeelingSoundness
 import Moist.MIR.Compile
 
 variable [sv : Moist.CEK.SemVariant]
@@ -146,6 +147,30 @@ theorem prepareForLowering_refines (C : StageCertificates) (e : Expr) (optFresh 
 
 /-! ## The production compiler -/
 
+private theorem finishCompilation_refines {term result : Term} {fresh : Nat}
+    {options : Advanced.Options} (h : finishCompilation term fresh options = .ok result) :
+    ∃ allocated, finishAllocation term fresh options = .ok allocated ∧ CtxRefines allocated result := by
+  cases allocation : finishAllocation term fresh options with
+  | error message => simp [finishCompilation, allocation, bind, Except.bind] at h
+  | ok allocated =>
+    cases depth : options.recursionPeelDepth with
+    | zero =>
+      simp [finishCompilation, allocation, depth, bind, Except.bind, pure, Except.pure] at h
+      exact ⟨allocated, rfl, h ▸ Moist.Verified.Contextual.ctxRefines_refl allocated⟩
+    | succ remaining =>
+      simp [finishCompilation, allocation, depth, bind, Except.bind, pure, Except.pure] at h
+      exact ⟨allocated, rfl, h ▸ Moist.Verified.MIR.peelRecursion_refines (remaining + 1) allocated⟩
+
+omit sv in
+private theorem finishCompilation_error {term : Term} {fresh : Nat} {options : Advanced.Options}
+    {msg : String} (h : finishCompilation term fresh options = .error msg) :
+    finishAllocation term fresh options = .error msg := by
+  cases allocation : finishAllocation term fresh options with
+  | error message => simpa [finishCompilation, allocation, bind, Except.bind] using h
+  | ok allocated =>
+    cases depth : options.recursionPeelDepth <;>
+      simp [finishCompilation, allocation, depth, bind, Except.bind, pure, Except.pure] at h
+
 theorem compileOptimized_refines_of_certificates (C : StageCertificates)
     {options : Advanced.Options}
     (hFinish : ∀ e, MIRCtxRefines e (Advanced.finish e options)) {e : Expr}
@@ -162,18 +187,20 @@ theorem compileOptimized_refines_of_certificates (C : StageCertificates)
     | error m => simp [hl] at h
     | ok term =>
       simp only [hl] at h
+      obtain ⟨allocated, hAllocated, hPeeled⟩ := finishCompilation_refines h
       have hP := (prepareForLowering_refines C e optFresh lowerFresh []).2
       obtain ⟨tP, htP, hPt, _⟩ := lowerExpr_sound hl
       rw [ht₀, htP] at hP
       have h₁ : CtxRefines t₀ term := ctxRefines_trans hP hPt
-      split at h
+      unfold finishAllocation at hAllocated
+      split at hAllocated
       · have hF := (hFinish (liftUPLC term) []).2
-        obtain ⟨tF, htF, hFt, _⟩ := lowerExpr_sound h
+        obtain ⟨tF, htF, hFt, _⟩ := lowerExpr_sound hAllocated
         rw [liftUPLC_lowerExpr hl 1, htF] at hF
-        exact ⟨t₀, ht₀, ctxRefines_trans h₁ (ctxRefines_trans hF hFt)⟩
-      · simp only [pure, Except.pure, Except.ok.injEq] at h
-        subst h
-        exact ⟨t₀, ht₀, h₁⟩
+        exact ⟨t₀, ht₀, ctxRefines_trans h₁ (ctxRefines_trans hF (ctxRefines_trans hFt hPeeled))⟩
+      · simp only [pure, Except.pure, Except.ok.injEq] at hAllocated
+        subst allocated
+        exact ⟨t₀, ht₀, ctxRefines_trans h₁ hPeeled⟩
 
 /-- **(d)** End-to-end soundness of `compileOptimized`, parameterized by the
     certificates of the stages proved elsewhere. ANF normalization, binder
@@ -246,14 +273,16 @@ theorem compileOptimized_error_of_certificates (C : StageCertificates)
     obtain ⟨tP, htP⟩ := Option.isSome_iff_exists.mp (hP rfl)
     obtain ⟨term, hl, _⟩ := lowerExpr_complete htP (lowerFresh + 1000)
     simp only [hl] at h
-    split at h
+    have hAllocated := finishCompilation_error h
+    unfold finishAllocation at hAllocated
+    split at hAllocated
     · have hF := (hFinish (liftUPLC term) []).1
       rw [liftUPLC_lowerExpr hl 1] at hF
       obtain ⟨tF, htF⟩ := Option.isSome_iff_exists.mp (hF rfl)
       obtain ⟨t, ht, _⟩ := lowerExpr_complete htF (lowerFresh + 1000)
-      rw [ht] at h
-      cases h
-    · simp [pure, Except.pure] at h
+      rw [ht] at hAllocated
+      cases hAllocated
+    · simp [pure, Except.pure] at hAllocated
 
 theorem compileOptimized_error_of
     (hStatic : ∀ e, MIRCtxRefines e (Advanced.staticArguments e))

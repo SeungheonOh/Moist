@@ -1,6 +1,7 @@
 import Moist.MIR.Optimize
 import Moist.MIR.Lower
 import Moist.MIR.FromUPLC
+import Moist.MIR.Optimize.RecursionPeeling
 
 namespace Moist.MIR
 
@@ -58,14 +59,27 @@ def prepareForLowering (expression : Expr) (optFresh : Nat := 1000)
   Advanced.structural (Advanced.preLower (preLowerInlineExpr
     (optimizeExpr (Advanced.staticArguments expression) optFresh) lowerFresh))
 
+/-- Run the allocation stage on an already-lowered term. -/
+def finishAllocation (term : Moist.Plutus.Term.Term) (fresh : Nat)
+    (options : Advanced.Options) : Except String Moist.Plutus.Term.Term :=
+  if options.packApplications || options.shareLow || options.shareBuiltinStates ||
+      options.poolConstants then
+    lowerExpr (Advanced.finish (liftUPLC term) options) fresh
+  else pure term
+
+/-- Run the remaining optimization stages on an already-lowered term. -/
+def finishCompilation (term : Moist.Plutus.Term.Term) (fresh : Nat)
+    (options : Advanced.Options) : Except String Moist.Plutus.Term.Term := do
+  let allocated ← finishAllocation term fresh options
+  match options.recursionPeelDepth with
+  | 0 => pure allocated
+  | depth + 1 => pure (peelRecursion (depth + 1) allocated)
+
 def compileOptimized (expression : Expr) (optFresh : Nat := 1000)
     (lowerFresh : Nat := 5000) (options : Advanced.Options := {})
     : Except String Moist.Plutus.Term.Term := do
   validateCompilationInput [] expression
   let term ← lowerExpr (prepareForLowering expression optFresh lowerFresh) (lowerFresh + 1000)
-  if options.packApplications || options.shareLow || options.shareBuiltinStates ||
-      options.poolConstants then
-    lowerExpr (Advanced.finish (liftUPLC term) options) (lowerFresh + 1000)
-  else pure term
+  finishCompilation term (lowerFresh + 1000) options
 
 end Moist.MIR

@@ -32,6 +32,7 @@ import Test.MIR.Eval.Policy
 import Test.MIR.Analysis.Unit
 import Test.Comparison.Tests
 import Test.MIR.Opt.Recursion
+import Test.MIR.Opt.RecursionPeeling
 import Test.MIR.Opt.BooleanCases
 import Test.MIR.Opt.CheckedBranches
 import Test.MIR.Opt.TagChains
@@ -82,6 +83,7 @@ def testTree : TestTree := suite "mir" do
       Test.MIR.Opt.FailFast.tests
       Test.MIR.Opt.ChecksFirst.tests
       Test.MIR.Opt.Recursion.tests
+      Test.MIR.Opt.RecursionPeeling.tests
       Test.MIR.Opt.BooleanCases.tests
       Test.MIR.Opt.CheckedBranches.tests
       Test.MIR.Opt.TagChains.tests

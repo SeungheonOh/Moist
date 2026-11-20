@@ -19,12 +19,32 @@ The schedule is defined in `Moist/MIR/Compile.lean`,
 5. Lower recursive functions, then perform final application packing and
    optional sharing on the lifted UPLC. Do not run inverse case/inlining
    transformations after final allocation.
+6. If enabled, peel initial recursive entries in the lowered UPLC. The
+   original worker handles calls beyond the peeled prefix.
 
 Defaults enable application packing at three arguments. Builtin-state sharing
 and constant pooling are opt-in through `Advanced.Options` or the
 `moist.optimize.shareBuiltinStates` and `moist.optimize.poolConstants` Lean
 options. CPU, memory, and encoded size must be measured independently;
 neither the defaults nor the iteration bound imply global optimality.
+
+Set `Advanced.Options.recursionPeelDepth` or
+`moist.optimize.recursionPeelDepth` to enable peeling. The default depth is
+zero. Peeling targets Moist's lowered fixed-point encoding when the worker
+has one self-application under a case alternative. It can exchange script
+size for fewer machine steps.
+
+`Moist.MIR.compileTuned` accepts an optional search such as
+`peeling := some { maxDepth := 8, maxScriptBytes := 5000 }`. It tries depths
+zero through eight for each supplied allocation profile and excludes scripts
+over the inclusive raw Flat size limit before scoring. Return `none` from the
+scorer to skip a candidate. Equal scores favor shallower depths and then the
+original profile order. Use `compileTunedM` when scoring requires an external
+evaluator.
+
+`peelRecursion_refines` composes with the production compiler proof.
+`compileTuned_refines` certifies the selected output, and
+`compileTuned_respectsPeelSearch` proves the selected depth and size bounds.
 
 ## Analysis boundaries
 
